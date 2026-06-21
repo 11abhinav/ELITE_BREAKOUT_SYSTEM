@@ -53,7 +53,7 @@ def _ensure_v1_weights_exist():
 
 def run_bayesian_updater():
     logger.info("🧠 Running Bayesian Updater (TRAIN partition analysis)")
-    upsert_scanner_health("BayesianUpdater", "RUNNING")
+    upsert_scanner_health("BayesianUpdater", "OK")
     
     _ensure_v1_weights_exist()
 

@@ -24,7 +24,7 @@ import json
 import logging
 from typing import Optional, Tuple, Union
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
 
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
@@ -114,7 +114,7 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime]) ->
         # If the alert was recorded after market close (e.g. delayed run or EOD),
         # resetting the filter to market open ensures we evaluate that day's candles
         # instead of dropping them all and never triggering the SL.
-        if alert_dt_ist.time() >= dt_time(15, 30):
+        if alert_dt_ist.time() >= time(15, 30):
             alert_dt_ist = alert_dt_ist.replace(hour=9, minute=15, second=0, microsecond=0)
 
         # Guard: if alert is from today and market hasn't opened yet (before 09:15 IST),
@@ -512,7 +512,11 @@ def build_performance_data():
     # ── 6. Monthly breakdown ────────────────────────────────────────────────────────
     mmap: dict[str, dict] = {}
     for t in judged:
-        m = t["entry_date"][:7]
+        ed = t.get("entry_date")
+        if isinstance(ed, (datetime, date)):
+            m = ed.isoformat()[:7]
+        else:
+            m = str(ed)[:7]
         if m not in mmap:
             mmap[m] = {"alerts": 0, "wins": 0, "pnls": []}
         mmap[m]["alerts"] += 1

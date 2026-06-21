@@ -161,7 +161,7 @@ def worker_loop():
                 continue
                 
             logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
-            upsert_scanner_health("Pledge Worker", "RUNNING", today_alerts=processed_base, error_msg=f"Last: Starting... | Total: {total_watch}")
+            upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, error_msg=f"Last: Starting... | Total: {total_watch}")
             
             def process_symbol(sym, i_total, is_retry=False):
                 """Returns True if successful or definitive failure (like 404), False if should retry."""
@@ -245,7 +245,7 @@ def worker_loop():
                 # Update health with processed count
                 now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                 current_processed = processed_base + successful_in_first_pass
-                upsert_scanner_health("Pledge Worker", "RUNNING", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} | Total: {total_watch}")
+                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} | Total: {total_watch}")
 
             final_error_count = 0
             
@@ -276,7 +276,7 @@ def worker_loop():
                     
                     now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                     current_processed = processed_base + successful_in_first_pass
-                    upsert_scanner_health("Pledge Worker", "RUNNING", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} (Retry) | Total: {total_watch}")
+                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} (Retry) | Total: {total_watch}")
 
             # Loop done
             status = "IDLE" if final_error_count == 0 else "DOWN"
