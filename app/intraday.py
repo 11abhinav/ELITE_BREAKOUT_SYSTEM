@@ -84,7 +84,7 @@ def start(run_once=False):
         
         market_open  = dt_time(9, 32) <= current_time <= dt_time(15, 35)
         
-        if weekday >= 5 or not market_open:
+        if not run_once and (weekday >= 5 or not market_open):
             logger.info("📅 Outside market hours | Sleeping 5 minutes")
             time.sleep(300)
             continue

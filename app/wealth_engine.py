@@ -733,14 +733,27 @@ def run_wealth_scan():
         if nifty_dist_52w is None:
             logger.warning("Using NO Nifty benchmark — macro gates suppressed")
 
-        # Load manual portfolio to apply tax hold bonuses
-        from database import get_manual_portfolio
+        # Load manual portfolio and active buy alerts to securely inject entry_price for drawdown protection
+        portfolio_dict = {}
         try:
-            portfolio = get_manual_portfolio()
-            portfolio_dict = {p['symbol']: p for p in portfolio}
+            from database import get_connection
+            from psycopg2.extras import RealDictCursor
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # Active wealth alerts
+                    cur.execute("SELECT symbol, entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    for r in cur.fetchall():
+                        portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
+                    
+                    # Manual portfolio (overrides system)
+                    cur.execute("SELECT symbol, entry_price, added_at::date::text as entry_date FROM manual_portfolio")
+                    for r in cur.fetchall():
+                        portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
         except Exception as e:
-            logger.warning(f"Failed to load manual portfolio: {e}")
-            portfolio_dict = {}
+            logger.warning(f"Failed to load active portfolio prices: {e}")
+
+        # Inject entry_price into the dataframe BEFORE evaluation
+        wealth_df["entry_price"] = wealth_df["Stock"].map(lambda s: portfolio_dict.get(s, {}).get("entry_price", 0.0))
 
         def apply_hold_score_with_tax(r):
             base_hold_score = calculate_hold_score(r)
@@ -769,6 +782,7 @@ def run_wealth_scan():
             sma = r.get("sma_200", 0) or 0
             rs = r.get("rs_6m", 0) or 0
             sym = r.get("Stock")
+            used_fallback = r.get("used_fallback_data", False)
             
             # Check for Tax-Loss Harvesting signal
             if sym in portfolio_dict:
@@ -786,8 +800,20 @@ def run_wealth_scan():
                 except Exception:
                     pass
             
-            # Strict Buy rules
+            # Exit Logic (The Hold Score Engine)
+            if hold_score < 45:
+                return f"SELL REVIEW (Hold Score: {hold_score}/100)"
+                
+            # Catastrophic Trend Breakdown
+            if rs < -40:
+                return "SELL (Catastrophic RS Breakdown)"
+            if sma > 0 and cmp > 0 and cmp < (0.75 * sma):
+                return "SELL (Catastrophic Trend Collapse)"
+
+            # Strict Buy rules - SUPPRESS IF USING STALE DATA
             if score >= 85 and cmp > sma and sma > 0:
+                if used_fallback:
+                    return "SUPPRESS (Stale Data — Prevented Fake Buy)"
                 if nifty_dist_52w is not None and nifty_dist_52w > 15:
                     return "SUPPRESS (Macro Bear)"
                 else:
@@ -795,17 +821,9 @@ def run_wealth_scan():
                     
             bucket = r.get("Portfolio_Bucket", "") or ""
             if "Quality-On-Sale" in bucket and nifty_dist_52w is not None and nifty_dist_52w > 15:
+                if used_fallback:
+                    return "SUPPRESS (Stale Data — Prevented Fake Buy)"
                 return f"BUY (Deep Value / Bear Market)"
-                
-            # Exit Logic (The Hold Score Engine)
-            if hold_score < 45:
-                return f"SELL REVIEW (Hold Score: {hold_score}/100)"
-                
-            # Catastrophic Trend Breakdown (Only if it's really bad, else hold)
-            if rs < -40:
-                return f"SELL (Catastrophic RS Collapse)"
-            if sma > 0 and cmp > 0 and cmp < (0.75 * sma):
-                return f"SELL (Catastrophic Trend Breakdown)"
                 
             return ""
 
@@ -813,21 +831,35 @@ def run_wealth_scan():
         
         # Calculate position sizing for all BUY signals
         def calculate_position_sizing(r):
-            signal = r.get("Signal", "")
-            if "BUY" in signal:
-                fm_score = r.get("FM_Score", 60)
-                bucket = r.get("Portfolio_Bucket", "Growth")
-                sizing = position_size_calculator(fm_score, bucket)
-                r["position_pct"] = sizing["position_pct"]
-                r["position_amount"] = sizing["position_amount"]
-                cmp = r.get("cmp", 0)
-                r["position_shares"] = int(sizing["position_amount"] / cmp) if cmp and cmp > 0 else 0
-            else:
+            sig = r.get("Signal", "")
+            if "BUY" not in sig:
                 r["position_pct"] = None
                 r["position_amount"] = None
                 r["position_shares"] = None
+                r["alloc_category"] = "NONE"
+                return r
+                
+            cmp = r.get("cmp", 0)
+            atr_pct = r.get("ATR_Pct", 0)
+            used_fallback = r.get("used_fallback_data", False)
+            momentum_score = r.get("momentum_score", 0)
+            
+            if used_fallback or cmp == 0:
+                r["position_pct"] = 0.0
+                r["position_amount"] = 0.0
+                r["position_shares"] = 0
+                r["alloc_category"] = "SUPPRESSED"
+                return r
+                
+            from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
+            sizing = calculate_risk_adjusted_sizing(cmp, atr_pct, momentum_score)
+            
+            r["position_pct"] = sizing["Position_Pct"]
+            r["position_amount"] = sizing["Position_Amount"]
+            r["position_shares"] = int(sizing["Position_Amount"] / cmp) if cmp > 0 else 0
+            r["alloc_category"] = sizing["Alloc_Category"]
             return r
-        
+
         wealth_df = wealth_df.apply(calculate_position_sizing, axis=1)
 
         # Apply sector caps to Core bucket for the dashboard
@@ -860,7 +892,11 @@ def run_wealth_scan():
                             position_amount=position_amount,
                             position_shares=position_shares,
                             portfolio_bucket=portfolio_bucket,
-                            valuation_score=valuation_score
+                            valuation_score=valuation_score,
+                            momentum_score=row.get("momentum_score"),
+                            momentum_confidence=row.get("momentum_confidence"),
+                            data_quality=row.get("data_quality"),
+                            fallback_timestamp=row.get("fallback_timestamp")
                         )
             
             # Fetch REAL-TIME prices for all open positions (for accurate P&L calculation)

@@ -2593,7 +2593,9 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                          fm_score: float = None, notes: str = None,
                          position_pct: float = None, position_amount: float = None,
                          position_shares: int = None,
-                         portfolio_bucket: str = None, valuation_score: float = None) -> bool:
+                         portfolio_bucket: str = None, valuation_score: float = None,
+                         momentum_score: int = None, momentum_confidence: str = None,
+                         data_quality: str = None, fallback_timestamp: str = None) -> bool:
     """Save BUY alert to wealth_buy_alert with position sizing. Deduplicates by (symbol, alert_date, breakout_type)."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -2611,12 +2613,14 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         cur.execute("""
                             INSERT INTO wealth_buy_alert 
                             (symbol, alert_price, breakout_type, fm_score, status, notes, alert_date, alert_time,
-                             position_pct, position_amount, position_shares, portfolio_bucket, valuation_score)
-                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s)
+                             position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
+                             momentum_score, momentum_confidence, data_quality, fallback_timestamp)
+                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
                             DO UPDATE SET fm_score = EXCLUDED.fm_score, updated_at = NOW()
                         """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, ist_time,
-                              position_pct, position_amount, position_shares, portfolio_bucket, valuation_score))
+                              position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
+                              momentum_score, momentum_confidence, data_quality, fallback_timestamp))
                         
                         
                         if cur.rowcount == 0:

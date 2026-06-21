@@ -451,7 +451,7 @@ def run_system_scheduler():
         """Run Daily Builder with success tracking."""
         try:
             logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
-            from daily_builder import build_watchlist
+            from daily_builder import main as build_watchlist
             build_watchlist()
             
             # Update memory cache
