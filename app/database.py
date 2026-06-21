@@ -1946,7 +1946,7 @@ def upload_parquet_to_db(name: str, file_path: str):
     """Upload a binary parquet file to the database for today."""
     if not os.path.exists(file_path):
         return
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(IST).strftime("%Y-%m-%d")
     init_db()
     try:
         with open(file_path, "rb") as f:
@@ -1988,7 +1988,7 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
     if df.empty:
         return
     init_db()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     
     with get_connection() as conn:
         with conn.cursor() as cur:

@@ -3,6 +3,8 @@ import json
 import logging
 from rapidfuzz import fuzz
 from datetime import datetime
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -99,7 +101,7 @@ def get_cached_fii_deals() -> dict:
         try:
             with open(CACHE_FILE, "r") as f:
                 data = json.load(f)
-                if data.get("date") == str(datetime.now().date()):
+                if data.get("date") == str(datetime.now(IST).date()):
                     return data.get("deals", {})
         except Exception:
             pass
@@ -121,7 +123,7 @@ def run_fii_detector() -> dict:
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     with open(CACHE_FILE, "w") as f:
         json.dump({
-            "date": str(datetime.now().date()),
+            "date": str(datetime.now(IST).date()),
             "deals": results
         }, f, indent=2)
         

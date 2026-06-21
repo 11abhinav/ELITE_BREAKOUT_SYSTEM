@@ -10,6 +10,8 @@ import pandas as pd
 import logging
 import requests
 from datetime import datetime
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 
 from tradingview_screener import Query, col
 from config import WATCHLIST_PATH
@@ -145,7 +147,7 @@ def log_exclusion(symbol: str, reason: str) -> None:
         EXCLUSION_LOG.append({
             "Stock":     symbol,
             "Reason":    reason,
-            "Scan Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Scan Time": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
         })
 
 # =====================================================================================
@@ -581,7 +583,7 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "QOQ Profit %":         round(qoq_profit, 2),
         "YOY Profit %":         round(yoy_profit, 2),
         "Fundamental Score":    score,
-        "Scan Time":            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Scan Time":            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 # =====================================================================================

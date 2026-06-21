@@ -6,6 +6,8 @@
 from database import get_connection
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 import logging
 import requests
 import os
@@ -15,7 +17,7 @@ from config import DB_PATH, WATCHLIST_PATH, DATA_DIR
 logger = logging.getLogger(__name__)
 
 def generate_and_send_daily_summary():
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
     csv_filename = os.path.join(DATA_DIR, f"Daily_Alerts_{today_str}.csv")
     
     # ── 1. FETCH TODAY'S ALERTS & SAVE TO CSV ────────────────────────────────────────

@@ -15,6 +15,8 @@ except Exception:
         pass
 import yfinance as yf
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 from enum import Enum
 
 from database import get_connection
@@ -112,8 +114,12 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
             rs_val = gain / loss
             hist['RSI'] = 100 - (100 / (1 + rs_val))
 
-            # Calculate 14-day ATR (Approximate using High-Low)
-            hist['TR'] = hist['High'] - hist['Low']
+            # Calculate 14-day ATR (True Range)
+            hist['Prev_Close'] = hist['Close'].shift(1)
+            tr1 = hist['High'] - hist['Low']
+            tr2 = (hist['High'] - hist['Prev_Close']).abs()
+            tr3 = (hist['Low'] - hist['Prev_Close']).abs()
+            hist['TR'] = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
             hist['ATR'] = hist['TR'].rolling(window=14).mean()
             
             last_row = hist.iloc[-1]
@@ -228,51 +234,6 @@ def calculate_valuation_score(r, sector_stats: dict = None) -> int:
             # else: 0 pts (trading at or above sector median)
     
     return min(10, score)
-
-
-def position_size_calculator(fm_score: int, portfolio_bucket: str, portfolio_total: float = 10_000_000) -> dict:
-    """
-    Conviction-Proportional Sizing formula.
-    
-    Args:
-        fm_score: 0-100 score
-        portfolio_bucket: "Core", "Growth", "Opportunistic", "Quality-On-Sale"
-        portfolio_total: Total portfolio value (default ₹1 Cr)
-    
-    Returns:
-        {
-            "position_pct": 2.5,  # % of portfolio
-            "position_amount": 250000,  # Rupees
-            "conviction_adjusted": True,
-            "rationale": "Score 82 Core = 2.5% allocation"
-        }
-    """
-    base_pct = {
-        "Core": 0.03,                    # 3% base
-        "Growth": 0.04,                  # 4% base
-        "Quality-On-Sale": 0.035,        # 3.5% base
-        "Opportunistic": 0.015,          # 1.5% base (risky)
-    }
-    
-    base = base_pct.get(portfolio_bucket, 0.025)
-    
-    # Conviction multiplier: Adjust by how strong the score is
-    # At FM_Score=60 (minimum): 0.5x multiplier (conservative)
-    # At FM_Score=100 (perfect): 1.0x multiplier (full allocation)
-    conviction_multiplier = max(0.5, (fm_score - 60) / 40)
-    
-    raw_pct = base * conviction_multiplier
-    
-    # Hard cap at 5% per position (risk management)
-    position_pct = min(raw_pct, 0.05)
-    position_amount = position_pct * portfolio_total
-    
-    return {
-        "position_pct": round(position_pct * 100, 2),
-        "position_amount": round(position_amount, 0),
-        "conviction_multiplier": round(conviction_multiplier, 2),
-        "rationale": f"Score {fm_score} {portfolio_bucket} = {round(position_pct * 100, 2)}% (Conviction: {round(conviction_multiplier, 2)}x)"
-    }
 
 
 def calculate_100_point_score(r) -> int:
@@ -649,7 +610,7 @@ def run_wealth_scan():
                     # Explicit flag so signal logic can downgrade new buys
                     tech["used_fallback_data"] = True
                     tech["data_quality"] = DataQuality.CACHED_PREV_DAY.value
-                    tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now().isoformat())
+                    tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now(IST).isoformat())
                     
                     rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                     try:
@@ -778,6 +739,19 @@ def run_wealth_scan():
         # Apply Hold Score evaluation
         wealth_df["Hold_Score"] = wealth_df.apply(apply_hold_score_with_tax, axis=1)
 
+        # Apply Hold Trend Analysis for open positions
+        def get_hold_trend(r):
+            sym = r.get("Stock")
+            if sym in portfolio_dict:
+                from wealth_hold_tracking import HoldScoreTrendAnalyzer
+                trend = HoldScoreTrendAnalyzer.analyze_trend(sym)
+                # If the trend analyzer flags a warning or sell, we can surface it
+                if trend["action"] != "HOLD":
+                    return trend["reason"]
+            return "Stable"
+
+        wealth_df["hold_trend"] = wealth_df.apply(get_hold_trend, axis=1)
+
         # Buy/Sell Signals
         def get_signal(r):
             score = r.get("FM_Score", 0)
@@ -787,8 +761,18 @@ def run_wealth_scan():
             rs = r.get("rs_6m", 0) or 0
             sym = r.get("Stock")
             used_fallback = r.get("used_fallback_data", False)
-            
-            # Check for Tax-Loss Harvesting signal
+            # 1. Exit Logic & Catastrophic Breakdown (Highest Precedence)
+            hold_trend = r.get("hold_trend", "Stable")
+            if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
+                return f"SELL REVIEW ({hold_trend})"
+            if hold_score < 45:
+                return f"SELL REVIEW (Hold Score: {hold_score}/100)"
+            if rs < -40:
+                return "SELL (Catastrophic RS Breakdown)"
+            if sma > 0 and cmp > 0 and cmp < (0.75 * sma):
+                return "SELL (Catastrophic Trend Collapse)"
+                
+            # 2. Check for Tax-Loss Harvesting signal (HOLD overrides BUY/neutral)
             if sym in portfolio_dict:
                 p = portfolio_dict[sym]
                 try:
@@ -798,21 +782,9 @@ def run_wealth_scan():
                     pnl_pct = ((cmp_price - p['entry_price']) / p['entry_price']) * 100 if p['entry_price'] > 0 else 0
                     tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
                     if tax_info.get("harvest_signal"):
-                        # Only flag if not already a hard sell
-                        if hold_score >= 45 and rs >= -40 and not (sma > 0 and cmp > 0 and cmp < (0.75 * sma)):
-                            return f"HOLD (Tax-Loss Harvest Opportunity: {pnl_pct:.1f}%)"
+                        return f"HOLD (Tax-Loss Harvest Opportunity: {pnl_pct:.1f}%)"
                 except Exception:
                     pass
-            
-            # Exit Logic (The Hold Score Engine)
-            if hold_score < 45:
-                return f"SELL REVIEW (Hold Score: {hold_score}/100)"
-                
-            # Catastrophic Trend Breakdown
-            if rs < -40:
-                return "SELL (Catastrophic RS Breakdown)"
-            if sma > 0 and cmp > 0 and cmp < (0.75 * sma):
-                return "SELL (Catastrophic Trend Collapse)"
 
             # Strict Buy rules - SUPPRESS IF USING STALE DATA
             if score >= 85 and cmp > sma and sma > 0:
@@ -989,7 +961,7 @@ def run_wealth_scan():
         core_count = len(core_capped)
         logger.info(f"✅ [WEALTH ENGINE] Updated | Core: {core_count} | Buys: {buy_count} | Total: {len(wealth_df)}")
         
-        upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now().isoformat(), today_alerts=buy_count)
+        upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count)
 
         # Weekly Telegram Alert removed (2026-06-17)
 

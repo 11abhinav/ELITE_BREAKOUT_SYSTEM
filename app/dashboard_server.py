@@ -694,7 +694,7 @@ def api_download_shortlist():
             csv_path,
             mimetype='text/csv',
             as_attachment=True,
-            download_name=f"Elite_Watchlist_{datetime.now().strftime('%Y%m%d')}.csv"
+            download_name=f"Elite_Watchlist_{datetime.now(IST).strftime('%Y%m%d')}.csv"
         )
     except Exception as e:
         logger.error(f"Failed to generate shortlist CSV: {e}")

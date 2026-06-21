@@ -106,7 +106,7 @@ def run_worker_loop():
             if not actual_pending:
                 sleep_secs = wait_until_next_window()
                 logger.info(f"🤖 [AI WORKER] All {total_stocks} stocks are already processed today. Sleeping {sleep_secs:.1f}s until tomorrow 7 PM IST...")
-                upsert_scanner_health("AI Worker", "IDLE", last_success=datetime.now().isoformat(), today_alerts=db_processed_count, error_msg=f"All processed | Total: {total_stocks}")
+                upsert_scanner_health("AI Worker", "IDLE", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=f"All processed | Total: {total_stocks}")
                 time.sleep(sleep_secs)
                 continue
 
@@ -130,7 +130,7 @@ def run_worker_loop():
                             key_used = result.get("key_used", "Key 1")
                             logger.info(f"✅ [AI WORKER] Successfully cached analysis for {sym} | Confidence: {conf} | {key_used}")
                             db_processed_count = get_total_cached_concalls()
-                            upsert_scanner_health("AI Worker", "OK", last_success=datetime.now().isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
+                            upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
                         else:
                             error_msg = result.get('error', 'Unknown Error')
                             logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
@@ -141,7 +141,7 @@ def run_worker_loop():
                             except Exception:
                                 logger.exception("Failed to upsert fetch_error for AI Worker")
 
-                            upsert_scanner_health("AI Worker", "OK", last_success=datetime.now().isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
+                            upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
 
                             # For rate limit / temporary API failures, retry
                             if "429" in error_msg or "All AI models" in error_msg:
@@ -198,7 +198,7 @@ def run_worker_loop():
         status = "IDLE" if final_failed_count == 0 else "DOWN"
         error_msg = f"Last: Finished | Total: {total_stocks} | Failed: {final_failed_count}" if final_failed_count > 0 else f"Last: Finished | Total: {total_stocks}"
         
-        upsert_scanner_health("AI Worker", status, last_success=datetime.now().isoformat(), today_alerts=db_processed_count, error_msg=error_msg)
+        upsert_scanner_health("AI Worker", status, last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=error_msg)
         
         # Sleep for 5 minutes before rechecking (allows watchlist updates)
         time.sleep(300)

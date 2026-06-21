@@ -49,6 +49,12 @@ class HoldScoreTrendAnalyzer:
                 if all(s < 50 for s in recent_5):
                     return {"action": "SELL REVIEW", "reason": "Sustained Weakness (5+ periods < 50)"}
                     
+            # 3. Momentum Reversals (rs_6m dropping from high to negative)
+            oldest_rs = oldest.get('rs_6m', 0)
+            latest_rs = latest.get('rs_6m', 0)
+            if oldest_rs > 20 and latest_rs < 0 and latest_score < 60:
+                return {"action": "SELL REVIEW", "reason": f"Momentum Reversal (RS: {oldest_rs:.1f} -> {latest_rs:.1f})"}
+                    
             return {"action": "HOLD", "reason": "Stable"}
             
         except Exception as e:
