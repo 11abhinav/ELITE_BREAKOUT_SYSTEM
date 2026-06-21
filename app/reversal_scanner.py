@@ -171,11 +171,25 @@ def _score_reversal(
             score += cat_pts
             break
 
-    # ── Drop sweet spot (5 pts) — within the fixed 20–45% band ──
-    # [FIX 7 + FIX 10] Band tightened, so this is now a smaller refinement bonus.
-    if 25.0 <= drop_pct <= 40.0:    score += 5    # ideal sweet spot
-    elif 20.0 <= drop_pct < 25.0:   score += 3    # slightly shallow
-    elif 40.0 < drop_pct <= 45.0:   score += 2    # deeper but acceptable
+    # ── Drop sweet spot / penalty (5 pts) — refined per user guidance
+    # Mapping:
+    #   25-40%  => +5
+    #   20-25%  => +3
+    #   40-45%  => +3
+    #   45-60%  => -5 (penalty but still acceptable)
+    #   >60%    => rejected earlier
+    try:
+        if 25.0 <= drop_pct <= 40.0:
+            score += 5
+        elif 20.0 <= drop_pct < 25.0:
+            score += 3
+        elif 40.0 < drop_pct <= 45.0:
+            score += 3
+        elif 45.0 < drop_pct <= 60.0:
+            score -= 5
+    except Exception:
+        # If drop_pct is malformed, ignore this bucket
+        pass
 
     # ── R:R quality (5 pts) ──
     if rr_ratio is not None:
@@ -320,8 +334,9 @@ def _run_scan():
                 continue
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
-            # [FIX 7] Single clean fixed drop band (20–45%).
-            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > MAX_DROP_FROM_52W_HIGH:
+            # [FIX 7] Single clean fixed drop band (20–45%). Allow deeper 45–60% with penalty; reject >60%.
+            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > 60.0:
+                # reject very deep drawdowns > 60%
                 continue
 
             # ── QUALITY FILTER 1: minimum price ─────────────────────────────────────
@@ -368,6 +383,26 @@ def _run_scan():
             # ── Must be holding above 20 EMA (immediate momentum) ───────────────────
             ema20 = float(latest["EMA20"])
             if close_price < ema20:
+                continue
+
+            # Require EMA20 to be trending or above EMA50. This removes weak bounces.
+            ema20_gt_ema50 = None
+            ema20_slope_pos = None
+            try:
+                if "EMA50" in ticker.columns and not pd.isna(latest.get("EMA50")):
+                    ema50 = float(latest["EMA50"])
+                    ema20_gt_ema50 = ema20 > ema50
+                # ema20 slope: compare to previous day's EMA20 when available
+                if "EMA20" in ticker.columns and len(ticker) >= 2:
+                    prev_ema20 = float(ticker["EMA20"].iloc[-2])
+                    ema20_slope_pos = (ema20 - prev_ema20) > 0
+            except Exception:
+                ema20_gt_ema50 = None
+                ema20_slope_pos = None
+
+            # If neither EMA20 > EMA50 nor EMA20 slope positive, skip
+            if not (ema20_gt_ema50 or ema20_slope_pos):
+                logger.debug(f"  ⊘ {symbol} EMA20 trend filter failed — skipping")
                 continue
 
             # ── [FIX 2] TREND STRUCTURE — STRICT close > SMA50 IS NOW MANDATORY ──────
@@ -520,6 +555,16 @@ def _run_scan():
             if reversal_score < MIN_REVERSAL_SCORE:
                 logger.debug(f"  ⊘ {symbol} reversal score {reversal_score} < {MIN_REVERSAL_SCORE} — skipping")
                 continue
+
+            # Compute trend_score for export/analysis (same logic as scorer's trend block)
+            trend_score = 0
+            if above_sma50 and above_sma200:
+                trend_score = 25
+            elif above_sma50:
+                trend_score = 18
+            elif above_sma200 and (delivery_pct is not None and delivery_pct >= 40.0):
+                trend_score = 12
+
             # ─────────────────────────────────────────────────────────────────────
 
             above_ema20  = bool(close_price >= float(latest["EMA20"])) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
@@ -578,6 +623,43 @@ def _run_scan():
             )
             if not saved:
                 continue
+
+            # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
+            try:
+                import os, csv
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                data_dir = os.path.join(base_dir, "data")
+                os.makedirs(data_dir, exist_ok=True)
+                export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
+                header = [
+                    "symbol", "date", "score", "drop_pct", "volume_ratio", "delivery_pct",
+                    "trend_score", "rsi", "macd", "result_5d", "result_10d", "result_20d",
+                    "max_runup", "max_drawdown"
+                ]
+                row = {
+                    "symbol": symbol,
+                    "date": today_str,
+                    "score": reversal_score,
+                    "drop_pct": round(drop_pct, 2),
+                    "volume_ratio": round(vol_ratio, 2),
+                    "delivery_pct": round(delivery_pct, 2) if delivery_pct is not None else None,
+                    "trend_score": trend_score,
+                    "rsi": round(current_rsi, 2),
+                    "macd": float(latest.get("MACD")) if latest.get("MACD") is not None else None,
+                    "result_5d": None,
+                    "result_10d": None,
+                    "result_20d": None,
+                    "max_runup": None,
+                    "max_drawdown": None
+                }
+                write_header = not os.path.exists(export_path)
+                with open(export_path, "a", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=header)
+                    if write_header:
+                        writer.writeheader()
+                    writer.writerow(row)
+            except Exception:
+                logger.exception(f"Failed to export reversal alert for {symbol}")
 
             alerts_by_category.setdefault(category, []).append({
                 "symbol":           symbol,
