@@ -44,6 +44,11 @@ IST = ZoneInfo("Asia/Kolkata")
 
 _DB_WRITE_LOCK = threading.RLock()
 
+# When True, scanners should not persist alerts to the database. Used for
+# startup self-tests and dry-runs where we want to exercise scanner logic
+# without polluting the alerts table or triggering downstream systems.
+DONT_SAVE_ALERTS = False
+
 # ── Connection pool ───────────────────────────────────────────────────────────────────
 _pool: Optional[pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
@@ -814,6 +819,11 @@ def save_alert_if_new(
         else:
             capital_allocated, shares_bought = 0.0, 0
             
+    # Dry-run mode: if enabled, do not persist alerts.
+    if DONT_SAVE_ALERTS:
+        logger.info(f"🧪 DONT_SAVE_ALERTS enabled — not saving alert for {symbol} ({breakout_type})")
+        return False, 0.0, 0
+
     with _DB_WRITE_LOCK:
         with get_connection() as conn:
             success = False

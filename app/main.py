@@ -710,7 +710,13 @@ def run_watchdog():
             _logged_ready = True
             
             # --- POST-DEPLOYMENT INSTANT VERIFICATION ---
-            # Removed to prevent unnecessary API hits on every restart
+            # Run a short self-test across core scanners on restart. This executes
+            # each scanner in dry-run mode (no alerts persisted) so startup health
+            # can be validated without affecting production data.
+            try:
+                run_startup_self_test()
+            except Exception:
+                logger.exception("Startup self-test failed")
             # --------------------------------------------
 
         for name, thread in list(active_threads.items()):
@@ -737,6 +743,99 @@ def run_watchdog():
 
 
 # =====================================================================================
+# STARTUP SELF-TEST (DRY-RUN)
+
+def _run_with_timeout(fn, timeout: int = 120):
+    """Run a blocking function in a thread and wait up to `timeout` seconds.
+    If the function doesn't finish, the thread is left running but we continue.
+    """
+    import threading as _th
+    thread = _th.Thread(target=fn)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        logger.warning(f"Startup self-test task timed out after {timeout}s: {fn.__name__}")
+
+
+def run_startup_self_test(timeout_per_task: int = 120):
+    """Run each core scanner once in dry-run mode (no DB writes).
+    Uses database.DONT_SAVE_ALERTS to prevent persistence.
+    """
+    try:
+        import database
+    except Exception:
+        logger.warning("database module not importable for self-test")
+        return
+
+    # Enable dry-run
+    orig_flag = getattr(database, "DONT_SAVE_ALERTS", False)
+    database.DONT_SAVE_ALERTS = True
+    logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS enabled — running scanners in dry-run")
+
+    tasks = []
+
+    # Intraday - run one cycle
+    def _t_intraday():
+        try:
+            import intraday
+            intraday.start(run_once=True)
+        except Exception:
+            logger.exception("Startup self-test: intraday failed")
+
+    tasks.append((_t_intraday, timeout_per_task))
+
+    # Live scanner - run one cycle
+    def _t_live():
+        try:
+            import live_scanner
+            live_scanner.start(run_once=True)
+        except Exception:
+            logger.exception("Startup self-test: live_scanner failed")
+
+    tasks.append((_t_live, timeout_per_task))
+
+    # EOD scanner - single-shot
+    def _t_eod():
+        try:
+            import eod_scanner
+            eod_scanner.start()
+        except Exception:
+            logger.exception("Startup self-test: eod_scanner failed")
+
+    tasks.append((_t_eod, timeout_per_task))
+
+    # Reversal scanner - single-shot (internal runner)
+    def _t_reversal():
+        try:
+            import reversal_scanner
+            reversal_scanner.start()
+        except Exception:
+            logger.exception("Startup self-test: reversal_scanner failed")
+
+    tasks.append((_t_reversal, timeout_per_task))
+
+    # Performance tracker - build once
+    def _t_perf():
+        try:
+            from performance_tracker import build_performance_data
+            build_performance_data()
+        except Exception:
+            logger.exception("Startup self-test: performance_tracker failed")
+
+    tasks.append((_t_perf, timeout_per_task))
+
+    # Execute tasks sequentially with timeouts to avoid heavy parallel API usage
+    for fn, to in tasks:
+        logger.info(f"🧪 Running self-test task: {fn.__name__}")
+        _run_with_timeout(fn, timeout=to)
+        time.sleep(2)
+
+    # Restore flag
+    database.DONT_SAVE_ALERTS = orig_flag
+    logger.info("🧪 STARTUP SELF-TEST | Completed — DONT_SAVE_ALERTS restored")
+
+
 # ENTRY POINT
 # =====================================================================================
 
