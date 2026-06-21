@@ -395,8 +395,12 @@ def bonus_modifiers(
     Returns an integer bonus (can be negative) to add to the base score.
 
     Bonuses:
+    Bonuses:
       +3  Sustained volume (3-bar avg ≥ 1.5× 20-bar baseline)
       +3  Full MA bull stack (EMA20 > SMA50 > SMA200)
+      +5  Golden Cross alignment (SMA50 > SMA200)
+      +3  Price > SMA200
+      +5  RSI rising
       +2  RSI accelerating (RSI now > RSI 3 bars ago + 2)
       +2  Top-of-range close (≥ 80% of bar range)
       +2  Volume climax (≥ 5× average)
@@ -425,22 +429,38 @@ def bonus_modifiers(
             logger.debug(f"  +3 {tag}Sustained volume (3-bar avg {avg_3/avg_20:.1f}x 20-bar baseline)")
             bonus += 3
 
-    # ── BONUS: FULL MA BULL STACK ─────────────────────────────────────────────────────
+    # ── BONUS: FULL MA BULL STACK & GOLDEN CROSS ──────────────────────────────────────
     if all(c in ticker.columns for c in ["EMA20", "SMA50", "SMA200"]):
         e20  = float(latest.get("EMA20", 0) or 0)
         s50  = float(latest.get("SMA50", 0) or 0)
         s200 = float(latest.get("SMA200", 0) or 0)
-        if e20 > 0 and s50 > 0 and s200 > 0 and e20 > s50 > s200:
-            logger.debug(f"  +3 {tag}Full bull stack (EMA20 > SMA50 > SMA200)")
-            bonus += 3
+        
+        if s200 > 0:
+            if float(latest["Close"]) > s200:
+                logger.debug(f"  +3 {tag}Price > SMA200")
+                bonus += 3
+            if s50 > s200:
+                logger.debug(f"  +5 {tag}Golden Cross (SMA50 > SMA200)")
+                bonus += 5
+            if e20 > 0 and e20 > s50 > s200:
+                logger.debug(f"  +3 {tag}Full bull stack (EMA20 > SMA50 > SMA200)")
+                bonus += 3
 
-    # ── BONUS: RSI ACCELERATING ───────────────────────────────────────────────────────
+    # ── BONUS: RSI ACCELERATING & RISING ──────────────────────────────────────────────
     if "RSI" in ticker.columns and len(ticker) >= 4:
         rsi_now  = float(latest["RSI"])
         rsi_3ago = float(ticker["RSI"].iloc[-4])
         if rsi_now > rsi_3ago + 2:
             logger.debug(f"  +2 {tag}RSI accelerating ({rsi_3ago:.1f} → {rsi_now:.1f})")
             bonus += 2
+        
+        # New RSI Rising bonus (replaces hard reject)
+        rsi_lookback = 5
+        if len(ticker) > rsi_lookback:
+            rsi_prev = float(ticker["RSI"].iloc[-1 - rsi_lookback])
+            if rsi_now > rsi_prev:
+                logger.debug(f"  +5 {tag}RSI rising ({rsi_prev:.1f} → {rsi_now:.1f})")
+                bonus += 5
 
     # ── BONUS: TOP-OF-RANGE CLOSE ─────────────────────────────────────────────────────
     candle_range = float(latest["High"]) - float(latest["Low"])
@@ -618,6 +638,19 @@ def bonus_modifiers(
                     f"< {BASE_TIGHTNESS_THRESHOLD} — consolidation breakout)"
                 )
                 bonus += 4
+
+    # ── BONUS: RELATIVE STRENGTH VS NIFTY (+5 pts) ───────────────────────────
+    # We use a simple 20-day return vs a flat 5% hurdle as proxy if NIFTY isn't available,
+    # or the actual NIFTY data if joined.
+    if len(ticker) > 20:
+        price_now = float(latest["Close"])
+        price_20d = float(ticker["Close"].iloc[-21])
+        if price_20d > 0:
+            ret_20d = (price_now - price_20d) / price_20d * 100
+            # Simple institutional hurdle: > 10% in 20 days is strong RS
+            if ret_20d > 10.0:
+                logger.debug(f"  +5 {tag}Strong Relative Strength (20d ret: {ret_20d:.1f}%)")
+                bonus += 5
 
     # ── PENALTY: NO PRE-BREAKOUT BASE / CHOPPY APPROACH (-4 pts) ──────────────────
     #
@@ -921,10 +954,11 @@ def calculate_score(
             macd_val = float(latest.get("MACD", 0) or 0)
             macd_sig = float(latest.get("MACD_SIGNAL", 0) or 0)
             if macd_val > macd_sig:
-                trend_pts += 2
-                logger.debug(f"  +2 {tag}MACD bullish ({macd_val:.4f} > {macd_sig:.4f})")
+                # Upgraded to 8 points per user request (+5 to +10 range)
+                trend_pts += 8
+                logger.debug(f"  +8 {tag}MACD bullish ({macd_val:.4f} > {macd_sig:.4f})")
 
-        trend_pts = min(trend_pts, 10)
+        # Trend points cap removed to allow accumulation of all bonuses
         score += trend_pts
         logger.debug(f"  Score after trend: {score} (+{trend_pts})")
 

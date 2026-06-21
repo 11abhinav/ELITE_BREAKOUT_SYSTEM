@@ -100,12 +100,14 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
 
     # ── VOLATILITY — ATR + ATR% + Bollinger Bands ─────────────────────────────
     df["ATR"]     = ta.volatility.average_true_range(high, low, close, window=14)
+    df["ATR20"]   = ta.volatility.average_true_range(high, low, close, window=20)
     df["ATR_PCT"] = (df["ATR"] / close * 100).round(2)
 
     bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
     df["BB_UPPER"] = bb.bollinger_hband()
     df["BB_LOWER"] = bb.bollinger_lband()
     df["BB_MID"]   = bb.bollinger_mavg()
+    df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / close
 
     # ── TREND DIRECTION — ADX ─────────────────────────────────────────────────
     adx_ind   = ta.trend.ADXIndicator(high, low, close, window=14)
@@ -168,6 +170,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
 
     if timeframe == "1d":
         df["HIGH_20D"]  = df["High"].rolling(window=20,  min_periods=15).max()
+        df["PRIOR_20D_HIGH"] = df["HIGH_20D"].shift(1)
         df["HIGH_50D"]  = df["High"].rolling(window=50,  min_periods=40).max()
         df["HIGH_100D"] = df["High"].rolling(window=100, min_periods=80).max()
         df["HIGH_252D"] = df["High"].rolling(window=252, min_periods=200).max()
@@ -178,6 +181,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         df["HIGH_130H"] = df["High"].rolling(window=130, min_periods=100).max()
         df["HIGH_260H"] = df["High"].rolling(window=260, min_periods=200).max()
         df["HIGH_20D"]  = df["HIGH_26H"]
+        df["PRIOR_20D_HIGH"] = df["HIGH_20D"].shift(1)
         df["HIGH_50D"]  = df["HIGH_130H"]
         df["HIGH_100D"] = df["HIGH_130H"]
         df["HIGH_252D"] = df["HIGH_260H"]
@@ -187,6 +191,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         df["HIGH_52_15M"]  = df["High"].rolling(window=52,  min_periods=40).max()
         df["HIGH_104_15M"] = df["High"].rolling(window=104, min_periods=80).max()
         df["HIGH_20D"]  = df["HIGH_26_15M"]
+        df["PRIOR_20D_HIGH"] = df["HIGH_20D"].shift(1)
         df["HIGH_50D"]  = df["HIGH_104_15M"]
         df["HIGH_100D"] = df["HIGH_104_15M"]
         df["HIGH_252D"] = df["High"].rolling(window=n, min_periods=n // 2).max()
@@ -243,6 +248,11 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         obv_direction = np.sign(df["Close"].diff())
         obv_direction.iloc[0] = 0
         
+        # Calculate standard OBV
+        raw_obv = (obv_direction * df["Volume"]).cumsum()
+        df["OBV_20MA"] = raw_obv.rolling(window=20, min_periods=20).mean()
+        df["OBV"] = raw_obv
+
         # 50-bar rolling OBV
         rolling_obv = (obv_direction * df["Volume"]).rolling(50, min_periods=50).sum()
         
@@ -255,6 +265,8 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         )
     else:
         df["OBV_TREND"] = 0
+        df["OBV_20MA"] = float("nan")
+        df["OBV"] = float("nan")
 
     # ── BASE_WIDTH — Pre-breakout consolidation tightness ─────────────────────
     #
