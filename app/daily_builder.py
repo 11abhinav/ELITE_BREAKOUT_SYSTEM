@@ -647,7 +647,7 @@ def main():
             from zoneinfo import ZoneInfo
             upsert_scanner_health(
                 "DAILY_BUILDER", "OK",
-                last_success=datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S"),
+                last_success=ist_now.isoformat(),
                 error_msg=None
             )
         except Exception:

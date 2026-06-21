@@ -568,7 +568,7 @@ def start():
             upsert_scanner_health(
                 scanner_name="EOD",
                 status="OK",
-                last_success=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                last_success=datetime.now(IST).isoformat(),
                 today_alerts=total_alerts
             )
         except Exception:

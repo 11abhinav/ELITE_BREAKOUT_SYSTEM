@@ -77,10 +77,9 @@ def start(run_once=False):
 
         market_open = dt_time(10, 17) <= current_time <= dt_time(15, 35)
 
-        if not run_once and (weekday >= 5 or not market_open):
-            logger.info("⏰ Outside 1H window | sleep 5m")
-            time.sleep(300)
-            continue
+        is_active_window = run_once or (weekday < 5 and market_open)
+        if not is_active_window:
+            logger.info("⏰ Outside 1H window - running in TEST mode (no db saves)")
 
         scan_start         = datetime.now(IST)
         total_alerts       = 0
@@ -335,24 +334,28 @@ def start(run_once=False):
                         }
                     }
 
-                    saved, cap_alloc, shares = save_alert_if_new(
-                        symbol,
-                        dedup_key,
-                        datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-                        scanner="1H",
-                        category=category,
-                        entry_price=round(candle_close, 2),
-                        signals=signal_str,
-                        score=score,
-                        rsi=round(float(latest["RSI"]), 1),
-                        volume_ratio=round(volume_ratio, 2),
-                        stop_loss=round(suggested_stop, 2),
-                        target_price=0.0,
-                        context=context,
-                        model_version=model_version,
-                        bayesian_regime="INDEPENDENT",
-                        bayesian_weights={},
-                    )
+                    if is_active_window:
+                        saved, cap_alloc, shares = save_alert_if_new(
+                            symbol,
+                            dedup_key,
+                            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                            scanner="1H",
+                            category=category,
+                            entry_price=round(candle_close, 2),
+                            signals=signal_str,
+                            score=score,
+                            rsi=round(float(latest["RSI"]), 1),
+                            volume_ratio=round(volume_ratio, 2),
+                            stop_loss=round(suggested_stop, 2),
+                            target_price=0.0,
+                            context=context,
+                            model_version=model_version,
+                            bayesian_regime="INDEPENDENT",
+                            bayesian_weights={},
+                        )
+                    else:
+                        logger.info(f"🧪 [TEST MODE] Alert generated for {symbol} - {signal_str}")
+                        saved, cap_alloc, shares = True, 0.0, 0
                     if not saved:
                         rejection_counts["duplicate"] += 1
                         continue
@@ -392,7 +395,7 @@ def start(run_once=False):
             
             # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
             from database import upsert_scanner_health, verify_alerts_saved_today
-            if total_alerts > 0:
+            if total_alerts > 0 and is_active_window:
                 if not verify_alerts_saved_today("1H", total_alerts):
                     logger.critical(f"🚨 CRITICAL ERROR: 1H scanner generated {total_alerts} alerts but save failed!")
                     upsert_scanner_health(
@@ -405,9 +408,9 @@ def start(run_once=False):
             try:
                 upsert_scanner_health(
                     scanner_name="1H",
-                    status="OK",
-                    last_success=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-                    today_alerts=total_alerts
+                    status="OK" if is_active_window else "IDLE",
+                    last_success=datetime.now(IST).isoformat(),
+                    today_alerts=total_alerts if is_active_window else 0
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for 1H")

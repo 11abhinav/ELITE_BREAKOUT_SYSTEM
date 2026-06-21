@@ -338,11 +338,26 @@ def run_sweeper():
     logger.info("🧹 Swept stale breakout watchlist setups.")
 
 def start(run_once=False):
+    from datetime import time as dt_time
     while True:
         try:
-            logger.info("=========================================")
-            logger.info(f"🚦 MULTI-TF LADDER START | {datetime.now(IST).strftime('%H:%M:%S IST')}")
+            ist_now = datetime.now(IST)
+            current_time = ist_now.time()
+            weekday = ist_now.weekday()
             
+            logger.info("=========================================")
+            logger.info(f"🚦 MULTI-TF LADDER START | {ist_now.strftime('%H:%M:%S IST')}")
+            
+            market_open = dt_time(9, 15) <= current_time <= dt_time(15, 30) and weekday < 5
+            is_active_window = market_open or run_once
+            
+            import database
+            if not is_active_window:
+                logger.info("Market closed, running in TEST MODE (no db saves).")
+                database.DONT_SAVE_ALERTS = True
+            else:
+                database.DONT_SAVE_ALERTS = False
+                
             # Cache regime once per cycle
             current_regime = get_market_regime()
             
@@ -357,11 +372,14 @@ def start(run_once=False):
             
             logger.info("🚦 MULTI-TF LADDER COMPLETE.")
             
+            # Reset DONT_SAVE_ALERTS back to False just in case
+            database.DONT_SAVE_ALERTS = False
+            
             try:
                 upsert_scanner_health(
-                    scanner_name="MULTI_TF",
-                    status="OK",
-                    last_success=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                    scanner_name="MultiTFScanner",
+                    status="OK" if market_open else "IDLE",
+                    last_success=datetime.now(IST).isoformat()
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for MULTI_TF")
