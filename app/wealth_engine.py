@@ -856,6 +856,11 @@ def run_wealth_scan():
             from database import save_wealth_buy_alert, close_position, update_position_real_time_prices, DONT_SAVE_WEALTH
             buy_signals = wealth_df[wealth_df["Signal"].str.contains("BUY", na=False)]
             for _, row in buy_signals.iterrows():
+                # HARD DEPLOYMENT GUARD: Never persist a BUY if it was somehow generated from fallback data
+                if row.get("used_fallback_data", False):
+                    logger.warning(f"🛡️ Deployment Guard Blocked persistence of BUY for {row.get('Stock')} due to used_fallback_data=True")
+                    continue
+                    
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 fm_score = row.get("FM_Score")
