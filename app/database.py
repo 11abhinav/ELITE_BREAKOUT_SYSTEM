@@ -187,6 +187,25 @@ def init_db():
                         UNIQUE (symbol, breakout_type, alert_date)
                     )
                 """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS breakout_watchlist (
+                        symbol TEXT PRIMARY KEY,
+                        category TEXT,
+                        current_state TEXT,
+                        h1_status TEXT,
+                        m30_status TEXT,
+                        m15_status TEXT,
+                        m5_status TEXT,
+                        breakout_level REAL,
+                        support_level REAL,
+                        invalidated_at TIMESTAMPTZ,
+                        cooldown_until TIMESTAMPTZ,
+                        session_date TEXT,
+                        last_updated TIMESTAMPTZ DEFAULT NOW(),
+                        context_json TEXT
+                    )
+                """)
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -3109,4 +3128,103 @@ def save_hold_score_history(symbol: str, hold_score: int, fm_score: float, rs_6m
     except Exception as e:
         logger.error(f"❌ Failed to save hold score history for {symbol}: {e}")
         return False
+
+
+# ==========================================
+# BREAKOUT WATCHLIST MULTI-TF
+# ==========================================
+
+def upsert_breakout_watchlist(
+    symbol: str,
+    category: str,
+    current_state: str,
+    h1_status: str = "PENDING",
+    m30_status: str = "PENDING",
+    m15_status: str = "PENDING",
+    m5_status: str = "PENDING",
+    breakout_level: float = None,
+    support_level: float = None,
+    context_json: str = None
+):
+    from datetime import datetime
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                session_date = datetime.now().strftime("%Y-%m-%d")
+                cur.execute("""
+                    INSERT INTO breakout_watchlist (
+                        symbol, category, current_state,
+                        h1_status, m30_status, m15_status, m5_status,
+                        breakout_level, support_level, session_date, context_json, last_updated
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                    )
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        category = EXCLUDED.category,
+                        current_state = EXCLUDED.current_state,
+                        h1_status = EXCLUDED.h1_status,
+                        m30_status = EXCLUDED.m30_status,
+                        m15_status = EXCLUDED.m15_status,
+                        m5_status = EXCLUDED.m5_status,
+                        breakout_level = COALESCE(EXCLUDED.breakout_level, breakout_watchlist.breakout_level),
+                        support_level = COALESCE(EXCLUDED.support_level, breakout_watchlist.support_level),
+                        session_date = EXCLUDED.session_date,
+                        context_json = COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json),
+                        last_updated = NOW()
+                """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, breakout_level, support_level, session_date, context_json))
+    except Exception as e:
+        logger.exception(f"❌ Failed to upsert breakout_watchlist for {symbol}: {e}")
+
+def get_active_breakout_watchlist() -> list:
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, breakout_level, support_level, context_json, last_updated
+                    FROM breakout_watchlist
+                    WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
+                      AND (cooldown_until IS NULL OR cooldown_until < NOW())
+                      AND (invalidated_at IS NULL OR invalidated_at > NOW())
+                """)
+                columns = [desc[0] for desc in cur.description]
+                return [dict(zip(columns, row)) for row in cur.fetchall()]
+    except Exception as e:
+        logger.exception(f"❌ Failed to fetch active breakout_watchlist: {e}")
+        return []
+
+def mark_breakout_watchlist_cooldown(symbol: str, state: str, hours: int = 24):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE breakout_watchlist
+                    SET current_state = %s,
+                        cooldown_until = NOW() + interval '%s hours',
+                        last_updated = NOW()
+                    WHERE symbol = %s
+                """, (state, hours, symbol))
+    except Exception as e:
+        logger.exception(f"❌ Failed to cooldown {symbol}: {e}")
+
+def sweep_stale_breakout_watchlist():
+    """Removes or demotes stale setups."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # If a stock was confirmed or ready but didn't execute by end of session, downgrade it
+                cur.execute("""
+                    UPDATE breakout_watchlist
+                    SET current_state = 'SETUP_ARMED', m15_status = 'PENDING', m5_status = 'PENDING', last_updated = NOW()
+                    WHERE current_state IN ('BREAKOUT_CONFIRMED', 'ENTRY_READY')
+                      AND session_date < CURRENT_DATE::TEXT
+                """)
+                # If an hourly approved setup hasn't triggered after 2 days, drop it
+                cur.execute("""
+                    UPDATE breakout_watchlist
+                    SET current_state = 'FAILED', invalidated_at = NOW()
+                    WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED')
+                      AND last_updated < NOW() - interval '2 days'
+                """)
+    except Exception as e:
+        logger.exception(f"❌ Failed to sweep breakout_watchlist: {e}")
 

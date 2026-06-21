@@ -445,6 +445,33 @@ function playDing() {
     <!-- KPI ROW -->
     <div class="kpi-row" id="kpis"></div>
 
+    <!-- ═══ LIVE SIGNAL LADDER ═══ -->
+    <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+      <span>Live Breakout Signal Ladder (Multi-TF)</span>
+      <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
+    </div>
+    <div class="card" style="margin-bottom:28px; padding:16px;">
+      <div style="max-height: 250px; overflow-y: auto;">
+        <table class="data-table" id="signal-ladder-table" style="width:100%; text-align:left; font-size:12px;">
+          <thead>
+            <tr>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Category</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">1H (Trend)</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">30m (Setup)</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">15m (Confirm)</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">5m (Entry)</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="signal-ladder-body">
+            <tr><td colspan="8" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- SECTOR MOMENTUM TRACKER -->
     <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
       <span>🔥 Sector Momentum (Last 7 Days)</span>
@@ -888,6 +915,48 @@ function renderKPIs(s) {
       <div class="kpi-arrow"></div>
     </div>`).join('');
   window._kpiDefs = defs;
+}
+
+async function fetchSignalLadder() {
+  try {
+    const res = await fetch('/api/breakout_watchlist');
+    if(!res.ok) return;
+    const json = await res.json();
+    if(json.status !== "success") return;
+    
+    const tbody = document.getElementById('signal-ladder-body');
+    tbody.innerHTML = '';
+    
+    if(!json.data || json.data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--muted); padding:12px;">No active setups tracking right now.</td></tr>';
+      return;
+    }
+    
+    json.data.forEach(item => {
+      const row = document.createElement('tr');
+      
+      let stateColor = 'var(--text)';
+      if(item.current_state === 'HOURLY_APPROVED') stateColor = 'var(--blue)';
+      else if(item.current_state === 'SETUP_ARMED') stateColor = 'var(--amber)';
+      else if(item.current_state === 'BREAKOUT_CONFIRMED') stateColor = 'var(--green)';
+      else if(item.current_state === 'ENTRY_READY') stateColor = 'var(--accent)';
+      else if(item.current_state === 'FAILED') stateColor = 'var(--red)';
+      
+      row.innerHTML = `
+        <td style="font-weight:bold; padding:8px 0; border-bottom:1px solid var(--border);">${item.symbol}</td>
+        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.category || '-'}</td>
+        <td style="font-weight:bold; color: ${stateColor}; padding:8px 0; border-bottom:1px solid var(--border);">${item.current_state}</td>
+        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.h1_status}</td>
+        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m30_status}</td>
+        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m15_status}</td>
+        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m5_status}</td>
+        <td style="font-size:11px; color: var(--muted); padding:8px 0; border-bottom:1px solid var(--border);">${new Date(item.last_updated).toLocaleTimeString()}</td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (err) {
+    console.error("Failed to load signal ladder", err);
+  }
 }
 
 function drillKpi(id, el) {
@@ -2505,6 +2574,7 @@ async function initDashboard() {
         const s = data.summary;
         document.getElementById('header-stats').textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
         renderKPIs(s);
+        fetchSignalLadder();
         renderTradeTable();
         updateSim();
         loadCapitalInfo();

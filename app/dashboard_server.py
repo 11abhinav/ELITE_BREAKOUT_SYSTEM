@@ -1268,3 +1268,14 @@ def start_dashboard_server():
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
+
+@app.route("/api/breakout_watchlist", methods=["GET"])
+def api_breakout_watchlist():
+    """Returns the live multi-tf breakout watchlist from the database."""
+    try:
+        from database import get_active_breakout_watchlist
+        data = get_active_breakout_watchlist()
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        logger.exception("Failed to fetch breakout watchlist.")
+        return jsonify({"status": "error", "message": str(e)}), 500

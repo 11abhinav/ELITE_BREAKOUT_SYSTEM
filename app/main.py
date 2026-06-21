@@ -35,6 +35,7 @@ THREAD_TO_SCANNER = {
     "LiveScanner":        "1H",
     "EODScanner":         "EOD",
     "ReversalScanner":    "REVERSAL",
+    "MultiTFScanner":     "MULTI_TF",
 }
 
 # Lazy import — dashboard_server may not be ready yet at module load
@@ -162,6 +163,11 @@ def run_live_scanner():
     wait_for_window("live")
     import live_scanner
     live_scanner.start()
+
+def run_multi_tf_scanner():
+    wait_for_window("live")
+    import multi_tf_scanner
+    multi_tf_scanner.start()
 
 def run_performance_tracker():
     """Refreshes dashboard data every 5 minutes all day on weekdays."""
@@ -666,6 +672,7 @@ def run_system_scheduler():
 RESTARTABLE_THREADS = {
     "IntradayScanner":    run_intraday_scanner,
     "LiveScanner":        run_live_scanner,
+    "MultiTFScanner":     run_multi_tf_scanner,
     "PerformanceTracker": run_performance_tracker,
     # "AI Worker":          run_worker_loop,
     # "Pledge Worker":      run_pledge_loop,
@@ -796,6 +803,16 @@ def run_startup_self_test(timeout_per_task: int = 120):
             logger.exception("Startup self-test: live_scanner failed")
 
     tasks.append((_t_live, timeout_per_task))
+
+    # Multi TF scanner - run one cycle
+    def _t_multi_tf():
+        try:
+            import multi_tf_scanner
+            multi_tf_scanner.start(run_once=True)
+        except Exception:
+            logger.exception("Startup self-test: multi_tf_scanner failed")
+
+    tasks.append((_t_multi_tf, timeout_per_task))
 
     # EOD scanner - single-shot
     def _t_eod():
