@@ -15,6 +15,7 @@ except Exception:
         pass
 import yfinance as yf
 from datetime import datetime, date
+from enum import Enum
 
 from database import get_connection
 from config import ENABLE_AI_SENTIMENT_SCORE
@@ -81,9 +82,19 @@ def fetch_nifty_macro_state() -> Tuple[Optional[float], Optional[float]]:
 # PER-STOCK TECHNICAL OVERLAY
 # =====================================================================================
 
+class DataQuality(str, Enum):
+    LIVE = "LIVE"
+    CACHED_PREV_DAY = "CACHED_PREV_DAY"
+    CACHED_MULTI_DAY = "CACHED_MULTI_DAY"
+    MISSING_PARTIAL = "MISSING_PARTIAL"
+
 def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
-    """Fetch MAs, 6-month RS vs Nifty, distance to 52W high, and Liquidity."""
-    defaults = {"sma_200": None, "sma_50": None, "ema_20": None, "cmp": None, "rs_6m": None, "dist_52w_high": None, "liquidity": 0.0}
+    """Fetch MAs, 6-month RS vs Nifty, distance to 52W high, Liquidity, RSI, and ATR."""
+    defaults = {
+        "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None, 
+        "rs_6m": None, "dist_52w_high": None, "liquidity": 0.0,
+        "RSI": 50.0, "ATR_Pct": 0.0, "data_quality": DataQuality.MISSING_PARTIAL.value
+    }
     for attempt in range(RETRY_ATTEMPTS):
         try:
             hist = fetch_historical_data(symbol, period="1y", resolution="1d", dataset_key="price_1d")
@@ -94,8 +105,22 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
             hist['sma_50']  = hist['Close'].rolling(window=50).mean()
             hist['ema_20']  = hist['Close'].ewm(span=20, adjust=False).mean()
 
+            # Calculate 14-day RSI
+            delta = hist['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs_val = gain / loss
+            hist['RSI'] = 100 - (100 / (1 + rs_val))
+
+            # Calculate 14-day ATR (Approximate using High-Low)
+            hist['TR'] = hist['High'] - hist['Low']
+            hist['ATR'] = hist['TR'].rolling(window=14).mean()
+            
             last_row = hist.iloc[-1]
             cmp = float(last_row['Close'])
+
+            # ATR as a percentage of CMP
+            atr_pct = (float(last_row['ATR']) / cmp) * 100.0 if cmp > 0 and pd.notna(last_row['ATR']) else 0.0
 
             # 6-Month Relative Strength vs Nifty
             hist_6m = hist.tail(126)
@@ -114,6 +139,10 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
             avg_vol = hist['Volume'].tail(20).mean()
             liquidity = float(avg_vol * cmp) if avg_vol > 0 else 0.0
 
+            # Momentum Quality Evaluation
+            from wealth_momentum_filter import calculate_momentum_quality_score
+            mom_score, mom_conf = calculate_momentum_quality_score(hist)
+
             return {
                 "sma_200": float(last_row['sma_200']) if not pd.isna(last_row['sma_200']) else None,
                 "sma_50":  float(last_row['sma_50']) if not pd.isna(last_row['sma_50']) else None,
@@ -121,7 +150,12 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
                 "cmp": cmp,
                 "rs_6m": rs_6m,
                 "dist_52w_high": dist_52w_high,
-                "liquidity": liquidity
+                "liquidity": liquidity,
+                "RSI": float(last_row['RSI']) if not pd.isna(last_row['RSI']) else 50.0,
+                "ATR_Pct": atr_pct,
+                "momentum_score": mom_score,
+                "momentum_confidence": mom_conf,
+                "data_quality": DataQuality.LIVE.value
             }
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")

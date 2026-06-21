@@ -452,6 +452,9 @@ def init_db():
                         added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     )
                 """)
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_entry INTEGER")
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_current INTEGER")
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS re_eval_due_date DATE")
 
                 # ── Parquet Binary Cache ──────────────────────────────────────────
                 cur.execute("""
@@ -533,6 +536,10 @@ def init_db():
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS portfolio_bucket TEXT")
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS valuation_score REAL")
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS current_score REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_score INTEGER")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_confidence TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS data_quality TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS fallback_timestamp TIMESTAMPTZ")
                 
                 # Create indexes (after columns are guaranteed to exist)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_symbol ON wealth_buy_alert(symbol)")
@@ -628,19 +635,18 @@ def init_db():
                 """)
 
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
-                # Run heavy DDL on a dedicated connection (avoid toggling autocommit on shared connections)
+                # Commit the above table creations before doing heavy DDL
+                conn.commit()
+                
                 try:
-                    p = _get_pool()
-                    mig_conn = p.getconn()
                     try:
-                        try:
-                            mig_conn.rollback()
-                        except Exception:
-                            pass
-                        orig_autocommit = getattr(mig_conn, 'autocommit', False)
-                        mig_conn.autocommit = True
-                        with mig_conn.cursor() as mcur:
-                            mcur.execute("""
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    orig_autocommit = getattr(conn, 'autocommit', False)
+                    conn.autocommit = True
+                    with conn.cursor() as mcur:
+                        mcur.execute("""
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
 -- Create robust safe_cast_timestamptz overloads for text, timestamp, and timestamptz
 CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
@@ -728,11 +734,7 @@ ALTER TABLE bayesian_model_updates ADD CONSTRAINT IF NOT EXISTS chk_bayes_status
 """)
                     finally:
                         try:
-                            mig_conn.autocommit = orig_autocommit
-                        except Exception:
-                            pass
-                        try:
-                            p.putconn(mig_conn)
+                            conn.autocommit = orig_autocommit
                         except Exception:
                             pass
                 except Exception as e:
@@ -3054,3 +3056,48 @@ def get_unread_message_counts() -> dict:
     except Exception as e:
         logger.error(f"❌ Failed to fetch unread message counts: {e}")
         return {}
+
+# =====================================================================================
+# WEALTH SCORE HISTORY PERSISTENCE
+# =====================================================================================
+
+def save_hold_score_history(symbol: str, hold_score: int, fm_score: float, rs_6m: float, cmp: float, sma_200: float, evaluation_date: str = None) -> bool:
+    """
+    Saves the daily hold score evaluation for an open position to the database.
+    Also prunes records older than 30 days for closed positions to manage table size.
+    """
+    init_db()
+    if evaluation_date is None:
+        from datetime import date
+        evaluation_date = date.today().isoformat()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO wealth_score_history (symbol, evaluation_date, hold_score, fm_score, rs_6m, cmp, sma_200)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, evaluation_date) DO UPDATE
+                    SET hold_score = EXCLUDED.hold_score,
+                        fm_score = EXCLUDED.fm_score,
+                        rs_6m = EXCLUDED.rs_6m,
+                        cmp = EXCLUDED.cmp,
+                        sma_200 = EXCLUDED.sma_200,
+                        created_at = NOW();
+                """, (symbol, evaluation_date, hold_score, fm_score, rs_6m, cmp, sma_200))
+                
+                # Prune history for this symbol if it's no longer open and records are > 30 days old
+                # This ensures the DB doesn't grow infinitely.
+                cur.execute("""
+                    DELETE FROM wealth_score_history
+                    WHERE symbol = %s 
+                    AND evaluation_date < CURRENT_DATE - INTERVAL '30 days'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM wealth_buy_alert WHERE symbol = %s AND is_closed = FALSE
+                    );
+                """, (symbol, symbol))
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to save hold score history for {symbol}: {e}")
+        return False
+
