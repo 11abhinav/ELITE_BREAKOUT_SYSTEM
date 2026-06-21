@@ -11,30 +11,26 @@
 
 import sys
 import os
-import time
-
-os.environ['TZ'] = 'Asia/Kolkata'
-try:
-    time.tzset()
-except AttributeError:
-    pass  # Not available on Windows
-
 import threading
 import logging
 import traceback
 import signal
 import random
-from zoneinfo import ZoneInfo
 from datetime import datetime, time as dt_time
+from zoneinfo import ZoneInfo
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
+IST = ZoneInfo("Asia/Kolkata")
+
+def ist_converter(timestamp):
+    return datetime.fromtimestamp(timestamp, IST).timetuple()
+
+logging.Formatter.converter = ist_converter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
-
-IST = ZoneInfo("Asia/Kolkata")
 
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
