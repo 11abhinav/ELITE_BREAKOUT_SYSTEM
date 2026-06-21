@@ -12,7 +12,8 @@ from database import (
     sweep_stale_breakout_watchlist,
     check_recent_alert,
     save_alert_if_new,
-    mark_breakout_watchlist_cooldown
+    mark_breakout_watchlist_cooldown,
+    upsert_scanner_health
 )
 import json
 from config import MIN_STOCK_PRICE
@@ -335,6 +336,15 @@ def start(run_once=False):
             
             logger.info("🚦 MULTI-TF LADDER COMPLETE.")
             
+            try:
+                upsert_scanner_health(
+                    scanner_name="MULTI_TF",
+                    status="OK",
+                    last_success=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                )
+            except Exception:
+                logger.exception("❌ Failed to update scanner health for MULTI_TF")
+            
             if run_once:
                 break
                 
@@ -343,6 +353,15 @@ def start(run_once=False):
             
         except Exception as e:
             logger.exception(f"❌ MULTI-TF LADDER CRASHED: {e}")
+            try:
+                upsert_scanner_health(
+                    scanner_name="MULTI_TF",
+                    status="DOWN",
+                    error_msg=str(e)[:500]
+                )
+            except Exception:
+                pass
+
             if run_once:
                 break
             time.sleep(60)
