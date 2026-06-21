@@ -564,11 +564,13 @@ function playDing() {
     <div class="card" style="margin-bottom:28px">
       <div class="filter-bar" style="display:flex; gap:12px;">
         <input type="text" id="wlSearch" class="search-input" style="flex:1;" placeholder="Search symbol..." oninput="renderWatchlist()">
+        <select id="wlStatusFilter" class="search-input" style="max-width:150px;" onchange="renderWatchlist()">
+          <option value="">All Status</option>
+          <option value="included">Included</option>
+          <option value="excluded">Excluded</option>
+        </select>
         <select id="wlSectorFilter" class="search-input" style="max-width:200px;" onchange="renderWatchlist()">
           <option value="">All Sectors</option>
-        </select>
-        <select id="wlCategoryFilter" class="search-input" style="max-width:200px;" onchange="renderWatchlist()">
-          <option value="">All Categories</option>
         </select>
       </div>
       <div class="tbl-wrap">
@@ -576,13 +578,16 @@ function playDing() {
           <thead>
             <tr>
               <th style="cursor:pointer;" onclick="sortWatchlist('Stock')">Stock <span id="wl-sort-Stock"></span></th>
+              <th style="cursor:pointer;" onclick="sortWatchlist('Status')">Status <span id="wl-sort-Status"></span></th>
               <th style="cursor:pointer;" onclick="sortWatchlist('Sector')">Sector <span id="wl-sort-Sector"></span></th>
               <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('CMP')">CMP <span id="wl-sort-CMP"></span></th>
               <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Market Cap Cr')">Market Cap (Cr) <span id="wl-sort-Market_Cap_Cr"></span></th>
-              <th style="cursor:pointer;" onclick="sortWatchlist('Category')">Category <span id="wl-sort-Category"></span></th>
               <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Fundamental Score')">Score <span id="wl-sort-Fundamental_Score"></span></th>
+              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('ROCE %')">ROCE % <span id="wl-sort-ROCE_%"></span></th>
               <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('ROE %')">ROE % <span id="wl-sort-ROE_%"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('YOY Profit %')">YOY Profit % <span id="wl-sort-YOY_Profit_%"></span></th>
+              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Debt/Equity')">D/E <span id="wl-sort-Debt/Equity"></span></th>
+              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('PEG Ratio')">PEG <span id="wl-sort-PEG_Ratio"></span></th>
+              <th style="max-width:200px;">Reason</th>
             </tr>
           </thead>
           <tbody id="watchlistBody"></tbody>
@@ -2578,35 +2583,30 @@ async function loadWatchlist() {
     try {
         const r = await fetch('/api/shortlist');
         if (r.ok) {
-            WATCHLIST_DATA = await r.json();
+            let included = await r.json();
+            included.forEach(d => { d.Status = 'included'; });
             
-            const filterCat = document.getElementById('wlCategoryFilter');
+            // Load excluded stocks
+            let excluded = [];
+            try {
+                const r2 = await fetch('/api/shortlist_excluded');
+                if (r2.ok) {
+                    excluded = await r2.json();
+                    excluded.forEach(d => { d.Status = 'excluded'; });
+                }
+            } catch (e) {
+                console.warn('Could not load excluded stocks');
+            }
+            
+            WATCHLIST_DATA = [...included, ...excluded];
+            
             const filterSec = document.getElementById('wlSectorFilter');
             
-            if(filterCat) {
-                filterCat.innerHTML = '<option value="">All Categories</option>';
-                let cats = new Set();
-                WATCHLIST_DATA.forEach(d => {
-                    if(d.Category) {
-                        d.Category.split('+').forEach(c => {
-                            const trimmed = c.trim();
-                            if(trimmed) cats.add(trimmed);
-                        });
-                    }
-                });
-                Array.from(cats).sort().forEach(c => {
-                    let opt = document.createElement('option');
-                    opt.value = c;
-                    opt.textContent = c;
-                    filterCat.appendChild(opt);
-                });
-            }
-
             if(filterSec) {
                 filterSec.innerHTML = '<option value="">All Sectors</option>';
                 let secs = new Set();
                 WATCHLIST_DATA.forEach(d => {
-                    if(d.Sector) secs.add(d.Sector.trim());
+                    if(d.Sector && d.Status === 'included') secs.add(d.Sector.trim());
                 });
                 Array.from(secs).sort().forEach(s => {
                     if(s) {
@@ -2639,14 +2639,14 @@ function sortWatchlist(col) {
 
 function renderWatchlist() {
     const q = document.getElementById('wlSearch').value.toUpperCase();
-    const catFilter = document.getElementById('wlCategoryFilter') ? document.getElementById('wlCategoryFilter').value : "";
+    const statusFilter = document.getElementById('wlStatusFilter') ? document.getElementById('wlStatusFilter').value : "";
     const secFilter = document.getElementById('wlSectorFilter') ? document.getElementById('wlSectorFilter').value : "";
     
     let data = WATCHLIST_DATA.filter(d => {
         let textMatch = (d.Stock && d.Stock.toUpperCase().includes(q));
-        let catMatch = catFilter === "" || (d.Category && d.Category.includes(catFilter));
+        let statusMatch = statusFilter === "" || (d.Status === statusFilter);
         let secMatch = secFilter === "" || (d.Sector && d.Sector === secFilter);
-        return textMatch && catMatch && secMatch;
+        return textMatch && statusMatch && secMatch;
     });
     
     data.sort((a,b) => {
@@ -2663,36 +2663,29 @@ function renderWatchlist() {
     
     const tbody = document.getElementById('watchlistBody');
     if(!data.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No data available or no match found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted)">No data available or no match found</td></tr>';
         return;
     }
     
     tbody.innerHTML = data.map(d => {
-        let catsHtml = '';
-        if (d.Category) {
-            catsHtml = d.Category.split('+').map(c => {
-                c = c.trim();
-                let col = 'var(--muted)';
-                if(c==='Mega-Cap Safety') col='#3b82f6';
-                if(c.includes('Growth')) col='var(--accent)';
-                if(c.includes('Turnaround')) col='#f59e0b';
-                if(c.includes('Value')) col='#8b5cf6';
-                return `<span style="font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid ${col}; color:${col}; margin-right:4px;">${c}</span>`;
-            }).join('');
-        }
+        const statusColor = d.Status === 'included' ? 'var(--green)' : 'var(--warn)';
+        const statusLabel = d.Status === 'included' ? '✓ Included' : '✗ Excluded';
         return `<tr>
           <td>
             <a href="https://in.tradingview.com/chart/?symbol=NSE:${d.Stock}" target="_blank" style="color:var(--text); text-decoration:none; font-weight:600;">
                 ${d.Stock}
             </a>
           </td>
-          <td style="color:var(--muted)">${d.Sector || '-'}</td>
-          <td style="text-align:right">₹${d.CMP ? d.CMP.toLocaleString('en-IN') : '-'}</td>
-          <td style="text-align:right">${d['Market Cap Cr'] ? d['Market Cap Cr'].toLocaleString('en-IN') : '-'}</td>
-          <td>${catsHtml}</td>
-          <td style="text-align:right; font-weight:600;">${d['Fundamental Score'] || 0}</td>
-          <td style="text-align:right; color:${parseFloat(d['ROE %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700;">${d['ROE %'] ? Number(d['ROE %']).toFixed(1) + '%' : '-'}</td>
-          <td style="text-align:right; color:${parseFloat(d['YOY Profit %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700;">${d['YOY Profit %'] ? Number(d['YOY Profit %']).toFixed(1) + '%' : '-'}</td>
+          <td style="color:${statusColor}; font-weight:600; font-size:12px;">${statusLabel}</td>
+          <td style="color:var(--muted); font-size:12px;">${d.Sector || '-'}</td>
+          <td style="text-align:right; font-size:12px;">₹${d.CMP ? Number(d.CMP).toLocaleString('en-IN', {maximumFractionDigits: 0}) : '-'}</td>
+          <td style="text-align:right; font-size:12px;">${d['Market Cap Cr'] ? Number(d['Market Cap Cr']).toLocaleString('en-IN', {maximumFractionDigits: 0}) : '-'}</td>
+          <td style="text-align:right; font-weight:600; font-size:12px; color:${d['Fundamental Score'] >= 100 ? 'var(--accent)' : 'var(--muted)'};">${d['Fundamental Score'] || 0}</td>
+          <td style="text-align:right; color:${parseFloat(d['ROCE %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700; font-size:12px;">${d['ROCE %'] ? Number(d['ROCE %']).toFixed(1) + '%' : '-'}</td>
+          <td style="text-align:right; color:${parseFloat(d['ROE %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700; font-size:12px;">${d['ROE %'] ? Number(d['ROE %']).toFixed(1) + '%' : '-'}</td>
+          <td style="text-align:right; color:${parseFloat(d['Debt/Equity']) > 1.0 ? 'var(--warn)' : 'var(--text)'}; font-weight:600; font-size:12px;">${d['Debt/Equity'] ? Number(d['Debt/Equity']).toFixed(2) : '-'}</td>
+          <td style="text-align:right; color:${parseFloat(d['PEG Ratio']) < 1.0 ? 'var(--accent)' : 'var(--muted)'}; font-weight:600; font-size:12px;">${d['PEG Ratio'] ? Number(d['PEG Ratio']).toFixed(2) : '-'}</td>
+          <td style="font-size:11px; color:var(--muted); max-width:200px; word-wrap:break-word;">${d.Reason || (d.Category ? d.Category.substring(0, 50) + '...' : '-')}</td>
         </tr>`;
     }).join('');
 }

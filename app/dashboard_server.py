@@ -354,6 +354,23 @@ def api_shortlist():
         logger.error(f"Failed to load shortlist JSON: {e}")
         return jsonify([])
 
+@app.route("/api/shortlist_excluded")
+def api_shortlist_excluded():
+    """Returns excluded stocks data as JSON."""
+    from config import DATA_DIR
+    import pandas as pd
+    try:
+        excluded_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
+        if not os.path.exists(excluded_path):
+            return jsonify([])
+        df = pd.read_csv(excluded_path)
+        import json
+        records = json.loads(df.to_json(orient="records"))
+        return jsonify(records)
+    except Exception as e:
+        logger.error(f"Failed to load excluded stocks JSON: {e}")
+        return jsonify([])
+
 @app.route("/api/wealth")
 def api_wealth():
     """Returns the elite wealth system data as JSON."""
