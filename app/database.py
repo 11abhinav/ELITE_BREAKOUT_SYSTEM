@@ -200,6 +200,7 @@ def init_db():
                     cur.execute(col_sql)
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
 
                 # ── Score Weight Log (Bayesian Versioning) ─────────────────────────
                 cur.execute("""
@@ -680,6 +681,7 @@ def save_alert_if_new(
     data_partition: str = "TRAIN",
     bayesian_regime: str = "BULL",
     bayesian_weights: dict = None,
+    cash_in_hand: float = None,
     **kwargs
 ) -> tuple[bool, float, int]:
     """
@@ -714,13 +716,13 @@ def save_alert_if_new(
                             (symbol, breakout_type, alert_time, scanner, category,
                              entry_price, stop_loss, target_price, signals, score,
                              rsi, volume_ratio, status, context, capital_allocated, shares_bought,
-                             model_version, bayesian_regime, bayesian_weights, data_partition)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s)
+                             model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                     """, (symbol, breakout_type, alert_time, scanner, category,
                           entry_price, stop_loss, target_price, signals, score,
                           rsi, volume_ratio, context_str, capital_allocated, shares_bought,
-                          model_version, bayesian_regime, weights_str, data_partition))
+                          model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
                     conn.commit()
                     success = True
                     return cur.rowcount > 0, capital_allocated, shares_bought
@@ -1555,6 +1557,62 @@ def acknowledge_fetch_error(error_id: int) -> bool:
                 conn.rollback()
                 logger.exception(f"❌ acknowledge_fetch_error failed for id={error_id}")
                 return False
+
+def acknowledge_all_fetch_errors() -> bool:
+    """Acknowledge all fetch errors at once."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                # Mark all errors as acknowledged and reset counters
+                cur.execute("""
+                    UPDATE fetch_errors 
+                    SET is_acknowledged = TRUE, occurrences = 0
+                    WHERE is_acknowledged = FALSE
+                """)
+                
+                # Clear scanner_health for all scanners (mark as OK)
+                cur.execute("""
+                    UPDATE scanner_health
+                    SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                    WHERE status != 'OK'
+                """, (datetime.now(IST).isoformat(),))
+                
+                conn.commit()
+                logger.info("✓ All fetch errors acknowledged")
+                return True
+            except Exception:
+                conn.rollback()
+                logger.exception("❌ acknowledge_all_fetch_errors failed")
+                return False
+
+def deposit_funds(amount: float) -> float:
+    """Deposit funds to cash_in_hand. Returns new cash_in_hand value."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                # Get current cash_in_hand
+                cur.execute("SELECT COALESCE(SUM(CAST(value AS FLOAT)), 0) FROM portfolio_config WHERE key = 'cash_in_hand'")
+                result = cur.fetchone()
+                current_cash = result[0] if result else 0
+                new_cash = current_cash + amount
+                
+                # Update or insert cash_in_hand
+                cur.execute("""
+                    INSERT INTO portfolio_config (key, value, updated_at)
+                    VALUES ('cash_in_hand', %s, %s)
+                    ON CONFLICT (key) DO UPDATE 
+                    SET value = %s, updated_at = %s
+                """, (str(new_cash), datetime.now(IST).isoformat(), str(new_cash), datetime.now(IST).isoformat()))
+                
+                conn.commit()
+                logger.info(f"✓ Deposited ₹{amount}. New cash: ₹{new_cash}")
+                return new_cash
+            except Exception:
+                conn.rollback()
+                logger.exception(f"❌ deposit_funds failed for amount={amount}")
+                raise
 
 def get_all_data_fetch_health() -> list:
     """Return all rows from data_fetch_health as list of dicts."""

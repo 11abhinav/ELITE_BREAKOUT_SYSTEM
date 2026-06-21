@@ -397,29 +397,22 @@ function playDing() {
 
   <div class="container">
 
-    <!-- P&L AND SIMULATOR BAR -->
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+    <!-- P&L AND PORTFOLIO BAR -->
+    <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
       
-      <!-- REAL P&L -->
+      <!-- PORTFOLIO METRICS -->
       <div style="display:flex; gap:12px;">
         <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P&L:</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
           <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
         <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Open P&L:</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
           <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
-      </div>
-
-      <!-- PORTFOLIO SIMULATOR -->
-      <div style="display:flex; gap:12px; align-items:center;">
-        <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.8px;">Simulator:</span>
-        <span style="font-size:11px; color:var(--muted);">Capital (₹)</span>
-        <input id="simCapital" type="number" value="500000" style="width:100px; background:var(--card); border:1px solid var(--border); border-radius:6px; padding:6px 10px; font-family:var(--font-mono); font-size:12px;" onchange="updateSim()" onkeyup="updateSim()">
-        <div style="display:flex; flex-direction:column; background:var(--card2); border-radius:6px; border:1px solid var(--border); padding:4px 8px;">
-          <div id="simResult" style="font-family:var(--font-mono); font-weight:700; font-size:13px; color:var(--text);">Sim P&L: —</div>
-          <div id="simFloating_inline" style="font-family:var(--font-mono); font-size:11px; color:var(--muted);">Floating: —</div>
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Available Cash:</span>
+          <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
       </div>
     </div>
@@ -441,10 +434,6 @@ function playDing() {
     <div class="card" style="margin-bottom:28px;">
       <canvas id="equityChart" height="70"></canvas>
     </div>
-
-    <!-- CATEGORY WIN RATES -->
-    <div class="section-label">Category Performance</div>
-    <div class="kpi-row" id="catGrid" style="margin-bottom:28px"></div>
   
   <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
     <span class="alert-toast-icon">🚨</span>
@@ -1182,6 +1171,22 @@ function updateSim() {
       roEl.style.color = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
+  // Calculate Available Cash (Total Equity - Deployed Capital)
+  let deployedCapital = 0;
+  openTrades.forEach(t => {
+      if (t.entry_price && t.shares_bought) {
+          deployedCapital += t.entry_price * t.shares_bought;
+      }
+  });
+  let totalEquity = cap + realBookedPnl + realOpenPnl;
+  let availableCash = Math.max(0, totalEquity - deployedCapital);
+  
+  const acEl = document.getElementById('availableCash');
+  if(acEl) {
+      acEl.textContent = '₹' + Math.round(availableCash).toLocaleString('en-IN');
+      acEl.style.color = 'var(--text)';
+  }
+
   renderEquityCurve();
 }
 
@@ -1464,8 +1469,8 @@ async function initDashboard() {
   pingViewer();
   setInterval(pingViewer, 30000);
   
-  // Auto-Refresh Every 2 Minutes
-  setInterval(() => doRefresh(true), 120000);
+  // Auto-Refresh Every 3 Minutes
+  setInterval(() => doRefresh(true), 180000);
 }
 
 // Trigger check

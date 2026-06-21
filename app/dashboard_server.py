@@ -429,6 +429,36 @@ def api_ack_fetch_error(error_id):
         return jsonify({"ok": False}), 500
 
 
+@app.route("/api/fetch_errors/all", methods=["DELETE"])
+def api_clear_all_fetch_errors():
+    """Clear all fetch errors at once (acknowledge all)."""
+    try:
+        from database import acknowledge_all_fetch_errors
+        ok = acknowledge_all_fetch_errors()
+        return jsonify({"ok": ok})
+    except Exception:
+        logger.exception("❌ /api/fetch_errors/all DELETE failed")
+        return jsonify({"ok": False}), 500
+
+
+@app.route("/api/deposit_funds", methods=["POST"])
+def api_deposit_funds():
+    """Deposit funds to cash_in_hand (admin only)."""
+    try:
+        from database import deposit_funds
+        data = request.json or {}
+        amount = float(data.get('amount', 0))
+        
+        if amount <= 0:
+            return jsonify({"error": "Amount must be > 0"}), 400
+        
+        new_cash = deposit_funds(amount)
+        return jsonify({"ok": True, "new_cash_in_hand": new_cash})
+    except Exception as e:
+        logger.exception(f"❌ /api/deposit_funds failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # ── MANUAL PORTFOLIO TRACKER ──────────────────────────────────────────────────
 @app.route("/api/portfolio", methods=["GET"])
 def api_get_portfolio():

@@ -1248,9 +1248,9 @@
     loadTickers();
     loadAlertHistory();
     loadClosedPositions();
-    setInterval(loadData, 60000);
-    setInterval(loadAlertHistory, 120000);  // Refresh alert history every 2 mins
-    setInterval(loadClosedPositions, 300000);  // Refresh closed positions every 5 mins
+    setInterval(loadData, 180000);  // Refresh main data every 3 mins
+    setInterval(loadAlertHistory, 180000);  // Refresh alert history every 3 mins
+    setInterval(loadClosedPositions, 180000);  // Refresh closed positions every 3 mins
     setInterval(fetchTodaysAlertsAndBlink_Wealth, ALERT_FETCH_INTERVAL_WEALTH); // Refresh blinking every 30s
   
 let _audioCtx = null;
