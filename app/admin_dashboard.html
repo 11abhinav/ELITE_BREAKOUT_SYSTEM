@@ -419,6 +419,14 @@ function playDing() {
       <!-- PORTFOLIO METRICS -->
       <div style="display:flex; gap:12px;">
         <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Base Capital:</span>
+          <span id="baseCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+        </div>
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Capital:</span>
+          <span id="totalCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+        </div>
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
           <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
           <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
@@ -1872,6 +1880,28 @@ function updateSim() {
   renderEquityCurve();
 }
 
+async function loadCapitalInfo() {
+  try {
+    const response = await fetch('/api/capital_info');
+    if (!response.ok) return;
+    const data = await response.json();
+    
+    const bcEl = document.getElementById('baseCapital');
+    if (bcEl) {
+      bcEl.textContent = '₹' + Math.round(data.base_capital).toLocaleString('en-IN');
+      bcEl.style.color = 'var(--text)';
+    }
+    
+    const tcEl = document.getElementById('totalCapital');
+    if (tcEl) {
+      tcEl.textContent = '₹' + Math.round(data.total_capital).toLocaleString('en-IN');
+      tcEl.style.color = data.total_deposited > 0 ? 'var(--green)' : 'var(--text)';
+    }
+  } catch (e) {
+    console.error('Error loading capital info:', e);
+  }
+}
+
 function renderEquityCurve() {
   const ctx = document.getElementById('equityChart');
   if (!ctx || typeof Chart === 'undefined') return;
@@ -2355,7 +2385,8 @@ async function submitDepositFunds() {
     if (response.ok) {
       const result = await response.json();
       closeDepositFundsDialog();
-      alert(`✓ Deposited ₹${amount.toLocaleString('en-IN')}. New cash: ₹${result.new_cash_in_hand.toLocaleString('en-IN')}`);
+      alert(`✓ Deposited ₹${amount.toLocaleString('en-IN')}. Total Capital: ₹${Math.round(result.total_capital).toLocaleString('en-IN')}`);
+      loadCapitalInfo();
       updateSim();
     } else {
       const error = await response.json();
@@ -2401,6 +2432,7 @@ async function initDashboard() {
   loadNonCriticalErrors();
   renderCategoryStats();
   updateSim();
+  loadCapitalInfo();
 
   // Auto-refresh scanner status every 60s
   setInterval(async () => {
@@ -2426,6 +2458,7 @@ async function initDashboard() {
         renderKPIs(s);
         renderTradeTable();
         updateSim();
+        loadCapitalInfo();
       }
       loadScannerStatus().then(live => {
         if (live) {

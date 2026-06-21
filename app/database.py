@@ -573,6 +573,17 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)")
 
+                # ── Capital History (Track Base Capital and Deposits) ─────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS capital_history (
+                        id SERIAL PRIMARY KEY,
+                        transaction_type TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        description TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
                 try:
                     cur.execute("""
@@ -1587,32 +1598,68 @@ def acknowledge_all_fetch_errors() -> bool:
                 return False
 
 def deposit_funds(amount: float) -> float:
-    """Deposit funds to cash_in_hand. Returns new cash_in_hand value."""
+    """Deposit funds. Returns new total capital."""
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                # Get current cash_in_hand
-                cur.execute("SELECT COALESCE(SUM(CAST(value AS FLOAT)), 0) FROM portfolio_config WHERE key = 'cash_in_hand'")
-                result = cur.fetchone()
-                current_cash = result[0] if result else 0
-                new_cash = current_cash + amount
-                
-                # Update or insert cash_in_hand
+                # Insert deposit transaction
                 cur.execute("""
-                    INSERT INTO portfolio_config (key, value, updated_at)
-                    VALUES ('cash_in_hand', %s, %s)
-                    ON CONFLICT (key) DO UPDATE 
-                    SET value = %s, updated_at = %s
-                """, (str(new_cash), datetime.now(IST).isoformat(), str(new_cash), datetime.now(IST).isoformat()))
+                    INSERT INTO capital_history (transaction_type, amount, description)
+                    VALUES ('DEPOSIT', %s, 'User deposit via admin dashboard')
+                """, (amount,))
+                
+                # Get total capital (base + all deposits)
+                cur.execute("""
+                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
+                    WHERE transaction_type IN ('BASE_CAPITAL', 'DEPOSIT')
+                """)
+                result = cur.fetchone()
+                total_capital = result[0] if result else 0
                 
                 conn.commit()
-                logger.info(f"✓ Deposited ₹{amount}. New cash: ₹{new_cash}")
-                return new_cash
-            except Exception:
+                logger.info(f"✓ Deposited ₹{amount}. New total capital: ₹{total_capital}")
+                return total_capital
+            except Exception as e:
                 conn.rollback()
                 logger.exception(f"❌ deposit_funds failed for amount={amount}")
                 raise
+
+def get_capital_info() -> dict:
+    """Returns {base_capital, total_deposited, total_capital}."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                # Get base capital (initial)
+                cur.execute("""
+                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
+                    WHERE transaction_type = 'BASE_CAPITAL'
+                """)
+                base = cur.fetchone()[0]
+                
+                # Get total deposits (excluding base)
+                cur.execute("""
+                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
+                    WHERE transaction_type = 'DEPOSIT'
+                """)
+                deposited = cur.fetchone()[0]
+                
+                # Get total capital
+                cur.execute("""
+                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
+                    WHERE transaction_type IN ('BASE_CAPITAL', 'DEPOSIT')
+                """)
+                total = cur.fetchone()[0]
+                
+                return {
+                    "base_capital": base,
+                    "total_deposited": deposited,
+                    "total_capital": total
+                }
+            except Exception:
+                logger.exception("❌ get_capital_info failed")
+                return {"base_capital": 0, "total_deposited": 0, "total_capital": 0}
 
 def get_all_data_fetch_health() -> list:
     """Return all rows from data_fetch_health as list of dicts."""

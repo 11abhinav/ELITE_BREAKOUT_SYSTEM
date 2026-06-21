@@ -443,20 +443,33 @@ def api_clear_all_fetch_errors():
 
 @app.route("/api/deposit_funds", methods=["POST"])
 def api_deposit_funds():
-    """Deposit funds to cash_in_hand (admin only)."""
+    """Deposit funds to capital_history (admin only)."""
     try:
-        from database import deposit_funds
+        from database import deposit_funds, get_capital_info
         data = request.json or {}
         amount = float(data.get('amount', 0))
         
         if amount <= 0:
             return jsonify({"error": "Amount must be > 0"}), 400
         
-        new_cash = deposit_funds(amount)
-        return jsonify({"ok": True, "new_cash_in_hand": new_cash})
+        deposit_funds(amount)
+        capital_info = get_capital_info()
+        return jsonify({"ok": True, **capital_info})
     except Exception as e:
         logger.exception(f"❌ /api/deposit_funds failed: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/capital_info", methods=["GET"])
+def api_capital_info():
+    """Get capital breakdown: base_capital, total_deposited, total_capital."""
+    try:
+        from database import get_capital_info
+        info = get_capital_info()
+        return jsonify(info)
+    except Exception:
+        logger.exception("❌ /api/capital_info failed")
+        return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
 
 
 # ── MANUAL PORTFOLIO TRACKER ──────────────────────────────────────────────────
