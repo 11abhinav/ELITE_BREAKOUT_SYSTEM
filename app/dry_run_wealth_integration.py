@@ -41,7 +41,7 @@ def test_integration():
     
     try:
         # Pass the cached_df as the "previous day's dataframe" to trigger fallback
-        df = calculate_wealth_technicals(cached_df)
+        df = calculate_wealth_technicals(cached_df, nifty_6m_ret=5.0, nifty_dist_52w=2.0)
         
         row = df.iloc[0]
         print(f"✅ Fallback Triggered: {row['used_fallback_data']}")
