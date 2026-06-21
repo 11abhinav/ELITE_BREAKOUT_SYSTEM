@@ -654,7 +654,15 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
         RETURN NULL;
     END;
-    $func$ LANGUAGE plpgsql IMMUTABLE;';
+    $func$ LANGUAGE plpgsql IMMUTABLE;
+
+    CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamptz) RETURNS timestamptz AS $func2$
+    BEGIN
+        RETURN p_val;
+    EXCEPTION WHEN OTHERS THEN
+        RETURN NULL;
+    END;
+    $func2$ LANGUAGE plpgsql IMMUTABLE;';
 
     -- Convert alerts
     ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at);
