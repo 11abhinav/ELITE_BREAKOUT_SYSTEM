@@ -478,6 +478,10 @@ def calculate_hold_score(r: pd.Series) -> int:
     cmp = r.get("cmp", 0) or 0
     entry_price = r.get("entry_price", 0) or 0
     
+    if not entry_price or entry_price <= 0:
+        sym = r.get("Stock", "UNKNOWN")
+        logger.warning(f"⚠️ Missing entry_price for open holding {sym}! Drawdown circuit breaker is DISABLED.")
+    
     if entry_price > 0 and cmp > 0:
         drawdown_pct = ((entry_price - cmp) / entry_price) * 100
         
@@ -825,6 +829,13 @@ def run_wealth_scan():
                     return "SUPPRESS (Stale Data — Prevented Fake Buy)"
                 return f"BUY (Deep Value / Bear Market)"
                 
+            # Mean Reversion Check (Only if not already a standard breakout BUY)
+            if not used_fallback:
+                from wealth_mean_reversion import get_mean_reversion_signal
+                mr_signal = get_mean_reversion_signal(r)
+                if mr_signal:
+                    return mr_signal
+                
             return ""
 
         wealth_df["Signal"] = wealth_df.apply(get_signal, axis=1)
@@ -901,31 +912,56 @@ def run_wealth_scan():
             
             # Fetch REAL-TIME prices for all open positions (for accurate P&L calculation)
             try:
-                open_symbols = wealth_df["Stock"].unique().tolist()
+                # ONLY FETCH OPEN POSITIONS to prevent rate-limiting and timeouts!
+                open_symbols = list(portfolio_dict.keys())
                 realtime_metrics = {}
                 if open_symbols:
-                    # Fetch all prices in parallel using yfinance
+                    logger.info(f"🔄 Fetching real-time prices for {len(open_symbols)} open positions...")
+                    import time
                     for symbol in open_symbols:
-                        try:
-                            ticker = yf.Ticker(f"{symbol.replace('_', '-')}.NS")
-                            info = ticker.info
-                            current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-                            
-                            symbol_row = wealth_df[wealth_df["Stock"] == symbol]
-                            current_score = None
-                            if not symbol_row.empty:
-                                val = symbol_row.iloc[0].get("Hold_Score")
-                                if pd.notna(val):
-                                    current_score = float(val)
+                        retries = 2
+                        current_price = None
+                        for attempt in range(retries):
+                            try:
+                                ticker = yf.Ticker(f"{symbol.replace('_', '-')}.NS")
+                                info = ticker.info
+                                current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+                                if current_price:
+                                    break
+                            except Exception as e:
+                                if attempt < retries - 1:
+                                    time.sleep(2 ** attempt)  # Exponential backoff
+                                else:
+                                    logger.warning(f"Failed real-time fetch for {symbol}: {e}")
+                                    
+                        time.sleep(0.5)  # Pacing to safeguard against API limits
+                        
+                        symbol_row = wealth_df[wealth_df["Stock"] == symbol]
+                        current_score = None
+                        if not symbol_row.empty:
+                            r = symbol_row.iloc[0]
+                            val = r.get("Hold_Score")
+                            if pd.notna(val):
+                                current_score = float(val)
+                                
+                            # Save hold score history for tracking trends
+                            if not DONT_SAVE_WEALTH:
+                                from database import save_hold_score_history
+                                save_hold_score_history(
+                                    symbol=symbol,
+                                    hold_score=current_score,
+                                    fm_score=float(r.get("FM_Score", 0)),
+                                    rs_6m=float(r.get("rs_6m", 0)),
+                                    cmp=current_price or float(r.get("cmp", 0)),
+                                    sma_200=float(r.get("sma_200", 0))
+                                )
 
-                            if current_price and current_price > 0:
-                                realtime_metrics[symbol] = {"price": float(current_price), "score": current_score}
-                        except Exception:
-                            pass  # Skip symbols that fail price fetch
-                
-                # Update all open positions with real-time metrics
-                if realtime_metrics and not DONT_SAVE_WEALTH:
-                    update_position_real_time_prices(realtime_metrics)
+                        if current_price and current_price > 0:
+                            realtime_metrics[symbol] = {"price": float(current_price), "score": current_score}
+                    
+                    if realtime_metrics:
+                        if not DONT_SAVE_WEALTH:
+                            update_position_real_time_prices(realtime_metrics)
             except Exception as e:
                 logger.warning(f"⚠️  Could not fetch real-time prices: {e}")
             
