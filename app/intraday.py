@@ -12,17 +12,15 @@ except Exception:
         import yf_bootstrap
     except Exception:
         pass
-import yfinance as yf
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from zoneinfo import ZoneInfo
-from datetime import datetime, date, time as dt_time
+from datetime import datetime, time as dt_time
 
 from technical_indicators import apply_indicators
 from database import init_db, save_alert_if_new, upsert_fetch_error
-from delivery_data import fetch_previous_day_delivery
 from price_cache import fetch_watchlist_data  
 from watchlist_cache import get_watchlist
 
@@ -55,18 +53,12 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     return df
 
 IST        = ZoneInfo("Asia/Kolkata")
-CHUNK_SIZE = 10   
 
 TIMEFRAME        = "5m"
 
 
 def start(run_once=False):
     init_db()
-
-    prev_delivery_map    = fetch_previous_day_delivery()
-    _delivery_fetch_date = datetime.now(IST).date()
-    if prev_delivery_map:
-        logger.info(f"📦 Previous-day delivery loaded | {len(prev_delivery_map)} symbols")
 
     from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
@@ -89,10 +81,6 @@ def start(run_once=False):
         logger.info("=" * 80)
         logger.info(f"⚡ INTRADAY SCAN START | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 80)
-
-        if datetime.now(IST).date() != _delivery_fetch_date:
-            prev_delivery_map    = fetch_previous_day_delivery()
-            _delivery_fetch_date = datetime.now(IST).date()
 
         sleep_time = 300  
         try:
@@ -118,7 +106,6 @@ def start(run_once=False):
                 
             logger.info(f"📥 Data downloaded | 5m: {len(all_ticker_data)}")
             
-            alerts_by_category = {}
             rejection_counts   = {k: 0 for k in [
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
                 "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
@@ -385,22 +372,6 @@ def start(run_once=False):
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    alerts_by_category.setdefault(category, []).append({
-                        "symbol":           symbol,
-                        "category":         category,
-                        "breakout_signals": [signal_str],
-                        "price":            round(candle_close, 2),
-                        "open":             round(float(latest["Open"]), 2),
-                        "day_high":         round(float(latest["High"]), 2),
-                        "day_low":          round(float(latest["Low"]), 2),
-                        "rsi":              round(float(latest["RSI"]), 1),
-                        "volume_ratio":     round(volume_ratio, 2),
-                        "body_ratio":       round(body_ratio, 1),
-                        "score":            score,
-                        "atr_stop":         round(suggested_stop, 2),
-                        "capital_allocated": cap_alloc,
-                        "shares_bought":     shares
-                    })
                     total_alerts += 1
 
                 except Exception as e:

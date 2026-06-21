@@ -1,6 +1,6 @@
 # =====================================================================================
 # app/live_scanner.py (ULTIMATE EDITION)
-# TREND CONFIRMATION SCANNER — 1H BARS
+# PURE 1H BREAKOUT SCANNER
 # =====================================================================================
 
 import pandas as pd
@@ -12,17 +12,15 @@ except Exception:
         import yf_bootstrap
     except Exception:
         pass
-import yfinance as yf
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from zoneinfo import ZoneInfo
-from datetime import datetime, date, time as dt_time
+from datetime import datetime, time as dt_time
 
 from technical_indicators import apply_indicators
 from database import init_db, save_alert_if_new, upsert_fetch_error
-from delivery_data import fetch_previous_day_delivery
 from price_cache import fetch_watchlist_data 
 from watchlist_cache import get_watchlist
 
@@ -56,16 +54,12 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 
 
 IST        = ZoneInfo("Asia/Kolkata")
-CHUNK_SIZE = 10  
 
 TIMEFRAME  = "1h"
 
 ENABLE_REGIME_GATE_1H = False
 def start(run_once=False):
     init_db()
-    
-    prev_delivery_map    = fetch_previous_day_delivery()
-    _delivery_fetch_date = datetime.now(IST).date()
 
     from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
@@ -83,15 +77,10 @@ def start(run_once=False):
 
         scan_start         = datetime.now(IST)
         total_alerts       = 0
-        alerts_by_category = {}
 
         logger.info("=" * 80)
         logger.info(f"⚡ 1H SCAN START | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 80)
-
-        if datetime.now(IST).date() != _delivery_fetch_date:
-            prev_delivery_map    = fetch_previous_day_delivery()
-            _delivery_fetch_date = datetime.now(IST).date()
 
         sleep_time = 300  
         try:
@@ -360,22 +349,6 @@ def start(run_once=False):
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    alerts_by_category.setdefault(category, []).append({
-                        "symbol":           symbol,
-                        "category":         category,
-                        "breakout_signals": [signal_str],
-                        "price":            round(candle_close, 2),
-                        "open":             round(float(latest["Open"]), 2),
-                        "day_high":         round(float(latest["High"]), 2),
-                        "day_low":          round(float(latest["Low"]), 2),
-                        "rsi":              round(float(latest["RSI"]), 1),
-                        "volume_ratio":     round(volume_ratio, 2),
-                        "body_ratio":       round(body_ratio, 1),
-                        "score":            score,
-                        "atr_stop":         round(suggested_stop, 2),
-                        "capital_allocated": cap_alloc,
-                        "shares_bought":     shares
-                    })
                     total_alerts += 1
 
                 except Exception as e:
