@@ -79,8 +79,16 @@ def start():
     
     ist_now = datetime.now(IST)
     logger.info("=" * 80)
-    logger.info(f"📊 EOD SCAN START | {ist_now.strftime('%Y-%m-%d %H:%M:%S IST')}")
+    logger.info(f"🔄 EOD SCAN | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 80)
+
+    # Check if we are outside the valid EOD window (18:30 - 23:59:59)
+    now_time = ist_now.time()
+    scan_start = datetime.strptime("18:30", "%H:%M").time()
+    scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
+    is_test_mode = not (scan_start <= now_time <= scan_end)
+    if is_test_mode:
+        logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
     try:
         try:
@@ -479,24 +487,28 @@ def start():
                     }
                 }
 
-                saved, cap_alloc, shares = save_alert_if_new(
-                    symbol,
-                    dedup_key,
-                    ist_now.strftime("%Y-%m-%d %H:%M:%S"),
-                    scanner="EOD",
-                    category=category,
-                    entry_price=round(candle_close, 2),
-                    signals=signal_str,
-                    score=score,
-                    rsi=round(rsi_val, 1),
-                    volume_ratio=round(volume_ratio, 2),
-                    stop_loss=suggested_stop,
-                    target_price=target_price,
-                    context=context,
-                    model_version=model_version,
-                    bayesian_regime="BULL",
-                    bayesian_weights=bayesian_weights
-                )
+                if not is_test_mode:
+                    saved, cap_alloc, shares = save_alert_if_new(
+                        symbol,
+                        dedup_key,
+                        ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+                        scanner="EOD",
+                        category=category,
+                        entry_price=round(candle_close, 2),
+                        signals=signal_str,
+                        score=score,
+                        rsi=round(rsi_val, 1),
+                        volume_ratio=round(volume_ratio, 2),
+                        stop_loss=suggested_stop,
+                        target_price=target_price,
+                        context=context,
+                        model_version=model_version,
+                        bayesian_regime="BULL",
+                        bayesian_weights=bayesian_weights
+                    )
+                else:
+                    saved, cap_alloc, shares = True, 0.0, 0
+
                 if not saved:
                     rejection_counts["duplicate"] += 1
                     continue

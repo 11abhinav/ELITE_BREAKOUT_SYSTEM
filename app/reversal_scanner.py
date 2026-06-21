@@ -260,6 +260,14 @@ def _run_scan():
     logger.info(f"🔄 MEAN REVERSION SCAN | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 80)
 
+    # Check if we are outside the valid REVERSAL window (18:30 - 23:59:59)
+    now_time = ist_now.time()
+    scan_start = datetime.strptime("18:30", "%H:%M").time()
+    scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
+    is_test_mode = not (scan_start <= now_time <= scan_end)
+    if is_test_mode:
+        logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
+
     prev_delivery_map = fetch_previous_day_delivery()
 
     try:
@@ -601,27 +609,29 @@ def _run_scan():
                 }
             }
 
-            saved, cap_alloc, shares = save_alert_if_new(
-                symbol,
-                dedup_key,
-                ist_now.strftime("%Y-%m-%d %H:%M:%S"),
-                scanner="REVERSAL",
-                category=category,
-                entry_price=round(close_price, 2),
-                signals=signal_str,
-                score=reversal_score,
-                rsi=round(current_rsi, 1),
-                volume_ratio=round(vol_ratio, 2),
-                stop_loss=suggested_stop,
-                target_price=target_price,
-                context=context,
-                model_version="v6",                 # FIX 10: bumped version
-                # [FIX 6] Removed fake hard-coded BEAR regime. Without real breadth/
-                #         index/sector inputs, regime was decorative. Honest NEUTRAL.
-                bayesian_regime="NEUTRAL",
-                bayesian_weights=None,
-            )
-            if not saved:
+            if not is_test_mode:
+                saved, cap_alloc, shares = save_alert_if_new(
+                    symbol,
+                    dedup_key,
+                    ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+                    scanner="REVERSAL",
+                    category=category,
+                    entry_price=round(close_price, 2),
+                    signals=signal_str,
+                    score=reversal_score,
+                    rsi=round(current_rsi, 1),
+                    volume_ratio=round(vol_ratio, 2),
+                    stop_loss=suggested_stop,
+                    target_price=target_price,
+                    context=context,
+                    model_version="v6",                 # FIX 10: bumped version
+                    bayesian_regime="NEUTRAL",
+                    bayesian_weights=None,
+                )
+            else:
+                saved, cap_alloc, shares = True, 0.0, 0
+                
+            if not saved and not is_test_mode:
                 continue
 
             # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
