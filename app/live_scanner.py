@@ -45,6 +45,27 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+def strip_forming_candle(df, tf_minutes, ist_now):
+    import pandas as pd
+    if df is None or df.empty:
+        return df
+    
+    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+    if datetime_col is not None:
+        try:
+            raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
+            if raw_ts.tzinfo is not None:
+                raw_ts = raw_ts.tz_convert("Asia/Kolkata")
+            candle_start = raw_ts.replace(tzinfo=None)
+            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
+            now_naive    = ist_now.replace(tzinfo=None)
+            if now_naive < candle_end:
+                return df.iloc[:-1].copy()
+        except Exception:
+            pass
+    return df
+
+
 IST        = ZoneInfo("Asia/Kolkata")
 CHUNK_SIZE = 10  
 
@@ -151,13 +172,8 @@ def start(run_once=False):
 
             rejection_counts = {k: 0 for k in [
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
-                "indicator_fail", "weak_signals", "weak_body", "bearish_candle", 
-                "weak_close_pos", "upper_wick", "low_volume", "low_avg_volume", 
-                "penny_stock", "rsi_range", "rsi_not_rising", "below_ema20", 
-                "below_sma50", "no_golden_cross", "weak_adx", "macd_bearish", 
-                "far_from_52w_high", "gap_candle", "extended_breakout", "below_daily_ema20", "low_score", 
-                "duplicate", "stale_data",
-                "prior_red_candles", "obv_divergence"
+                "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
+                "no_breakout", "extended_breakout", "exhaustion_bar", "stale_data", "duplicate"
             ]}
 
             nifty_intraday_down = False
@@ -229,20 +245,10 @@ def start(run_once=False):
                         rejection_counts["no_data"] += 1
                         continue
 
-                    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in ticker.columns), None)
-                    if datetime_col is not None:
-                        try:
-                            raw_ts = pd.Timestamp(ticker.iloc[-1][datetime_col])
-                            if raw_ts.tzinfo is not None:
-                                raw_ts = raw_ts.tz_convert("Asia/Kolkata")
-                            candle_start = raw_ts.replace(tzinfo=None)
-                            candle_end   = candle_start + pd.Timedelta(minutes=60)
-                            now_naive    = datetime.now(IST).replace(tzinfo=None)
-                            if now_naive < candle_end:
-                                ticker = ticker.iloc[:-1].copy()
-                                rejection_counts["forming_candle_stripped"] += 1
-                        except Exception:
-                            pass
+                    ticker = strip_forming_candle(ticker, 60, datetime.now(IST))
+                    if ticker is None or ticker.empty:
+                        rejection_counts["forming_candle_stripped"] += 1
+                        continue
 
                     if len(ticker) < 100:
                         rejection_counts["insufficient_bars"] += 1
@@ -304,150 +310,75 @@ def start(run_once=False):
                     wick_ratio     = upper_wick / candle_range
                     rsi_val        = float(latest["RSI"])
 
-                    if body_ratio < MIN_BODY_RATIO:
-                        rejection_counts["weak_body"] += 1
-                        continue
-                    if candle_close <= candle_open:
-                        rejection_counts["bearish_candle"] += 1
-                        continue
-                    if close_position < MIN_CLOSE_POSITION:
-                        rejection_counts["weak_close_pos"] += 1
-                        continue
-                    if wick_ratio > MAX_UPPER_WICK_RATIO:
-                        rejection_counts["upper_wick"] += 1
-                        continue
-                    if volume_z_score < MIN_VOLUME_Z_SCORE:
-                        rejection_counts["low_volume"] += 1
-                        continue
-                    if avg_volume < MIN_AVG_VOLUME_SHARES:
-                        rejection_counts["low_avg_volume"] += 1
-                        continue
                     if candle_close < MIN_STOCK_PRICE:
                         rejection_counts["penny_stock"] += 1
                         continue
-                    if not (MIN_RSI <= rsi_val <= MAX_RSI):
-                        rejection_counts["rsi_range"] += 1
-                        continue
-                    if len(ticker) > RSI_LOOKBACK_BARS:
-                        rsi_prev = float(ticker["RSI"].iloc[-1 - RSI_LOOKBACK_BARS])
-                        if rsi_val <= rsi_prev:
-                            rejection_counts["rsi_not_rising"] += 1
-                            continue
 
-                    if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
-                        if candle_close < float(latest["EMA20"]):
-                            rejection_counts["below_ema20"] += 1
-                            continue
-                    if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
-                        if candle_close < float(latest["SMA50"]):
-                            rejection_counts["below_sma50"] += 1
-                            continue
-                    if (
-                        "SMA50" in ticker.columns and "SMA200" in ticker.columns and
-                        not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))
-                    ):
-                        if float(latest["SMA50"]) < float(latest["SMA200"]):
-                            rejection_counts["no_golden_cross"] += 1
-                            continue
-                    # ADX floor is timeframe-aware: 1H bars naturally show lower ADX
-                    # than daily bars. 20 = established trend on hourly timeframe.
-                    if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
-                        if float(latest["ADX"]) < 20:
-                            rejection_counts["weak_adx"] += 1
-                            continue
-                    if (
-                        "MACD" in ticker.columns and "MACD_SIGNAL" in ticker.columns and
-                        not pd.isna(latest.get("MACD")) and not pd.isna(latest.get("MACD_SIGNAL"))
-                    ):
-                        if float(latest["MACD"]) < float(latest["MACD_SIGNAL"]):
-                            rejection_counts["macd_bearish"] += 1
-                            continue
+                    volume_ratio = latest_volume / avg_volume
 
-                    # ── MULTI-TIMEFRAME ALIGNMENT (MTA) ─────────────────────────────────────
-                    if symbol in daily_context_data and not daily_context_data[symbol].empty:
-                        daily_df = daily_context_data[symbol].copy()
-                        if len(daily_df) >= 20:
-                            daily_df["EMA20_D"] = daily_df["Close"].ewm(span=20, adjust=False).mean()
-                            latest_daily_close = float(daily_df["Close"].iloc[-1])
-                            latest_daily_ema20 = float(daily_df["EMA20_D"].iloc[-1])
-                            
-                            if latest_daily_close < latest_daily_ema20:
-                                rejection_counts["below_daily_ema20"] += 1
-                                continue
-                    # ────────────────────────────────────────────────────────────────────────
-
-                    if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
-                        high_52w = float(latest["HIGH_52W"])
-                        if high_52w > 0:
-                            pct_from_high = (high_52w - candle_close) / high_52w * 100
-                            if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
-                                rejection_counts["far_from_52w_high"] += 1
-                                continue
-                    if len(ticker) >= 2:
-                        prev_close = float(ticker["Close"].iloc[-2])
-                        if prev_close > 0:
-                            single_move_pct = abs(candle_close - prev_close) / prev_close * 100
-                            if single_move_pct > MAX_SINGLE_CANDLE_MOVE_PCT:
-                                rejection_counts["gap_candle"] += 1
-                                continue
-
-                    if len(ticker) >= GAP_LOOKBACK_BARS + 1:
-                        prior_high = float(ticker["High"].iloc[-(GAP_LOOKBACK_BARS + 1):-1].max())
-                        if prior_high > 0:
-                            gap_pct = (candle_open - prior_high) / prior_high * 100
-                            if gap_pct > MAX_GAP_FROM_PRIOR_HIGH_PCT:
-                                rejection_counts["extended_breakout"] += 1
-                                continue
-
-                    delivery_pct = prev_delivery_map.get(symbol, None)
-
-                    # ── v5: PREVIOUS CANDLE CONTEXT FILTER ─────────────────────────
-                    if len(ticker) >= 3:
-                        red_count = 0
-                        for _ri in range(-3, -1):
-                            if float(ticker["Close"].iloc[_ri]) < float(ticker["Open"].iloc[_ri]):
-                                red_count += 1
-                        if red_count >= MAX_PRE_BREAKOUT_RED_CANDLES:
-                            rejection_counts["prior_red_candles"] += 1
-                            continue
-
-                    # ── v5: OBV DIVERGENCE FILTER ───────────────────────────────
-                    if "OBV_TREND" in ticker.columns:
-                        obv_trend = int(latest.get("OBV_TREND", 0) or 0)
-                        if obv_trend == -1:
-                            rejection_counts["obv_divergence"] += 1
-                            continue
-
-                    score, model_version, bayesian_weights = calculate_score(
-                        category=category,
-                        breakout_count=len(signals),
-                        rsi=rsi_val,
-                        volume_ratio=volume_z_score,
-                        breakout_signals=signals,
-                        ticker=ticker,
-                        latest=latest,
-                        symbol=symbol,
-                        timeframe="1h",
-                        delivery_pct=delivery_pct,
-                        min_vol=MIN_AVG_VOLUME_SHARES,
-                        regime="BULL"
-                    )
-
-                    if score > 0:
-                        try:
-                            safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                            sector_bonus = rotation_result.score_bonus_for(safe_sector)
-                            score = max(0, min(score + sector_bonus, 100))
-                        except Exception:
-                            pass
-
-                    if score < MIN_SCORE:
-                        rejection_counts["low_score"] += 1
+                    # ── STRICT 1H CONTINUATION RULES ──────────────────────────────────────
+                    e20 = float(latest.get("EMA20", 0) or 0)
+                    s50 = float(latest.get("SMA50", 0) or 0)
+                    s200 = float(latest.get("SMA200", 0) or 0)
+                    
+                    trend_ok = candle_close > e20 and candle_close > s50 and s50 > s200
+                    if not trend_ok:
+                        rejection_counts["trend_fail"] += 1
                         continue
 
-                    signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
+                    adx = float(latest.get("ADX", 0) or 0)
+                    momentum_ok = 55 <= rsi_val <= 78 and adx >= 20
+                    if not momentum_ok:
+                        rejection_counts["momentum_fail"] += 1
+                        continue
+
+                    volume_ok = volume_ratio >= 1.5
+                    if not volume_ok:
+                        rejection_counts["volume_fail"] += 1
+                        continue
+
+                    candle_ok = body_ratio >= 0.50 and close_position >= 0.60 and wick_ratio < 0.30
+                    if not candle_ok:
+                        rejection_counts["candle_fail"] += 1
+                        continue
+
+                    breakout_level = float(latest.get("PRIOR_20D_HIGH", 0) or 0)
+                    if breakout_level <= 0:
+                        continue
+                        
+                    breakout_ok = candle_close > breakout_level
+                    if not breakout_ok:
+                        rejection_counts["no_breakout"] += 1
+                        continue
+                        
+                    atr = float(latest.get("ATR", 0) or 0)
+                    extension_ok = candle_close <= breakout_level + 0.8 * atr
+                    if not extension_ok:
+                        rejection_counts["extended_breakout"] += 1
+                        continue
+                        
+                    prev_close = float(ticker["Close"].iloc[-2]) if len(ticker) >= 2 else candle_close
+                    single_bar_pct = abs(candle_close - prev_close) / prev_close * 100
+                    not_exhausted = single_bar_pct <= 5.5
+                    if not not_exhausted:
+                        rejection_counts["exhaustion_bar"] += 1
+                        continue
+
+                    # Alert execution details
+                    score = min(100, int(80 + (volume_ratio * 5)))
+                    model_version = "strict_1h_v1"
+                    bayesian_weights = {}
+                    try:
+                        safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
+                        sector_bonus = rotation_result.score_bonus_for(safe_sector)
+                        score = max(0, min(score + sector_bonus, 100))
+                    except Exception:
+                        pass
+
+
+                    signal_str = "1H_QUALITY_BREAKOUT"
                     today_str  = datetime.now(IST).strftime("%Y-%m-%d")
-                    dedup_key  = f"{category}|{signal_str}|{today_str}|1H"
+                    dedup_key  = f"{category}|{signal_str}|{symbol}|{today_str}|1H"
 
                     from database import check_recent_alert
                     if check_recent_alert(symbol, "LIVE", dedup_key, 240):

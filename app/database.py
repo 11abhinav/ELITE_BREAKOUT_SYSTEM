@@ -264,6 +264,14 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
 
+                # ── Breakout Watchlist Metadata Columns (Multi-TF Funnel) ─────────
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS invalidation_level REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS max_extension_atr REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS buffer_pct REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS armed_at TIMESTAMPTZ")
+
+
                 # ── Score Weight Log (Bayesian Versioning) ─────────────────────────
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS score_weight_log (
@@ -3144,6 +3152,11 @@ def upsert_breakout_watchlist(
     m5_status: str = "PENDING",
     breakout_level: float = None,
     support_level: float = None,
+    trigger_level: float = None,
+    invalidation_level: float = None,
+    max_extension_atr: float = None,
+    buffer_pct: float = None,
+    armed_at: str = None,
     context_json: str = None
 ):
     if DONT_SAVE_ALERTS:
@@ -3157,9 +3170,10 @@ def upsert_breakout_watchlist(
                     INSERT INTO breakout_watchlist (
                         symbol, category, current_state,
                         h1_status, m30_status, m15_status, m5_status,
-                        breakout_level, support_level, session_date, context_json, last_updated
+                        breakout_level, support_level, trigger_level, invalidation_level, 
+                        max_extension_atr, buffer_pct, armed_at, session_date, context_json, last_updated
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
                     )
                     ON CONFLICT (symbol) DO UPDATE SET
                         category = EXCLUDED.category,
@@ -3170,10 +3184,18 @@ def upsert_breakout_watchlist(
                         m5_status = EXCLUDED.m5_status,
                         breakout_level = COALESCE(EXCLUDED.breakout_level, breakout_watchlist.breakout_level),
                         support_level = COALESCE(EXCLUDED.support_level, breakout_watchlist.support_level),
+                        trigger_level = COALESCE(EXCLUDED.trigger_level, breakout_watchlist.trigger_level),
+                        invalidation_level = COALESCE(EXCLUDED.invalidation_level, breakout_watchlist.invalidation_level),
+                        max_extension_atr = COALESCE(EXCLUDED.max_extension_atr, breakout_watchlist.max_extension_atr),
+                        buffer_pct = COALESCE(EXCLUDED.buffer_pct, breakout_watchlist.buffer_pct),
+                        armed_at = COALESCE(EXCLUDED.armed_at, breakout_watchlist.armed_at),
                         session_date = EXCLUDED.session_date,
                         context_json = COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json),
                         last_updated = NOW()
-                """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, breakout_level, support_level, session_date, context_json))
+                """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
+                      breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
+                      buffer_pct, armed_at, session_date, context_json))
+
     except Exception as e:
         logger.exception(f"❌ Failed to upsert breakout_watchlist for {symbol}: {e}")
 
@@ -3182,7 +3204,9 @@ def get_active_breakout_watchlist() -> list:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, breakout_level, support_level, context_json, last_updated
+                    SELECT symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
+                           breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, buffer_pct, armed_at, 
+                           context_json, last_updated
                     FROM breakout_watchlist
                     WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
                       AND (cooldown_until IS NULL OR cooldown_until < NOW())

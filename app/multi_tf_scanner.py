@@ -20,6 +20,27 @@ from config import MIN_STOCK_PRICE
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+def strip_forming_candle(df, tf_minutes, ist_now):
+    import pandas as pd
+    if df is None or df.empty:
+        return df
+    
+    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+    if datetime_col is not None:
+        try:
+            raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
+            if raw_ts.tzinfo is not None:
+                raw_ts = raw_ts.tz_convert("Asia/Kolkata")
+            candle_start = raw_ts.replace(tzinfo=None)
+            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
+            now_naive    = ist_now.replace(tzinfo=None)
+            if now_naive < candle_end:
+                return df.iloc[:-1].copy()
+        except Exception:
+            pass
+    return df
+
+
 def get_market_regime():
     try:
         import yfinance as yf
@@ -57,6 +78,9 @@ def run_hourly_phase():
         if df is None or df.empty or len(df) < 200:
             continue
 
+        df = strip_forming_candle(df, 60, datetime.now(IST))
+        if df is None or df.empty or len(df) < 2:
+            continue
         df = apply_indicators(df, timeframe="1h")
         if df is None or df.empty:
             continue
@@ -79,21 +103,27 @@ def run_hourly_phase():
         s50 = float(latest.get("SMA50", 0) or 0)
         s200 = float(latest.get("SMA200", 0) or 0)
         adx = float(latest.get("ADX", 0) or 0)
+        prior_high = float(latest.get("PRIOR_20D_HIGH", 0) or 0)
+        
+        if prior_high <= 0:
+            continue
+            
+        dist_to_breakout = (prior_high - close) / prior_high
         
         # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
+        # AND price must be within 0.5% to 3.0% of the breakout level
         if e9 > e20 and e20 > s50 and close > s200 and adx > 20:
-            # We have an hourly approved setup!
-            prior_high = float(latest.get("PRIOR_20D_HIGH", 0) or 0)
-            
-            # Upsert into breakout_watchlist
-            upsert_breakout_watchlist(
-                symbol=symbol,
-                category=category,
-                current_state="HOURLY_APPROVED",
-                h1_status="PASSED",
-                breakout_level=prior_high
-            )
-            logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED.")
+            if 0.005 <= dist_to_breakout <= 0.03:
+                # We have an hourly approved setup!
+                upsert_breakout_watchlist(
+                    symbol=symbol,
+                    category=category,
+                    current_state="HOURLY_APPROVED",
+                    h1_status="PASSED",
+                    breakout_level=prior_high,
+                    trigger_level=prior_high
+                )
+                logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
 
 def run_lower_tf_phase(current_regime="BULL"):
     """
@@ -109,12 +139,10 @@ def run_lower_tf_phase(current_regime="BULL"):
 
     # Bucket symbols by required timeframe to minimize downloads
     needs_30m = [i["symbol"] for i in active_items if i["current_state"] == "HOURLY_APPROVED"]
-    needs_15m = [i["symbol"] for i in active_items if i["current_state"] == "SETUP_ARMED"]
-    needs_5m  = [i["symbol"] for i in active_items if i["current_state"] in ("BREAKOUT_CONFIRMED", "ENTRY_READY")]
+    needs_5m  = [i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")]
     
     import pandas as pd
     data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
-    data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="1mo", interval="15m") if needs_15m else {}
     data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
 
     ist_now = datetime.now(IST)
@@ -130,127 +158,136 @@ def run_lower_tf_phase(current_regime="BULL"):
 
         # Failed state check for SETUP_ARMED
         if state == "SETUP_ARMED":
-            df = data_30m.get(symbol)
-            if df is not None and not df.empty:
-                close = float(df["Close"].iloc[-1])
-                # If we fall >3% away from resistance, drop back to HOURLY_APPROVED
-                if (breakout_level - close) / breakout_level > 0.03:
-                    upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
-                    state = "HOURLY_APPROVED"
-                    logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
+            armed_at_str = item.get("armed_at")
+            if armed_at_str:
+                try:
+                    armed_at_ts = datetime.strptime(armed_at_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=IST)
+                    if (ist_now - armed_at_ts).total_seconds() > 3600 * 4: # 4 hours expiry
+                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                        state = "HOURLY_APPROVED"
+                        logger.info(f"⏳ {symbol} SETUP_ARMED expired (stale). Downgraded to HOURLY_APPROVED.")
+                except Exception:
+                    pass
 
-        # Failed state check for BREAKOUT_CONFIRMED
-        if state == "BREAKOUT_CONFIRMED":
-            df = data_5m.get(symbol)
-            if df is not None and not df.empty:
-                close = float(df["Close"].iloc[-1])
-                # If we lose the breakout level entirely, drop back to SETUP_ARMED
-                if close < breakout_level * 0.995:
-                    upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="SETUP_ARMED")
-                    state = "SETUP_ARMED"
-                    logger.info(f"⚠️ {symbol} lost breakout level. Downgraded to SETUP_ARMED.")
+            df = data_30m.get(symbol)
+            if df is not None:
+                df = strip_forming_candle(df, 30, ist_now)
+                if df is not None and len(df) >= 2:
+                    close = float(df["Close"].iloc[-1])
+                    # If we fall >3% away from resistance, drop back to HOURLY_APPROVED
+                    if (breakout_level - close) / breakout_level > 0.03:
+                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                        state = "HOURLY_APPROVED"
+                        logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
 
         # ── 30-Min: SETUP_ARMED ───────────────────────────────────────────
         if state == "HOURLY_APPROVED":
             df = data_30m.get(symbol)
-            if df is not None and not df.empty:
+            if df is not None:
+                df = strip_forming_candle(df, 30, ist_now)
+                if df is None or df.empty or len(df) < 2:
+                    continue
                 df = apply_indicators(df, timeframe="30m")
+                if df.empty:
+                    continue
                 latest = df.iloc[-1]
                 bb_pctile = float(latest.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
                 
-                # Consolidation formed (tight BB) OR near breakout level
-                if bb_pctile < 0.30 or (0 < (breakout_level - float(latest["Close"])) / breakout_level < 0.03):
-                    upsert_breakout_watchlist(
-                        symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED"
-                    )
-                    logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED.")
-
-        # ── 15-Min: BREAKOUT_CONFIRMED ────────────────────────────────────
-        elif state == "SETUP_ARMED":
-            df = data_15m.get(symbol)
-            if df is not None and len(df) >= 22:
-                df = apply_indicators(df, timeframe="15m")
-                if "Volume" not in df.columns:
-                    continue
-                latest = df.iloc[-1]
                 close = float(latest["Close"])
-                open_px = float(latest["Open"])
-                high = float(latest["High"])
-                low = float(latest["Low"])
+                dist_to_breakout = (breakout_level - close) / breakout_level
                 
-                # Clean break of resistance and candle quality
-                min_buffer = breakout_level * 1.002
-                candle_range = high - low
-                upper_wick = high - max(open_px, close)
-                upper_wick_ratio = upper_wick / candle_range if candle_range > 0 else 0
-                close_in_upper_half = close > (low + candle_range / 2)
-                
-                if close > min_buffer and close_in_upper_half and upper_wick_ratio < 0.3:
-                    mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
-                    vol_ratio = float(latest["Volume"]) / mean_vol
-                    if vol_ratio > 1.2:
-                        upsert_breakout_watchlist(
-                            symbol=symbol, category=cat, current_state="BREAKOUT_CONFIRMED", m15_status="PASSED"
-                        )
-                        logger.info(f"🔥 {symbol} upgraded to BREAKOUT_CONFIRMED.")
+                # Consolidation formed (tight BB) AND near breakout level
+                if bb_pctile < 0.30 and (0.003 <= dist_to_breakout <= 0.02):
+                    swing_low = float(latest.get("SWING_LOW", close))
+                    ema20 = float(latest.get("EMA20", close))
+                    
+                    upsert_breakout_watchlist(
+                        symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
+                        trigger_level=breakout_level,
+                        invalidation_level=min(swing_low, ema20),
+                        max_extension_atr=0.8,
+                        buffer_pct=0.0015,
+                        armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S')
+                    )
+                    logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
-        # ── 5-Min: ENTRY_READY & TRADE_ACTIVE ──────────────────────────────
-        elif state == "BREAKOUT_CONFIRMED" or state == "ENTRY_READY":
+        # ── 5-Min: FINAL TRIGGER EXECUTION ──────────────────────────────
+        elif state == "SETUP_ARMED" or state == "ENTRY_READY":
             df = data_5m.get(symbol)
-            if df is not None and len(df) >= 22:
-                df = apply_indicators(df, timeframe="5m")
-                if "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
+            if df is not None:
+                df = strip_forming_candle(df, 5, ist_now)
+                if df is None or df.empty or len(df) < 2:
                     continue
+                df = apply_indicators(df, timeframe="5m")
+                if df.empty or "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
+                    continue
+                    
                 latest = df.iloc[-1]
                 prev = df.iloc[-2]
+                
+                trigger_level = float(item.get("trigger_level") or breakout_level)
+                max_ext_atr = float(item.get("max_extension_atr") or 0.8)
+                buffer_val = trigger_level * float(item.get("buffer_pct") or 0.0015)
                 
                 e9 = float(latest.get("EMA9", 0))
                 close = float(latest["Close"])
                 low = float(latest["Low"])
+                open_px = float(latest["Open"])
                 atr20 = float(latest.get("ATR20", 0.0) or 0.0)
-                mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
+                
+                if len(df) >= 22:
+                    mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
+                else:
+                    mean_vol = max(float(df["Volume"].iloc[:-1].mean() or 1.0), 1.0)
                 vol_ratio = float(latest["Volume"]) / mean_vol
                 
-                # Extension limit
-                if close > breakout_level + (1.5 * atr20):
+                # Extension limit strict check
+                if close > trigger_level + (max_ext_atr * atr20):
                     continue
 
                 is_ready = False
                 trigger_type = ""
                 
-                if close > float(prev["High"]) and vol_ratio > 1.0:  # Continuation
-                    is_ready = True
-                    trigger_type = "continuation"
-                elif low <= e9 and close >= e9:  # Micro pullback
-                    if close > float(latest["Open"]) and (vol_ratio > 1.0 or close > float(prev["High"])):
+                candle_range = float(latest["High"]) - float(latest["Low"])
+                if candle_range > 0:
+                    close_position = (close - low) / candle_range
+                    upper_wick_ratio = (float(latest["High"]) - close) / candle_range
+                else:
+                    close_position = 0.5
+                    upper_wick_ratio = 0.0
+                
+                # Thrust/Continuation Trigger
+                # Price breaks local high while still close to level, with volume
+                if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.2:
+                    if close_position >= 0.6 or upper_wick_ratio < 0.35:
+                        is_ready = True
+                        trigger_type = "thrust"
+                    
+                # Pullback Trigger
+                # Breakout level or EMA9 is defended, and price reclaims with volume
+                elif low <= trigger_level or low <= e9:
+                    if close > float(prev["High"]) and close >= trigger_level and close > open_px and vol_ratio > 1.0:
                         is_ready = True
                         trigger_type = "pullback"
                 
-                if is_ready and state == "BREAKOUT_CONFIRMED":
-                    upsert_breakout_watchlist(
-                        symbol=symbol, category=cat, current_state="ENTRY_READY", m5_status="PASSED"
-                    )
-                    state = "ENTRY_READY"
-                    logger.info(f"🚀 {symbol} upgraded to ENTRY_READY.")
-                
-                # Phase C: Final Execution Logic
-                if state == "ENTRY_READY":
-                    # Idempotency check before alert
-                    dedup_key = f"{cat}|MULTI_TF|{ist_now.strftime('%Y-%m-%d')}"
+                if is_ready:
+                    # Idempotency check before alert using stricter symbol-trigger key
+                    dedup_key = f"{cat}|MULTI_TF|{symbol}|{trigger_type}|{ist_now.strftime('%Y-%m-%d')}"
                     if not check_recent_alert(symbol, "INTRADAY", dedup_key, minutes=390):
-                        from sl_target_helper import compute_sl_and_target
-                        sl_result = compute_sl_and_target(
-                            entry_price=close,
-                            atr=atr20,
-                            candle_range=float(latest["High"]) - float(latest["Low"]),
-                            mode="INTRADAY"
-                        )
+                        # Direct structural stop using max for tighter stop
+                        invalidation_level = float(item.get("invalidation_level") or (low - atr20))
+                        structure_sl = min(low, float(prev["Low"])) - (0.2 * atr20)
+                        final_sl = max(structure_sl, invalidation_level)
+                        if final_sl >= close:
+                            final_sl = close - (0.5 * atr20) # Fallback if invalidation is too high
                         
                         ctx = json.dumps({
                             "ladder": "TRADE_ACTIVE",
-                            "breakout_level": round(breakout_level, 2),
+                            "breakout_level": round(trigger_level, 2),
                             "trigger": trigger_type,
-                            "vol_ratio": round(vol_ratio, 2)
+                            "vol_ratio": round(vol_ratio, 2),
+                            "final_sl": round(final_sl, 2),
+                            "invalidation_level": round(invalidation_level, 2)
                         })
                         
                         save_alert_if_new(
@@ -260,8 +297,8 @@ def run_lower_tf_phase(current_regime="BULL"):
                             scanner="multi_tf_scanner",
                             category=cat,
                             entry_price=close,
-                            stop_loss=sl_result["stop_loss"],
-                            signals=f"Multi-TF Ladder (1h->30m->15m->5m) | {trigger_type}",
+                            stop_loss=final_sl,
+                            signals=f"Multi-TF Ladder (1h->30m->5m) | {trigger_type}",
                             score=min(100, int(80 + (vol_ratio * 5))), # Dynamic conviction
                             rsi=float(latest.get("RSI", 0)),
                             volume_ratio=vol_ratio,
@@ -272,7 +309,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                             symbol=symbol, category=cat, current_state="TRADE_ACTIVE"
                         )
                         mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
-                        logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated.")
+                        logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
 
 def run_sweeper():
     sweep_stale_breakout_watchlist()
