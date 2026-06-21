@@ -635,6 +635,18 @@ def run_wealth_scan():
                     tech["rs_6m"] = prev_row.get("rs_6m")
                     tech["dist_52w_high"] = prev_row.get("dist_52w_high")
                     tech["liquidity"] = prev_row.get("liquidity", 0.0)
+                    
+                    # New derived technicals
+                    tech["RSI"] = prev_row.get("RSI", 50.0)
+                    tech["ATR_Pct"] = prev_row.get("ATR_Pct", 0.0)
+                    tech["momentum_score"] = prev_row.get("momentum_score", 0)
+                    tech["momentum_confidence"] = prev_row.get("momentum_confidence", "LOW")
+                    
+                    # Explicit flag so signal logic can downgrade new buys
+                    tech["used_fallback_data"] = True
+                    tech["data_quality"] = DataQuality.CACHED_PREV_DAY.value
+                    tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now().isoformat())
+                    
                     rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                     try:
                         from database import upsert_fetch_error
@@ -649,6 +661,7 @@ def run_wealth_scan():
                         upsert_fetch_error('yfinance', 'WEALTH', sym, '1d', 'no_data', 'missing_data_no_fallback')
                     except Exception:
                         pass
+                    return {"Stock": sym}
                     
                 tech["Stock"] = sym
                 try:

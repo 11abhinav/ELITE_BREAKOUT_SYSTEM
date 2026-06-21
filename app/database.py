@@ -728,10 +728,14 @@ ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_dedup_idx;
 ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date);
 
 -- 4. Add status CHECK constraints (NOT VALID to avoid full-table validation during deploy)
-ALTER TABLE alerts ADD CONSTRAINT IF NOT EXISTS chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')) NOT VALID;
-ALTER TABLE scanner_health ADD CONSTRAINT IF NOT EXISTS chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE')) NOT VALID;
-ALTER TABLE telegram_queue ADD CONSTRAINT IF NOT EXISTS chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
-ALTER TABLE bayesian_model_updates ADD CONSTRAINT IF NOT EXISTS chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
+ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
+ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')) NOT VALID;
+ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
+ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE')) NOT VALID;
+ALTER TABLE telegram_queue DROP CONSTRAINT IF EXISTS chk_tg_status;
+ALTER TABLE telegram_queue ADD CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
+ALTER TABLE bayesian_model_updates DROP CONSTRAINT IF EXISTS chk_bayes_status;
+ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
 """)
                     finally:
                         try:
