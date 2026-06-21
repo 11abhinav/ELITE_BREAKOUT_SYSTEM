@@ -645,8 +645,9 @@ def init_db():
                         pass
                     orig_autocommit = getattr(conn, 'autocommit', False)
                     conn.autocommit = True
-                    with conn.cursor() as mcur:
-                        mcur.execute("""
+                    try:
+                        with conn.cursor() as mcur:
+                            mcur.execute("""
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
 -- Create robust safe_cast_timestamptz overloads for text, timestamp, and timestamptz
 CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
