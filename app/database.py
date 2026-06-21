@@ -594,10 +594,19 @@ def init_db():
                 """)
 
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
-                # Run heavy DDL in autocommit mode to avoid transaction-abort cascades if any statement fails.
+                # Run heavy DDL on a dedicated connection (avoid toggling autocommit on shared connections)
                 try:
-                    conn.autocommit = True
-                    cur.execute("""
+                    p = _get_pool()
+                    mig_conn = p.getconn()
+                    try:
+                        try:
+                            mig_conn.rollback()
+                        except Exception:
+                            pass
+                        orig_autocommit = getattr(mig_conn, 'autocommit', False)
+                        mig_conn.autocommit = True
+                        with mig_conn.cursor() as mcur:
+                            mcur.execute("""
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
 DO $$
 DECLARE
@@ -672,11 +681,19 @@ ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'W
 ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE')) NOT VALID;
 ALTER TABLE telegram_queue ADD CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
 ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
-                    """)
+                            """)
+                    finally:
+                        try:
+                            mig_conn.autocommit = orig_autocommit
+                        except Exception:
+                            pass
+                        try:
+                            p.putconn(mig_conn)
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"Failed to run V5 migrations: {e}")
-                finally:
-                    conn.autocommit = False
+                # outer connection will commit below
 
                 conn.commit()
 
@@ -1032,10 +1049,18 @@ def upsert_scanner_health(
     """
     init_db()
     now_str = datetime.now(IST).isoformat()
-    
+
+    # Normalize and sanitize status values to match DB CHECK constraint
+    if status is not None:
+        status = str(status).upper()
+    allowed_statuses = {'OK', 'DOWN', 'IDLE'}
+    if status is not None and status not in allowed_statuses:
+        logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
+        status = 'IDLE'
+
     error_severity = None
     is_ack = None
-    
+
     # Classify error severity and set acknowledgement status
     if status == 'DOWN' and error_msg:
         error_severity = classify_error_severity(error_msg)

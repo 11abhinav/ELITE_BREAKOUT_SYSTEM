@@ -1,4 +1,4 @@
-review # =====================================================================================
+# =====================================================================================
 # app/reversal_scanner.py (SCHEDULER READY) — v6 REVISED
 # DEEP DISCOUNT & MEAN REVERSION SCANNER (With Valuation Metrics)
 #
