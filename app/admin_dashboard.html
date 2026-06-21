@@ -505,14 +505,6 @@ function playDing() {
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
         <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
-        <div style="margin-left:auto; text-align:right;">
-          <div id="simNetPnl" style="font-family:var(--font-mono); font-size:18px; font-weight:600;">Est. Net P&L: ₹0</div>
-          <div id="simFloating" style="font-size:12px; color:var(--muted); margin-top:4px;">Floating: ₹0</div>
-        </div>
-        <div style="border-left:1px solid var(--border); padding-left:16px; text-align:right;">
-          <div id="simPeak" style="font-family:var(--font-mono); font-size:18px; font-weight:600; color:var(--text);">Peak: ₹0</div>
-          <div id="simDrawdown" style="font-size:12px; color:var(--warn); margin-top:4px;">Drawdown: 0.0%</div>
-        </div>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -1779,7 +1771,8 @@ async function ackFetchErrorGroup(ids) {
 }
 
 function updateSim() {
-  const cap = parseFloat(document.getElementById('simCapital').value) || 500000;
+  const simCapitalEl = document.getElementById('simCapital');
+  const cap = (simCapitalEl && parseFloat(simCapitalEl.value)) || 500000;
   
   let closedTrades = ALL_TRADES.filter(t => ['WIN','LOSS'].includes(t.status));
   closedTrades.sort((a,b) => {
@@ -1818,8 +1811,7 @@ function updateSim() {
     resEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--warn)';
   }
   if(resEl2) {
-    resEl2.textContent = 'Est. Net P&L: ' + netText;
-    resEl2.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--warn)';
+    // Simulator metric removed - no longer displayed
   }
   const floatEl = document.getElementById('simFloating');
   const floatElInline = document.getElementById('simFloating_inline');
@@ -1827,8 +1819,104 @@ function updateSim() {
   const floatColor = totalFloating >= 0 ? 'var(--win)' : 'var(--loss)';
   
   if(floatEl) {
-    floatEl.textContent = 'Floating: ' + floatText;
-    floatEl.style.color = floatColor;
+    // Simulator metric removed - no longer displayed
+  }
+  if(floatElInline) {
+    floatElInline.textContent = 'Floating: ' + floatText;
+    floatElInline.style.color = floatColor;
+  }
+
+  // Calculate Real P&L
+  let realBookedPnl = 0;
+  closedTrades.forEach(t => {
+      realBookedPnl += (t.pnl_rs || 0);
+  });
+
+  let realOpenPnl = 0;
+  openTrades.forEach(t => {
+      if (t.shares_bought && t.current_price) {
+          realOpenPnl += (t.current_price - t.entry_price) * t.shares_bought;
+      } else if (t.pnl_rs) {
+          realOpenPnl += t.pnl_rs;
+      }
+  });
+
+  const rbEl = document.getElementById('realBookedPnl');
+  if(rbEl) {
+      rbEl.textContent = (realBookedPnl>=0?'+':'') + '₹' + Math.round(realBookedPnl).toLocaleString('en-IN');
+      rbEl.style.color = realBookedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  const roEl = document.getElementById('realOpenPnl');
+  if(roEl) {
+      roEl.textContent = (realOpenPnl>=0?'+':'') + '₹' + Math.round(realOpenPnl).toLocaleString('en-IN');
+      roEl.style.color = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Calculate Available Cash (Total Equity - Deployed Capital)
+  let deployedCapital = 0;
+  openTrades.forEach(t => {
+      if (t.entry_price && t.shares_bought) {
+          deployedCapital += t.entry_price * t.shares_bought;
+      }
+  });
+  let totalEquity = cap + realBookedPnl + realOpenPnl;
+  let availableCash = Math.max(0, totalEquity - deployedCapital);
+  
+  const acEl = document.getElementById('availableCash');
+  if(acEl) {
+      acEl.textContent = '₹' + Math.round(availableCash).toLocaleString('en-IN');
+      acEl.style.color = 'var(--text)';
+  }
+
+  renderEquityCurve();
+}
+  
+  let closedTrades = ALL_TRADES.filter(t => ['WIN','LOSS'].includes(t.status));
+  closedTrades.sort((a,b) => {
+    const da = a.closed_at || a.entry_date || '';
+    const db = b.closed_at || b.entry_date || '';
+    return da.localeCompare(db);
+  });
+
+  let currentEquity = cap;
+  
+  closedTrades.forEach(t => {
+    let allocPct = (t.score >= 90) ? 0.15 : 0.10;
+    let capitalForTrade = currentEquity * allocPct;
+    let simulatedProfit = capitalForTrade * ((t.pnl_pct || 0) / 100);
+    currentEquity += simulatedProfit;
+  });
+
+  let totalNet = currentEquity - cap;
+
+  let totalFloating = 0;
+  let openTrades = ALL_TRADES.filter(t => t.status === 'OPEN');
+  openTrades.forEach(t => {
+    if (t.current_price == null || t.current_price === 0) return;
+    let allocPct = (t.score >= 90) ? 0.15 : 0.10;
+    let capitalForTrade = currentEquity * allocPct;
+    let floatingPct = ((t.current_price - t.entry_price) / t.entry_price);
+    let simulatedFloating = capitalForTrade * floatingPct;
+    totalFloating += simulatedFloating;
+  });
+
+  const resEl = document.getElementById('simResult');
+  const resEl2 = document.getElementById('simNetPnl');
+  const netText = (totalNet>=0?'+':'') + '₹' + Math.round(totalNet).toLocaleString('en-IN');
+  if(resEl) {
+    resEl.textContent = 'Sim P&L: ' + netText;
+    resEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--warn)';
+  }
+  if(resEl2) {
+    // Simulator metric removed - no longer displayed
+  }
+  const floatEl = document.getElementById('simFloating');
+  const floatElInline = document.getElementById('simFloating_inline');
+  const floatText = (totalFloating>=0?'+':'') + '₹' + Math.round(totalFloating).toLocaleString('en-IN');
+  const floatColor = totalFloating >= 0 ? 'var(--win)' : 'var(--loss)';
+  
+  if(floatEl) {
+    // Simulator metric removed - no longer displayed
   }
   if(floatElInline) {
     floatElInline.textContent = 'Floating: ' + floatText;
@@ -1883,7 +1971,10 @@ function updateSim() {
 async function loadCapitalInfo() {
   try {
     const response = await fetch('/api/capital_info');
-    if (!response.ok) return;
+    if (!response.ok) {
+      console.warn('Capital info response not ok:', response.status);
+      return;
+    }
     const data = await response.json();
     
     const bcEl = document.getElementById('baseCapital');
@@ -1952,11 +2043,12 @@ function renderEquityCurve() {
   }
   
   const peakEl = document.getElementById('simPeak');
-  if (peakEl) peakEl.textContent = 'Peak: ₹' + Math.round(peakEquity).toLocaleString('en-IN');
+  if (peakEl) {
+    // Simulator metric removed - no longer displayed
+  }
   const ddEl = document.getElementById('simDrawdown');
   if (ddEl) {
-     ddEl.textContent = 'Drawdown: ' + currentDrawdown.toFixed(1) + '%';
-     ddEl.style.color = currentDrawdown > 10 ? 'var(--loss)' : 'var(--muted)';
+    // Simulator metric removed - no longer displayed
   }
 
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -2410,6 +2502,7 @@ async function initDashboard() {
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
+  window.scrollTo(0, 0);
 
   loadWatchlist();
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
@@ -2450,6 +2543,7 @@ async function initDashboard() {
 
   // Auto-Refresh Every 3 Minutes
   setInterval(() => {
+    window.scrollTo(0, 0);
     loadData().then(data => {
       if (data.trades) {
         ALL_TRADES = data.trades;

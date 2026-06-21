@@ -465,13 +465,6 @@ function playDing() {
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
         <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
-        <div style="margin-left:auto; text-align:right;">
-        <div id="simNetPnl" style="font-family:var(--font-mono); font-size:18px; font-weight:600;">Est. Net P&L: ₹0</div>
-        <div id="simFloating" style="font-size:12px; color:var(--muted); margin-top:4px;">Floating: ₹0</div>
-      </div>
-      <div style="border-left:1px solid var(--border); padding-left:16px; text-align:right;">
-        <div id="simPeak" style="font-family:var(--font-mono); font-size:18px; font-weight:600; color:var(--text);">Peak: ₹0</div>
-        <div id="simDrawdown" style="font-size:12px; color:var(--warn); margin-top:4px;">Drawdown: 0.0%</div>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -1128,8 +1121,7 @@ function updateSim() {
     resEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--warn)';
   }
   if(resEl2) {
-    resEl2.textContent = 'Est. Net P&L: ' + netText;
-    resEl2.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--warn)';
+    // Simulator metric removed - no longer displayed
   }
   const floatEl = document.getElementById('simFloating');
   const floatElInline = document.getElementById('simFloating_inline');
@@ -1137,8 +1129,7 @@ function updateSim() {
   const floatColor = totalFloating >= 0 ? 'var(--win)' : 'var(--loss)';
   
   if(floatEl) {
-    floatEl.textContent = 'Floating: ' + floatText;
-    floatEl.style.color = floatColor;
+    // Simulator metric removed - no longer displayed
   }
   if(floatElInline) {
     floatElInline.textContent = 'Floating: ' + floatText;
@@ -1240,11 +1231,12 @@ function renderEquityCurve() {
   }
   
   const peakEl = document.getElementById('simPeak');
-  if (peakEl) peakEl.textContent = 'Peak: ₹' + Math.round(peakEquity).toLocaleString('en-IN');
+  if (peakEl) {
+    // Simulator metric removed - no longer displayed
+  }
   const ddEl = document.getElementById('simDrawdown');
   if (ddEl) {
-     ddEl.textContent = 'Drawdown: ' + currentDrawdown.toFixed(1) + '%';
-     ddEl.style.color = currentDrawdown > 10 ? 'var(--loss)' : 'var(--muted)';
+    // Simulator metric removed - no longer displayed
   }
 
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -1384,6 +1376,7 @@ function dismissAlert() {
 document.addEventListener('click', () => dismissAlert());
 
 async function doRefresh(isAuto = false) {
+  window.scrollTo(0, 0);
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
   const data = await loadData();
@@ -1448,6 +1441,7 @@ async function initDashboard() {
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
+  window.scrollTo(0, 0);
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
 

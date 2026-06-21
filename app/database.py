@@ -1626,17 +1626,26 @@ def deposit_funds(amount: float) -> float:
                 raise
 
 def get_capital_info() -> dict:
-    """Returns {base_capital, total_deposited, total_capital}."""
+    """Returns {base_capital, total_deposited, total_capital}. Initializes base capital if empty."""
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                # Get base capital (initial)
+                # Check if base capital exists, if not initialize with 500000
                 cur.execute("""
                     SELECT COALESCE(SUM(amount), 0) FROM capital_history
                     WHERE transaction_type = 'BASE_CAPITAL'
                 """)
                 base = cur.fetchone()[0]
+                
+                if base == 0:
+                    # Initialize with default base capital
+                    cur.execute("""
+                        INSERT INTO capital_history (transaction_type, amount, created_at)
+                        VALUES ('BASE_CAPITAL', 500000, NOW())
+                    """)
+                    conn.commit()
+                    base = 500000
                 
                 # Get total deposits (excluding base)
                 cur.execute("""
@@ -1659,7 +1668,7 @@ def get_capital_info() -> dict:
                 }
             except Exception:
                 logger.exception("❌ get_capital_info failed")
-                return {"base_capital": 0, "total_deposited": 0, "total_capital": 0}
+                return {"base_capital": 500000, "total_deposited": 0, "total_capital": 500000}
 
 def get_all_data_fetch_health() -> list:
     """Return all rows from data_fetch_health as list of dicts."""
