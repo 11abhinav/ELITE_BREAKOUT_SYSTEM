@@ -2,7 +2,9 @@ import os
 import time
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -145,7 +147,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
     except Exception:
         meta = None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(IST)
     if meta:
         try:
             last_fetched = datetime.fromisoformat(meta['last_fetched'])
@@ -178,7 +180,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
                             _YF_SEMAPHORE.release()
                         if not fetched.empty:
                             _write_cache_file(fetched, cache_path)
-                            upsert_cache_metadata(cache_key, datetime.now(timezone.utc).isoformat(), cadence, len(fetched), source='yfinance')
+                            upsert_cache_metadata(cache_key, datetime.now(IST).isoformat(), cadence, len(fetched), source='yfinance')
                             from data_fetch_status import mark_success
                             # Mark success for the specific resolution (scope-aware)
                             mark_success(f"yfinance:{resolution}")
@@ -229,7 +231,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
                 raise ValueError('Empty fetch')
             # persist
             _write_cache_file(fetched, cache_path)
-            upsert_cache_metadata(cache_key, datetime.now(timezone.utc).isoformat(), cadence, len(fetched), source='yfinance')
+            upsert_cache_metadata(cache_key, datetime.now(IST).isoformat(), cadence, len(fetched), source='yfinance')
             from data_fetch_status import mark_success
             mark_success(f"yfinance:{resolution}")
             if use_cache:

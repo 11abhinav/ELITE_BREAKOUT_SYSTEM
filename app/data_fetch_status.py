@@ -11,7 +11,9 @@ API:
 This file intentionally keeps logic tiny so it can be imported in many places
 without pulling heavy dependencies.
 """
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+IST = ZoneInfo("Asia/Kolkata")
 from typing import Optional, Union
 import logging
 import traceback
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(IST).isoformat()
 
 
 # Map external sources to scanners that rely on them. Update this map when adding scanners.

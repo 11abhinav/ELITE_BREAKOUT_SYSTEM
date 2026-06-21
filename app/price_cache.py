@@ -8,7 +8,7 @@ import time
 from datetime import time as dt_time
 import pandas as pd
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from data_fetch_status import mark_success, mark_failure
 from database import upsert_fetch_error
@@ -47,7 +47,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = entry.get("data_as_of")
                 stale = False
                 if data_as_of and _is_market_hours():
-                    if (datetime.now(timezone.utc) - data_as_of).total_seconds() > 120:
+                    if (datetime.now(IST) - data_as_of).total_seconds() > 120:
                         logger.warning(f"Cache stale: oldest data is {data_as_of}. Forcing refresh.")
                         stale = True
                 
@@ -78,16 +78,16 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     if ts.tzinfo is None:
                         ts = ts.tz_localize(IST)
                     else:
-                        ts = ts.tz_convert(timezone.utc)
+                        ts = ts.tz_convert(IST)
                     timestamps.append(ts)
                 except Exception:
                     pass
         if timestamps:
             data_as_of = min(timestamps)
             if data_as_of.tzinfo is None:
-                data_as_of = data_as_of.replace(tzinfo=timezone.utc)
+                data_as_of = data_as_of.replace(tzinfo=IST)
             else:
-                data_as_of = data_as_of.astimezone(timezone.utc)
+                data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
         _cache[cache_key] = {
