@@ -202,13 +202,17 @@ def run_lower_tf_phase(current_regime="BULL"):
                     swing_low = float(latest.get("SWING_LOW", close))
                     ema20 = float(latest.get("EMA20", close))
                     
+                    import json
+                    ctx_json = json.dumps({"last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S')})
+                    
                     upsert_breakout_watchlist(
                         symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
                         trigger_level=breakout_level,
                         invalidation_level=min(swing_low, ema20),
                         max_extension_atr=0.8,
                         buffer_pct=0.0015,
-                        armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S')
+                        armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
+                        context_json=ctx_json
                     )
                     logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
@@ -236,6 +240,9 @@ def run_lower_tf_phase(current_regime="BULL"):
                 open_px = float(latest["Open"])
                 atr20 = float(latest.get("ATR20", 0.0) or 0.0)
                 
+                if atr20 <= 0:
+                    continue
+                
                 if len(df) >= 22:
                     mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
                 else:
@@ -260,16 +267,17 @@ def run_lower_tf_phase(current_regime="BULL"):
                 # Thrust/Continuation Trigger
                 # Price breaks local high while still close to level, with volume
                 if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.2:
-                    if close_position >= 0.6 or upper_wick_ratio < 0.35:
+                    if close_position >= 0.6 and upper_wick_ratio < 0.35:
                         is_ready = True
                         trigger_type = "thrust"
                     
                 # Pullback Trigger
-                # Breakout level or EMA9 is defended, and price reclaims with volume
-                elif low <= trigger_level or low <= e9:
-                    if close > float(prev["High"]) and close >= trigger_level and close > open_px and vol_ratio > 1.0:
-                        is_ready = True
-                        trigger_type = "pullback"
+                # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
+                elif low <= max(trigger_level, e9):
+                    if close >= trigger_level and close > float(prev["High"]) and close > open_px and vol_ratio > 1.0:
+                        if close_position >= 0.6:  # strong interaction/engulfing
+                            is_ready = True
+                            trigger_type = "pullback"
                 
                 if is_ready:
                     # Idempotency check before alert using stricter symbol-trigger key
