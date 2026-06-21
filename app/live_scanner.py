@@ -1,6 +1,6 @@
 # =====================================================================================
 # app/live_scanner.py (ULTIMATE EDITION)
-# TREND CONFIRMATION SCANNER — 1H BARS + MULTI-TIMEFRAME ALIGNMENT
+# TREND CONFIRMATION SCANNER — 1H BARS
 # =====================================================================================
 
 import pandas as pd
@@ -15,7 +15,7 @@ except Exception:
 import yfinance as yf
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from zoneinfo import ZoneInfo
 from datetime import datetime, date, time as dt_time
@@ -27,12 +27,6 @@ from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 
 from config import (
-    WATCHLIST_PATH,
-    SCORE_THRESHOLDS,
-    LIVE_1H_CONFIG,
-    BATCH_DOWNLOAD_SIZE,
-    ADX_MIN_THRESHOLD,
-    MAX_PRE_BREAKOUT_RED_CANDLES,
     MIN_STOCK_PRICE,
 )
 
@@ -64,23 +58,7 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 IST        = ZoneInfo("Asia/Kolkata")
 CHUNK_SIZE = 10  
 
-TIMEFRAME               = "1h"
-MIN_SIGNALS             = LIVE_1H_CONFIG["MIN_SIGNALS"]
-MIN_BODY_RATIO          = LIVE_1H_CONFIG["MIN_BODY_RATIO"]
-MIN_CLOSE_POSITION      = LIVE_1H_CONFIG["MIN_CLOSE_POSITION"]
-MAX_UPPER_WICK_RATIO    = LIVE_1H_CONFIG["MAX_UPPER_WICK"]
-MIN_VOLUME_RATIO        = LIVE_1H_CONFIG["MIN_VOLUME_RATIO"]
-MIN_AVG_VOLUME_SHARES   = LIVE_1H_CONFIG["MIN_VOLUME_AVG"]
-MIN_RSI                 = LIVE_1H_CONFIG["MIN_RSI"]
-MAX_RSI                 = LIVE_1H_CONFIG["MAX_RSI"]
-MIN_SCORE               = SCORE_THRESHOLDS["1h"]
-
-# MIN_STOCK_PRICE imported from config (₹100)
-RSI_LOOKBACK_BARS           = 3
-MAX_DISTANCE_FROM_52W_HIGH_PCT = 15.0
-MAX_SINGLE_CANDLE_MOVE_PCT  = 6.0
-MAX_GAP_FROM_PRIOR_HIGH_PCT = 3.0   
-GAP_LOOKBACK_BARS           = 10    
+TIMEFRAME  = "1h"
 
 ENABLE_REGIME_GATE_1H = False
 def start(run_once=False):
@@ -158,10 +136,12 @@ def start(run_once=False):
                             nifty_current = float(today_data['Close'].iloc[-1])
                             intraday_drop = ((nifty_open - nifty_current) / nifty_open) * 100 if nifty_open > 0 else 0.0
                             if intraday_drop > 1.5:
-                                logger.warning(f"🚨 REGIME GATE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
+                                logger.warning(f"🚨 REGIME GATE ACTIVE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
                                 nifty_intraday_down = True
                 except Exception as e:
                     pass
+            else:
+                logger.info("ℹ️ REGIME GATE is configured to OFF. Bypassing Nifty drop checks.")
 
             if nifty_intraday_down:
                 time.sleep(300)
@@ -172,7 +152,6 @@ def start(run_once=False):
                 try:
                     symbol   = row["Stock"]
                     category = row["Category"]
-                    sector   = row.get("Sector", None)
 
                     from surveillance import get_live_blacklist
                     if symbol in get_live_blacklist():
@@ -371,7 +350,7 @@ def start(run_once=False):
                         target_price=0.0,
                         context=context,
                         model_version=model_version,
-                        bayesian_regime="BULL",
+                        bayesian_regime="INDEPENDENT",
                         bayesian_weights={},
                     )
                     if not saved:
@@ -397,17 +376,15 @@ def start(run_once=False):
                     total_alerts += 1
 
                 except Exception as e:
-                    logger.exception(f"❌ Error processing {symbol}")
-                    upsert_fetch_error('yfinance', '1H', symbol, '1h', 'processing_error', str(e))
-
-            scan_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-
-            # Telegram notifications removed (2026-06-17)
-
+                    logger.exception(f"❌ UNHANDLED ERROR processing {symbol}")
+                    rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
+                    continue
+            
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()
             sleep_time = max(0, 300 - elapsed)
 
             rejection_summary = " | ".join(f"{k}={v}" for k, v in rejection_counts.items() if v > 0)
+            
             if total_alerts == 0:
                 logger.info("📭 No 1H alerts this cycle")
             logger.info("=" * 80)

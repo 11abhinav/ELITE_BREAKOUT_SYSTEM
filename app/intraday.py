@@ -15,7 +15,7 @@ except Exception:
 import yfinance as yf
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from zoneinfo import ZoneInfo
 from datetime import datetime, date, time as dt_time
@@ -27,11 +27,6 @@ from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 
 from config import (
-    WATCHLIST_PATH,
-    SCORE_THRESHOLDS,
-    INTRADAY_CONFIG,
-    ADX_MIN_THRESHOLD,
-    MAX_PRE_BREAKOUT_RED_CANDLES,
     MIN_STOCK_PRICE,
 )
 
@@ -63,22 +58,6 @@ IST        = ZoneInfo("Asia/Kolkata")
 CHUNK_SIZE = 10   
 
 TIMEFRAME        = "5m"
-MIN_SIGNALS      = INTRADAY_CONFIG["MIN_SIGNALS"]
-MIN_BODY_RATIO   = INTRADAY_CONFIG["MIN_BODY_RATIO"]
-MIN_CLOSE_POSITION = INTRADAY_CONFIG["MIN_CLOSE_POSITION"]
-MAX_UPPER_WICK   = INTRADAY_CONFIG["MAX_UPPER_WICK"]
-MIN_VOLUME_RATIO = INTRADAY_CONFIG["MIN_VOLUME_RATIO"]
-MIN_VOLUME_AVG   = INTRADAY_CONFIG["MIN_VOLUME_AVG"]
-MIN_RSI          = INTRADAY_CONFIG["MIN_RSI"]
-MAX_RSI          = INTRADAY_CONFIG["MAX_RSI"]
-MIN_SCORE        = SCORE_THRESHOLDS["15m"]
-
-# MIN_STOCK_PRICE imported from config (₹100)
-RSI_LOOKBACK_BARS = 5      
-MAX_DISTANCE_FROM_52W_HIGH_PCT = 15.0
-MAX_SINGLE_BAR_MOVE_PCT        = 6.0
-MAX_GAP_FROM_PRIOR_HIGH_PCT = 3.0   
-GAP_LOOKBACK_BARS           = 10    
 
 
 def start(run_once=False):
@@ -153,8 +132,7 @@ def start(run_once=False):
                 try:
                     symbol   = row["Stock"]
                     category = row["Category"]
-                    sector   = row.get("Sector", None)
-
+                    
                     from surveillance import get_live_blacklist
                     if symbol in get_live_blacklist():
                         continue
@@ -162,7 +140,7 @@ def start(run_once=False):
                     if symbol not in all_ticker_data:
                         rejection_counts["no_data"] += 1
                         try:
-                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '15m', 'no_data', 'missing_in_batch')
+                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'no_data', 'missing_in_batch')
                         except Exception:
                             logger.exception('Failed to upsert fetch error')
                         continue
@@ -172,7 +150,7 @@ def start(run_once=False):
                     if ticker.empty:
                         rejection_counts["no_data"] += 1
                         try:
-                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '15m', 'no_data', 'empty_dataframe')
+                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'no_data', 'empty_dataframe')
                         except Exception:
                             logger.exception('Failed to upsert fetch error')
                         continue
@@ -344,7 +322,7 @@ def start(run_once=False):
                     hod_break = candle_close > intraday_resistance and candle_close > prev_high
                     
                     # Retest logic: Pullback to VWAP or resistance, then reclaim and close above it
-                    retest_ok = candle_low <= max(vwap, intraday_resistance) and candle_close > vwap and candle_close > intraday_resistance
+                    retest_ok = candle_low <= max(vwap, intraday_resistance) and candle_close > vwap and candle_close > intraday_resistance and candle_close > prev_high
                     if not hod_break and not retest_ok:
                         rejection_counts["no_trigger"] += 1
                         continue
@@ -396,7 +374,7 @@ def start(run_once=False):
                         target_price=0.0,
                         context=context,
                         model_version=model_version,
-                        bayesian_regime="BULL",
+                        bayesian_regime="INDEPENDENT",
                         bayesian_weights={},
                     )
                     if not saved:
@@ -425,12 +403,10 @@ def start(run_once=False):
                     logger.exception(f"❌ UNHANDLED ERROR processing {symbol}")
                     rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
                     try:
-                        upsert_fetch_error('yfinance', 'INTRADAY', symbol, '15m', 'processing_error', str(e))
+                        upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'processing_error', str(e))
                     except Exception:
                         logger.exception(f'Failed to upsert fetch error for {symbol}')
                     continue
-            
-            scan_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             
             if total_alerts == 0:
                 logger.info("📭 No INTRADAY alerts this cycle")
