@@ -2864,20 +2864,29 @@ def update_position_real_time_prices(symbols_metrics: dict) -> int:
 
 # ── USER AND SESSION TRACKING ─────────────────────────────────────────────
 
-def upsert_user(name: str) -> int:
-    """Ensure user exists in users table and return their user_id."""
+def upsert_user(name: str) -> Optional[int]:
+    """Ensure user exists and return their user_id.
+
+    Use INSERT ... ON CONFLICT DO NOTHING followed by a SELECT to avoid
+    performing an UPDATE on every call (which causes RowExclusiveLock thrashing
+    when many concurrent processes upsert the same username such as 'aB').
+    This minimizes row locking. If high contention persists, consider an
+    application-level cache or advisory locks per username.
+    """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Try to insert
-                cur.execute("""
-                    INSERT INTO users (name) VALUES (%s)
-                    ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-                    RETURNING user_id
-                """, (name,))
-                result = cur.fetchone()
+                # Insert if missing, but do NOT force an update; doing updates on
+                # identical values creates unnecessary row locks under concurrency.
+                cur.execute(
+                    "INSERT INTO users (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
+                    (name,)
+                )
+                # Retrieve the user_id whether it was inserted now or already existed
+                cur.execute("SELECT user_id FROM users WHERE name = %s", (name,))
+                row = cur.fetchone()
                 conn.commit()
-                return result[0] if result else None
+                return row[0] if row else None
     except Exception as e:
         logger.error(f"❌ Failed to upsert user {name}: {e}")
         return None
