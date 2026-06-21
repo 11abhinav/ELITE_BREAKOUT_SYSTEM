@@ -642,88 +642,90 @@ def init_db():
                         with mig_conn.cursor() as mcur:
                             mcur.execute("""
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
-DO $$
-DECLARE
-    t_name text;
-    c_name text;
+-- Create robust safe_cast_timestamptz overloads for text, timestamp, and timestamptz
+CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
 BEGIN
-    -- Safe cast function
-    EXECUTE 'CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
-    BEGIN
-        RETURN p_val::timestamptz;
-    EXCEPTION WHEN OTHERS THEN
-        RETURN NULL;
-    END;
-    $func$ LANGUAGE plpgsql IMMUTABLE;
+    RETURN p_val::timestamptz;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$func$ LANGUAGE plpgsql IMMUTABLE;
 
-    CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamptz) RETURNS timestamptz AS $func2$
-    BEGIN
-        RETURN p_val;
-    EXCEPTION WHEN OTHERS THEN
-        RETURN NULL;
-    END;
-    $func2$ LANGUAGE plpgsql IMMUTABLE;';
-
-    -- Convert alerts
-    ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at);
-    ALTER TABLE alerts ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-    ALTER TABLE alerts ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
-    
-    -- Convert score_weight_log
-    ALTER TABLE score_weight_log ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-
-    -- Convert bayesian_model_updates
-    ALTER TABLE bayesian_model_updates ALTER COLUMN approved_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(approved_at);
-    ALTER TABLE bayesian_model_updates ALTER COLUMN rejected_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(rejected_at);
-    ALTER TABLE bayesian_model_updates ALTER COLUMN applied_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(applied_at);
-    ALTER TABLE bayesian_model_updates ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-    ALTER TABLE bayesian_model_updates ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(expires_at);
-
-    -- Convert scanner_health
-    ALTER TABLE scanner_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success);
-    ALTER TABLE scanner_health ALTER COLUMN first_error_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_error_at);
-    ALTER TABLE scanner_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at);
-
-    -- Convert telegram_queue
-    ALTER TABLE telegram_queue ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-    ALTER TABLE telegram_queue ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(sent_at);
-
-    -- Convert data_fetch_health
-    ALTER TABLE data_fetch_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success);
-    ALTER TABLE data_fetch_health ALTER COLUMN last_failure TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_failure);
-    ALTER TABLE data_fetch_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at);
-    
-    -- Convert fetch_errors
-    ALTER TABLE fetch_errors ALTER COLUMN first_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_seen);
-    ALTER TABLE fetch_errors ALTER COLUMN last_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_seen);
-END $$;
-
--- 2. Convert alert_date to DATE
-DO $$
+CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamp) RETURNS timestamptz AS $func2$
 BEGIN
-    EXECUTE 'CREATE OR REPLACE FUNCTION safe_cast_date(p_val text) RETURNS date AS $func$
-    BEGIN
-        RETURN p_val::date;
-    EXCEPTION WHEN OTHERS THEN
-        RETURN NULL;
-    END;
-    $func$ LANGUAGE plpgsql IMMUTABLE;';
-    
-    ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
-    ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
-END $$;
+    -- Treat timestamp (without timezone) as UTC to avoid ambiguous conversions; adjust if needed.
+    RETURN p_val AT TIME ZONE 'UTC';
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$func2$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamptz) RETURNS timestamptz AS $func3$
+BEGIN
+    RETURN p_val;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$func3$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Perform conversions using explicit ::text casts to ensure the text overload is used where values were stored as text
+ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at::text);
+ALTER TABLE alerts ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+ALTER TABLE alerts ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+
+ALTER TABLE score_weight_log ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+
+ALTER TABLE bayesian_model_updates ALTER COLUMN approved_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(approved_at::text);
+ALTER TABLE bayesian_model_updates ALTER COLUMN rejected_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(rejected_at::text);
+ALTER TABLE bayesian_model_updates ALTER COLUMN applied_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(applied_at::text);
+ALTER TABLE bayesian_model_updates ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+ALTER TABLE bayesian_model_updates ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(expires_at::text);
+
+ALTER TABLE scanner_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
+ALTER TABLE scanner_health ALTER COLUMN first_error_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_error_at::text);
+ALTER TABLE scanner_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+
+ALTER TABLE telegram_queue ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+ALTER TABLE telegram_queue ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(sent_at::text);
+
+ALTER TABLE data_fetch_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
+ALTER TABLE data_fetch_health ALTER COLUMN last_failure TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_failure::text);
+ALTER TABLE data_fetch_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+
+ALTER TABLE fetch_errors ALTER COLUMN first_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_seen::text);
+ALTER TABLE fetch_errors ALTER COLUMN last_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_seen::text);
+
+-- 2. Convert alert_date to DATE with safe overloads
+CREATE OR REPLACE FUNCTION safe_cast_date(p_val text) RETURNS date AS $fd$
+BEGIN
+    RETURN p_val::date;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$fd$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION safe_cast_date(p_val date) RETURNS date AS $fd2$
+BEGIN
+    RETURN p_val;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$fd2$ LANGUAGE plpgsql IMMUTABLE;
+
+ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
+ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
 
 -- 3. Add deduplication constraint including scanner
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_symbol_breakout_type_alert_date_key;
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_dedup_idx;
 ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date);
 
--- 4. Add status CHECK constraints
-ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')) NOT VALID;
-ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE')) NOT VALID;
-ALTER TABLE telegram_queue ADD CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
-ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
-                            """)
+-- 4. Add status CHECK constraints (NOT VALID to avoid full-table validation during deploy)
+ALTER TABLE alerts ADD CONSTRAINT IF NOT EXISTS chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')) NOT VALID;
+ALTER TABLE scanner_health ADD CONSTRAINT IF NOT EXISTS chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE')) NOT VALID;
+ALTER TABLE telegram_queue ADD CONSTRAINT IF NOT EXISTS chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
+ALTER TABLE bayesian_model_updates ADD CONSTRAINT IF NOT EXISTS chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
+""")
                     finally:
                         try:
                             mig_conn.autocommit = orig_autocommit
