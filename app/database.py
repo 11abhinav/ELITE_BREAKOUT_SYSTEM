@@ -966,8 +966,8 @@ def update_alert_outcome(
 
 def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int) -> bool:
     """Returns True if a duplicate alert exists within the cooldown window."""
-    from datetime import datetime, timezone, timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
+    from datetime import datetime, timedelta
+    cutoff = datetime.now(IST) - timedelta(minutes=lookback_minutes)
     
     with get_connection() as conn:
         with conn.cursor() as cur:
