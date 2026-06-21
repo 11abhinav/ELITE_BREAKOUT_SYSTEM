@@ -585,7 +585,9 @@ def init_db():
                 """)
 
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
+                # Run heavy DDL in autocommit mode to avoid transaction-abort cascades if any statement fails.
                 try:
+                    conn.autocommit = True
                     cur.execute("""
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
 DO $$
@@ -664,12 +666,107 @@ ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status
                     """)
                 except Exception as e:
                     logger.error(f"Failed to run V5 migrations: {e}")
+                finally:
+                    conn.autocommit = False
 
                 conn.commit()
 
         _DB_INITIALIZED = True
         logger.info("✅ Database ready (Postgres) — all columns ensured")
         logger.info("ℹ️  Data Retention Active: preserving all alerts for historical analysis.")
+
+
+# =====================================================================================
+# FAILED-REVERSAL COOLDOWN (v6.1)
+#
+# Makes the reversal scanner's cooldown REAL by reading the EXISTING `status` column
+# (populated by performance_tracker via update_alert_outcome). No new table/job needed.
+#
+# A symbol is "in cooldown" if its most recent REVERSAL alert closed as a LOSS within
+# the last `cooldown_days` trading days. This suppresses repeated low-quality reversal
+# candidates — the #1 leak identified in the 44% backtest.
+#
+# Trading days are approximated via business-day count (Mon–Fri) using alert_date.
+# =====================================================================================
+
+def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) -> bool:
+    """
+    PREFERRED cooldown backend for reversal_scanner (logs 🟢 OUTCOME_AWARE when present).
+
+    Returns True if `symbol`'s MOST RECENT REVERSAL alert:
+        • closed as status='LOSS', AND
+        • that alert fired within the last `cooldown_days` business days.
+    Returns False if the last reversal won, is still OPEN, or no recent reversal exists.
+
+    Relies on the existing `status` column written by performance_tracker /
+    update_alert_outcome(). No separate outcome table required.
+    """
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Most recent REVERSAL alert for this symbol (any status)
+                cur.execute("""
+                    SELECT status, alert_date
+                    FROM alerts
+                    WHERE symbol = %s AND scanner = 'REVERSAL'
+                    ORDER BY alert_date DESC, alert_time DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cur.fetchone()
+                if not row:
+                    return False
+
+                status, alert_date = row[0], row[1]
+
+                # Only LOSS triggers cooldown. WIN / OPEN / CLOSED do not suppress.
+                if str(status).upper() != "LOSS":
+                    return False
+
+                # Business-day distance from the losing alert's date to today.
+                try:
+                    # Prefer numpy for performance if available
+                    import numpy as np
+                    from datetime import date as _date
+                    # alert_date is a DATE column → psycopg2 returns datetime.date
+                    if not isinstance(alert_date, _date):
+                        # Fallback if it came back as text
+                        from datetime import datetime as _dt
+                        alert_date = _dt.strptime(str(alert_date)[:10], "%Y-%m-%d").date()
+                    today = datetime.now(IST).date()
+                    if today < alert_date:
+                        return False
+                    try:
+                        biz_days = int(np.busday_count(alert_date, today))
+                        return biz_days < cooldown_days
+                    except Exception:
+                        # If numpy present but busday_count failed, fall through to pure-Python calc
+                        logger.warning(f"numpy.busday_count failed for {symbol}, falling back")
+                except ImportError:
+                    # numpy not available — fallback to pure-Python business-day calc
+                    pass
+
+                # Pure-Python business-day count (no external deps)
+                try:
+                    from datetime import timedelta
+                    today = datetime.now(IST).date()
+                    if today < alert_date:
+                        return False
+                    delta_days = (today - alert_date).days
+                    weeks, remainder = divmod(delta_days, 7)
+                    biz_days = weeks * 5
+                    start_weekday = alert_date.weekday()  # 0=Mon,6=Sun
+                    for i in range(remainder):
+                        if (start_weekday + i) % 7 < 5:
+                            biz_days += 1
+                    return biz_days < cooldown_days
+                except Exception:
+                    logger.exception(f"cooldown business-day calc failed for {symbol}")
+                    # Conservative: if we can't compute distance, do NOT suppress.
+                    return False
+    except Exception:
+        logger.exception(f"❌ is_symbol_in_failed_reversal_cooldown failed for {symbol}")
+        return False
 
 
 # ── Public API ────────────────────────────────────────────────────────────────────────
