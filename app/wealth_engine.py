@@ -705,13 +705,13 @@ def run_wealth_scan():
             from psycopg2.extras import RealDictCursor
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # Active wealth alerts
-                    cur.execute("SELECT symbol, entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    # 1. Manual portfolio (lowest priority)
+                    cur.execute("SELECT symbol, entry_price, added_at::date::text as entry_date FROM manual_portfolio")
                     for r in cur.fetchall():
                         portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
                     
-                    # Manual portfolio (overrides system)
-                    cur.execute("SELECT symbol, entry_price, added_at::date::text as entry_date FROM manual_portfolio")
+                    # 2. Wealth system active alerts (overrides manual)
+                    cur.execute("SELECT symbol, entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
                     for r in cur.fetchall():
                         portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
         except Exception as e:
@@ -748,7 +748,8 @@ def run_wealth_scan():
                 # If the trend analyzer flags a warning or sell, we can surface it
                 if trend["action"] != "HOLD":
                     return trend["reason"]
-            return "Stable"
+                return "Stable"
+            return "Not Held"
 
         wealth_df["hold_trend"] = wealth_df.apply(get_hold_trend, axis=1)
 
