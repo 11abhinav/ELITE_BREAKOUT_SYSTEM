@@ -488,6 +488,18 @@ def api_capital_info():
         logger.exception("❌ /api/capital_info failed")
         return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
 
+@app.route("/api/sector_momentum", methods=["GET"])
+def api_sector_momentum():
+    """Get sector momentum for the last 7 days."""
+    try:
+        from database import get_sector_momentum
+        days = request.args.get('days', 7, type=int)
+        data = get_sector_momentum(days)
+        return jsonify(data)
+    except Exception as e:
+        logger.exception("❌ /api/sector_momentum failed")
+        return jsonify([])
+
 
 # ── MANUAL PORTFOLIO TRACKER ──────────────────────────────────────────────────
 @app.route("/api/portfolio", methods=["GET"])

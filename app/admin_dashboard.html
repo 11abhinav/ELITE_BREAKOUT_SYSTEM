@@ -445,6 +445,17 @@ function playDing() {
     <!-- KPI ROW -->
     <div class="kpi-row" id="kpis"></div>
 
+    <!-- SECTOR MOMENTUM TRACKER -->
+    <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+      <span>🔥 Sector Momentum (Last 7 Days)</span>
+      <span id="sectorRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="loadSectorMomentum()">Refresh</span>
+    </div>
+    <div class="card" style="margin-bottom:28px; padding:16px;">
+      <div id="sectorMomentumContainer" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+        <div style="text-align:center; color:var(--muted); grid-column:1/-1; padding:20px;">Loading sector data...</div>
+      </div>
+    </div>
+
     <!-- DRILL PANEL -->
     <div id="drill-panel">
       <div class="drill-header">
@@ -2495,6 +2506,41 @@ async function submitDepositFunds() {
   }
 }
 
+async function loadSectorMomentum() {
+  try {
+    const response = await fetch('/api/sector_momentum?days=7');
+    if (!response.ok) return;
+    
+    const sectors = await response.json();
+    const container = document.getElementById('sectorMomentumContainer');
+    
+    if (!sectors || sectors.length === 0) {
+      container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:var(--muted); padding:20px;">No sector data available for the last 7 days.</div>';
+      return;
+    }
+    
+    let html = '';
+    sectors.slice(0, 10).forEach(s => {
+      const isHot = s.win_rate_pct >= 50;
+      const sectorColor = isHot ? 'var(--green)' : (s.win_rate_pct >= 30 ? 'var(--amber)' : 'var(--loss)');
+      const sectorBg = isHot ? 'rgba(5,150,105,0.1)' : (s.win_rate_pct >= 30 ? 'rgba(217,119,6,0.1)' : 'rgba(225,29,72,0.1)');
+      const flame = s.wins >= 5 ? '🔥🔥' : (s.wins >= 3 ? '🔥' : '');
+      
+      html += '<div style="background:' + sectorBg + '; border:1px solid ' + sectorColor + '; border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:6px;">';
+      html += '<div style="font-weight:700; color:' + sectorColor + '; font-size:13px;">' + s.sector + ' ' + flame + '</div>';
+      html += '<div style="font-size:12px; color:var(--muted);">';
+      html += '<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Win Rate:</span><span style="color:' + sectorColor + '; font-weight:600;">' + s.win_rate_pct + '%</span></div>';
+      html += '<div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Record:</span><span style="color:var(--text); font-weight:600;">' + s.wins + 'W - ' + s.losses + 'L</span></div>';
+      html += '<div style="display:flex; justify-content:space-between;"><span>P&L:</span><span style="color:' + (s.total_pnl >= 0 ? 'var(--win)' : 'var(--loss)') + '; font-weight:600;">₹' + Math.abs(s.total_pnl).toLocaleString('en-IN') + '</span></div>';
+      html += '<div style="display:flex; justify-content:space-between; margin-top:4px; padding-top:4px; border-top:1px solid ' + sectorColor + ';"><span style="font-size:11px;">Avg/Trade:</span><span style="color:' + (s.avg_pnl_per_trade >= 0 ? 'var(--win)' : 'var(--loss)') + '; font-weight:600; font-size:11px;">₹' + Math.abs(s.avg_pnl_per_trade).toLocaleString('en-IN') + '</span></div>';
+      html += '</div></div></div>';
+    });
+    container.innerHTML = html;
+  } catch (e) {
+    console.error('Error loading sector momentum:', e);
+  }
+}
+
 // ── MAIN
 async function initDashboard() {
   const data = await loadData();
@@ -2531,6 +2577,7 @@ async function initDashboard() {
   renderCategoryStats();
   updateSim();
   loadCapitalInfo();
+  loadSectorMomentum();
 
   // Auto-refresh scanner status every 60s
   setInterval(async () => {
@@ -2558,6 +2605,7 @@ async function initDashboard() {
         renderTradeTable();
         updateSim();
         loadCapitalInfo();
+        loadSectorMomentum();
       }
       loadScannerStatus().then(live => {
         if (live) {

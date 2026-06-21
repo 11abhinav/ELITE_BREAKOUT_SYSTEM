@@ -1715,6 +1715,44 @@ def remove_portfolio_entry(entry_id: int):
             cur.execute("DELETE FROM manual_portfolio WHERE id = %s", (entry_id,))
         conn.commit()
 
+def get_sector_momentum(days=7):
+    """Get sector momentum for the last N days. Returns sector stats with win rates & P&L."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                # Query: Get sector performance from watchlist (joined with alerts)
+                cur.execute("""
+                    WITH sector_trades AS (
+                        SELECT 
+                            dw.sector,
+                            a.symbol,
+                            a.status,
+                            a.pnl_rs,
+                            a.entry_date::DATE as trade_date,
+                            a.created_at::DATE as created_date
+                        FROM alerts a
+                        LEFT JOIN daily_watchlist dw ON a.symbol = dw.stock
+                        WHERE a.created_at >= CURRENT_TIMESTAMP - INTERVAL '%d days'
+                        AND a.status IN ('WIN', 'LOSS')
+                    )
+                    SELECT 
+                        COALESCE(sector, 'Unknown') as sector,
+                        COUNT(*) as total_trades,
+                        SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) as losses,
+                        ROUND(100.0 * SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate_pct,
+                        ROUND(COALESCE(SUM(pnl_rs), 0)::NUMERIC, 0)::INTEGER as total_pnl,
+                        ROUND((COALESCE(SUM(pnl_rs), 0) / NULLIF(COUNT(*), 0))::NUMERIC, 0)::INTEGER as avg_pnl_per_trade
+                    FROM sector_trades
+                    GROUP BY sector
+                    ORDER BY win_rate_pct DESC, total_trades DESC
+                """ % days)
+                return [dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                logger.exception(f"❌ get_sector_momentum failed: {e}")
+                return []
+
 # ── Parquet Binary Cache ──────────────────────────────────────────────────────
 
 def upload_parquet_to_db(name: str, file_path: str):
