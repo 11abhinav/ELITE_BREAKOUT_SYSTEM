@@ -996,6 +996,7 @@ const SCANNER_META = {
   'DAILY_BUILDER': {label:'Daily Builder',    desc:'Watchlist builder · runs at 09:00'},
   'INTRADAY':      {label:'Intraday (15m)', desc:'Early momentum · 9:32–15:30'},
   '1H':            {label:'Live (1H)',       desc:'Trend confirmation · 10:17–15:30'},
+  'MultiTFScanner':{label:'Multi-TF',        desc:'Live 4-stage ladder · 10:17-15:30'},
   'EOD':           {label:'EOD',             desc:'Daily breakout · runs at 18:30'},
   'REVERSAL':      {label:'Reversal',        desc:'Mean reversion · runs at 18:30'},
   'AI Worker':     {label:'Ai Worker',       desc:'Concall caching background worker'},
@@ -1023,7 +1024,7 @@ function renderScannerGrid(scanner_stats) {
   }
 
   // Ensure all known scanners appear even if not in stats
-  const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'INTRADAY', '1H', 'EOD', 'REVERSAL', 'Wealth Engine'];
+  const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'INTRADAY', '1H', 'MultiTFScanner', 'EOD', 'REVERSAL', 'Wealth Engine'];
   const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
   el.innerHTML = '';
 

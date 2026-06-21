@@ -47,8 +47,7 @@ def run_hourly_phase():
         return
 
     # 2. Fetch 1H data
-    symbols = watchlist["Stock"].tolist()
-    ticker_data = fetch_watchlist_data(symbols, "1h", "60d", force_fresh=True)
+    ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
 
     for idx, row in watchlist.iterrows():
         symbol = row["Stock"]
@@ -62,6 +61,12 @@ def run_hourly_phase():
         if df is None or df.empty:
             continue
             
+        # Validate indicator columns
+        required_cols = ["EMA9", "EMA20", "SMA50", "SMA200", "ADX", "PRIOR_20D_HIGH"]
+        if not all(col in df.columns for col in required_cols):
+            logger.warning(f"⚠️ {symbol} missing required indicators. Skipping.")
+            continue
+
         latest = df.iloc[-1]
         
         close = float(latest["Close"])
@@ -107,9 +112,10 @@ def run_lower_tf_phase(current_regime="BULL"):
     needs_15m = [i["symbol"] for i in active_items if i["current_state"] == "SETUP_ARMED"]
     needs_5m  = [i["symbol"] for i in active_items if i["current_state"] in ("BREAKOUT_CONFIRMED", "ENTRY_READY")]
     
-    data_30m = fetch_watchlist_data(needs_30m, "30m", "1mo", force_fresh=True) if needs_30m else {}
-    data_15m = fetch_watchlist_data(needs_15m, "15m", "1mo", force_fresh=True) if needs_15m else {}
-    data_5m  = fetch_watchlist_data(needs_5m,  "5m",  "1mo", force_fresh=True) if needs_5m  else {}
+    import pandas as pd
+    data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
+    data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="1mo", interval="15m") if needs_15m else {}
+    data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
 
     ist_now = datetime.now(IST)
 
@@ -164,6 +170,8 @@ def run_lower_tf_phase(current_regime="BULL"):
             df = data_15m.get(symbol)
             if df is not None and len(df) >= 22:
                 df = apply_indicators(df, timeframe="15m")
+                if "Volume" not in df.columns:
+                    continue
                 latest = df.iloc[-1]
                 close = float(latest["Close"])
                 open_px = float(latest["Open"])
@@ -191,6 +199,8 @@ def run_lower_tf_phase(current_regime="BULL"):
             df = data_5m.get(symbol)
             if df is not None and len(df) >= 22:
                 df = apply_indicators(df, timeframe="5m")
+                if "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
+                    continue
                 latest = df.iloc[-1]
                 prev = df.iloc[-2]
                 
@@ -246,6 +256,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                         save_alert_if_new(
                             symbol=symbol,
                             breakout_type="INTRADAY",
+                            alert_time=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
                             scanner="multi_tf_scanner",
                             category=cat,
                             entry_price=close,
