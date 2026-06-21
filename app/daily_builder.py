@@ -591,8 +591,8 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
 # =====================================================================================
 
 SYMBOL_CORRECTIONS = {
-    "BAJAJ_AUTO": "BAJAJAUT",      # Bajaj Auto Ltd - remove underscore
-    "NAM_INDIA": "NAMINDIAI",      # Name India Ltd - fix spelling
+    "BAJAJ_AUTO": "BAJAJ-AUTO",      # Bajaj Auto Ltd - use hyphen for Yahoo Finance
+    "NAM_INDIA": "NAM-INDIA",      # Nippon Life India AMC - use hyphen for Yahoo Finance
 }
 
 def normalize_symbol(symbol: str) -> str:
