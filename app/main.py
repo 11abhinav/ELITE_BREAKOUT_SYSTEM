@@ -770,8 +770,10 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     # Enable dry-run
     orig_flag = getattr(database, "DONT_SAVE_ALERTS", False)
+    orig_wealth_flag = getattr(database, "DONT_SAVE_WEALTH", False)
     database.DONT_SAVE_ALERTS = True
-    logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS enabled — running scanners in dry-run")
+    database.DONT_SAVE_WEALTH = True
+    logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS and DONT_SAVE_WEALTH enabled — running scanners in dry-run")
 
     tasks = []
 
@@ -831,9 +833,10 @@ def run_startup_self_test(timeout_per_task: int = 120):
         _run_with_timeout(fn, timeout=to)
         time.sleep(2)
 
-    # Restore flag
+    # Restore flags
     database.DONT_SAVE_ALERTS = orig_flag
-    logger.info("🧪 STARTUP SELF-TEST | Completed — DONT_SAVE_ALERTS restored")
+    database.DONT_SAVE_WEALTH = orig_wealth_flag
+    logger.info("🧪 STARTUP SELF-TEST | Completed — DONT_SAVE_ALERTS and DONT_SAVE_WEALTH restored")
 
 
 # ENTRY POINT

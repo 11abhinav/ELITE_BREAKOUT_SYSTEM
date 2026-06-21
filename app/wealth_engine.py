@@ -790,7 +790,7 @@ def run_wealth_scan():
 
         # Save BUY signals to wealth_buy_alert table for historical tracking
         try:
-            from database import save_wealth_buy_alert, close_position, update_position_real_time_prices
+            from database import save_wealth_buy_alert, close_position, update_position_real_time_prices, DONT_SAVE_WEALTH
             buy_signals = wealth_df[wealth_df["Signal"].str.contains("BUY", na=False)]
             for _, row in buy_signals.iterrows():
                 symbol = row.get("Stock")
@@ -803,17 +803,18 @@ def run_wealth_scan():
                 valuation_score = row.get("Valuation_Score", 0)
                 position_shares = int(position_amount / cmp) if cmp and cmp > 0 and position_amount else 0
                 if symbol and cmp:
-                    save_wealth_buy_alert(
-                        symbol, 
-                        cmp, 
-                        breakout_type=breakout, 
-                        fm_score=fm_score,
-                        position_pct=position_pct,
-                        position_amount=position_amount,
-                        position_shares=position_shares,
-                        portfolio_bucket=portfolio_bucket,
-                        valuation_score=valuation_score
-                    )
+                    if not DONT_SAVE_WEALTH:
+                        save_wealth_buy_alert(
+                            symbol, 
+                            cmp, 
+                            breakout_type=breakout, 
+                            fm_score=fm_score,
+                            position_pct=position_pct,
+                            position_amount=position_amount,
+                            position_shares=position_shares,
+                            portfolio_bucket=portfolio_bucket,
+                            valuation_score=valuation_score
+                        )
             
             # Fetch REAL-TIME prices for all open positions (for accurate P&L calculation)
             try:
@@ -840,7 +841,7 @@ def run_wealth_scan():
                             pass  # Skip symbols that fail price fetch
                 
                 # Update all open positions with real-time metrics
-                if realtime_metrics:
+                if realtime_metrics and not DONT_SAVE_WEALTH:
                     update_position_real_time_prices(realtime_metrics)
             except Exception as e:
                 logger.warning(f"⚠️  Could not fetch real-time prices: {e}")
@@ -852,12 +853,18 @@ def run_wealth_scan():
                 cmp = row.get("cmp")
                 signal_text = row.get("Signal")
                 if symbol and cmp:
-                    close_position(symbol, cmp, signal_text)
+                    if not DONT_SAVE_WEALTH:
+                        close_position(symbol, cmp, signal_text)
         except Exception as e:
             logger.warning(f"⚠️  Could not process buy/sell alerts: {e}")
 
-        wealth_df.to_parquet(WEALTH_PATH, index=False)
-        upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+        # Persist wealth dataframe unless dry-run mode is active
+        from database import DONT_SAVE_WEALTH
+        if not DONT_SAVE_WEALTH:
+            wealth_df.to_parquet(WEALTH_PATH, index=False)
+            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+        else:
+            logger.info("🧪 DONT_SAVE_WEALTH enabled — skipping parquet save and DB upload")
 
         buy_count = len(wealth_df[wealth_df["Signal"].str.contains("BUY", na=False)])
         core_count = len(core_capped)

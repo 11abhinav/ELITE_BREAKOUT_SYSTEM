@@ -49,6 +49,10 @@ _DB_WRITE_LOCK = threading.RLock()
 # without polluting the alerts table or triggering downstream systems.
 DONT_SAVE_ALERTS = False
 
+# When True, Wealth Engine should not persist parquet files or write buy alerts.
+# Controlled by the startup self-test to prevent altering wealth data on boot.
+DONT_SAVE_WEALTH = False
+
 # ── Connection pool ───────────────────────────────────────────────────────────────────
 _pool: Optional[pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
