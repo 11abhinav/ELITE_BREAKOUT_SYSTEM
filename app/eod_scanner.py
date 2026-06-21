@@ -67,8 +67,10 @@ def start():
         import yfinance as yf
         nifty = yf.download("^NSEI", period="1mo", progress=False)
         if not nifty.empty and len(nifty) >= 20:
-            nifty_now = float(nifty["Close"].iloc[-1])
-            nifty_ago = float(nifty["Close"].iloc[-20])
+            val_now = nifty["Close"].iloc[-1]
+            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
+            val_ago = nifty["Close"].iloc[-20]
+            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
             if nifty_ago > 0:
                 nifty_ret_20d = (nifty_now - nifty_ago) / nifty_ago * 100
     except Exception as e:

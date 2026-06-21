@@ -11,9 +11,16 @@
 
 import sys
 import os
+import time
+
+os.environ['TZ'] = 'Asia/Kolkata'
+try:
+    time.tzset()
+except AttributeError:
+    pass  # Not available on Windows
+
 import threading
 import logging
-import time
 import traceback
 import signal
 import random

@@ -47,7 +47,11 @@ def get_market_regime():
         import yfinance as yf
         nifty = yf.download("^NSEI", period="1mo", interval="1d", progress=False)
         if not nifty.empty and len(nifty) >= 20:
-            ret = (float(nifty["Close"].iloc[-1]) / float(nifty["Close"].iloc[-20])) - 1
+            val_now = nifty["Close"].iloc[-1]
+            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
+            val_ago = nifty["Close"].iloc[-20]
+            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
+            ret = (nifty_now / nifty_ago) - 1
             if ret < -0.05: return "BEAR"
             if ret > 0.05: return "BULL"
     except Exception as e:
