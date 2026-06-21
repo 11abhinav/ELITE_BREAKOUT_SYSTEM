@@ -159,11 +159,25 @@ def run_lower_tf_phase(current_regime="BULL"):
 
         # Failed state check for SETUP_ARMED
         if state == "SETUP_ARMED":
-            armed_at_str = item.get("armed_at")
-            if armed_at_str:
+            state_change_str = None
+            
+            # Try to get it from context_json first
+            ctx_str = item.get("context_json")
+            if ctx_str:
                 try:
-                    armed_at_ts = datetime.strptime(armed_at_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=IST)
-                    if (ist_now - armed_at_ts).total_seconds() > 3600 * 4: # 4 hours expiry
+                    ctx_dict = json.loads(ctx_str)
+                    state_change_str = ctx_dict.get("last_state_change_at")
+                except Exception:
+                    pass
+                    
+            # Fallback to armed_at if not in context
+            if not state_change_str:
+                state_change_str = item.get("armed_at")
+                
+            if state_change_str:
+                try:
+                    state_change_ts = datetime.strptime(state_change_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=IST)
+                    if (ist_now - state_change_ts).total_seconds() > 3600 * 4: # 4 hours expiry
                         upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
                         state = "HOURLY_APPROVED"
                         logger.info(f"⏳ {symbol} SETUP_ARMED expired (stale). Downgraded to HOURLY_APPROVED.")
@@ -202,7 +216,6 @@ def run_lower_tf_phase(current_regime="BULL"):
                     swing_low = float(latest.get("SWING_LOW", close))
                     ema20 = float(latest.get("EMA20", close))
                     
-                    import json
                     ctx_json = json.dumps({"last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S')})
                     
                     upsert_breakout_watchlist(

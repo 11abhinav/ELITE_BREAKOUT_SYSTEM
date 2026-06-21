@@ -21,15 +21,10 @@ from zoneinfo import ZoneInfo
 from datetime import datetime, date, time as dt_time
 
 from technical_indicators import apply_indicators
-from breakout_engine import detect_breakouts
-from scoring_engine import calculate_score
 from database import init_db, save_alert_if_new, upsert_fetch_error
 from delivery_data import fetch_previous_day_delivery
 from price_cache import fetch_watchlist_data 
-from sl_target_helper import compute_sl_and_target
 from watchlist_cache import get_watchlist
-
-from sector_rotation import get_sector_scores
 
 from config import (
     WATCHLIST_PATH,
@@ -87,8 +82,7 @@ MAX_SINGLE_CANDLE_MOVE_PCT  = 6.0
 MAX_GAP_FROM_PRIOR_HIGH_PCT = 3.0   
 GAP_LOOKBACK_BARS           = 10    
 
-# ✅ NOTE: Intraday Regime check added to suppress alerts on heavy down days (-1.5%).
-MIN_VOLUME_Z_SCORE = 2.5
+ENABLE_REGIME_GATE_1H = False
 def start(run_once=False):
     init_db()
     
@@ -128,32 +122,12 @@ def start(run_once=False):
             if watchlist is None or watchlist.empty:
                 raise ValueError("Watchlist is missing or empty. Cannot run scan.")
 
-            # ── FETCH WEALTH ENGINE SIGNAL ──────────────────────────────────────────
-            try:
-                import os
-                from config import DATA_DIR
-                from database import download_parquet_from_db
-                wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                download_parquet_from_db("elite_wealth_system", wealth_path)
-                if os.path.exists(wealth_path):
-                    wealth_df = pd.read_parquet(wealth_path)
-                    if "Stock" in wealth_df.columns:
-                        wealth_df = wealth_df.set_index("Stock")
-                else:
-                    wealth_df = pd.DataFrame()
-            except Exception as e:
-                logger.error(f"❌ Failed to load Wealth Engine data: {e}")
-                wealth_df = pd.DataFrame()
-
-            # ── BATCH DOWNLOAD: 1H + DAILY CONTEXT (MTA) ────────────────────────────
+            # ── BATCH DOWNLOAD: 1H ONLY ────────────────────────────
             all_ticker_data = {}
-            daily_context_data = {}
             
-            with ThreadPoolExecutor(max_workers=2) as pool:
+            with ThreadPoolExecutor(max_workers=1) as pool:
                 future_1h = pool.submit(fetch_watchlist_data, watchlist, "60d", "1h")
-                future_1d = pool.submit(fetch_watchlist_data, watchlist, "60d", "1d")
                 all_ticker_data = future_1h.result()
-                daily_context_data = future_1d.result()
 
             if not all_ticker_data:
                 logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting 1H scan.")
@@ -164,12 +138,6 @@ def start(run_once=False):
                     pass
                 return
 
-            try:
-                rotation_result = get_sector_scores()
-            except Exception:
-                from sector_rotation import SectorRotationResult
-                rotation_result = SectorRotationResult({}, set(), set(), "", date.today(), 0.0)
-
             rejection_counts = {k: 0 for k in [
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
                 "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
@@ -177,22 +145,23 @@ def start(run_once=False):
             ]}
 
             nifty_intraday_down = False
-            try:
-                from price_fetcher import _fetch_history_with_retry
-                nifty_1d = _fetch_history_with_retry("^NSEI", period="5d", interval="15m")
-                if nifty_1d is not None and not nifty_1d.empty:
-                    # Get today's open
-                    today_str = datetime.now(IST).strftime('%Y-%m-%d')
-                    today_data = nifty_1d.loc[today_str] if today_str in nifty_1d.index else nifty_1d
-                    if not today_data.empty:
-                        nifty_open = float(today_data['Open'].iloc[0])
-                        nifty_current = float(today_data['Close'].iloc[-1])
-                        intraday_drop = ((nifty_open - nifty_current) / nifty_open) * 100 if nifty_open > 0 else 0.0
-                        if intraday_drop > 1.5:
-                            logger.warning(f"🚨 REGIME GATE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
-                            nifty_intraday_down = True
-            except Exception as e:
-                pass
+            if ENABLE_REGIME_GATE_1H:
+                try:
+                    from price_fetcher import _fetch_history_with_retry
+                    nifty_1d = _fetch_history_with_retry("^NSEI", period="5d", interval="15m")
+                    if nifty_1d is not None and not nifty_1d.empty:
+                        # Get today's open
+                        today_str = datetime.now(IST).strftime('%Y-%m-%d')
+                        today_data = nifty_1d.loc[today_str] if today_str in nifty_1d.index else nifty_1d
+                        if not today_data.empty:
+                            nifty_open = float(today_data['Open'].iloc[0])
+                            nifty_current = float(today_data['Close'].iloc[-1])
+                            intraday_drop = ((nifty_open - nifty_current) / nifty_open) * 100 if nifty_open > 0 else 0.0
+                            if intraday_drop > 1.5:
+                                logger.warning(f"🚨 REGIME GATE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
+                                nifty_intraday_down = True
+                except Exception as e:
+                    pass
 
             if nifty_intraday_down:
                 time.sleep(300)
@@ -254,17 +223,10 @@ def start(run_once=False):
                         rejection_counts["insufficient_bars"] += 1
                         continue
 
-                    ticker = apply_indicators(ticker, timeframe="1h",
-                                              daily_ohlc=daily_context_data.get(symbol))
+                    ticker = apply_indicators(ticker, timeframe="1h")
 
                     if ticker is None or ticker.empty:
                         rejection_counts["indicator_fail"] += 1
-                        continue
-
-                    signals = detect_breakouts(ticker, timeframe="1h")
-
-                    if len(signals) < MIN_SIGNALS:
-                        rejection_counts["weak_signals"] += 1
                         continue
 
                     latest = ticker.iloc[-1]
@@ -287,12 +249,9 @@ def start(run_once=False):
                     latest_volume = float(latest["Volume"])
                     vol_series    = ticker["Volume"].iloc[-21:-1]
                     avg_volume    = float(vol_series.mean())
-                    vol_std       = float(vol_series.std())
 
-                    if avg_volume <= 0 or pd.isna(vol_std) or vol_std == 0:
+                    if avg_volume <= 0:
                         continue
-
-                    volume_z_score = (latest_volume - avg_volume) / vol_std
 
                     candle_high  = float(latest["High"])
                     candle_low   = float(latest["Low"])
@@ -352,6 +311,9 @@ def start(run_once=False):
                         continue
                         
                     atr = float(latest.get("ATR", 0) or 0)
+                    if atr <= 0:
+                        continue
+                        
                     extension_ok = candle_close <= breakout_level + 0.8 * atr
                     if not extension_ok:
                         rejection_counts["extended_breakout"] += 1
@@ -366,15 +328,7 @@ def start(run_once=False):
 
                     # Alert execution details
                     score = min(100, int(80 + (volume_ratio * 5)))
-                    model_version = "strict_1h_v1"
-                    bayesian_weights = {}
-                    try:
-                        safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                        sector_bonus = rotation_result.score_bonus_for(safe_sector)
-                        score = max(0, min(score + sector_bonus, 100))
-                    except Exception:
-                        pass
-
+                    model_version = "pure_1h_breakout_v1"
 
                     signal_str = "1H_QUALITY_BREAKOUT"
                     today_str  = datetime.now(IST).strftime("%Y-%m-%d")
@@ -385,63 +339,20 @@ def start(run_once=False):
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    # ── Dynamic S/R and Indicator-based SL + Target (LIVE_1H mode) ──
-                    current_atr = float(latest["ATR"]) if "ATR" in ticker.columns and not pd.isna(latest.get("ATR")) else None
-                    sl_result = compute_sl_and_target(
-                        entry_price=candle_close,
-                        atr=current_atr,
-                        candle_range=candle_range,
-                        mode="LIVE_1H",
-                        adx=latest.get("ADX"),
-                        rsi=rsi_val,
-                        macd_hist=latest.get("MACD_HIST"),
-                        atr_pct=latest.get("ATR_PCT"),
-                        swing_low=latest.get("SWING_LOW"),
-                        swing_high=latest.get("SWING_HIGH"),
-                        bb_upper=latest.get("BB_UPPER"),
-                        bb_lower=latest.get("BB_LOWER"),
-                        bb_mid=latest.get("BB_MID"),
-                        s1=latest.get("S1"),
-                        s2=latest.get("S2"),
-                        r1=latest.get("R1"),
-                        r2=latest.get("R2"),
-                        swing_low_raw=latest.get("SWING_LOW_RAW"),
-                        swing_high_raw=latest.get("SWING_HIGH_RAW"),
-                        candle_low=candle_low,
-                        vwap=latest.get("VWAP"),
-                    )
-                    suggested_stop = sl_result["stop_loss"]
-                    target_price   = sl_result["target_1"]
-
-                    above_ema20  = bool(candle_close >= float(latest["EMA20"])) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
-                    above_sma50  = bool(candle_close >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
-                    golden_cross = bool(float(latest["SMA50"]) >= float(latest["SMA200"])) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
+                    # ── DETERMINISTIC STRUCTURAL SL ──
+                    suggested_stop = min(candle_low, e20) - (0.2 * atr)
+                    if suggested_stop >= candle_close:
+                        suggested_stop = candle_close - (0.5 * atr)
 
                     context = {
                         "technicals": {
-                            "above_ema20":      above_ema20,
-                            "above_sma50":      above_sma50,
-                            "golden_cross":     golden_cross,
-                            "body_ratio":       round(body_ratio, 2),
-                            "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                            "rsi":              round(rsi_val, 1),
-                            "volume_ratio":     round(volume_z_score, 2)
-                        },
-                        "session": {
-                            "open":             round(float(latest["Open"]), 2),
-                            "day_high":         round(float(latest["High"]), 2),
-                            "day_low":          round(float(latest["Low"]), 2)
-                        },
-                        "fundamentals": {
-                            "peg":              row.get("PEG Ratio"),
-                            "yoy_rev":          row.get("YOY Revenue %"),
-                            "yoy_profit":       row.get("YOY Profit %"),
-                            "roe":              row.get("ROE %")
+                            "volume_ratio":     round(volume_ratio, 2),
+                            "rsi":              round(rsi_val, 1)
                         },
                         "execution": {
-                            "sl_method":        sl_result.get("sl_method"),
-                            "t_method":         sl_result.get("t_method"),
-                            "trail_note":       sl_result.get("trail_note")
+                            "breakout_level":   round(breakout_level, 2),
+                            "atr":              round(atr, 2),
+                            "stop_basis":       "min(candle_low, e20) - 0.2*ATR"
                         }
                     }
 
@@ -455,55 +366,31 @@ def start(run_once=False):
                         signals=signal_str,
                         score=score,
                         rsi=round(float(latest["RSI"]), 1),
-                        volume_ratio=round(volume_z_score, 2),
-                        stop_loss=suggested_stop,
-                        target_price=target_price,
+                        volume_ratio=round(volume_ratio, 2),
+                        stop_loss=round(suggested_stop, 2),
+                        target_price=0.0,
                         context=context,
                         model_version=model_version,
                         bayesian_regime="BULL",
-                        bayesian_weights=bayesian_weights,
+                        bayesian_weights={},
                     )
                     if not saved:
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    # Extract wealth signal for this stock
-                    w_signal = None
-                    w_bucket = None
-                    if not wealth_df.empty and symbol in wealth_df.index:
-                        w_signal = wealth_df.loc[symbol, "Signal"]
-                        w_bucket = wealth_df.loc[symbol, "Portfolio_Bucket"]
-
                     alerts_by_category.setdefault(category, []).append({
                         "symbol":           symbol,
-                        "wealth_signal":    w_signal,
-                        "wealth_bucket":    w_bucket,
                         "category":         category,
-                        "breakout_signals": list(signals.keys()) if isinstance(signals, dict) else signals,
+                        "breakout_signals": [signal_str],
                         "price":            round(candle_close, 2),
                         "open":             round(float(latest["Open"]), 2),
                         "day_high":         round(float(latest["High"]), 2),
                         "day_low":          round(float(latest["Low"]), 2),
                         "rsi":              round(float(latest["RSI"]), 1),
-                        "volume_ratio":     round(volume_z_score, 2),
+                        "volume_ratio":     round(volume_ratio, 2),
                         "body_ratio":       round(body_ratio, 1),
                         "score":            score,
-                        "above_ema20":      above_ema20,
-                        "above_sma50":      above_sma50,
-                        "golden_cross":     golden_cross,
-                        "atr_stop":         suggested_stop,
-                        "target_price":     target_price,
-                        "target_2":         sl_result.get("target_2"),
-                        "target_3":         sl_result.get("target_3"),
-                        "sl_method":        sl_result.get("sl_method"),
-                        "t_method":         sl_result.get("t_method"),
-                        "rr_ratio":         sl_result.get("rr_ratio"),
-                        "trail_note":       sl_result.get("trail_note"),
-                        "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                        "peg":              row.get("PEG Ratio"),
-                        "yoy_rev":          row.get("YOY Revenue %"),
-                        "yoy_profit":       row.get("YOY Profit %"),
-                        "roe":              row.get("ROE %"),
+                        "atr_stop":         round(suggested_stop, 2),
                         "capital_allocated": cap_alloc,
                         "shares_bought":     shares
                     })

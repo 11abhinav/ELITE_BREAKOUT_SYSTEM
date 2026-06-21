@@ -1,6 +1,6 @@
 # =====================================================================================
 # app/intraday.py (ULTIMATE EDITION)
-# EARLY MOMENTUM SCANNER — 15M BARS + MULTI-TIMEFRAME ALIGNMENT + MORNING FILTER
+# EARLY MOMENTUM SCANNER — 5M BARS + HOD BREAKOUT/RETEST + 9:45 AM START
 # =====================================================================================
 
 import pandas as pd
@@ -21,15 +21,10 @@ from zoneinfo import ZoneInfo
 from datetime import datetime, date, time as dt_time
 
 from technical_indicators import apply_indicators
-from breakout_engine import detect_breakouts
-from scoring_engine import calculate_score
 from database import init_db, save_alert_if_new, upsert_fetch_error
 from delivery_data import fetch_previous_day_delivery
 from price_cache import fetch_watchlist_data  
-from sl_target_helper import compute_sl_and_target
 from watchlist_cache import get_watchlist
-
-from sector_rotation import get_sector_scores  
 
 from config import (
     WATCHLIST_PATH,
@@ -126,32 +121,12 @@ def start(run_once=False):
             if watchlist is None or watchlist.empty:
                 raise ValueError("Watchlist is missing or empty. Cannot run scan.")
             
-            # ── FETCH WEALTH ENGINE SIGNAL ──────────────────────────────────────────
-            try:
-                import os
-                from config import DATA_DIR
-                from database import download_parquet_from_db
-                wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                download_parquet_from_db("elite_wealth_system", wealth_path)
-                if os.path.exists(wealth_path):
-                    wealth_df = pd.read_parquet(wealth_path)
-                    if "Stock" in wealth_df.columns:
-                        wealth_df = wealth_df.set_index("Stock")
-                else:
-                    wealth_df = pd.DataFrame()
-            except Exception as e:
-                logger.error(f"❌ Failed to load Wealth Engine data: {e}")
-                wealth_df = pd.DataFrame()
-
-            # ── BATCH DOWNLOAD: INTRADAY + DAILY CONTEXT (MTA) ──────────────────────
+            # ── BATCH DOWNLOAD: INTRADAY ONLY ──────────────────────
             all_ticker_data = {}
-            daily_context_data = {}
             
-            with ThreadPoolExecutor(max_workers=2) as pool:
+            with ThreadPoolExecutor(max_workers=1) as pool:
                 future_5m  = pool.submit(fetch_watchlist_data, watchlist, "5d", "5m")
-                future_1d  = pool.submit(fetch_watchlist_data, watchlist, "60d", "1d")
                 all_ticker_data = future_5m.result()
-                daily_context_data = future_1d.result()
 
             if not all_ticker_data:
                 logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting 5m scan.")
@@ -162,13 +137,7 @@ def start(run_once=False):
                     pass
                 return
                 
-            logger.info(f"📥 Data downloaded | 5m: {len(all_ticker_data)} | Daily: {len(daily_context_data)}")
-            
-            try:
-                rotation_result = get_sector_scores()
-            except Exception:
-                from sector_rotation import SectorRotationResult
-                rotation_result = SectorRotationResult({}, set(), set(), "", date.today(), 0.0)
+            logger.info(f"📥 Data downloaded | 5m: {len(all_ticker_data)}")
             
             alerts_by_category = {}
             rejection_counts   = {k: 0 for k in [
@@ -259,17 +228,10 @@ def start(run_once=False):
                         rejection_counts["insufficient_bars"] += 1
                         continue
 
-                    ticker = apply_indicators(ticker, timeframe=TIMEFRAME,
-                                              daily_ohlc=daily_context_data.get(symbol))
+                    ticker = apply_indicators(ticker, timeframe=TIMEFRAME)
 
                     if ticker is None or ticker.empty:
                         rejection_counts["indicator_fail"] += 1
-                        continue
-
-                    signals = detect_breakouts(ticker, timeframe=TIMEFRAME)
-
-                    if len(signals) < MIN_SIGNALS:
-                        rejection_counts["weak_signals"] += 1
                         continue
 
                     latest = ticker.iloc[-1]
@@ -371,6 +333,9 @@ def start(run_once=False):
                         intraday_resistance = prev_high
                         
                     atr5 = float(latest.get("ATR", 0) or 0)
+                    if atr5 <= 0:
+                        continue
+                        
                     extension_ok = candle_close <= intraday_resistance + 0.6 * atr5
                     if not extension_ok:
                         rejection_counts["extended_breakout"] += 1
@@ -379,7 +344,7 @@ def start(run_once=False):
                     hod_break = candle_close > intraday_resistance and candle_close > prev_high
                     
                     # Retest logic: Pullback to VWAP or resistance, then reclaim and close above it
-                    retest_ok = candle_low <= intraday_resistance and candle_close > intraday_resistance and candle_close > candle_open
+                    retest_ok = candle_low <= max(vwap, intraday_resistance) and candle_close > vwap and candle_close > intraday_resistance
                     if not hod_break and not retest_ok:
                         rejection_counts["no_trigger"] += 1
                         continue
@@ -387,15 +352,7 @@ def start(run_once=False):
                     trigger_type = "hod_break" if hod_break else "retest"
 
                     score = min(100, int(80 + (volume_ratio * 5)))
-                    model_version = "strict_intraday_v1"
-                    bayesian_weights = {}
-                    try:
-                        safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                        sector_bonus = rotation_result.score_bonus_for(safe_sector)
-                        score = max(0, min(score + sector_bonus, 100))
-                    except Exception:
-                        pass
-
+                    model_version = "pure_5m_intraday_v1"
 
                     signal_str = f"5M_{trigger_type.upper()}"
                     today_str  = datetime.now(IST).strftime("%Y-%m-%d")
@@ -406,63 +363,21 @@ def start(run_once=False):
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    # ── Dynamic S/R and Indicator-based SL + Target (INTRADAY mode) ──
-                    current_atr = float(latest["ATR"]) if "ATR" in ticker.columns and not pd.isna(latest.get("ATR")) else None
-                    sl_result = compute_sl_and_target(
-                        entry_price=candle_close,
-                        atr=current_atr,
-                        candle_range=candle_range,
-                        mode="INTRADAY",
-                        adx=latest.get("ADX"),
-                        rsi=rsi_val,
-                        macd_hist=latest.get("MACD_HIST"),
-                        atr_pct=latest.get("ATR_PCT"),
-                        swing_low=latest.get("SWING_LOW"),
-                        swing_high=latest.get("SWING_HIGH"),
-                        bb_upper=latest.get("BB_UPPER"),
-                        bb_lower=latest.get("BB_LOWER"),
-                        bb_mid=latest.get("BB_MID"),
-                        s1=latest.get("S1"),
-                        s2=latest.get("S2"),
-                        r1=latest.get("R1"),
-                        r2=latest.get("R2"),
-                        swing_low_raw=latest.get("SWING_LOW_RAW"),
-                        swing_high_raw=latest.get("SWING_HIGH_RAW"),
-                        candle_low=candle_low,
-                        vwap=latest.get("VWAP"),
-                    )
-                    suggested_stop = sl_result["stop_loss"]
-                    target_price   = sl_result["target_1"]
-
-                    above_ema20 = bool(candle_close >= float(latest["EMA20"])) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
-                    above_sma50 = bool(candle_close >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
-                    golden_cross = bool(float(latest["SMA50"]) >= float(latest["SMA200"])) if "SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200")) else None
+                    # ── DETERMINISTIC INTRADAY SL ──
+                    prev_low = float(ticker["Low"].iloc[-2]) if len(ticker) >= 2 else candle_low
+                    suggested_stop = min(candle_low, prev_low) - (0.2 * atr5)
+                    if suggested_stop >= candle_close:
+                        suggested_stop = candle_close - (0.5 * atr5)
 
                     context = {
                         "technicals": {
-                            "above_ema20":      above_ema20,
-                            "above_sma50":      above_sma50,
-                            "golden_cross":     golden_cross,
-                            "body_ratio":       round(body_ratio, 2),
-                            "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                            "rsi":              round(rsi_val, 1),
-                            "volume_ratio":     round(volume_ratio, 2)
-                        },
-                        "session": {
-                            "open":             round(float(latest["Open"]), 2),
-                            "day_high":         round(float(latest["High"]), 2),
-                            "day_low":          round(float(latest["Low"]), 2)
-                        },
-                        "fundamentals": {
-                            "peg":              row.get("PEG Ratio"),
-                            "yoy_rev":          row.get("YOY Revenue %"),
-                            "yoy_profit":       row.get("YOY Profit %"),
-                            "roe":              row.get("ROE %")
+                            "volume_ratio":     round(volume_ratio, 2),
+                            "rsi":              round(rsi_val, 1)
                         },
                         "execution": {
-                            "sl_method":        sl_result.get("sl_method"),
-                            "t_method":         sl_result.get("t_method"),
-                            "trail_note":       sl_result.get("trail_note")
+                            "breakout_level":   round(intraday_resistance, 2),
+                            "atr":              round(atr5, 2),
+                            "stop_basis":       "min(candle_low, prev_low) - 0.2*ATR"
                         }
                     }
 
@@ -477,30 +392,21 @@ def start(run_once=False):
                         score=score,
                         rsi=round(float(latest["RSI"]), 1),
                         volume_ratio=round(volume_ratio, 2),
-                        stop_loss=suggested_stop,
-                        target_price=target_price,
+                        stop_loss=round(suggested_stop, 2),
+                        target_price=0.0,
                         context=context,
                         model_version=model_version,
                         bayesian_regime="BULL",
-                        bayesian_weights=bayesian_weights,
+                        bayesian_weights={},
                     )
                     if not saved:
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    # Extract wealth signal for this stock
-                    w_signal = None
-                    w_bucket = None
-                    if not wealth_df.empty and symbol in wealth_df.index:
-                        w_signal = wealth_df.loc[symbol, "Signal"]
-                        w_bucket = wealth_df.loc[symbol, "Portfolio_Bucket"]
-
                     alerts_by_category.setdefault(category, []).append({
                         "symbol":           symbol,
-                        "wealth_signal":    w_signal,
-                        "wealth_bucket":    w_bucket,
                         "category":         category,
-                        "breakout_signals": list(signals.keys()) if isinstance(signals, dict) else signals,
+                        "breakout_signals": [signal_str],
                         "price":            round(candle_close, 2),
                         "open":             round(float(latest["Open"]), 2),
                         "day_high":         round(float(latest["High"]), 2),
@@ -509,22 +415,7 @@ def start(run_once=False):
                         "volume_ratio":     round(volume_ratio, 2),
                         "body_ratio":       round(body_ratio, 1),
                         "score":            score,
-                        "above_ema20":      above_ema20,
-                        "above_sma50":      above_sma50,
-                        "golden_cross":     golden_cross,
-                        "atr_stop":         suggested_stop,
-                        "target_price":     target_price,
-                        "target_2":         sl_result.get("target_2"),
-                        "target_3":         sl_result.get("target_3"),
-                        "sl_method":        sl_result.get("sl_method"),
-                        "t_method":         sl_result.get("t_method"),
-                        "rr_ratio":         sl_result.get("rr_ratio"),
-                        "trail_note":       sl_result.get("trail_note"),
-                        "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                        "peg":              row.get("PEG Ratio"),
-                        "yoy_rev":          row.get("YOY Revenue %"),
-                        "yoy_profit":       row.get("YOY Profit %"),
-                        "roe":              row.get("ROE %"),
+                        "atr_stop":         round(suggested_stop, 2),
                         "capital_allocated": cap_alloc,
                         "shares_bought":     shares
                     })
