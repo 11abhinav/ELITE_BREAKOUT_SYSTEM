@@ -390,6 +390,7 @@ def bonus_modifiers(
     timeframe="15m",
     atr_val=None,
     delivery_pct=None,
+    nifty_ret=5.0,
 ):
     """
     Returns an integer bonus (can be negative) to add to the base score.
@@ -640,16 +641,14 @@ def bonus_modifiers(
                 bonus += 4
 
     # ── BONUS: RELATIVE STRENGTH VS NIFTY (+5 pts) ───────────────────────────
-    # We use a simple 20-day return vs a flat 5% hurdle as proxy if NIFTY isn't available,
-    # or the actual NIFTY data if joined.
     if len(ticker) > 20:
         price_now = float(latest["Close"])
         price_20d = float(ticker["Close"].iloc[-21])
         if price_20d > 0:
             ret_20d = (price_now - price_20d) / price_20d * 100
-            # Simple institutional hurdle: > 10% in 20 days is strong RS
-            if ret_20d > 10.0:
-                logger.debug(f"  +5 {tag}Strong Relative Strength (20d ret: {ret_20d:.1f}%)")
+            # Institutional benchmark relative strength
+            if ret_20d > nifty_ret:
+                logger.debug(f"  +5 {tag}Strong Relative Strength (20d: {ret_20d:.1f}% vs NIFTY {nifty_ret:.1f}%)")
                 bonus += 5
 
     # ── PENALTY: NO PRE-BREAKOUT BASE / CHOPPY APPROACH (-4 pts) ──────────────────
@@ -747,6 +746,7 @@ def calculate_score(
     atr_val=None,
     delivery_pct=None,
     min_vol=50_000,
+    nifty_ret=5.0,
     regime="BULL"
 ):
     """
@@ -972,6 +972,7 @@ def calculate_score(
             timeframe=timeframe,
             atr_val=atr_val,
             delivery_pct=delivery_pct,
+            nifty_ret=nifty_ret
         )
         score += bonuses
         logger.debug(f"  Score after bonuses: {score} ({'+' if bonuses >= 0 else ''}{bonuses})")

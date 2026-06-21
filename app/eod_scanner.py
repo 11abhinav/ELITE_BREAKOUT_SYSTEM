@@ -61,6 +61,18 @@ def start():
     
     from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
+    
+    nifty_ret_20d = 5.0
+    try:
+        import yfinance as yf
+        nifty = yf.download("^NSEI", period="1mo", progress=False)
+        if not nifty.empty and len(nifty) >= 20:
+            nifty_now = float(nifty["Close"].iloc[-1])
+            nifty_ago = float(nifty["Close"].iloc[-20])
+            if nifty_ago > 0:
+                nifty_ret_20d = (nifty_now - nifty_ago) / nifty_ago * 100
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to fetch NIFTY 20-day return, defaulting to 5%: {e}")
 
     
     ist_now = datetime.now(IST)
@@ -280,9 +292,9 @@ def start():
                                 rejection_counts["no_atr_expansion"] += 1
                                 continue
 
-                if "BB_WIDTH" in ticker.columns and not pd.isna(latest.get("BB_WIDTH")):
-                    bb_width = float(latest["BB_WIDTH"])
-                    if bb_width >= 0.12:
+                if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
+                    bb_width_pctile = float(latest["BB_WIDTH_PCTILE"])
+                    if bb_width_pctile > 0.20:
                         rejection_counts["base_too_wide"] += 1
                         continue
 
@@ -342,8 +354,8 @@ def start():
                         continue
 
                 # ── v6: OBV STRUCTURE FILTER ────────────────────────────────────
-                if "OBV" in ticker.columns and "OBV_20MA" in ticker.columns and not pd.isna(latest.get("OBV")):
-                    if float(latest["OBV"]) < float(latest["OBV_20MA"]):
+                if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
+                    if float(latest["OBV_SLOPE"]) <= 0:
                         rejection_counts["obv_divergence"] += 1
                         continue
 
@@ -366,7 +378,7 @@ def start():
                     timeframe="1d",
                     atr_val=atr_val_eod,
                     delivery_pct=delivery_pct,
-                    min_vol=MIN_AVG_VOLUME_SHARES,
+                    nifty_ret=nifty_ret_20d,
                     regime="BULL"
                 )
 
@@ -381,12 +393,13 @@ def start():
                 # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                 regime = "BULL"  # TODO: Connect to real market regime calculator
                 
-                if regime == "BULL":
-                    min_score_required = 70
+                if regime == "BEAR":
+                    rejection_counts["stale_data"] += 1 # Or explicit bear drop
+                    continue
                 elif regime == "NEUTRAL":
                     min_score_required = 80
                 else:
-                    min_score_required = 90  # Or disable breakouts in BEAR
+                    min_score_required = 70
                     
                 if score < min_score_required:
                     rejection_counts["low_score"] += 1

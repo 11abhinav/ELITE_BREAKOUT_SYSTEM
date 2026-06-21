@@ -108,6 +108,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     df["BB_LOWER"] = bb.bollinger_lband()
     df["BB_MID"]   = bb.bollinger_mavg()
     df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / close
+    df["BB_WIDTH_PCTILE"] = df["BB_WIDTH"].rolling(window=100, min_periods=50).rank(pct=True)
 
     # ── TREND DIRECTION — ADX ─────────────────────────────────────────────────
     adx_ind   = ta.trend.ADXIndicator(high, low, close, window=14)
@@ -252,6 +253,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         raw_obv = (obv_direction * df["Volume"]).cumsum()
         df["OBV_20MA"] = raw_obv.rolling(window=20, min_periods=20).mean()
         df["OBV"] = raw_obv
+        df["OBV_SLOPE"] = raw_obv.diff(3)
 
         # 50-bar rolling OBV
         rolling_obv = (obv_direction * df["Volume"]).rolling(50, min_periods=50).sum()
