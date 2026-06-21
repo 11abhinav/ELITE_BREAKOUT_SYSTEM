@@ -56,9 +56,11 @@ DONT_SAVE_WEALTH = False
 # ── Connection pool ───────────────────────────────────────────────────────────────────
 _pool: Optional[pool.ThreadedConnectionPool] = None
 _pool_lock = threading.Lock()
+# Semaphore to limit concurrent active connections to the pool (prevents noisy exhaustion)
+_conn_semaphore: Optional[threading.BoundedSemaphore] = None
 
 def _get_pool() -> pool.ThreadedConnectionPool:
-    global _pool
+    global _pool, _conn_semaphore
     if _pool is not None:
         return _pool
     with _pool_lock:
@@ -70,24 +72,49 @@ def _get_pool() -> pool.ThreadedConnectionPool:
                 "DATABASE_URL env var is not set. "
                 "Add the Railway Postgres addon and it will be injected automatically."
             )
+        # Configure pool size via env override if provided (fallback to 30)
+        maxconn = int(os.getenv("DB_MAXCONN", "30"))
+        minconn = int(os.getenv("DB_MINCONN", "2"))
         _pool = pool.ThreadedConnectionPool(
-            minconn=2, 
-            maxconn=30, 
+            minconn=minconn,
+            maxconn=maxconn,
             dsn=db_url,
             connect_timeout=5  # Add 5s timeout instead of hanging indefinitely
         )
-        logger.info("✅ Postgres connection pool created (5s timeout)")
+        try:
+            # Initialize semaphore to mirror pool capacity
+            _conn_semaphore = threading.BoundedSemaphore(value=maxconn)
+        except Exception:
+            _conn_semaphore = None
+        logger.info(f"✅ Postgres connection pool created (5s timeout) | min={minconn} max={maxconn}")
         return _pool
 
 
 @contextmanager
-def get_connection():
-    """Get DB connection with circuit breaker pattern."""
-    from psycopg2 import OperationalError
-    
+def get_connection(timeout: int = 5):
+    """Get DB connection with circuit breaker pattern.
+
+    Acquires an internal semaphore before checking out a connection from the pool.
+    This prevents busy loops from exhausting the pool and creating noisy logs.
+    """
+    from psycopg2 import OperationalError, DatabaseError
+
     p = _get_pool()
     conn = None
+    acquired = False
     try:
+        global _conn_semaphore
+        # Ensure semaphore exists (in case pool was created elsewhere)
+        if _conn_semaphore is None:
+            try:
+                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 30))
+            except Exception:
+                _conn_semaphore = None
+        if _conn_semaphore is not None:
+            acquired = _conn_semaphore.acquire(timeout=timeout)
+            if not acquired:
+                raise OperationalError('Connection pool exhausted (acquire timeout)')
+
         conn = p.getconn()
         # Test connection is alive before returning
         with conn.cursor() as cur:
@@ -111,11 +138,18 @@ def get_connection():
                 pass
         raise
     finally:
+        # Return connection to pool if we checked one out
         if conn:
             try:
                 p.putconn(conn)
             except Exception:
-                pass  # Connection already broken, ignore
+                pass
+        # Release semaphore if we acquired it
+        if _conn_semaphore is not None and acquired:
+            try:
+                _conn_semaphore.release()
+            except Exception:
+                pass
 
 
 # ── One-time init guard ───────────────────────────────────────────────────────────────
