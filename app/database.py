@@ -3146,6 +3146,8 @@ def upsert_breakout_watchlist(
     support_level: float = None,
     context_json: str = None
 ):
+    if DONT_SAVE_ALERTS:
+        return
     from datetime import datetime
     try:
         with get_connection() as conn:
@@ -3193,6 +3195,8 @@ def get_active_breakout_watchlist() -> list:
         return []
 
 def mark_breakout_watchlist_cooldown(symbol: str, state: str, hours: int = 24):
+    if DONT_SAVE_ALERTS:
+        return
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:

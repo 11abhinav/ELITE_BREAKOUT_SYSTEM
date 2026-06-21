@@ -1,5 +1,4 @@
 import logging
-import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
@@ -29,7 +28,8 @@ def get_market_regime():
             ret = (float(nifty["Close"].iloc[-1]) / float(nifty["Close"].iloc[-20])) - 1
             if ret < -0.05: return "BEAR"
             if ret > 0.05: return "BULL"
-    except: pass
+    except Exception as e:
+        logger.warning(f"Failed to fetch market regime: {e}")
     return "SIDEWAYS"
 
 def run_hourly_phase():
@@ -90,7 +90,7 @@ def run_hourly_phase():
             )
             logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED.")
 
-def run_lower_tf_phase():
+def run_lower_tf_phase(current_regime="BULL"):
     """
     Phase B & C: Sub-hourly updater.
     Iterates active watchlist items and advances them through the signal ladder.
@@ -122,6 +122,28 @@ def run_lower_tf_phase():
         if breakout_level <= 0:
             continue
 
+        # Failed state check for SETUP_ARMED
+        if state == "SETUP_ARMED":
+            df = data_30m.get(symbol)
+            if df is not None and not df.empty:
+                close = float(df["Close"].iloc[-1])
+                # If we fall >3% away from resistance, drop back to HOURLY_APPROVED
+                if (breakout_level - close) / breakout_level > 0.03:
+                    upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                    state = "HOURLY_APPROVED"
+                    logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
+
+        # Failed state check for BREAKOUT_CONFIRMED
+        if state == "BREAKOUT_CONFIRMED":
+            df = data_5m.get(symbol)
+            if df is not None and not df.empty:
+                close = float(df["Close"].iloc[-1])
+                # If we lose the breakout level entirely, drop back to SETUP_ARMED
+                if close < breakout_level * 0.995:
+                    upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="SETUP_ARMED")
+                    state = "SETUP_ARMED"
+                    logger.info(f"⚠️ {symbol} lost breakout level. Downgraded to SETUP_ARMED.")
+
         # ── 30-Min: SETUP_ARMED ───────────────────────────────────────────
         if state == "HOURLY_APPROVED":
             df = data_30m.get(symbol)
@@ -145,9 +167,17 @@ def run_lower_tf_phase():
                 latest = df.iloc[-1]
                 close = float(latest["Close"])
                 open_px = float(latest["Open"])
+                high = float(latest["High"])
+                low = float(latest["Low"])
                 
                 # Clean break of resistance and candle quality
-                if close > breakout_level and close > open_px:
+                min_buffer = breakout_level * 1.002
+                candle_range = high - low
+                upper_wick = high - max(open_px, close)
+                upper_wick_ratio = upper_wick / candle_range if candle_range > 0 else 0
+                close_in_upper_half = close > (low + candle_range / 2)
+                
+                if close > min_buffer and close_in_upper_half and upper_wick_ratio < 0.3:
                     mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
                     vol_ratio = float(latest["Volume"]) / mean_vol
                     if vol_ratio > 1.2:
@@ -182,8 +212,9 @@ def run_lower_tf_phase():
                     is_ready = True
                     trigger_type = "continuation"
                 elif low <= e9 and close >= e9:  # Micro pullback
-                    is_ready = True
-                    trigger_type = "pullback"
+                    if close > float(latest["Open"]) and (vol_ratio > 1.0 or close > float(prev["High"])):
+                        is_ready = True
+                        trigger_type = "pullback"
                 
                 if is_ready and state == "BREAKOUT_CONFIRMED":
                     upsert_breakout_watchlist(
@@ -220,11 +251,11 @@ def run_lower_tf_phase():
                             entry_price=close,
                             stop_loss=sl_result["stop_loss"],
                             signals=f"Multi-TF Ladder (1h->30m->15m->5m) | {trigger_type}",
-                            score=100, # Max conviction
+                            score=min(100, int(80 + (vol_ratio * 5))), # Dynamic conviction
                             rsi=float(latest.get("RSI", 0)),
                             volume_ratio=vol_ratio,
                             context_json=ctx,
-                            bayesian_regime=get_market_regime()
+                            bayesian_regime=current_regime
                         )
                         upsert_breakout_watchlist(
                             symbol=symbol, category=cat, current_state="TRADE_ACTIVE"
@@ -242,6 +273,9 @@ def start(run_once=False):
             logger.info("=========================================")
             logger.info(f"🚦 MULTI-TF LADDER START | {datetime.now(IST).strftime('%H:%M:%S IST')}")
             
+            # Cache regime once per cycle
+            current_regime = get_market_regime()
+            
             # 1. Sweep old states
             run_sweeper()
             
@@ -249,7 +283,7 @@ def start(run_once=False):
             run_hourly_phase()
             
             # 3. Lower TF updater
-            run_lower_tf_phase()
+            run_lower_tf_phase(current_regime)
             
             logger.info("🚦 MULTI-TF LADDER COMPLETE.")
             
