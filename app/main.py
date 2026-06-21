@@ -669,7 +669,7 @@ RESTARTABLE_THREADS = {
     "PerformanceTracker": run_performance_tracker,
     # "AI Worker":          run_worker_loop,
     # "Pledge Worker":      run_pledge_loop,
-    "BayesianUpdater":    run_bayesian_loop,
+    # "BayesianUpdater":    run_bayesian_loop,
     "SystemScheduler":    run_system_scheduler,
     "EODScanner":         run_eod_scanner,
     "ReversalScanner":    run_reversal_scanner,
