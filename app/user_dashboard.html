@@ -469,18 +469,6 @@ function playDing() {
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
 <body>
-    <!-- TRADINGVIEW MODAL -->
-  <div id="tvModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; flex-direction:column; padding:30px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <div id="tvModalTitle" style="color:var(--text); font-family:var(--font-mono); font-weight:700; font-size:18px; letter-spacing:1px;">LIVE INTERACTIVE CHART</div>
-      <div style="display:flex; gap:10px;">
-        <a id="tvModalNewTab" href="#" target="_blank" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:600; font-size:12px; display:flex; align-items:center;">↗ Open in TradingView</a>
-        <button onclick="document.getElementById('tvModal').style.display='none'" style="background:var(--warn); border:none; color:#000; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:700;">✕ Close</button>
-      </div>
-    </div>
-    <div id="tv-container" style="flex:1; background:#0b0e14; border-radius:8px; overflow:hidden; border:1px solid var(--border);"></div>
-  </div>
-
   <!-- MARKET TICKER -->
   <div id="market-ticker" style="background:#0b0e14; border-bottom:1px solid var(--border); padding:6px 16px; font-size:12px; font-family:var(--font-mono); color:#94a3b8; display:flex; gap:20px; align-items:center; overflow-x:auto; white-space:nowrap;">
     <div style="font-weight:700; color:#ffffff; letter-spacing:1px; margin-right:10px;">LIVE MARKETS</div>
@@ -743,7 +731,13 @@ const fmtDetailTime = ts => {
 
 // ── LOAD DATA
 function openChart(symbol, cmp) {
-    window.open('https://in.tradingview.com/chart/?symbol=NSE:' + symbol, '_blank');
+    const a = document.createElement('a');
+    a.href = 'https://in.tradingview.com/chart/?symbol=NSE:' + symbol;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   function fetchNews(symbol, containerId, btnId) {
@@ -1045,8 +1039,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
           <div class="detail-item">
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="openChart('${t.symbol}', ${t.current_price})" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 In-App Chart</button>
-              <a href="https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}" target="_blank" style="color:var(--muted);text-decoration:none;font-size:10px;font-weight:600;">Browser Chart ↗</a>
+              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
             </div>
           </div>
           <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
