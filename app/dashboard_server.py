@@ -757,6 +757,31 @@ def api_mark_alert_seen():
         logger.exception('❌ /api/alert/mark_seen failed')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/alert/reject', methods=['POST'])
+def api_reject_alert():
+    try:
+        data = request.json or {}
+        alert_id = int(data.get('id'))
+        from database import reject_alert
+        ok = reject_alert(alert_id)
+        return jsonify({'success': bool(ok)})
+    except Exception as e:
+        logger.exception('❌ /api/alert/reject failed')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alert/accept', methods=['POST'])
+def api_accept_alert():
+    try:
+        data = request.json or {}
+        alert_id = int(data.get('id'))
+        from database import accept_alert
+        ok = accept_alert(alert_id)
+        return jsonify({'success': bool(ok)})
+    except Exception as e:
+        logger.exception('❌ /api/alert/accept failed')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route("/api/data_fetch_health/acknowledge/<source_name>", methods=["POST"])
 def api_acknowledge_health(source_name):
     """Admin endpoint to dismiss persistent API warnings."""

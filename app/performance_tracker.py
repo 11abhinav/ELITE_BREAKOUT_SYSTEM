@@ -302,6 +302,7 @@ def build_performance_data():
             "volume_ratio":  _f(row.get("volume_ratio")),
             "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
             "context":       row.get("context"),          # Diagnostic filters and context
+            "is_rejected":   row.get("is_rejected", False),
             "_db_closed":    row.get("status") in ("WIN", "LOSS"),  # internal flag
         })
 
@@ -453,6 +454,8 @@ def build_performance_data():
         t["status"] = _trade_status(
             t["pnl_pct"], t["days_held"], t["stopped_out"], t["target_hit"]
         )
+        if t.get("is_rejected"):
+            t["status"] = "REJECTED"
 
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
     judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL")]

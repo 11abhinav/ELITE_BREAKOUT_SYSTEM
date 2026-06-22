@@ -276,6 +276,7 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
 
                 # ── Breakout Watchlist Metadata Columns (Multi-TF Funnel) ─────────
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
@@ -3302,4 +3303,51 @@ def sweep_stale_breakout_watchlist():
                 """)
     except Exception as e:
         logger.exception(f"❌ Failed to sweep breakout_watchlist: {e}")
+
+def reject_alert(alert_id: int):
+    """Marks an alert as rejected and refunds its allocated capital."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            is_rejected, capital_allocated = row
+            if is_rejected:
+                return True
+                
+            cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+            
+            cap = float(capital_allocated) if capital_allocated else 0.0
+            if cap > 0:
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                    ('trade_refund', cap, f"Refund for rejected alert #{alert_id}")
+                )
+        conn.commit()
+    return True
+
+def accept_alert(alert_id: int):
+    """Marks an alert as accepted (not rejected) and deducts its allocated capital."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            is_rejected, capital_allocated = row
+            if not is_rejected:
+                return True
+                
+            cur.execute("UPDATE alerts SET is_rejected = FALSE WHERE id = %s", (alert_id,))
+            
+            cap = float(capital_allocated) if capital_allocated else 0.0
+            if cap > 0:
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                    ('trade_deduct', -cap, f"Deduction for re-accepted alert #{alert_id}")
+                )
+        conn.commit()
+    return True
+
 
