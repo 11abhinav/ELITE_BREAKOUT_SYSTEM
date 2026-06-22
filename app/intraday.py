@@ -1,6 +1,6 @@
 # =====================================================================================
 # app/intraday.py (ULTIMATE EDITION)
-# EARLY MOMENTUM SCANNER — 5M BARS + HOD BREAKOUT/RETEST + 9:45 AM START
+# EARLY MOMENTUM SCANNER — 15M SETUP + 3x5M TRIGGER + FAKEOUT DEFENSE
 # =====================================================================================
 
 import pandas as pd
@@ -28,12 +28,11 @@ from config import (
     MIN_STOCK_PRICE,
 )
 
-
-
 logger = logging.getLogger(__name__)
 
+IST = ZoneInfo("Asia/Kolkata")
+
 def strip_forming_candle(df, tf_minutes, ist_now):
-    import pandas as pd
     if df is None or df.empty:
         return df
     
@@ -52,10 +51,191 @@ def strip_forming_candle(df, tf_minutes, ist_now):
             pass
     return df
 
-IST        = ZoneInfo("Asia/Kolkata")
+def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
+    if df15 is None or len(df15) < 60:
+        return None
 
-TIMEFRAME        = "5m"
+    df15 = strip_forming_candle(df15, 15, ist_now)
+    if df15 is None or len(df15) < 60:
+        return None
 
+    df15 = apply_indicators(df15, timeframe="15m")
+    if df15 is None or df15.empty:
+        return None
+
+    last = df15.iloc[-1]
+    prev_20 = df15.iloc[-21:-1]
+    if prev_20.empty:
+        return None
+        
+    last_ts = last.name
+    if not isinstance(last_ts, pd.Timestamp):
+        _dt_col = next((c for c in ["Datetime", "Date"] if c in df15.columns), None)
+        if _dt_col:
+            last_ts = last[_dt_col]
+        else:
+            return None
+
+    if isinstance(last_ts, str):
+        last_ts = pd.to_datetime(last_ts)
+        
+    if last_ts.tzinfo is not None:
+        last_ts = last_ts.tz_convert("Asia/Kolkata")
+    else:
+        last_ts = last_ts.tz_localize("Asia/Kolkata")
+
+    age_minutes = (ist_now - last_ts).total_seconds() / 60
+    if age_minutes > 35 or last_ts.date() != ist_now.date():
+        return None
+
+    candle_range = last["High"] - last["Low"]
+    if candle_range <= 0:
+        return None
+
+    body = abs(last["Close"] - last["Open"])
+    body_pct = body / candle_range
+    close_pos = (last["Close"] - last["Low"]) / candle_range
+    upper_wick = last["High"] - max(last["Open"], last["Close"])
+    upper_wick_pct = upper_wick / candle_range
+
+    vol_ma20 = prev_20["Volume"].mean()
+    vol_ratio = last["Volume"] / vol_ma20 if vol_ma20 and vol_ma20 > 0 else 0
+
+    breakout_resistance = prev_20["High"].max()
+    
+    # Check EMA50 and ATR5 from applied indicators
+    ema50 = last.get("EMA50", 0)
+    atr5 = last.get("ATR", 0)
+    rsi = last.get("RSI", 50)
+    
+    if pd.isna(ema50) or pd.isna(atr5) or pd.isna(rsi):
+        return None
+
+    checks = {
+        "trend": last["Close"] > ema50,
+        "range": candle_range >= 0.4 * atr5,
+        "momentum": rsi >= 60,
+        "volume": vol_ratio >= 2.5,
+        "body": body_pct >= 0.55,
+        "close_pos": close_pos >= 0.70,
+        "upper_wick": upper_wick_pct < 0.25,
+        "breakout_close": last["Close"] > breakout_resistance,
+        "min_price": last["Close"] >= MIN_STOCK_PRICE
+    }
+
+    if not all(checks.values()):
+        return None
+
+    return {
+        "breakout_resistance": breakout_resistance,
+        "close_pos": close_pos,
+        "vol_ratio": vol_ratio,
+        "rsi": rsi,
+        "last_15m_close": last["Close"],
+        "last_15m_time": last_ts,
+        "atr5": atr5,
+    }
+
+
+def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> dict | None:
+    if df5 is None or len(df5) < 40:
+        return None
+
+    df5 = strip_forming_candle(df5, 5, ist_now)
+    if df5 is None or len(df5) < 40:
+        return None
+
+    df5 = apply_indicators(df5, timeframe="5m")
+    if df5 is None or df5.empty:
+        return None
+        
+    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df5.columns), None)
+    if not datetime_col:
+        return None
+        
+    df5 = df5.copy()
+    if datetime_col != "index":
+        df5["ts"] = pd.to_datetime(df5[datetime_col])
+    else:
+        df5["ts"] = pd.to_datetime(df5.index)
+        
+    # Ensure tz is IST for comparison
+    df5["ts"] = df5["ts"].dt.tz_convert("Asia/Kolkata") if df5["ts"].dt.tz is not None else df5["ts"].dt.tz_localize("Asia/Kolkata")
+
+    block_end = setup["last_15m_time"]
+    block_start = block_end - pd.Timedelta(minutes=10)
+
+    seq = df5[(df5["ts"] >= block_start) & (df5["ts"] <= block_end)].copy()
+    if len(seq) != 3:
+        return None
+
+    resistance = setup["breakout_resistance"]
+
+    closes_above_vwap = (seq["Close"] > seq["VWAP"]).all()
+    green_count = (seq["Close"] > seq["Open"]).sum()
+
+    def get_upper_wick_pct(row):
+        r = row["High"] - row["Low"]
+        if r <= 0:
+            return 1.0
+        uw = row["High"] - max(row["Open"], row["Close"])
+        return uw / r
+
+    wick_ok = seq.apply(get_upper_wick_pct, axis=1).max() <= 0.40
+    breakout_candle_wick_ok = get_upper_wick_pct(seq.iloc[-1]) <= 0.30
+
+    closes_above_level = (seq["Close"] > resistance).sum()
+    latest_close_above = seq.iloc[-1]["Close"] > resistance
+
+    touched_retest = (
+        ((seq["Low"] <= resistance + 0.05 * setup["atr5"]) & (seq["Close"] > resistance)).any()
+    )
+
+    recent = df5[df5["ts"] < block_start].copy()
+    if len(recent) < 20:
+        return None
+
+    seq_vol = seq["Volume"].sum()
+    rolling_3_avg = recent["Volume"].rolling(3).sum().dropna().tail(20).mean()
+    breakout_bar_vol_avg20 = recent["Volume"].tail(20).mean()
+    breakout_bar_vol_ok = seq.iloc[-1]["Volume"] >= 1.5 * breakout_bar_vol_avg20
+    vol_ok = rolling_3_avg and rolling_3_avg > 0 and seq_vol >= 2.0 * rolling_3_avg
+
+    extension_guard = seq.iloc[-1]["Close"] <= resistance + 0.35 * setup["atr5"]
+
+    checks = {
+        "vwap_support": closes_above_vwap,
+        "bullish_persistence": green_count >= 2,
+        "wick_rejection": wick_ok,
+        "breakout_candle_wick": breakout_candle_wick_ok,
+        "latest_close_above": latest_close_above,
+        "persistence_above_level": closes_above_level >= 2,
+        "retest_hold": touched_retest,
+        "volume_surge": vol_ok,
+        "breakout_bar_volume": breakout_bar_vol_ok,
+        "not_overextended": extension_guard,
+    }
+
+    if not all(checks.values()):
+        return None
+
+    return {
+        "green_count": int(green_count),
+        "closes_above_level": int(closes_above_level),
+        "seq_vol": float(seq_vol),
+        "latest_5m_close": float(seq.iloc[-1]["Close"]),
+        "latest_5m_low": float(seq.iloc[-1]["Low"]),
+    }
+
+def compute_score(setup: dict) -> int:
+    score = 75
+    if setup["rsi"] > 65:
+        score += 5
+    if setup["vol_ratio"] > 3.0:
+        score += 5
+    if setup["close_pos"] > 0.80:
+        score += 5
+    return min(score, 90)
 
 def start(run_once=False):
     init_db()
@@ -74,29 +254,29 @@ def start(run_once=False):
         
         if not is_active_window:
             logger.info("📅 Outside market hours - running in TEST mode (no db saves)")
-
-        # ✅ FIX: Macro regime check removed — alerts fire irrespective of market trend.
         
         scan_start = datetime.now(IST)
         logger.info("=" * 80)
-        logger.info(f"⚡ INTRADAY SCAN START | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"⚡ INTRADAY SCAN START (15m + 5m Multi-TF) | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 80)
 
-        sleep_time = 300  
         try:
             watchlist = get_watchlist()
             if watchlist is None or watchlist.empty:
                 raise ValueError("Watchlist is missing or empty. Cannot run scan.")
             
-            # ── BATCH DOWNLOAD: INTRADAY ONLY ──────────────────────
-            all_ticker_data = {}
+            # ── DUAL BATCH DOWNLOAD ──────────────────────
+            data_15m = {}
+            data_5m = {}
             
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future_5m  = pool.submit(fetch_watchlist_data, watchlist, "5d", "5m")
-                all_ticker_data = future_5m.result()
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f15 = pool.submit(fetch_watchlist_data, watchlist, "10d", "15m")
+                f5  = pool.submit(fetch_watchlist_data, watchlist, "5d", "5m")
+                data_15m = f15.result()
+                data_5m = f5.result()
 
-            if not all_ticker_data:
-                logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting 5m scan.")
+            if not data_15m or not data_5m:
+                logger.error("❌ YFinance returned 0 data for one of the timeframes. Aborting scan.")
                 try:
                     from database import upsert_scanner_health
                     upsert_scanner_health("INTRADAY", "DOWN", error_msg="CRITICAL: YFinance returned 0 data. Rate limited.")
@@ -104,15 +284,9 @@ def start(run_once=False):
                     pass
                 return
                 
-            logger.info(f"📥 Data downloaded | 5m: {len(all_ticker_data)}")
+            logger.info(f"📥 Data downloaded | 15m: {len(data_15m)} | 5m: {len(data_5m)}")
             
-            rejection_counts   = {k: 0 for k in [
-                "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
-                "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
-                "no_trigger", "extended_breakout", "duplicate", "stale_data"
-            ]}
             total_alerts = 0
-            _last_ts = None  # Initialize before loop to prevent NameError
 
             for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
                 symbol = "UNKNOWN"
@@ -124,223 +298,46 @@ def start(run_once=False):
                     if symbol in get_live_blacklist():
                         continue
 
-                    if symbol not in all_ticker_data:
-                        rejection_counts["no_data"] += 1
-                        try:
-                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'no_data', 'missing_in_batch')
-                        except Exception:
-                            logger.exception('Failed to upsert fetch error')
+                    if symbol not in data_15m or symbol not in data_5m:
                         continue
 
-                    ticker = all_ticker_data[symbol].copy()
+                    df15 = data_15m[symbol].copy()
+                    df5 = data_5m[symbol].copy()
 
-                    if ticker.empty:
-                        rejection_counts["no_data"] += 1
-                        try:
-                            upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'no_data', 'empty_dataframe')
-                        except Exception:
-                            logger.exception('Failed to upsert fetch error')
+                    setup = evaluate_15m_setup(df15, ist_now)
+                    if not setup:
                         continue
 
-                    if isinstance(ticker.columns, pd.MultiIndex):
-                        ticker.columns = ticker.columns.get_level_values(0)
-
-                    ticker = ticker.loc[:, ~ticker.columns.duplicated()]
-
-                    required_cols = ["Open", "High", "Low", "Close", "Volume"]
-                    missing_col   = False
-
-                    for col_name in required_cols:
-                        if col_name not in ticker.columns:
-                            missing_col = True
-                            break
-                        if isinstance(ticker[col_name], pd.DataFrame):
-                            ticker[col_name] = ticker[col_name].iloc[:, 0]
-                        ticker[col_name] = pd.Series(ticker[col_name]).astype(float)
-
-                    if missing_col:
-                        rejection_counts["missing_col"] += 1
+                    trigger = evaluate_5m_trigger(df5, setup, ist_now)
+                    if not trigger:
                         continue
 
-                    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+                    score = compute_score(setup)
+                    if trigger.get("closes_above_level", 0) == 3:
+                        score = min(90, score + 3) # Bonus for clean retest-hold
 
-                    if ticker.empty:
-                        rejection_counts["no_data"] += 1
-                        continue
-
-                    ticker = strip_forming_candle(ticker, 5, datetime.now(IST))
-                    if ticker is None or ticker.empty:
-                        rejection_counts["forming_candle_stripped"] += 1
-                        continue
-
-                    _stale_col = next((c for c in ["Datetime", "Date"] if c in ticker.columns), None)
-                    if _stale_col:
-                        try:
-                            _last_ts = pd.to_datetime(ticker.iloc[-1][_stale_col])
-                            if _last_ts.tzinfo is not None:
-                                _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                            if _last_ts.date() != ist_now.date():
-                                rejection_counts["stale_data"] += 1
-                                try:
-                                    upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'stale_data', f'last_ts:{_last_ts.date()}')
-                                except Exception:
-                                    pass
-                                continue
-                        except Exception:
-                            pass
-
-                    if len(ticker) < 105:
-                        rejection_counts["insufficient_bars"] += 1
-                        continue
-
-                    ticker = apply_indicators(ticker, timeframe=TIMEFRAME)
-
-                    if ticker is None or ticker.empty:
-                        rejection_counts["indicator_fail"] += 1
-                        continue
-
-                    latest = ticker.iloc[-1]
-
-                    if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
-                        continue
-
-                    _stale_col = next((c for c in ["Datetime", "Date"] if c in ticker.columns), None)
-                    if _stale_col:
-                        try:
-                            _last_ts = pd.to_datetime(latest[_stale_col])
-                            if _last_ts.tzinfo is not None:
-                                _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                            if _last_ts.date() != ist_now.date():
-                                rejection_counts["stale_data"] += 1
-                                continue
-                        except Exception:
-                            pass
-
-                    latest_volume = float(latest["Volume"])
-                    avg_volume    = float(ticker["Volume"].iloc[-21:-1].mean())
-
-                    if avg_volume <= 0:
-                        continue
-
-                    volume_ratio = latest_volume / avg_volume
-
-                    candle_high  = float(latest["High"])
-                    candle_low   = float(latest["Low"])
-                    candle_open  = float(latest["Open"])
-                    candle_close = float(latest["Close"])
-                    candle_range = candle_high - candle_low
-                    candle_body  = abs(candle_close - candle_open)
-                    upper_wick   = candle_high - candle_close
-
-                    if candle_range <= 0:
-                        continue
-
-                    body_ratio     = candle_body / candle_range
-                    close_position = (candle_close - candle_low) / candle_range
-                    wick_ratio     = upper_wick / candle_range
-                    rsi_val        = float(latest["RSI"])
-
-                    if candle_close < MIN_STOCK_PRICE:
-                        rejection_counts["penny_stock"] += 1
-                        continue
-
-                    volume_ratio = latest_volume / avg_volume
-
-                    # ── STRICT INTRADAY MOMENTUM RULES (5m) ──────────────────────────────
-                    vwap = float(latest.get("VWAP", 0) or 0)
-                    e9 = float(latest.get("EMA9", 0) or 0)
-                    e20 = float(latest.get("EMA20", 0) or 0)
-                    
-                    trend_ok = candle_close > vwap and (e9 > e20 or candle_close > e20)
-                    if not trend_ok:
-                        rejection_counts["trend_fail"] += 1
-                        continue
-                        
-                    momentum_ok = rsi_val >= 55
-                    if not momentum_ok:
-                        rejection_counts["momentum_fail"] += 1
-                        continue
-                        
-                    is_morning = current_time < dt_time(10, 0)
-                    req_vol = 2.0 if is_morning else 1.5
-                    volume_ok = volume_ratio >= req_vol
-                    if not volume_ok:
-                        rejection_counts["volume_fail"] += 1
-                        continue
-                        
-                    candle_ok = close_position >= 0.60 and wick_ratio < 0.35
-                    if not candle_ok:
-                        rejection_counts["candle_fail"] += 1
-                        continue
-                        
-                    # Calculate Intraday Resistance (HOD so far)
-                    today_str = ist_now.strftime("%Y-%m-%d")
-                    
-                    _dt_col = next((c for c in ["Datetime", "Date", "index"] if c in ticker.columns), None)
-                    if not _dt_col:
-                        continue
-                        
-                    try:
-                        ticker_dt = pd.to_datetime(ticker[_dt_col])
-                        if ticker_dt.dt.tz is None:
-                            ticker_dt = ticker_dt.dt.tz_localize('UTC').dt.tz_convert('Asia/Kolkata')
-                        today_df = ticker[ticker_dt >= pd.Timestamp(f"{today_str} 09:15:00").tz_localize('Asia/Kolkata')]
-                    except Exception:
-                        continue
-                    
-                    if today_df.empty or len(today_df) < 2:
-                        continue
-                        
-                    # HOD excluding the current candle
-                    prev_high = float(ticker["High"].iloc[-2])
-                    intraday_resistance = float(today_df["High"].iloc[:-1].max())
-                    if pd.isna(intraday_resistance):
-                        intraday_resistance = prev_high
-                        
-                    atr5 = float(latest.get("ATR", 0) or 0)
-                    if atr5 <= 0:
-                        continue
-                        
-                    extension_ok = candle_close <= intraday_resistance + 0.6 * atr5
-                    if not extension_ok:
-                        rejection_counts["extended_breakout"] += 1
-                        continue
-
-                    hod_break = candle_close > intraday_resistance and candle_close > prev_high
-                    
-                    # Retest logic: Pullback to VWAP or resistance, then reclaim and close above it
-                    retest_ok = candle_low <= max(vwap, intraday_resistance) and candle_close > vwap and candle_close > intraday_resistance and candle_close > prev_high
-                    if not hod_break and not retest_ok:
-                        rejection_counts["no_trigger"] += 1
-                        continue
-                        
-                    trigger_type = "hod_break" if hod_break else "retest"
-
-                    score = min(100, int(80 + (volume_ratio * 5)))
-                    model_version = "pure_5m_intraday_v1"
-
-                    signal_str = f"5M_{trigger_type.upper()}"
-                    today_str  = datetime.now(IST).strftime("%Y-%m-%d")
+                    signal_str = "15M_5M_CONFIRMED_BREAKOUT"
+                    today_str  = ist_now.strftime("%Y-%m-%d")
                     dedup_key  = f"{category}|{signal_str}|{symbol}|{today_str}|INTRADAY"
 
                     from database import check_recent_alert
-                    if check_recent_alert(symbol, "INTRADAY", dedup_key, 60):
-                        rejection_counts["duplicate"] += 1
+                    if check_recent_alert(symbol, "INTRADAY", dedup_key, 90):
                         continue
 
                     # ── DETERMINISTIC INTRADAY SL ──
-                    prev_low = float(ticker["Low"].iloc[-2]) if len(ticker) >= 2 else candle_low
-                    suggested_stop = min(candle_low, prev_low) - (0.2 * atr5)
+                    candle_close = trigger["latest_5m_close"]
+                    atr5 = setup["atr5"]
+                    suggested_stop = trigger["latest_5m_low"] - (0.2 * atr5)
                     if suggested_stop >= candle_close:
                         suggested_stop = candle_close - (0.5 * atr5)
 
                     context = {
                         "technicals": {
-                            "volume_ratio":     round(volume_ratio, 2),
-                            "rsi":              round(rsi_val, 1)
+                            "volume_ratio":     round(setup["vol_ratio"], 2),
+                            "rsi":              round(setup["rsi"], 1)
                         },
                         "execution": {
-                            "breakout_level":   round(intraday_resistance, 2),
+                            "breakout_level":   round(setup["breakout_resistance"], 2),
                             "atr":              round(atr5, 2),
                             "stop_basis":       "min(candle_low, prev_low) - 0.2*ATR"
                         }
@@ -350,37 +347,34 @@ def start(run_once=False):
                         saved, cap_alloc, shares = save_alert_if_new(
                             symbol,
                             dedup_key,
-                            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                            ist_now.strftime("%Y-%m-%d %H:%M:%S"),
                             scanner="INTRADAY",
                             category=category,
                             entry_price=round(candle_close, 2),
                             signals=signal_str,
                             score=score,
-                            rsi=round(float(latest["RSI"]), 1),
-                            volume_ratio=round(volume_ratio, 2),
+                            rsi=round(setup["rsi"], 1),
+                            volume_ratio=round(setup["vol_ratio"], 2),
                             stop_loss=round(suggested_stop, 2),
                             target_price=0.0,
                             context=context,
-                            model_version=model_version,
+                            model_version="multi_tf_intraday_v2",
                             bayesian_regime="INDEPENDENT",
                             bayesian_weights={},
                         )
                     else:
                         logger.info(f"🧪 [TEST MODE] Alert generated for {symbol} - {signal_str}")
                         saved, cap_alloc, shares = True, 0.0, 0
-                    if not saved:
-                        rejection_counts["duplicate"] += 1
-                        continue
-
-                    total_alerts += 1
+                        
+                    if saved:
+                        total_alerts += 1
 
                 except Exception as e:
                     logger.exception(f"❌ UNHANDLED ERROR processing {symbol}")
-                    rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
                     try:
-                        upsert_fetch_error('yfinance', 'INTRADAY', symbol, '5m', 'processing_error', str(e))
+                        upsert_fetch_error('yfinance', 'INTRADAY', symbol, '15m/5m', 'processing_error', str(e))
                     except Exception:
-                        logger.exception(f'Failed to upsert fetch error for {symbol}')
+                        pass
                     continue
             
             if total_alerts == 0:
@@ -390,7 +384,6 @@ def start(run_once=False):
             logger.info("=" * 80)
             logger.info(f"✅ INTRADAY SCAN COMPLETE | {round(duration, 2)}s | Alerts={total_alerts}/{len(watchlist)}")
             
-            # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
             from database import upsert_scanner_health, verify_alerts_saved_today
             if total_alerts > 0 and is_active_window:
                 if not verify_alerts_saved_today("INTRADAY", total_alerts):
@@ -412,18 +405,13 @@ def start(run_once=False):
             except Exception:
                 logger.exception("❌ Failed to update scanner health for INTRADAY")
 
-            fired = {k: v for k, v in rejection_counts.items() if v > 0}
-            if fired:
-                logger.info("   Rejections: " + " | ".join(f"{k}={v}" for k, v in fired.items()))
-
-
             if run_once:
                 logger.info("🧪 TEST RUN COMPLETE. Exiting loop.")
                 break
             
             elapsed     = (datetime.now(IST) - scan_start).total_seconds()
-
-            sleep_time  = max(0, 300 - elapsed)
+            # Loop runs every 15 minutes to align perfectly with the completion of the 15m candle.
+            sleep_time  = max(0, 900 - elapsed)
             time.sleep(sleep_time)
 
         except Exception as e:
@@ -437,4 +425,4 @@ def start(run_once=False):
             except Exception:
                 pass
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()
-            time.sleep(max(0, 300 - elapsed))
+            time.sleep(max(0, 900 - elapsed))

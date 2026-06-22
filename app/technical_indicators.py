@@ -94,6 +94,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     # Adding EMA9 for multi-TF trend permission logic (9 > 20 > 50)
     df["EMA9"]   = ta.trend.ema_indicator(close, window=9)
     df["EMA20"]  = ta.trend.ema_indicator(close, window=20)
+    df["EMA50"]  = ta.trend.ema_indicator(close, window=50)
     df["SMA50"]  = ta.trend.sma_indicator(close, window=50)
     df["SMA200"] = ta.trend.sma_indicator(close, window=200)
 
