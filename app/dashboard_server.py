@@ -867,6 +867,27 @@ def api_reallocate_alert():
         logger.exception('❌ /api/alert/reallocate failed')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/alert/reallocate_multiple', methods=['POST'])
+def api_reallocate_multiple_alerts():
+    try:
+        data = request.json or {}
+        ids = data.get('ids') or data.get('alert_ids') or []
+        if isinstance(ids, str):
+            ids = [int(x) for x in ids.split(',') if x.strip()]
+        else:
+            ids = [int(x) for x in ids] if ids else []
+            
+        from database import reallocate_capital_multiple
+        results = reallocate_capital_multiple(ids)
+        if results and len(results) > 0:
+            import threading
+            from performance_tracker import build_performance_data
+            threading.Thread(target=build_performance_data).start()
+        return jsonify({'success': True, 'results': results})
+    except Exception as e:
+        logger.exception('❌ /api/alert/reallocate_multiple failed')
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route("/api/data_fetch_health/acknowledge/<source_name>", methods=["POST"])
 def api_acknowledge_health(source_name):
