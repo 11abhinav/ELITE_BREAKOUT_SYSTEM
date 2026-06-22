@@ -1545,7 +1545,8 @@ function buildTradeRows(trades, maxAbs, prefix) {
               <a href="https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}" target="_blank" style="color:var(--muted);text-decoration:none;font-size:10px;font-weight:600;">Browser Chart ↗</a>
               ${t.status === 'REJECTED' 
                 ? `<button onclick="acceptAlert(${t.id})" style="background:#00d4a1; color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">✅ Re-Accept Trade</button>`
-                : `<button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">❌ Reject Trade</button>`
+                : `<button onclick="reallocateCapital(${t.id})" style="background:#4a90e2; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">💰 Allocate Capital</button>
+                   <button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">❌ Reject Trade</button>`
               }
             </div>
           </div>
@@ -1640,6 +1641,25 @@ async function acceptAlert(id) {
     } catch (e) {
         console.error(e);
         alert('Error accepting trade.');
+    }
+}
+
+async function reallocateCapital(id) {
+    if (!confirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.')) return;
+    try {
+        const res = await fetch('/api/alert/reallocate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: id})
+        });
+        if (res.ok) {
+            fetchData(); // Reload table and KPIs
+        } else {
+            alert('Failed to allocate capital.');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Error allocating capital.');
     }
 }
 

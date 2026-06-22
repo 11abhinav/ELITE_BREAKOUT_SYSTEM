@@ -571,7 +571,6 @@ def build_performance_data():
     # Strip internal tracking flag before serialising
     for t in trades:
         t.pop("_db_closed", None)
-        t.pop("id", None)
 
     # ── 9. Write scanner health to Postgres (source of truth) ──────────────────
     today_str = date.today().isoformat()

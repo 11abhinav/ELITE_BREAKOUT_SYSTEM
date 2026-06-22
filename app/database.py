@@ -3350,4 +3350,48 @@ def accept_alert(alert_id: int):
         conn.commit()
     return True
 
+def reallocate_capital(alert_id: int):
+    """
+    Manually recalculates and reallocates capital to an existing alert.
+    Useful if it originally fired when cash was negative and allocated 0.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Fetch current details
+            cur.execute("SELECT entry_price, stop_loss, score, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            
+            entry_price, stop_loss, score, old_cap = row
+            old_cap = float(old_cap) if old_cap else 0.0
+            
+            # Temporarily free the current margin from the DB view so portfolio_engine sees it
+            if old_cap > 0:
+                cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (alert_id,))
+                
+            from portfolio_engine import calculate_trade_allocation
+            new_cap, new_shares = calculate_trade_allocation(entry_price, stop_loss, score or 80)
+            
+            # Update the alert with the newly calculated amounts
+            cur.execute(
+                "UPDATE alerts SET capital_allocated = %s, shares_bought = %s WHERE id = %s",
+                (new_cap, new_shares, alert_id)
+            )
+            
+            # Adjust the capital_history by recording the net difference
+            # (If old was 0, this is just a normal deduction. If re-allocating, it balances out).
+            net_change = old_cap - new_cap
+            if net_change != 0:
+                tx_type = 'trade_refund' if net_change > 0 else 'trade_deduct'
+                desc = f"Reallocation diff for alert #{alert_id}"
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                    (tx_type, net_change, desc)
+                )
+                
+        conn.commit()
+    return True
+
+
 

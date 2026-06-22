@@ -781,6 +781,18 @@ def api_accept_alert():
         logger.exception('❌ /api/alert/accept failed')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/alert/reallocate', methods=['POST'])
+def api_reallocate_alert():
+    try:
+        data = request.json or {}
+        alert_id = int(data.get('id'))
+        from database import reallocate_capital
+        ok = reallocate_capital(alert_id)
+        return jsonify({'success': bool(ok)})
+    except Exception as e:
+        logger.exception('❌ /api/alert/reallocate failed')
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route("/api/data_fetch_health/acknowledge/<source_name>", methods=["POST"])
 def api_acknowledge_health(source_name):
