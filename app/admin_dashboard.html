@@ -2346,6 +2346,7 @@ async function doRefresh(isAuto = false) {
   window._scannerStats = data.scanner_stats || {};
   renderScannerGrid(data.scanner_stats);
   ALL_TRADES = data.trades || [];
+  populateFilters(ALL_TRADES);
   await loadCapitalInfo(); // Ensure capital is always fresh on refresh
   renderTradeTable();
   updateSim();
@@ -2737,6 +2738,7 @@ async function initDashboard() {
   }
 
   ALL_TRADES = data.trades;
+  populateFilters(ALL_TRADES);
   loadCapitalInfo(); 
   renderTradeTable();
   renderScannerGrid(data.scanner_stats);
@@ -2763,6 +2765,7 @@ async function initDashboard() {
     loadData().then(data => {
       if (data.trades) {
         ALL_TRADES = data.trades;
+        populateFilters(ALL_TRADES);
         fetchSignalLadder();
         renderTradeTable();
         updateSim();

@@ -811,17 +811,39 @@ async function loadData() {
 let ALL_TRADES = [], activeKpi = null;
 
 function renderKPIs(s) {
+  const filteredTrades = window._currentFilteredTrades || ALL_TRADES;
+  const nowIst = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+  const yy = nowIst.getFullYear();
+  const mm = String(nowIst.getMonth() + 1).padStart(2, '0');
+  const dd = String(nowIst.getDate()).padStart(2, '0');
+  const todayStr = `${yy}-${mm}-${dd}`;
+  
+  const todaysCount = filteredTrades.filter(t => (t.alert_time||t.entry_date||'').startsWith(todayStr)).length;
+  const judged = filteredTrades.filter(t => ['WIN','LOSS','NEUTRAL'].includes(t.status));
+  const winners = judged.filter(t => t.status === 'WIN');
+  const losers = judged.filter(t => t.status === 'LOSS');
+  const winRate = judged.length > 0 ? ((winners.length / judged.length) * 100).toFixed(0) : 0;
+  const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + (t.pnl_pct||0), 0) / judged.length) : 0;
+  const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + (t.pnl_pct||0), 0) / winners.length) : 0;
+  const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + (t.pnl_pct||0), 0) / losers.length) : 0;
+  const expectancy = (winRate/100 * avgWin) + ((1 - winRate/100) * avgLoss);
+  
+  const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct||0) > max ? (t.pnl_pct||0) : max, -100);
+  const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct||0) < min ? (t.pnl_pct||0) : min, 100);
+  const openPositions = filteredTrades.filter(t => t.status === 'OPEN').length;
+
   const defs = [
-    {id:'total',   label:'Total Alerts',  value:s.total_alerts,       cls:'',       sub:'all time',             filter:t=>true},
-    {id:'judged',  label:'Judged',        value:s.judged,             cls:'',       sub:`${s.sl_triggered||0} SL · ${s.target_hit||0} target`, filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)},
-    {id:'winrate', label:'Win Rate',      value:s.win_rate+'%',       cls:s.win_rate>=55?'green':s.win_rate>=45?'amber':'red', sub:`${s.winners}W / ${s.losers}L`, filter:t=>t.status==='WIN'||t.status==='LOSS'},
-    {id:'avgret',  label:'Avg Return',    value:pct(s.avg_return_pct),cls:s.avg_return_pct>=0?'green':'red', sub:'per judged trade', filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)&&t.pnl_pct!=null},
-    {id:'avgwin',  label:'Avg Win',       value:pct(s.avg_win_pct),   cls:'green',  sub:'winners only',          filter:t=>t.status==='WIN'},
-    {id:'avgloss', label:'Avg Loss',      value:pct(s.avg_loss_pct),  cls:'red',    sub:'losers only',           filter:t=>t.status==='LOSS'},
-    {id:'expect',  label:'Expectancy',    value:pct(s.expectancy),    cls:s.expectancy>=0?'green':'red', sub:'WR×avgW+(1-WR)×avgL', filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)},
-    {id:'best',    label:'Best Trade',    value:pct(s.best_trade_pct),cls:'green',  sub:'',                      filter:t=>t.pnl_pct!=null&&t.pnl_pct===s.best_trade_pct},
-    {id:'worst',   label:'Worst Trade',   value:pct(s.worst_trade_pct),cls:'red',   sub:'',                      filter:t=>t.pnl_pct!=null&&t.pnl_pct===s.worst_trade_pct},
-    {id:'open',    label:'Open',          value:s.open_positions,     cls:'blue',   sub:'awaiting close',         filter:t=>t.status==='OPEN'},
+    {id:'today',   label:"Today's Alerts", value:todaysCount,       cls:'blue',   sub:'new today',             filter:t=>(t.alert_time||t.entry_date||'').startsWith(todayStr)},
+    {id:'total',   label:'Total Alerts',  value:filteredTrades.length, cls:'',       sub:'filtered',              filter:t=>true},
+    {id:'judged',  label:'Judged',        value:judged.length,         cls:'',       sub:`${judged.filter(t=>t.status==='LOSS').length} SL · ${judged.filter(t=>t.status==='WIN').length} target`, filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)},
+    {id:'winrate', label:'Win Rate',      value:winRate+'%',           cls:winRate>=55?'green':winRate>=45?'amber':'red', sub:`${winners.length}W / ${losers.length}L`, filter:t=>t.status==='WIN'||t.status==='LOSS'},
+    {id:'avgret',  label:'Avg Return',    value:pct(avgReturn),        cls:avgReturn>=0?'green':'red', sub:'per judged trade', filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)&&t.pnl_pct!=null},
+    {id:'avgwin',  label:'Avg Win',       value:pct(avgWin),           cls:'green',  sub:'winners only',          filter:t=>t.status==='WIN'},
+    {id:'avgloss', label:'Avg Loss',      value:pct(avgLoss),          cls:'red',    sub:'losers only',           filter:t=>t.status==='LOSS'},
+    {id:'expect',  label:'Expectancy',    value:pct(expectancy),       cls:expectancy>=0?'green':'red', sub:'WR×avgW+(1-WR)×avgL', filter:t=>['WIN','LOSS','NEUTRAL'].includes(t.status)},
+    {id:'best',    label:'Best Trade',    value:pct(bestTrade),        cls:'green',  sub:'',                      filter:t=>t.pnl_pct!=null&&t.pnl_pct===bestTrade},
+    {id:'worst',   label:'Worst Trade',   value:pct(worstTrade),       cls:'red',    sub:'',                      filter:t=>t.pnl_pct!=null&&t.pnl_pct===worstTrade},
+    {id:'open',    label:'Open',          value:openPositions,         cls:'blue',   sub:'awaiting close',         filter:t=>t.status==='OPEN'},
   ];
   document.getElementById('kpis').innerHTML = defs.map(d => `
     <div class="kpi" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
@@ -1259,6 +1281,8 @@ function renderTradeTable() {
     th.classList.remove('sort-asc','sort-desc');
     if(th.dataset.col===sortCol) th.classList.add(sortDir===1?'sort-asc':'sort-desc');
   });
+  renderKPIs(window._kpiDefs ? window._kpiDefs.find(k=>k.id==='total') : {total_alerts:0});
+  renderCategoryStats();
 }
 
 document.addEventListener('click', e => {
@@ -1279,15 +1303,20 @@ function populateFilters(trades) {
   const cats     = [...new Set(trades.map(t=>t.category))].sort();
   const sEl = document.getElementById('filterScanner');
   const cEl = document.getElementById('filterCategory');
+  
+  while(sEl.options.length > 1) sEl.remove(1);
+  while(cEl.options.length > 1) cEl.remove(1);
+  
   scanners.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sEl.appendChild(o); });
   cats.forEach(c     => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
 }
 
 function renderCategoryStats() {
-  const cats = [...new Set(ALL_TRADES.map(t=>t.category).filter(Boolean))].sort();
+  const sourceTrades = window._currentFilteredTrades || ALL_TRADES;
+  const cats = [...new Set(sourceTrades.map(t=>t.category).filter(Boolean))].sort();
   let html = '';
   cats.forEach(c => {
-    const trades = ALL_TRADES.filter(t => t.category === c && ['WIN','LOSS'].includes(t.status));
+    const trades = sourceTrades.filter(t => t.category === c && ['WIN','LOSS'].includes(t.status));
     if(!trades.length) return;
     const wins = trades.filter(t => t.status === 'WIN').length;
     const total = trades.length;
@@ -1618,6 +1647,7 @@ async function doRefresh(isAuto = false) {
   const data = await loadData();
 
   ALL_TRADES = data.trades || [];
+  populateFilters(ALL_TRADES);
   renderTradeTable();
   renderCategoryStats();
   updateSim();
@@ -1690,6 +1720,7 @@ async function initDashboard() {
   const s = data.summary;
   document.getElementById('header-stats').textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
   ALL_TRADES = data.trades;
+  populateFilters(ALL_TRADES);
   renderKPIs(s);
   fetchSignalLadder();
   renderTradeTable();
