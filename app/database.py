@@ -3502,6 +3502,7 @@ def reallocate_capital(alert_id: int):
             # Temporarily free the current margin from the DB view so portfolio_engine sees it
             if old_cap > 0:
                 cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (alert_id,))
+                conn.commit()
                 
             from portfolio_engine import calculate_trade_allocation
             new_cap, new_shares = calculate_trade_allocation(entry_price, stop_loss, score or 80)
