@@ -1,7 +1,7 @@
 import logging
 from typing import Tuple
 from math import floor
-from database import get_connection
+from database import get_connection, get_capital_info
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,9 @@ def get_portfolio_state() -> dict:
             cur.execute("SELECT COALESCE(SUM(capital_allocated), 0) FROM alerts WHERE status = 'OPEN' AND is_rejected = FALSE")
             deployed_margin = float(cur.fetchone()[0] or 0.0)
             
-    total_equity = BASE_CAPITAL + realized_pnl
+    cap_info = get_capital_info()
+    base_capital = cap_info.get("total_capital", BASE_CAPITAL)
+    total_equity = base_capital + realized_pnl
     available_margin = total_equity - deployed_margin
     
     return {

@@ -587,7 +587,10 @@ function playDing() {
           <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
         <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Available Cash:</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
+            Available Cash:
+            <button onclick="forceSyncCash()" title="Re-verify and sync cash" style="background:none;border:none;cursor:pointer;font-size:12px;padding:2px;border-radius:4px;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:background 0.2s;" onmouseover="this.style.background='rgba(139,92,246,0.2)'" onmouseout="this.style.background='none'">🔄</button>
+          </span>
           <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
         </div>
         <button class="refresh-btn" onclick="openDepositFundsDialog()" style="background:var(--accent); color:#fff; border:none; font-size:12px;">💰 Deposit Funds</button>
@@ -2257,6 +2260,17 @@ async function loadCapitalInfo() {
   }
 }
 
+async function forceSyncCash() {
+  const btn = document.querySelector('button[title="Re-verify and sync cash"]');
+  if(btn) btn.style.transform = 'rotate(180deg)';
+  if(btn) btn.style.transition = 'transform 0.3s ease';
+  
+  await loadCapitalInfo();
+  await doRefresh(true);
+  
+  if(btn) setTimeout(() => { btn.style.transform = 'rotate(0deg)'; }, 300);
+}
+
 function renderEquityCurve() {
   const ctx = document.getElementById('equityChart');
   if (!ctx || typeof Chart === 'undefined') return;
@@ -2481,6 +2495,7 @@ async function doRefresh(isAuto = false) {
   window._scannerStats = data.scanner_stats || {};
   renderScannerGrid(data.scanner_stats);
   ALL_TRADES = data.trades || [];
+  await loadCapitalInfo(); // Ensure capital is always fresh on refresh
   renderTradeTable();
   renderCategoryStats();
   updateSim();
