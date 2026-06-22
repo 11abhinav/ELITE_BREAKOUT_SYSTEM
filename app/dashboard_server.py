@@ -812,9 +812,8 @@ def api_reject_multiple_alerts():
         from database import reject_multiple_alerts
         ok = reject_multiple_alerts(ids)
         if ok:
-            import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data, daemon=True).start()
+            build_performance_data()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')

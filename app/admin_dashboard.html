@@ -956,8 +956,9 @@ async function loadData() {
     'https://elitebreakoutsystem-production.up.railway.app/data/performance_data.json',
     '../data/performance_data.json', './data/performance_data.json', 'performance_data.json',
   ];
+  const t = new Date().getTime();
   for (const url of urls) {
-    try { const r = await fetch(url); if (r.ok) return r.json(); } catch {}
+    try { const r = await fetch(url + '?t=' + t, {cache: 'no-store'}); if (r.ok) return r.json(); } catch {}
   }
 
   console.warn('Failed to load performance data, returning empty state.');
@@ -1642,6 +1643,11 @@ async function rejectSelectedTrades() {
     
     const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
     
+    const btn = document.getElementById('rejectSelectedBtn');
+    const oldText = btn.innerText;
+    btn.innerText = 'Rejecting...';
+    btn.disabled = true;
+
     try {
         const res = await fetch('/api/alert/reject_multiple', {
             method: 'POST',
@@ -1658,6 +1664,10 @@ async function rejectSelectedTrades() {
     } catch (e) {
         console.error(e);
         alert('Error rejecting trades.');
+    } finally {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    }
     }
 }
 
@@ -1682,6 +1692,15 @@ async function acceptAlert(id) {
 
 async function reallocateCapital(id) {
     if (!confirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.')) return;
+    const btn = event.target || event.srcElement;
+    let oldText = 'Allocate Capital';
+    let isButton = btn && btn.tagName === 'BUTTON';
+    if (isButton) {
+        oldText = btn.innerText;
+        btn.innerText = 'Allocating...';
+        btn.disabled = true;
+    }
+
     try {
         const res = await fetch('/api/alert/reallocate', {
             method: 'POST',
@@ -1696,6 +1715,11 @@ async function reallocateCapital(id) {
     } catch (e) {
         console.error(e);
         alert('Error allocating capital.');
+    } finally {
+        if (isButton) {
+            btn.innerText = oldText;
+            btn.disabled = false;
+        }
     }
 }
 
