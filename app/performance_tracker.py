@@ -392,7 +392,7 @@ def build_performance_data():
                     t["exit_price"]  = sl
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                     t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
-                    hit_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                     t["closed_at"]   = hit_time
                     logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
                     update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time)
@@ -401,7 +401,7 @@ def build_performance_data():
                     t["exit_price"] = tp
                     t["pnl_pct"]    = round((tp - ep) / ep * 100, 2)
                     t["pnl_rs"]      = t["shares_bought"] * (tp - ep) if t["shares_bought"] else 0.0
-                    hit_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                     t["closed_at"]   = hit_time
                     logger.debug(f"🎯 {sym} TARGET HIT (LIVE) | entry={ep} target={tp} pnl={t['pnl_pct']}%")
                     update_alert_outcome(t["id"], "WIN", tp, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time)
@@ -428,7 +428,7 @@ def build_performance_data():
                     t["exit_price"]  = sl
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                     t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
-                    hit_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                     t["closed_at"]   = hit_time
                     logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
                     update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time)
@@ -439,7 +439,7 @@ def build_performance_data():
                 t["exit_price"]  = sl
                 t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                 t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
-                hit_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                 t["closed_at"]   = hit_time
                 logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
                 update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time)

@@ -279,7 +279,7 @@ def init_db():
                         model_version TEXT NOT NULL,
                         regime TEXT NOT NULL,
                         weights JSONB NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT)
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     )
                 """)
                 cur.execute("""
@@ -314,7 +314,7 @@ def init_db():
                         approved_at TEXT,
                         rejected_at TEXT,
                         applied_at TEXT,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT),
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         expires_at TEXT
                     )
                 """)
@@ -359,7 +359,7 @@ def init_db():
                         symbol        TEXT NOT NULL,
                         pdf_url       TEXT UNIQUE NOT NULL,
                         analysis_data JSONB NOT NULL,
-                        created_at    TEXT NOT NULL DEFAULT (now()::TEXT)
+                        created_at    TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     )
                 """)
 
@@ -498,8 +498,8 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS system_checkpoints (
                         id SERIAL PRIMARY KEY,
                         checkpoint_name TEXT UNIQUE NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT),
-                        updated_at TEXT NOT NULL DEFAULT (now()::TEXT),
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        updated_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         content TEXT NOT NULL,
                         reason TEXT DEFAULT ''
                     )
@@ -514,7 +514,7 @@ def init_db():
                         message_text TEXT NOT NULL,
                         status TEXT DEFAULT 'pending',
                         retry_count INTEGER DEFAULT 0,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT),
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         sent_at TEXT DEFAULT NULL
                     )
                 """)
@@ -528,15 +528,15 @@ def init_db():
                         symbol TEXT NOT NULL,
                         alert_price REAL NOT NULL,
                         alert_date TEXT NOT NULL DEFAULT (CURRENT_DATE::TEXT),
-                        alert_time TEXT NOT NULL DEFAULT (now()::TEXT),
+                        alert_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         breakout_type TEXT,
                         fm_score REAL,
                         status TEXT DEFAULT 'ACTIVE',
                         current_price REAL,
                         current_score REAL,
-                        status_updated_at TEXT DEFAULT (now()::TEXT),
+                        status_updated_at TEXT DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         notes TEXT,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT),
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         entry_signal TEXT,
                         exit_signal TEXT,
                         exit_price REAL,
@@ -620,7 +620,7 @@ def init_db():
                         user_id SERIAL PRIMARY KEY,
                         name TEXT UNIQUE NOT NULL,
                         role TEXT DEFAULT 'USER',
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT)
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     )
                 """)
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'USER'")
@@ -630,8 +630,8 @@ def init_db():
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                         ip_address TEXT,
-                        login_time TEXT NOT NULL DEFAULT (now()::TEXT),
-                        logoff_time TEXT NOT NULL DEFAULT (now()::TEXT),
+                        login_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        logoff_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         is_online BOOLEAN DEFAULT TRUE
                     )
                 """)
@@ -644,7 +644,7 @@ def init_db():
                         user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                         is_from_admin BOOLEAN NOT NULL DEFAULT FALSE,
                         message TEXT NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT (now()::TEXT),
+                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         is_read BOOLEAN DEFAULT FALSE
                     )
                 """)
@@ -1436,7 +1436,7 @@ def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict):
                     VALUES (%s, %s, %s)
                     ON CONFLICT (pdf_url) DO UPDATE
                     SET analysis_data = EXCLUDED.analysis_data,
-                        created_at = now()::TEXT
+                        created_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
                 """, (symbol, pdf_url, json.dumps(analysis_data)))
             conn.commit()
     except Exception as e:
@@ -2412,7 +2412,7 @@ def submit_bayesian_update_for_approval(
                         regime, proposed_version, current_version,
                         current_weights, proposed_weights,
                         trades_analyzed, win_rate, reason, status, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', NOW()::TEXT)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     RETURNING id
                 """, (
                     regime,
@@ -2512,14 +2512,14 @@ def approve_bayesian_update(update_id: int, admin_name: str, comment: str = "") 
                 # Step 1: Insert into score_weight_log (MAKES WEIGHTS LIVE)
                 cur.execute("""
                     INSERT INTO score_weight_log (model_version, regime, weights, created_at)
-                    VALUES (%s, %s, %s, NOW()::TEXT)
+                    VALUES (%s, %s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                 """, (proposed_version, regime, json.dumps(proposed_weights)))
                 
                 # Step 2: Update bayesian_model_updates to APPROVED
                 cur.execute("""
                     UPDATE bayesian_model_updates
-                    SET status = 'APPROVED', approved_by = %s, approved_at = NOW()::TEXT,
-                        admin_comment = %s, applied_at = NOW()::TEXT
+                    SET status = 'APPROVED', approved_by = %s, approved_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT,
+                        admin_comment = %s, applied_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
                     WHERE id = %s
                 """, (admin_name, comment, update_id))
                 
@@ -2557,7 +2557,7 @@ def reject_bayesian_update(update_id: int, admin_name: str, reason: str = "") ->
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE bayesian_model_updates
-                    SET status = 'REJECTED', approved_by = %s, rejected_at = NOW()::TEXT,
+                    SET status = 'REJECTED', approved_by = %s, rejected_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT,
                         admin_comment = %s
                     WHERE id = %s AND status = 'PENDING'
                 """, (admin_name, reason, update_id))
@@ -2705,7 +2705,7 @@ def update_wealth_alert_status(alert_id: int, status: str, current_price: float 
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE wealth_buy_alert 
-                    SET status = %s, current_price = %s, status_updated_at = now()::TEXT
+                    SET status = %s, current_price = %s, status_updated_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
                     WHERE id = %s
                 """, (status, current_price, alert_id))
                 conn.commit()
@@ -2801,7 +2801,7 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None) -> b
                         pnl_rs = exit_price - entry_price
                         pnl_pct = (pnl_rs / entry_price * 100) if entry_price else 0
                         
-                        now = datetime.now()
+                        now = datetime.now(IST)
                         exit_date = now.strftime('%Y-%m-%d')
                         exit_time = now.strftime('%H:%M:%S')
                         
@@ -2947,14 +2947,14 @@ def ping_user_session(user_id: int, ip_address: str):
                 if session:
                     # Update logoff_time (last ping)
                     cur.execute("""
-                        UPDATE user_sessions SET logoff_time = now()::TEXT
+                        UPDATE user_sessions SET logoff_time = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
                         WHERE id = %s
                     """, (session[0],))
                 else:
                     # Create new session
                     cur.execute("""
                         INSERT INTO user_sessions (user_id, ip_address, login_time, logoff_time, is_online)
-                        VALUES (%s, %s, now()::TEXT, now()::TEXT, TRUE)
+                        VALUES (%s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, TRUE)
                     """, (user_id, ip_address))
                 conn.commit()
     except Exception as e:
@@ -3165,7 +3165,7 @@ def upsert_breakout_watchlist(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                session_date = datetime.now().strftime("%Y-%m-%d")
+                session_date = datetime.now(IST).strftime("%Y-%m-%d")
                 cur.execute("""
                     INSERT INTO breakout_watchlist (
                         symbol, category, current_state,
