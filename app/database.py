@@ -564,6 +564,21 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_status ON telegram_queue(status)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
 
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS wealth_score_history (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        evaluation_date DATE NOT NULL,
+                        hold_score REAL,
+                        fm_score REAL,
+                        rs_6m REAL,
+                        cmp REAL,
+                        sma_200 REAL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(symbol, evaluation_date)
+                    )
+                """)
+
                 # ── Wealth Buy Alerts table (historical tracking of buy signals) ──
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS wealth_buy_alert (
@@ -718,6 +733,9 @@ def init_db():
                     try:
                         with conn.cursor() as mcur:
                             mcur.execute("""
+-- 0. Drop dependent views before altering columns
+DROP VIEW IF EXISTS v_trade_analytics CASCADE;
+
 -- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
 -- Create robust safe_cast_timestamptz overloads for text, timestamp, and timestamptz
 CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
@@ -1994,14 +2012,14 @@ def get_sector_momentum(days=7):
                 cur.execute("""
                     WITH sector_trades AS (
                         SELECT 
-                            dw.sector,
+                            dw."Sector" as sector,
                             a.symbol,
                             a.status,
                             a.pnl_rs,
                             a.entry_date::DATE as trade_date,
                             a.created_at::DATE as created_date
                         FROM alerts a
-                        LEFT JOIN daily_watchlist dw ON a.symbol = dw.stock
+                        LEFT JOIN daily_watchlist dw ON a.symbol = dw."Stock"
                         WHERE a.created_at >= CURRENT_TIMESTAMP - INTERVAL '%d days'
                         AND a.status IN ('WIN', 'LOSS')
                     )
