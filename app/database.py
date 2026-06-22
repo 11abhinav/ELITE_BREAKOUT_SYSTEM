@@ -3343,7 +3343,7 @@ def reject_alert(alert_id: int):
             if is_rejected:
                 return True
                 
-            cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
             
             cap = float(capital_allocated) if capital_allocated else 0.0
             if cap > 0:
@@ -3366,7 +3366,7 @@ def accept_alert(alert_id: int):
             if not is_rejected:
                 return True
                 
-            cur.execute("UPDATE alerts SET is_rejected = FALSE WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = FALSE, status = 'OPEN' WHERE id = %s", (alert_id,))
             
             cap = float(capital_allocated) if capital_allocated else 0.0
             if cap > 0:
