@@ -888,34 +888,7 @@ const fmtDetailTime = ts => {
 
 // ── LOAD DATA
 function openChart(symbol, cmp) {
-    document.getElementById('tvModal').style.display = 'flex';
-    document.getElementById('tv-container').innerHTML = '';
-    const titleEl = document.getElementById('tvModalTitle');
-    if (titleEl) {
-        if (cmp != null && cmp !== 'undefined') {
-            titleEl.innerHTML = `LIVE INTERACTIVE CHART - <span style="color:var(--accent)">${symbol}</span> <span style="font-size:12px;color:var(--muted);margin-left:12px;">CMP: ₹${cmp}</span>`;
-        } else {
-            titleEl.innerHTML = `LIVE INTERACTIVE CHART - <span style="color:var(--accent)">${symbol}</span>`;
-        }
-    }
-    const newTabLink = document.getElementById('tvModalNewTab');
-    if (newTabLink) newTabLink.href = 'https://in.tradingview.com/chart/?symbol=NSE:' + symbol;
-    new TradingView.widget({
-      "autosize": true,
-      "symbol": "BSE:" + symbol,
-      "interval": "D",
-      "timezone": "Asia/Kolkata",
-      "theme": "dark",
-      "style": "1",
-      "locale": "en",
-      "enable_publishing": false,
-      "backgroundColor": "#0b0e14",
-      "gridColor": "rgba(255, 255, 255, 0.06)",
-      "hide_top_toolbar": false,
-      "hide_legend": false,
-      "save_image": false,
-      "container_id": "tv-container"
-    });
+    window.open('https://in.tradingview.com/chart/?symbol=NSE:' + symbol, '_blank');
   }
 
   function fetchNews(symbol, containerId, btnId) {
