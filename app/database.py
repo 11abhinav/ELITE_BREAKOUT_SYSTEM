@@ -2231,18 +2231,21 @@ def check_data_exists_for_today() -> bool:
                     FROM information_schema.columns 
                     WHERE table_name = 'daily_watchlist'
                 """)
-                db_cols = [row[0].lower() for row in cur.fetchall()]
+                db_cols_raw = [row[0] for row in cur.fetchall()]
+                db_cols_lower = [c.lower() for c in db_cols_raw]
+                
                 date_col = None
                 for candidate in ["date", "run_date", "created_at", "added_at"]:
-                    if candidate in db_cols:
-                        date_col = candidate
+                    if candidate in db_cols_lower:
+                        idx = db_cols_lower.index(candidate)
+                        date_col = db_cols_raw[idx]
                         break
                 
                 if not date_col:
                     return False
                 
-                # 3. Check row count for today
-                cur.execute(f"SELECT COUNT(*) FROM daily_watchlist WHERE {date_col} = %s", (today_str,))
+                # 3. Check row count for today (quote column name to handle case sensitivity)
+                cur.execute(f'SELECT COUNT(*) FROM daily_watchlist WHERE "{date_col}" = %s', (today_str,))
                 count = cur.fetchone()[0]
                 return count > 0
     except Exception as e:
