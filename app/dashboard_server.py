@@ -495,36 +495,61 @@ def api_system_logs():
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, level, module, message, traceback, created_at, is_acknowledged
+                    SELECT 
+                        MIN(id) as id,
+                        level, 
+                        module, 
+                        message, 
+                        MAX(traceback) as traceback, 
+                        COUNT(*) as occurrences,
+                        MIN(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as first_seen,
+                        MAX(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as last_seen
                     FROM system_logs
-                    ORDER BY created_at DESC
+                    WHERE is_acknowledged = FALSE
+                    GROUP BY level, module, message
+                    ORDER BY last_seen DESC
                     LIMIT 100
                 """)
                 logs = cur.fetchall()
-        
-        # Format datetimes
-        for row in logs:
-            if row['created_at']:
-                row['created_at'] = row['created_at'].strftime("%Y-%m-%d %H:%M:%S")
-                
-        return jsonify(logs)
+                # Format datetime to string
+                for log in logs:
+                    if log['first_seen']:
+                        log['first_seen'] = log['first_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
+                    if log['last_seen']:
+                        log['last_seen'] = log['last_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
+        return jsonify(logs), 200
     except Exception as e:
         logger.exception("Failed to fetch system logs")
         return jsonify({"status": "error", "message": str(e)}), 500
+@app.route("/api/system_logs/acknowledge", methods=["POST"])
+def acknowledge_system_log():
+    try:
+        data = request.json or {}
+        message = data.get('message')
+        module = data.get('module')
+        
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE message = %s AND module = %s", (message, module))
+            conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.exception(f"Failed to acknowledge system log")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/api/system_logs/acknowledge/<int:log_id>", methods=["POST"])
-def acknowledge_system_log(log_id):
+@app.route("/api/system_logs/clear_all", methods=["POST"])
+def clear_all_system_logs():
     try:
         from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE id = %s", (log_id,))
+                cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE is_acknowledged = FALSE")
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.exception(f"Failed to acknowledge system log {log_id}")
+        logger.exception("Failed to clear all system logs")
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 @app.route("/api/fetch_errors/by_scanner", methods=["GET"])
 def api_fetch_errors_by_scanner():

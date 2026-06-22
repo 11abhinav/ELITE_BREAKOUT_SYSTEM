@@ -729,7 +729,9 @@ function playDing() {
     <!-- SYSTEM LOGS PANEL (Python Errors) -->
     <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
       <span>System Logs (Unhandled Python Errors)</span>
-      <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+      <div id="systemLogsHeaderBtns">
+        <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+      </div>
     </div>
     <div id="systemLogsContainer" style="margin-bottom:28px;">
       <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading system logs...</div>
@@ -2533,16 +2535,27 @@ async function fetchSystemLogs() {
   }
 }
 
+let SYSTEM_LOGS_CACHE = [];
+
 function renderSystemLogs(logs) {
+  SYSTEM_LOGS_CACHE = logs;
   const container = document.getElementById('systemLogsContainer');
+  const headerBtnArea = document.getElementById('systemLogsHeaderBtns');
   if(!logs || logs.length === 0) {
     container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">No unhandled system errors recorded.</div>';
+    if(headerBtnArea) headerBtnArea.innerHTML = '<button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>';
     return;
   }
   
+  if(headerBtnArea) {
+      headerBtnArea.innerHTML = `
+        <button class="btn btn-sm" onclick="clearAllSystemLogs()" style="font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;">🗑️ Clear All</button>
+        <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+      `;
+  }
+  
   let html = '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">';
-  logs.forEach(log => {
-    if(log.is_acknowledged) return; // Hide acknowledged logs by default
+  logs.forEach((log, index) => {
     const levelColor = log.level === 'CRITICAL' ? 'var(--warn)' : 'var(--amber)';
     
     html += `
@@ -2553,8 +2566,14 @@ function renderSystemLogs(logs) {
             <span style="font-weight:600; margin-left:8px; font-size:14px; font-family:var(--font-mono); color:var(--accent);">${log.module}</span>
           </div>
           <div style="display:flex; align-items:center; gap:12px;">
-            <span style="font-size:11px; color:var(--muted);">${log.created_at}</span>
-            <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${log.id})">Acknowledge</button>
+            <div style="text-align:right; line-height:1.2;">
+              <div style="font-size:11px; color:var(--muted);">Last: ${log.last_seen}</div>
+              <div style="font-size:10px; color:var(--muted); opacity:0.7;">First: ${log.first_seen}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; color:var(--text);">
+              ${log.occurrences}x
+            </div>
+            <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${index})">Acknowledge</button>
           </div>
         </div>
         <div style="font-size:13px; color:var(--text); margin-bottom:8px; white-space:pre-wrap;">${log.message}</div>
@@ -2563,22 +2582,31 @@ function renderSystemLogs(logs) {
     `;
   });
   html += '</div>';
-  
-  // Check if all were acknowledged
-  if(html === '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>') {
-      container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">All system errors have been acknowledged.</div>';
-  } else {
-      container.innerHTML = html;
-  }
+  container.innerHTML = html;
 }
 
-async function ackSystemLog(logId) {
+async function ackSystemLog(index) {
   try {
-    await fetch('/api/system_logs/acknowledge/' + logId, {method: 'POST'});
+    const log = SYSTEM_LOGS_CACHE[index];
+    await fetch('/api/system_logs/acknowledge', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: log.message, module: log.module})
+    });
     fetchSystemLogs();
   } catch(e) {
     console.error("Failed to ack system log", e);
   }
+}
+
+async function clearAllSystemLogs() {
+    if(!confirm("Are you sure you want to clear all system logs?")) return;
+    try {
+        await fetch('/api/system_logs/clear_all', {method: 'POST'});
+        fetchSystemLogs();
+    } catch(e) {
+        console.error("Failed to clear all system logs", e);
+    }
 }
 
 async function loadNonCriticalErrors() {
