@@ -3547,10 +3547,19 @@ def reallocate_capital(alert_id: int):
             )
             
             # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
-            # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
             if status in ('WIN', 'LOSS') and exit_price is not None:
-                new_pnl = float(exit_price - entry_price) * new_shares
-                cur.execute("UPDATE alerts SET pnl = %s WHERE id = %s", (new_pnl, alert_id))
+                new_pnl_rs = new_shares * (exit_price - entry_price)
+                cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
+                
+            # Adjust the capital_history by recording the net difference
+            net_change = old_cap - new_cap
+            if net_change != 0:
+                tx_type = 'trade_refund' if net_change > 0 else 'trade_deduct'
+                desc = f"Reallocation diff for alert #{alert_id}"
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                    (tx_type, net_change, desc)
+                )
                 
             conn.commit()
     return True
@@ -3655,23 +3664,7 @@ def reallocate_capital_multiple(alert_ids: list):
                     "target_price": target_price
                 })
             conn.commit()
-            return results
-                new_pnl_rs = new_shares * (exit_price - entry_price)
-                cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
-            
-            # Adjust the capital_history by recording the net difference
-            # (If old was 0, this is just a normal deduction. If re-allocating, it balances out).
-            net_change = old_cap - new_cap
-            if net_change != 0:
-                tx_type = 'trade_refund' if net_change > 0 else 'trade_deduct'
-                desc = f"Reallocation diff for alert #{alert_id}"
-                cur.execute(
-                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
-                    (tx_type, net_change, desc)
-                )
-                
-        conn.commit()
-    return True
+
 
 
 
