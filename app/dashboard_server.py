@@ -791,8 +791,9 @@ def api_reject_alert():
         from database import reject_alert
         ok = reject_alert(alert_id)
         if ok:
+            import threading
             from performance_tracker import build_performance_data
-            build_performance_data()
+            threading.Thread(target=build_performance_data).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject failed')
@@ -812,8 +813,9 @@ def api_reject_multiple_alerts():
         from database import reject_multiple_alerts
         ok = reject_multiple_alerts(ids)
         if ok:
+            import threading
             from performance_tracker import build_performance_data
-            build_performance_data()
+            threading.Thread(target=build_performance_data).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')
@@ -827,8 +829,9 @@ def api_accept_alert():
         from database import accept_alert
         ok = accept_alert(alert_id)
         if ok:
+            import threading
             from performance_tracker import build_performance_data
-            build_performance_data()
+            threading.Thread(target=build_performance_data).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/accept failed')
@@ -842,8 +845,23 @@ def api_reallocate_alert():
         from database import reallocate_capital
         ok = reallocate_capital(alert_id)
         if ok:
+            import threading
             from performance_tracker import build_performance_data
-            build_performance_data()
+            threading.Thread(target=build_performance_data).start()
+            
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT capital_allocated, shares_bought, stop_loss, target_price FROM alerts WHERE id = %s", (alert_id,))
+                    row = cur.fetchone()
+                    if row:
+                        return jsonify({
+                            'success': True,
+                            'capital_allocated': float(row[0] or 0),
+                            'shares_bought': int(row[1] or 0),
+                            'stop_loss': float(row[2] or 0),
+                            'target_price': float(row[3] or 0)
+                        })
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reallocate failed')

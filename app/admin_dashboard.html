@@ -1581,7 +1581,10 @@ async function rejectAlert(id) {
             body: JSON.stringify({id: id})
         });
         if (res.ok) {
-            doRefresh(true); // Reload table and KPIs
+            const trade = ALL_TRADES.find(t => t.id === id);
+            if (trade) trade.status = 'REJECTED';
+            renderTradeTable();
+            loadCapitalInfo();
         } else {
             alert('Failed to reject trade.');
         }
@@ -1628,9 +1631,14 @@ async function rejectSelectedTrades() {
             body: JSON.stringify({ids: ids})
         });
         if (res.ok) {
+            ids.forEach(id => {
+               const trade = ALL_TRADES.find(t => t.id === id);
+               if(trade) trade.status = 'REJECTED';
+            });
             document.getElementById('selectAllTrades').checked = false;
             updateRejectButtonVisibility();
-            doRefresh(true);
+            renderTradeTable();
+            loadCapitalInfo();
         } else {
             alert('Failed to reject trades.');
         }
@@ -1652,7 +1660,10 @@ async function acceptAlert(id) {
             body: JSON.stringify({id: id})
         });
         if (res.ok) {
-            doRefresh(true); // Reload table and KPIs
+            const trade = ALL_TRADES.find(t => t.id === id);
+            if (trade) trade.status = 'OPEN';
+            renderTradeTable();
+            loadCapitalInfo();
         } else {
             alert('Failed to accept trade.');
         }
@@ -1680,7 +1691,16 @@ async function reallocateCapital(id) {
             body: JSON.stringify({id: id})
         });
         if (res.ok) {
-            doRefresh(true); // Reload table and KPIs
+            const data = await res.json();
+            const trade = ALL_TRADES.find(t => t.id === id);
+            if (trade && data.success) {
+                trade.capital_allocated = data.capital_allocated;
+                trade.shares_bought = data.shares_bought;
+                trade.stop_loss = data.stop_loss;
+                trade.target_price = data.target_price;
+            }
+            renderTradeTable();
+            loadCapitalInfo();
         } else {
             alert('Failed to allocate capital.');
         }
