@@ -32,23 +32,38 @@ logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 
+def normalize_index(df, col_candidates=("Datetime", "Date")):
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    col = next((c for c in col_candidates if c in df.columns), None)
+    if col:
+        ts = pd.to_datetime(df[col])
+        df.index = ts.dt.tz_localize(IST) if ts.dt.tz is None else ts.dt.tz_convert(IST)
+    else:
+        idx = pd.to_datetime(df.index)
+        df.index = idx.tz_localize(IST) if idx.tz is None else idx.tz_convert(IST)
+    return df.sort_index()
+
 def strip_forming_candle(df, tf_minutes, ist_now):
     if df is None or df.empty:
         return df
     
-    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
-    if datetime_col is not None:
-        try:
-            raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
-            if raw_ts.tzinfo is not None:
-                raw_ts = raw_ts.tz_convert("Asia/Kolkata")
-            candle_start = raw_ts.replace(tzinfo=None)
-            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
-            now_naive    = ist_now.replace(tzinfo=None)
-            if now_naive < candle_end:
-                return df.iloc[:-1].copy()
-        except Exception:
-            pass
+    try:
+        raw_ts = pd.Timestamp(df.index[-1])
+        if raw_ts.tzinfo is not None:
+            raw_ts = raw_ts.tz_convert(IST)
+        else:
+            raw_ts = raw_ts.tz_localize(IST)
+            
+        candle_start = raw_ts.replace(tzinfo=None)
+        candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
+        now_naive    = ist_now.replace(tzinfo=None)
+        
+        if now_naive < candle_end:
+            return df.iloc[:-1].copy()
+    except Exception:
+        pass
     return df
 
 def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
@@ -59,10 +74,6 @@ def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
     if df15 is None or len(df15) < 60:
         return None
 
-    df15 = apply_indicators(df15, timeframe="15m")
-    if df15 is None or df15.empty:
-        return None
-
     last = df15.iloc[-1]
     prev_20 = df15.iloc[-21:-1]
     if prev_20.empty:
@@ -70,19 +81,7 @@ def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
         
     last_ts = last.name
     if not isinstance(last_ts, pd.Timestamp):
-        _dt_col = next((c for c in ["Datetime", "Date"] if c in df15.columns), None)
-        if _dt_col:
-            last_ts = last[_dt_col]
-        else:
-            return None
-
-    if isinstance(last_ts, str):
-        last_ts = pd.to_datetime(last_ts)
-        
-    if last_ts.tzinfo is not None:
-        last_ts = last_ts.tz_convert("Asia/Kolkata")
-    else:
-        last_ts = last_ts.tz_localize("Asia/Kolkata")
+        return None
 
     age_minutes = (ist_now - last_ts).total_seconds() / 60
     if age_minutes > 35 or last_ts.date() != ist_now.date():
@@ -103,7 +102,6 @@ def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
 
     breakout_resistance = prev_20["High"].max()
     
-    # Check EMA50 and ATR5 from applied indicators
     ema50 = last.get("EMA50", 0)
     atr5 = last.get("ATR", 0)
     rsi = last.get("RSI", 50)
@@ -145,27 +143,9 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> di
     if df5 is None or len(df5) < 40:
         return None
 
-    df5 = apply_indicators(df5, timeframe="5m")
-    if df5 is None or df5.empty:
-        return None
-        
-    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df5.columns), None)
-    if not datetime_col:
-        return None
-        
-    df5 = df5.copy()
-    if datetime_col != "index":
-        df5["ts"] = pd.to_datetime(df5[datetime_col])
-    else:
-        df5["ts"] = pd.to_datetime(df5.index)
-        
-    # Ensure tz is IST for comparison
-    df5["ts"] = df5["ts"].dt.tz_convert("Asia/Kolkata") if df5["ts"].dt.tz is not None else df5["ts"].dt.tz_localize("Asia/Kolkata")
-
-    block_end = setup["last_15m_time"]
-    block_start = block_end - pd.Timedelta(minutes=10)
-
-    seq = df5[(df5["ts"] >= block_start) & (df5["ts"] <= block_end)].copy()
+    block_close = setup["last_15m_time"]
+    
+    seq = df5.loc[(df5.index > block_close - pd.Timedelta(minutes=15)) & (df5.index <= block_close)].copy()
     if len(seq) != 3:
         return None
 
@@ -187,11 +167,14 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> di
     closes_above_level = (seq["Close"] > resistance).sum()
     latest_close_above = seq.iloc[-1]["Close"] > resistance
 
+    zone_lo = resistance - 0.05 * setup["atr5"]
+    zone_hi = resistance + 0.05 * setup["atr5"]
+    
     touched_retest = (
-        ((seq["Low"] <= resistance + 0.05 * setup["atr5"]) & (seq["Close"] > resistance)).any()
+        ((seq["Low"] <= zone_hi) & (seq["High"] >= zone_lo) & (seq["Close"] > resistance)).any()
     )
 
-    recent = df5[df5["ts"] < block_start].copy()
+    recent = df5.loc[df5.index <= block_close - pd.Timedelta(minutes=15)].copy()
     if len(recent) < 20:
         return None
 
@@ -237,6 +220,17 @@ def compute_score(setup: dict) -> int:
         score += 5
     return min(score, 90)
 
+def seconds_to_next_15m(now):
+    next_minute = ((now.minute // 15) + 1) * 15
+    next_hour = now.hour
+    if next_minute == 60:
+        next_minute = 0
+        next_hour += 1
+    next_run = now.replace(hour=next_hour % 24, minute=next_minute, second=5, microsecond=0)
+    if next_hour >= 24:
+        next_run = next_run + pd.Timedelta(days=1)
+    return max(0, (next_run - now).total_seconds())
+
 def start(run_once=False):
     init_db()
 
@@ -272,10 +266,10 @@ def start(run_once=False):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 f15 = pool.submit(fetch_watchlist_data, watchlist, "10d", "15m")
                 f5  = pool.submit(fetch_watchlist_data, watchlist, "5d", "5m")
-                data_15m = f15.result()
-                data_5m = f5.result()
+                data_15m_raw = f15.result()
+                data_5m_raw = f5.result()
 
-            if not data_15m or not data_5m:
+            if not data_15m_raw or not data_5m_raw:
                 logger.error("❌ YFinance returned 0 data for one of the timeframes. Aborting scan.")
                 try:
                     from database import upsert_scanner_health
@@ -284,7 +278,28 @@ def start(run_once=False):
                     pass
                 return
                 
-            logger.info(f"📥 Data downloaded | 15m: {len(data_15m)} | 5m: {len(data_5m)}")
+            logger.info(f"📥 Data downloaded | 15m: {len(data_15m_raw)} | 5m: {len(data_5m_raw)}")
+            
+            # ── PRECOMPUTE INDICATORS ONCE PER DATASET ──
+            for sym, df in data_15m_raw.items():
+                try:
+                    norm_df = normalize_index(df)
+                    if not norm_df.empty:
+                        ind_df = apply_indicators(norm_df, timeframe="15m")
+                        if ind_df is not None and not ind_df.empty:
+                            data_15m[sym] = ind_df
+                except Exception:
+                    pass
+                    
+            for sym, df in data_5m_raw.items():
+                try:
+                    norm_df = normalize_index(df)
+                    if not norm_df.empty:
+                        ind_df = apply_indicators(norm_df, timeframe="5m")
+                        if ind_df is not None and not ind_df.empty:
+                            data_5m[sym] = ind_df
+                except Exception:
+                    pass
             
             total_alerts = 0
 
@@ -314,7 +329,7 @@ def start(run_once=False):
 
                     score = compute_score(setup)
                     if trigger.get("closes_above_level", 0) == 3:
-                        score = min(90, score + 3) # Bonus for clean retest-hold
+                        score = min(90, score + 3)
 
                     signal_str = "15M_5M_CONFIRMED_BREAKOUT"
                     today_str  = ist_now.strftime("%Y-%m-%d")
@@ -324,7 +339,6 @@ def start(run_once=False):
                     if check_recent_alert(symbol, "INTRADAY", dedup_key, 90):
                         continue
 
-                    # ── DETERMINISTIC INTRADAY SL ──
                     candle_close = trigger["latest_5m_close"]
                     atr5 = setup["atr5"]
                     suggested_stop = trigger["latest_5m_low"] - (0.2 * atr5)
@@ -409,9 +423,8 @@ def start(run_once=False):
                 logger.info("🧪 TEST RUN COMPLETE. Exiting loop.")
                 break
             
-            elapsed     = (datetime.now(IST) - scan_start).total_seconds()
-            # Loop runs every 15 minutes to align perfectly with the completion of the 15m candle.
-            sleep_time  = max(0, 900 - elapsed)
+            # Loop sleeps until exactly 5 seconds past the next 15-minute clock boundary.
+            sleep_time  = seconds_to_next_15m(datetime.now(IST))
             time.sleep(sleep_time)
 
         except Exception as e:
@@ -424,5 +437,4 @@ def start(run_once=False):
                 upsert_scanner_health("INTRADAY", "DOWN", error_msg=str(e))
             except Exception:
                 pass
-            elapsed    = (datetime.now(IST) - scan_start).total_seconds()
-            time.sleep(max(0, 900 - elapsed))
+            time.sleep(seconds_to_next_15m(datetime.now(IST)))
