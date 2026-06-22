@@ -3584,7 +3584,7 @@ async function fetchNotifications() {
         
         // Play sound if there are NEW notifications
         if (newNotifs && isAudioEnabled) {
-            alertAudio.play().catch(e => console.log('Audio blocked:', e));
+            if (typeof playDing === 'function') playDing();
         }
         
         lastNotifIds = currentIds;
@@ -3606,6 +3606,8 @@ async function markNotificationSeen(id, symbol) {
                 document.getElementById('filterDate').value = 'ALL';
                 document.getElementById('filterScanner').value = '';
                 document.getElementById('filterStatus').value = '';
+                const catInput = document.getElementById('filterCategory');
+                if (catInput) catInput.value = '';
                 filterInput.value = symbol;
                 renderTradeTable();
                 

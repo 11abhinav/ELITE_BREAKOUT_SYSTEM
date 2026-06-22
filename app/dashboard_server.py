@@ -181,7 +181,11 @@ def get_notifications():
                 # Format timestamps
                 for n in notifications:
                     if n.get('created_at'):
-                        n['created_at'] = n['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                        dt = n['created_at']
+                        if dt.tzinfo is not None:
+                            from zoneinfo import ZoneInfo
+                            dt = dt.astimezone(ZoneInfo("Asia/Kolkata"))
+                        n['created_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 
                 return jsonify(notifications)
     except Exception as e:
