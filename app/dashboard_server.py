@@ -27,6 +27,16 @@ from data_fetch_status import mark_success, mark_failure
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+def serialize_datetimes(obj):
+    if isinstance(obj, dict):
+        return {k: serialize_datetimes(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_datetimes(i) for i in obj]
+    elif isinstance(obj, datetime):
+        return obj.astimezone(IST).isoformat()
+    return obj
+
+
 try:
     from config import DATA_DIR, BASE_DIR
 except ImportError:
@@ -413,7 +423,7 @@ def api_fetch_errors():
     try:
         from database import get_all_fetch_errors
         rows = get_all_fetch_errors(200)
-        return jsonify(rows)
+        return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception("❌ /api/fetch_errors failed")
         return jsonify([]), 200
@@ -428,7 +438,7 @@ def api_fetch_errors_by_scanner():
         if not scanner_name:
             return jsonify({"error": "Missing 'name' parameter"}), 400
         rows = get_fetch_errors_for_scanner(scanner_name)
-        return jsonify(rows)
+        return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception("❌ /api/fetch_errors/by_scanner failed")
         return jsonify([]), 200
@@ -615,7 +625,7 @@ def api_data_fetch_health():
     try:
         from database import get_all_data_fetch_health
         rows = get_all_data_fetch_health()
-        return jsonify(rows)
+        return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception("❌ /api/data_fetch_health failed")
         return jsonify([]), 500
@@ -630,7 +640,7 @@ def api_todays_alerts():
         from zoneinfo import ZoneInfo
         today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
         rows = get_todays_alerts(today)
-        return jsonify(rows)
+        return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
         return jsonify([]), 200
@@ -812,7 +822,7 @@ def api_scanner_status():
             # Merge extras if present
             if extra:
                 result[sc].update(extra)
-        return jsonify(result)
+        return jsonify(serialize_datetimes(result))
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
         return jsonify({}), 200
