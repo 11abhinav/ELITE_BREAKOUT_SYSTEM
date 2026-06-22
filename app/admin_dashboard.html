@@ -2310,7 +2310,8 @@ function triggerAlertFlashing() {
     isAlertActive = true;
     
     // Play Audio (if permitted)
-    if (typeof playLoudNotificationSound === 'function') playLoudNotificationSound();
+    if (typeof playDing === 'function') playDing();
+    try { if (typeof alertAudio !== 'undefined') alertAudio.play().catch(e=>console.log(e)); } catch(e){}
     
     // Flash Title
     let toggle = false;
@@ -3600,10 +3601,22 @@ async function markNotificationSeen(id, symbol) {
         fetchNotifications(); // refresh
         // Also pre-fill the search/filter if the user clicked it
         if(symbol && symbol !== 'null') {
-            const searchInput = document.getElementById('search');
-            if(searchInput) {
-                searchInput.value = symbol;
-                searchInput.dispatchEvent(new Event('input'));
+            const filterInput = document.getElementById('filterSymbol');
+            if(filterInput) {
+                document.getElementById('filterDate').value = 'ALL';
+                document.getElementById('filterScanner').value = '';
+                document.getElementById('filterStatus').value = '';
+                filterInput.value = symbol;
+                renderTradeTable();
+                
+                // Scroll to table and flash
+                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
+                const table = document.querySelector('.tbl-wrap table');
+                if (table) {
+                    table.style.transition = 'background-color 0.5s';
+                    table.style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
+                    setTimeout(() => table.style.backgroundColor = '', 1000);
+                }
             }
         }
         document.getElementById('notif-dropdown').classList.remove('show');
