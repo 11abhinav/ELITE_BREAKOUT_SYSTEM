@@ -725,6 +725,15 @@ function playDing() {
     <div class="section-label">Scanner Health</div>
     <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
 
+    <!-- SYSTEM LOGS PANEL (Python Errors) -->
+    <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>System Logs (Unhandled Python Errors)</span>
+      <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+    </div>
+    <div id="systemLogsContainer" style="margin-bottom:28px;">
+      <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading system logs...</div>
+    </div>
+
     <!-- NON-CRITICAL ERRORS TRACKING -->
     <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
       <span>Non-Critical Errors Tracking</span>
@@ -2367,6 +2376,11 @@ async function doRefresh(isAuto = false) {
     renderFetchErrors(errs);
   } catch (e) { console.error('Failed to load fetch errors', e); }
 
+  // Fetch and render system logs
+  try {
+    fetchSystemLogs();
+  } catch (e) { console.error('Failed to load system logs', e); }
+
   // Fetch and render global API health
   try {
     const r2 = await fetch('/api/data_fetch_health');
@@ -2429,6 +2443,66 @@ async function pingViewer() {
 }
 
 // ── NON-CRITICAL ERRORS TRACKING
+async function fetchSystemLogs() {
+  try {
+    const res = await fetch('/api/system_logs');
+    if(res.ok) {
+      const logs = await res.json();
+      renderSystemLogs(logs);
+    }
+  } catch(e) {
+    console.error("Failed to fetch system logs", e);
+  }
+}
+
+function renderSystemLogs(logs) {
+  const container = document.getElementById('systemLogsContainer');
+  if(!logs || logs.length === 0) {
+    container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">No unhandled system errors recorded.</div>';
+    return;
+  }
+  
+  let html = '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">';
+  logs.forEach(log => {
+    if(log.is_acknowledged) return; // Hide acknowledged logs by default
+    const levelColor = log.level === 'CRITICAL' ? 'var(--warn)' : 'var(--amber)';
+    
+    html += `
+      <div class="card" style="padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+          <div>
+            <span class="badge" style="background:${levelColor}; color:#fff;">${log.level}</span>
+            <span style="font-weight:600; margin-left:8px; font-size:14px; font-family:var(--font-mono); color:var(--accent);">${log.module}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:11px; color:var(--muted);">${log.created_at}</span>
+            <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${log.id})">Acknowledge</button>
+          </div>
+        </div>
+        <div style="font-size:13px; color:var(--text); margin-bottom:8px; white-space:pre-wrap;">${log.message}</div>
+        ${log.traceback ? `<details><summary style="cursor:pointer; font-size:12px; color:var(--muted); font-weight:600;">Show Traceback</summary><pre style="background:var(--bg); padding:12px; border-radius:6px; font-size:11px; overflow-x:auto; margin-top:8px; color:#f87171;">${log.traceback}</pre></details>` : ''}
+      </div>
+    `;
+  });
+  html += '</div>';
+  
+  // Check if all were acknowledged
+  if(html === '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>') {
+      container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">All system errors have been acknowledged.</div>';
+  } else {
+      container.innerHTML = html;
+  }
+}
+
+async function ackSystemLog(logId) {
+  try {
+    await fetch('/api/system_logs/acknowledge/' + logId, {method: 'POST'});
+    fetchSystemLogs();
+  } catch(e) {
+    console.error("Failed to ack system log", e);
+  }
+}
+
 async function loadNonCriticalErrors() {
   try {
     const response = await fetch('/api/fetch_errors');

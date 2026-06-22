@@ -481,6 +481,22 @@ def init_db():
                 """)
                 cur.execute("ALTER TABLE data_fetch_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
 
+                # ── System Logs Table (for Unhandled Errors / App Crashes) ─────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS system_logs (
+                        id SERIAL PRIMARY KEY,
+                        level TEXT NOT NULL,
+                        module TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        traceback TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        is_acknowledged BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
+
+
                 # ── Manual Portfolio Tracker ──────────────────────────────────────
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS manual_portfolio (
@@ -506,11 +522,8 @@ def init_db():
                     )
                 """)
 
-                # ── System checkpoints table (persistent audit trail) ─────────────────────────
+                # ── Unified Notification Center ─────────────────────────
                 cur.execute("""
-                    
-                # Unified Notification Center
-                cur.execute('''
                     CREATE TABLE IF NOT EXISTS global_notifications (
                         id SERIAL PRIMARY KEY,
                         type TEXT NOT NULL,
@@ -520,8 +533,11 @@ def init_db():
                         is_seen BOOLEAN DEFAULT FALSE,
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
-                ''')
-                CREATE TABLE IF NOT EXISTS system_checkpoints (
+                """)
+
+                # ── System checkpoints table (persistent audit trail) ─────────────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS system_checkpoints (
                         id SERIAL PRIMARY KEY,
                         checkpoint_name TEXT UNIQUE NOT NULL,
                         created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
