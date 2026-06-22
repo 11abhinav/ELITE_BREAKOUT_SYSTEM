@@ -3276,6 +3276,7 @@ def upsert_breakout_watchlist(
                 """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
                       breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
                       buffer_pct, armed_at, session_date, context_json))
+                conn.commit()
 
     except Exception as e:
         logger.exception(f"❌ Failed to upsert breakout_watchlist for {symbol}: {e}")
@@ -3312,6 +3313,7 @@ def mark_breakout_watchlist_cooldown(symbol: str, state: str, hours: int = 24):
                         last_updated = NOW()
                     WHERE symbol = %s
                 """, (state, hours, symbol))
+                conn.commit()
     except Exception as e:
         logger.exception(f"❌ Failed to cooldown {symbol}: {e}")
 
