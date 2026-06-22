@@ -840,7 +840,7 @@ function renderKPIs(s) {
     {id:'open',    label:'Open',          value:openPositions,         cls:'blue',   sub:'awaiting close',         filter:t=>t.status==='OPEN'},
   ];
   document.getElementById('kpis').innerHTML = defs.map(d => `
-    <div class="kpi" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
+    <div class="kpi ${activeKpi === d.id ? 'active' : ''}" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
       <div class="kpi-label">${d.label}</div>
       <div class="kpi-value ${d.cls}">${d.value}</div>
       ${d.sub ? `<div class="kpi-sub">${d.sub}</div>` : ''}
