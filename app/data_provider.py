@@ -7,7 +7,7 @@ import logging
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, get_backoff_delay, CircuitOpenError
 
-from app.price_provider import PriceProvider
+from price_provider import PriceProvider
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
