@@ -22,7 +22,7 @@ except Exception:
     except Exception:
         pass
 import yfinance as yf
-from yf_rate_limiter import CircuitOpenError
+from yf_rate_limiter import CircuitOpenError, acquire as yf_acquire, release as yf_release
 from data_fetch_status import mark_success, mark_failure
 
 logger = logging.getLogger(__name__)

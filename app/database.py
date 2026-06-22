@@ -3465,12 +3465,12 @@ def reallocate_capital(alert_id: int):
     with get_connection() as conn:
         with conn.cursor() as cur:
             # Fetch current details
-            cur.execute("SELECT entry_price, stop_loss, score, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("SELECT entry_price, stop_loss, score, capital_allocated, status, exit_price FROM alerts WHERE id = %s", (alert_id,))
             row = cur.fetchone()
             if not row:
                 return False
             
-            entry_price, stop_loss, score, old_cap = row
+            entry_price, stop_loss, score, old_cap, status, exit_price = row
             old_cap = float(old_cap) if old_cap else 0.0
             
             # Temporarily free the current margin from the DB view so portfolio_engine sees it
@@ -3485,6 +3485,11 @@ def reallocate_capital(alert_id: int):
                 "UPDATE alerts SET capital_allocated = %s, shares_bought = %s WHERE id = %s",
                 (new_cap, new_shares, alert_id)
             )
+            
+            # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
+            if status in ('WIN', 'LOSS') and exit_price is not None:
+                new_pnl_rs = new_shares * (exit_price - entry_price)
+                cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
             
             # Adjust the capital_history by recording the net difference
             # (If old was 0, this is just a normal deduction. If re-allocating, it balances out).

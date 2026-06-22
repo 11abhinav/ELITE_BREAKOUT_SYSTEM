@@ -1466,10 +1466,9 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const isOpen = expandedIds.has(id);
     const sc = t.score != null ? `<span class="score-ring ${scoreClass(t.score)}">${t.score}</span>` : '—';
     const key = t.symbol + '|' + (t.alert_time||t.entry_date);
-    const isBlinking = (t.alert_time||t.entry_date||'').startsWith(todayStr);
 
     return `
-    <tr class="main-row${isOpen?' open':''}${isBlinking?' blink-row':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')">
+    <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')">
       <td>${isOpen?'\u25bc':'\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>

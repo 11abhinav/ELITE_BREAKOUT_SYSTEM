@@ -55,10 +55,14 @@ def calculate_trade_allocation(entry_price: float, stop_loss: float, score: int 
         entry_price = float(entry_price)
         stop_loss = float(stop_loss)
     except Exception:
-        return 0.0, 0
+        stop_loss = 0.0
 
-    if entry_price <= 0 or stop_loss <= 0:
+    if entry_price <= 0:
         return 0.0, 0
+        
+    if stop_loss <= 0:
+        # Fallback for trades with no SL (e.g. bulk deals): assume 10% risk
+        stop_loss = entry_price * 0.90
 
     state = get_portfolio_state()
     total_equity = state["total_equity"]

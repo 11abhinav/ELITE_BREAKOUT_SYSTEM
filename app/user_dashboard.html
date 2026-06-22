@@ -1975,11 +1975,13 @@ async function fetchTodaysAlertsAndBlink_User(){
           const alertDate = (alert.alert_time || alert.entry_date || '').slice(0, 10);
           const isToday = alertDate === todayStr;
           
-          // Apply blinking - priority: unseen alerts OR today's alerts
+          // Apply blinking - only for unseen alerts
           if(!alert.seen_by_user) {
-            tr.classList.add('alert-blink');
-          } else if(isToday) {
-            tr.classList.add('today-alert-blink');
+            if(isToday) {
+              tr.classList.add('today-alert-blink');
+            } else {
+              tr.classList.add('alert-blink');
+            }
           }
           
           tr.addEventListener('click', async ()=>{
