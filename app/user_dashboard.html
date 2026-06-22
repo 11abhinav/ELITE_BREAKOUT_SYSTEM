@@ -1326,8 +1326,20 @@ function renderCategoryStats() {
   if (cg) cg.innerHTML = html || '<div style="color:var(--muted);font-size:12px;">No categorized trades yet.</div>';
 }
 
+let GLOBAL_CAPITAL = 500000;
+
+async function loadCapitalInfo() {
+  try {
+    const response = await fetch('/api/capital_info');
+    if (response.ok) {
+      const data = await response.json();
+      GLOBAL_CAPITAL = data.total_capital || 500000;
+    }
+  } catch(e) {}
+}
+
 function updateSim() {
-  const cap = parseFloat(document.getElementById('simCapital').value) || 500000;
+  const cap = GLOBAL_CAPITAL;
   
   let closedTrades = ALL_TRADES.filter(t => ['WIN','LOSS'].includes(t.status));
   closedTrades.sort((a,b) => {
@@ -1437,7 +1449,7 @@ function renderEquityCurve() {
     return da.localeCompare(db);
   });
   
-      let cap = parseFloat(document.getElementById('simCapital').value) || 500000;
+      let cap = GLOBAL_CAPITAL;
   let equity = cap;
   let peakEquity = cap;
   
@@ -1624,6 +1636,7 @@ async function doRefresh(isAuto = false) {
   window.scrollTo(0, 0);
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
+  await loadCapitalInfo();
   const data = await loadData();
 
   ALL_TRADES = data.trades || [];
@@ -1682,6 +1695,7 @@ async function pingViewer() {
 
 // ── MAIN
 async function initDashboard() {
+  await loadCapitalInfo();
   const data = await loadData();
 
   document.getElementById('loading').style.display = 'none';
