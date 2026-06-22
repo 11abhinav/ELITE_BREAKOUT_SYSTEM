@@ -711,7 +711,7 @@ def run_wealth_scan():
                         portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
                     
                     # 2. Wealth system active alerts (overrides manual)
-                    cur.execute("SELECT symbol, entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    cur.execute("SELECT symbol, alert_price as entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
                     for r in cur.fetchall():
                         portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
         except Exception as e:
