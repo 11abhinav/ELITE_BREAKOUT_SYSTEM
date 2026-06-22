@@ -1007,7 +1007,6 @@ def api_indices():
         symbols = {"NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "SENSEX": "^BSESN"}
         data = {}
         from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
-from yf_rate_limiter import CircuitOpenError
         for name, sym in symbols.items():
             try:
                 yf_acquire()
