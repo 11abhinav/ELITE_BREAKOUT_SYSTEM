@@ -987,7 +987,8 @@ def save_alert_if_new(
                     success = True
                     inserted = cur.rowcount > 0
                     if inserted:
-                        insert_notification('buy', 'New Breakout Alert', f'{breakout_type} Breakout detected for {symbol} at ₹{entry_price}', symbol)
+                        msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | TGT: ₹{target_price}'
+                        insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
                     return inserted, capital_allocated, shares_bought
             except Exception:
                 logger.exception(f"❌ save_alert_if_new failed for {symbol}")
@@ -1031,6 +1032,14 @@ def update_alert_outcome(
                     success = True
                     if cur.rowcount:
                         logger.info(f"🔒 Alert {alert_id} locked as {status} | exit={exit_price} pnl={pnl_pct}%")
+                        # Fetch symbol to send notification
+                        cur.execute("SELECT symbol FROM alerts WHERE id = %s", (alert_id,))
+                        row = cur.fetchone()
+                        if row:
+                            sym = row[0]
+                            p_str = f"₹{pnl_rs:.2f}" if pnl_rs is not None else f"{pnl_pct:.2f}%"
+                            msg = f"{sym} | Exit: ₹{exit_price:.2f} | P&L: {p_str}"
+                            insert_notification('sell', f'Exit Alert ({status})', msg, sym)
             except Exception:
                 logger.exception(f"❌ update_alert_outcome failed for alert_id={alert_id}")
             finally:

@@ -864,13 +864,19 @@ const fmtAlertTime = ts => {
 const fmtClosedAt = ts => {
   if (!ts) return '—';
   try {
-    const d = new Date(ts);
-    if (isNaN(d)) return ts.slice(0,16);
-    return d.toLocaleString('en-IN', {
-      timeZone:'Asia/Kolkata', day:'2-digit', month:'short',
-      hour:'2-digit', minute:'2-digit', hour12:false
-    });
-  } catch { return ts.slice(0,16); }
+    const s = ts.replace('T', ' ').slice(0,16); // "YYYY-MM-DD HH:MM"
+    const parts = s.split(' ');
+    if(parts.length !== 2) return s;
+    const [y, m, d] = parts[0].split('-');
+    const [h, min] = parts[1].split(':');
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mName = monthNames[parseInt(m, 10) - 1] || m;
+    
+    return `${d} ${mName}, ${h}:${min}`;
+  } catch {
+    return ts.slice(0,16);
+  }
 };
 
 const fmtDetailTime = ts => {
