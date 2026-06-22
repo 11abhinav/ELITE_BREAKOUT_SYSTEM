@@ -612,6 +612,7 @@ function playDing() {
 
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
         <button id="rejectSelectedBtn" class="refresh-btn" onclick="rejectSelectedTrades()" style="margin-left:8px;padding:6px 12px; background:var(--warn-dim); color:var(--warn); border:1px solid var(--warn); display:none;">🚫 Reject Selected</button>
+        <button id="allocateSelectedBtn" class="refresh-btn" onclick="allocateSelectedTrades()" style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); display:none; font-weight:600;">💰 Allocate Selected</button>
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
         <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
       </div>
@@ -703,81 +704,56 @@ function playDing() {
     </div>
   </div>
 
-    <!-- SCANNER STATUS -->
-    <div class="section-label">Scanner Health</div>
-    <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
-
-    <!-- SYSTEM LOGS PANEL (Python Errors) -->
-    <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>System Logs (Unhandled Python Errors)</span>
-      <div id="systemLogsHeaderBtns">
-        <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+    <!-- SYSTEM HEALTH & DIAGNOSTICS (COLLAPSIBLE) -->
+    <div class="card" style="margin-top: 40px; margin-bottom: 40px; overflow: hidden;">
+      <div id="diagnostics-header" style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;" onclick="toggleDiagnostics()">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-weight: 600; color: var(--text); font-size:16px;">⚕️ System Health & Diagnostics</span>
+        </div>
+        <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+          <span id="diagnostics-status">Click to load</span>
+          <svg id="diagnostics-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
       </div>
-    </div>
-    <div id="systemLogsContainer" style="margin-bottom:28px;">
-      <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading system logs...</div>
-    </div>
+      <div id="diagnostics-body" style="display: none; padding: 20px; background: var(--bg);">
+        
+        <!-- SCANNER STATUS -->
+        <div class="section-label" style="margin-top:0;">Scanner Health</div>
+        <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
 
-    <!-- NON-CRITICAL ERRORS TRACKING -->
-    <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
-      <span>Non-Critical Errors Tracking</span>
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-sm" onclick="refreshNonCriticalErrors()" style="font-size:12px;">🔄 Refresh</button>
-        <button class="btn btn-sm" onclick="clearAllErrors()" style="font-size:12px; background:var(--warn); color:#fff; border:none;">🗑️ Clear All</button>
-      </div>
-    </div>
-    <div id="nonCriticalErrorsContainer" style="margin-bottom:28px;">
-      <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading errors...</div>
-    </div>
+        <!-- SYSTEM LOGS PANEL (Python Errors) -->
+        <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>System Logs (Unhandled Python Errors)</span>
+          <div id="systemLogsHeaderBtns">
+            <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+          </div>
+        </div>
+        <div id="systemLogsContainer" style="margin-bottom:28px;">
+          <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading system logs...</div>
+        </div>
 
-    <!-- API HEALTH PANEL -->
-    <div id="apiHealthContainer" style="margin-bottom:20px;"></div>
+        <!-- NON-CRITICAL ERRORS TRACKING -->
+        <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Non-Critical Errors Tracking</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-sm" onclick="refreshNonCriticalErrors()" style="font-size:12px;">🔄 Refresh</button>
+            <button class="btn btn-sm" onclick="clearAllErrors()" style="font-size:12px; background:var(--warn); color:#fff; border:none;">🗑️ Clear All</button>
+          </div>
+        </div>
+        <div id="nonCriticalErrorsContainer" style="margin-bottom:28px;">
+          <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading errors...</div>
+        </div>
 
-    <!-- FETCH ERRORS PANEL (Admin) -->
-    <div id="fetchErrorsContainer" style="margin-bottom:20px;"></div>
-    
-    <!-- FUNDAMENTAL WATCHLIST -->
-    <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
-        <span>Elite Fundamental Watchlist (Long-Term Wealth)</span>
-        <button class="filter-btn" style="background:var(--accent); color:#fff; border:none; margin-bottom:8px;" onclick="window.location.href='/api/download_shortlist'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download CSV
-        </button>
-    </div>
-    <div class="card" style="margin-bottom:28px">
-      <div class="filter-bar" style="display:flex; gap:12px;">
-        <input type="text" id="wlSearch" class="search-input" style="flex:1;" placeholder="Search symbol..." oninput="renderWatchlist()">
-        <select id="wlStatusFilter" class="search-input" style="max-width:150px;" onchange="renderWatchlist()">
-          <option value="">All Status</option>
-          <option value="included">Included</option>
-          <option value="excluded">Excluded</option>
-        </select>
-        <select id="wlSectorFilter" class="search-input" style="max-width:200px;" onchange="renderWatchlist()">
-          <option value="">All Sectors</option>
-        </select>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="cursor:pointer;" onclick="sortWatchlist('Stock')">Stock <span id="wl-sort-Stock"></span></th>
-              <th style="cursor:pointer;" onclick="sortWatchlist('Status')">Status <span id="wl-sort-Status"></span></th>
-              <th style="cursor:pointer;" onclick="sortWatchlist('Sector')">Sector <span id="wl-sort-Sector"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('CMP')">CMP <span id="wl-sort-CMP"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Market Cap Cr')">Market Cap (Cr) <span id="wl-sort-Market_Cap_Cr"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Fundamental Score')">Score <span id="wl-sort-Fundamental_Score"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('ROCE %')">ROCE % <span id="wl-sort-ROCE_%"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('ROE %')">ROE % <span id="wl-sort-ROE_%"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('Debt/Equity')">D/E <span id="wl-sort-Debt/Equity"></span></th>
-              <th style="cursor:pointer;text-align:right" onclick="sortWatchlist('PEG Ratio')">PEG <span id="wl-sort-PEG_Ratio"></span></th>
-              <th style="max-width:200px;">Reason</th>
-            </tr>
-          </thead>
-          <tbody id="watchlistBody"></tbody>
-        </table>
+        <!-- API HEALTH PANEL -->
+        <div id="apiHealthContainer" style="margin-bottom:20px;"></div>
+
+        <!-- FETCH ERRORS PANEL (Admin) -->
+        <div id="fetchErrorsContainer" style="margin-bottom:20px;"></div>
+
       </div>
     </div>
     
+
     <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:16px;">
       <h2 style="font-size:16px; font-weight:600; letter-spacing:-0.2px; color:var(--text); margin:0;">Database Exports</h2>
       <div style="font-size:13px; color:var(--muted)">Raw CSV extracts</div>
@@ -940,6 +916,69 @@ async function loadData() {
     by_scanner: {}, by_category: {}, equity_curve: [], monthly: [],
   };
 
+}
+
+// ── DIAGNOSTICS LAZY LOADING
+let diagnosticsLoaded = false;
+async function toggleDiagnostics() {
+  const body = document.getElementById('diagnostics-body');
+  const icon = document.getElementById('diagnostics-icon');
+  const status = document.getElementById('diagnostics-status');
+  
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.style.transform = 'rotate(180deg)';
+    
+    if (!diagnosticsLoaded) {
+      status.textContent = 'Loading...';
+      try {
+        await loadDiagnostics();
+        diagnosticsLoaded = true;
+        status.textContent = 'Active';
+      } catch (e) {
+        status.textContent = 'Error loading';
+        console.error(e);
+      }
+    } else {
+      status.textContent = 'Active';
+    }
+  } else {
+    body.style.display = 'none';
+    icon.style.transform = 'rotate(0deg)';
+    status.textContent = 'Click to load';
+  }
+}
+
+async function loadDiagnostics() {
+  // 1. Scanner Status
+  const scannerStatus = await loadScannerStatus();
+  if (scannerStatus) {
+    window._scannerStats = {...(window._scannerStats||{}), ...scannerStatus};
+    renderScannerGrid(window._scannerStats);
+  }
+  
+  // 2. Non-critical Errors
+  await loadNonCriticalErrors();
+  
+  // 3. Fetch Errors
+  try {
+    const errs = await fetchFetchErrors();
+    renderFetchErrors(errs);
+  } catch (e) { console.error('Failed to load fetch errors', e); }
+  
+  // 4. System Logs
+  try {
+    fetchSystemLogs();
+  } catch (e) { console.error('Failed to load system logs', e); }
+  
+  // 5. API Health
+  try {
+    const r2 = await fetch('/api/data_fetch_health');
+    if (r2.ok) {
+      const apiHealth = await r2.json();
+      renderApiHealth(apiHealth);
+    }
+  } catch (e) { console.error('Failed to load API health', e); }
 }
 
 async function loadScannerStatus() {
@@ -1443,7 +1482,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
 
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')" style="${missingStyle}">
-      <td onclick="event.stopPropagation();"><input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateRejectButtonVisibility()"></td>
+      <td onclick="event.stopPropagation();"><input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()"></td>
       <td>${isOpen?'\u25bc':'\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
@@ -1595,13 +1634,63 @@ function toggleAllTrades(source) {
             cb.checked = source.checked;
         }
     });
-    updateRejectButtonVisibility();
+    updateBulkActionsVisibility();
 }
 
-function updateRejectButtonVisibility() {
+function updateBulkActionsVisibility() {
     const anyChecked = document.querySelector('.trade-checkbox:checked') !== null;
-    const btn = document.getElementById('rejectSelectedBtn');
-    if (btn) btn.style.display = anyChecked ? 'inline-block' : 'none';
+    const rejBtn = document.getElementById('rejectSelectedBtn');
+    const allocBtn = document.getElementById('allocateSelectedBtn');
+    if (rejBtn) rejBtn.style.display = anyChecked ? 'inline-block' : 'none';
+    if (allocBtn) allocBtn.style.display = anyChecked ? 'inline-block' : 'none';
+}
+
+async function allocateSelectedTrades() {
+    const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    
+    if (!confirm(`Are you sure you want to ALLOCATE capital for ${checkboxes.length} selected trades? This will read your current Cash In Hand and distribute it evenly.`)) return;
+    
+    const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    const btn = document.getElementById('allocateSelectedBtn');
+    const oldText = btn.innerText;
+    btn.innerText = 'Allocating...';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/alert/reallocate_multiple', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.results) {
+                data.results.forEach(resTrade => {
+                    const trade = ALL_TRADES.find(t => t.id === resTrade.id);
+                    if (trade) {
+                        trade.capital_allocated = resTrade.capital_allocated;
+                        trade.shares_bought = resTrade.shares_bought;
+                        trade.stop_loss = resTrade.stop_loss;
+                        trade.target_price = resTrade.target_price;
+                    }
+                });
+            }
+            document.getElementById('selectAllTrades').checked = false;
+            updateBulkActionsVisibility();
+            renderTradeTable();
+            loadCapitalInfo();
+        } else {
+            alert('Failed to allocate trades.');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Error allocating trades.');
+    } finally {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    }
 }
 
 async function rejectSelectedTrades() {
@@ -1629,7 +1718,7 @@ async function rejectSelectedTrades() {
                if(trade) trade.status = 'REJECTED';
             });
             document.getElementById('selectAllTrades').checked = false;
-            updateRejectButtonVisibility();
+            updateBulkActionsVisibility();
             renderTradeTable();
             loadCapitalInfo();
         } else {
@@ -2354,35 +2443,15 @@ async function doRefresh(isAuto = false) {
       }
   }
 
-  const scannerStatus = await loadScannerStatus();
-  if (scannerStatus) data.scanner_stats = {...(data.scanner_stats||{}), ...scannerStatus};
-  window._scannerStats = data.scanner_stats || {};
-  renderScannerGrid(data.scanner_stats);
   ALL_TRADES = data.trades || [];
   populateFilters(ALL_TRADES);
   await loadCapitalInfo(); // Ensure capital is always fresh on refresh
   renderTradeTable();
   updateSim();
 
-  // Fetch and render aggregated fetch errors for admin triage
-  try {
-    const errs = await fetchFetchErrors();
-    renderFetchErrors(errs);
-  } catch (e) { console.error('Failed to load fetch errors', e); }
-
-  // Fetch and render system logs
-  try {
-    fetchSystemLogs();
-  } catch (e) { console.error('Failed to load system logs', e); }
-
-  // Fetch and render global API health
-  try {
-    const r2 = await fetch('/api/data_fetch_health');
-    if (r2.ok) {
-      const apiHealth = await r2.json();
-      renderApiHealth(apiHealth);
-    }
-  } catch (e) { console.error('Failed to load API health', e); }
+  if (diagnosticsLoaded) {
+      loadDiagnostics();
+  }
 
   document.getElementById('gen-time').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
   btn.classList.remove('spinning');
@@ -2739,7 +2808,7 @@ async function initDashboard() {
   document.getElementById('main').style.display = 'block';
   window.scrollTo(0, 0);
 
-  loadWatchlist();
+
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
 
@@ -2754,17 +2823,17 @@ async function initDashboard() {
   populateFilters(ALL_TRADES);
   loadCapitalInfo(); 
   renderTradeTable();
-  renderScannerGrid(data.scanner_stats);
-  loadNonCriticalErrors();
   fetchSignalLadder();
 
-  // Auto-refresh scanner status every 60s
+  // Auto-refresh scanner status every 60s if diagnostics are loaded
   setInterval(async () => {
-    const live = await loadScannerStatus();
-    if (live) {
-      window._scannerStats = {...(window._scannerStats||{}), ...live};
-      renderScannerGrid(window._scannerStats);
-      loadNonCriticalErrors();
+    if (diagnosticsLoaded) {
+      const live = await loadScannerStatus();
+      if (live) {
+        window._scannerStats = {...(window._scannerStats||{}), ...live};
+        renderScannerGrid(window._scannerStats);
+        loadNonCriticalErrors();
+      }
     }
   }, 60000);
 
@@ -2784,13 +2853,9 @@ async function initDashboard() {
         updateSim();
         loadCapitalInfo();
       }
-      loadScannerStatus().then(live => {
-        if (live) {
-          window._scannerStats = {...(window._scannerStats||{}), ...live};
-          renderScannerGrid(window._scannerStats);
-        }
-      });
-      loadNonCriticalErrors();
+      if (diagnosticsLoaded) {
+        loadDiagnostics();
+      }
     });
   }, 180000);
 }
@@ -2800,135 +2865,26 @@ if (checkViewerName()) {
   initDashboard();
 }
 
-let WATCHLIST_DATA = [];
-let wlSortCol = 'Fundamental Score';
-let wlSortAsc = false;
-
-async function loadWatchlist() {
-    try {
-        const r = await fetch('/api/shortlist');
-        if (r.ok) {
-            let included = await r.json();
-            included.forEach(d => { d.Status = 'included'; });
-            
-            // Load excluded stocks
-            let excluded = [];
-            try {
-                const r2 = await fetch('/api/shortlist_excluded');
-                if (r2.ok) {
-                    excluded = await r2.json();
-                    excluded.forEach(d => { d.Status = 'excluded'; });
-                }
-            } catch (e) {
-                console.warn('Could not load excluded stocks');
-            }
-            
-            WATCHLIST_DATA = [...included, ...excluded];
-            
-            const filterSec = document.getElementById('wlSectorFilter');
-            
-            if(filterSec) {
-                filterSec.innerHTML = '<option value="">All Sectors</option>';
-                let secs = new Set();
-                WATCHLIST_DATA.forEach(d => {
-                    if(d.Sector && d.Status === 'included') secs.add(d.Sector.trim());
-                });
-                Array.from(secs).sort().forEach(s => {
-                    if(s) {
-                        let opt = document.createElement('option');
-                        opt.value = s;
-                        opt.textContent = s;
-                        filterSec.appendChild(opt);
-                    }
-                });
-            }
-            
-            renderWatchlist();
-        }
-    } catch(e) { console.error('Failed to load watchlist', e); }
-}
-
-function sortWatchlist(col) {
-    if (wlSortCol === col) {
-        wlSortAsc = !wlSortAsc;
-    } else {
-        wlSortCol = col;
-        wlSortAsc = false;
-    }
-    document.querySelectorAll('[id^="wl-sort-"]').forEach(el => el.textContent = '');
-    const ind = document.getElementById('wl-sort-' + col.replace(/ /g, '_'));
-    if (ind) ind.textContent = wlSortAsc ? '↑' : '↓';
-    
-    renderWatchlist();
-}
-
-function renderWatchlist() {
-    const q = document.getElementById('wlSearch').value.toUpperCase();
-    const statusFilter = document.getElementById('wlStatusFilter') ? document.getElementById('wlStatusFilter').value : "";
-    const secFilter = document.getElementById('wlSectorFilter') ? document.getElementById('wlSectorFilter').value : "";
-    
-    let data = WATCHLIST_DATA.filter(d => {
-        let textMatch = (d.Stock && d.Stock.toUpperCase().includes(q));
-        let statusMatch = statusFilter === "" || (d.Status === statusFilter);
-        let secMatch = secFilter === "" || (d.Sector && d.Sector === secFilter);
-        return textMatch && statusMatch && secMatch;
-    });
-    
-    data.sort((a,b) => {
-        let va = a[wlSortCol];
-        let vb = b[wlSortCol];
-        if (va == null) va = wlSortAsc ? Infinity : -Infinity;
-        if (vb == null) vb = wlSortAsc ? Infinity : -Infinity;
-        
-        if (typeof va === 'string' && typeof vb === 'string') {
-            return wlSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
-        }
-        return wlSortAsc ? (va - vb) : (vb - va);
-    });
-    
-    const tbody = document.getElementById('watchlistBody');
-    if(!data.length) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--muted)">No data available or no match found</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = data.map(d => {
-        const statusColor = d.Status === 'included' ? 'var(--green)' : 'var(--warn)';
-        const statusLabel = d.Status === 'included' ? '✓ Included' : '✗ Excluded';
-        return `<tr>
-          <td>
-            <a href="https://in.tradingview.com/chart/?symbol=NSE:${d.Stock}" target="_blank" style="color:var(--text); text-decoration:none; font-weight:600;">
-                ${d.Stock}
-            </a>
-          </td>
-          <td style="color:${statusColor}; font-weight:600; font-size:12px;">${statusLabel}</td>
-          <td style="color:var(--muted); font-size:12px;">${d.Sector || '-'}</td>
-          <td style="text-align:right; font-size:12px;">₹${d.CMP ? Number(d.CMP).toLocaleString('en-IN', {maximumFractionDigits: 0}) : '-'}</td>
-          <td style="text-align:right; font-size:12px;">${d['Market Cap Cr'] ? Number(d['Market Cap Cr']).toLocaleString('en-IN', {maximumFractionDigits: 0}) : '-'}</td>
-          <td style="text-align:right; font-weight:600; font-size:12px; color:${d['Fundamental Score'] >= 100 ? 'var(--accent)' : 'var(--muted)'};">${d['Fundamental Score'] || 0}</td>
-          <td style="text-align:right; color:${parseFloat(d['ROCE %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700; font-size:12px;">${d['ROCE %'] ? Number(d['ROCE %']).toFixed(1) + '%' : '-'}</td>
-          <td style="text-align:right; color:${parseFloat(d['ROE %']) < 0 ? 'var(--loss)' : 'var(--win)'}; font-weight:700; font-size:12px;">${d['ROE %'] ? Number(d['ROE %']).toFixed(1) + '%' : '-'}</td>
-          <td style="text-align:right; color:${parseFloat(d['Debt/Equity']) > 1.0 ? 'var(--warn)' : 'var(--text)'}; font-weight:600; font-size:12px;">${d['Debt/Equity'] ? Number(d['Debt/Equity']).toFixed(2) : '-'}</td>
-          <td style="text-align:right; color:${parseFloat(d['PEG Ratio']) < 1.0 ? 'var(--accent)' : 'var(--muted)'}; font-weight:600; font-size:12px;">${d['PEG Ratio'] ? Number(d['PEG Ratio']).toFixed(2) : '-'}</td>
-          <td style="font-size:11px; color:var(--muted); max-width:200px; word-wrap:break-word;">${d.Reason || (d.Category ? d.Category.substring(0, 50) + '...' : '-')}</td>
-        </tr>`;
-    }).join('');
-}
 
       // Fetch indices
       fetch('/api/indices')
         .then(r => r.json())
         .then(data => {
           const tc = document.getElementById('ticker-content');
-          if (!tc || Object.keys(data).length === 0) return;
+          if (!tc) return;
+          if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
+              tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data temporarily unavailable</span>';
+              return;
+          }
           let html = '';
           for (const [name, info] of Object.entries(data)) {
+            if (typeof info !== 'object' || info === null) continue;
             const color = info.pct_change >= 0 ? 'var(--accent)' : 'var(--warn)';
             const sign = info.pct_change >= 0 ? '+' : '';
             html += `<div style="display:flex; gap:6px; align-items:baseline;">
               <span style="color:#ffffff;">${name}</span>
               <span>${info.price ? info.price.toLocaleString('en-IN') : 'N/A'}</span>
-              <span style="color:${color}; font-weight:600;">${sign}${info.pct_change}%</span>
+              <span style="color:${color}">${sign}${info.pct_change}%</span>
             </div>`;
           }
           tc.innerHTML = html;

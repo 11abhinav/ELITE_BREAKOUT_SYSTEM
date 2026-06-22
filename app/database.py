@@ -3547,7 +3547,115 @@ def reallocate_capital(alert_id: int):
             )
             
             # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
+            # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
             if status in ('WIN', 'LOSS') and exit_price is not None:
+                new_pnl = float(exit_price - entry_price) * new_shares
+                cur.execute("UPDATE alerts SET pnl = %s WHERE id = %s", (new_pnl, alert_id))
+                
+            conn.commit()
+    return True
+
+def reallocate_capital_multiple(alert_ids: list):
+    """
+    Allocates capital to multiple trades at once, distributing the available cash
+    evenly amongst them so one trade doesn't eat the entire budget.
+    """
+    if not alert_ids: return []
+    
+    from portfolio_engine import get_portfolio_state, RISK_PERCENT, MAX_POSITION_PCT
+    import math
+    
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            format_strings = ','.join(['%s'] * len(alert_ids))
+            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
+            rows = cur.fetchall()
+            
+            if not rows: return []
+            
+            # Free up existing capital from these trades so they pool into available_margin
+            for r in rows:
+                if r[5] and float(r[5]) > 0:
+                    cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (r[0],))
+            conn.commit()
+            
+            # Get portfolio state (now includes the freed up capital)
+            state = get_portfolio_state()
+            total_equity = state["total_equity"]
+            available_margin = state["available_margin"]
+            
+            num_trades = len(rows)
+            cash_budget_per_trade = available_margin / num_trades
+            
+            results = []
+            
+            for row in rows:
+                a_id, entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str = row
+                
+                entry_price = float(entry_price) if entry_price else 0.0
+                stop_loss = float(stop_loss) if stop_loss else 0.0
+                target_price = float(target_price) if target_price else 0.0
+                
+                if entry_price > 0 and stop_loss <= 0:
+                    import json
+                    fallback_sl = entry_price * 0.90
+                    try:
+                        ctx = json.loads(context_str) if context_str else {}
+                        if scanner in ("1H", "INTRADAY"):
+                            atr = float(ctx.get("execution", {}).get("atr", 0))
+                            if atr > 0: fallback_sl = entry_price - (1.5 * atr)
+                        elif scanner == "multi_tf_scanner":
+                            f_sl = float(ctx.get("final_sl", 0))
+                            if f_sl > 0: fallback_sl = f_sl
+                        elif scanner == "EOD":
+                            atr = float(ctx.get("technicals", {}).get("atr20", 0))
+                            if atr > 0: fallback_sl = entry_price - (2.0 * atr)
+                    except Exception:
+                        pass
+                    stop_loss = fallback_sl
+                    
+                if entry_price > 0 and stop_loss > 0 and target_price <= 0:
+                    risk_per_share = entry_price - stop_loss
+                    target_price = entry_price + (risk_per_share * 2)
+                    
+                base_risk_percent = RISK_PERCENT
+                risk_percent = min(0.05, base_risk_percent * 2) if (score and score >= 90) else base_risk_percent
+                per_trade_risk = total_equity * risk_percent
+                
+                per_share_risk = abs(entry_price - stop_loss)
+                if per_share_risk <= 0:
+                    shares_to_buy = 0
+                else:
+                    shares_by_risk = math.floor(per_trade_risk / per_share_risk)
+                    max_allocation = total_equity * MAX_POSITION_PCT
+                    capital_required = shares_by_risk * entry_price
+                    if capital_required > max_allocation:
+                        shares_by_risk = math.floor(max_allocation / entry_price)
+                        
+                    shares_by_cash = math.floor(cash_budget_per_trade / entry_price)
+                    shares_to_buy = max(0, min(shares_by_risk, shares_by_cash))
+                    
+                new_cap = float(shares_to_buy * entry_price)
+                
+                cur.execute(
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s WHERE id = %s",
+                    (new_cap, shares_to_buy, stop_loss, target_price, a_id)
+                )
+                
+                if status in ('WIN', 'LOSS') and exit_price is not None:
+                    exit_price_val = float(exit_price) if exit_price else 0.0
+                    new_pnl_rs = float(exit_price_val - entry_price) * shares_to_buy
+                    cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, a_id))
+                    
+                results.append({
+                    "id": a_id,
+                    "capital_allocated": new_cap,
+                    "shares_bought": shares_to_buy,
+                    "stop_loss": stop_loss,
+                    "target_price": target_price
+                })
+            conn.commit()
+            return results
                 new_pnl_rs = new_shares * (exit_price - entry_price)
                 cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
             

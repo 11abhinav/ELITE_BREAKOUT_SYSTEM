@@ -1738,20 +1738,28 @@ if (checkViewerName()) {
         .then(r => r.json())
         .then(data => {
           const tc = document.getElementById('ticker-content');
-          if (!tc || Object.keys(data).length === 0) return;
+          if (!tc) return;
+          if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
+              tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data temporarily unavailable</span>';
+              return;
+          }
           let html = '';
           for (const [name, info] of Object.entries(data)) {
+            if (typeof info !== 'object' || info === null) continue;
             const color = info.pct_change >= 0 ? 'var(--accent)' : 'var(--warn)';
             const sign = info.pct_change >= 0 ? '+' : '';
             html += `<div style="display:flex; gap:6px; align-items:baseline;">
               <span style="color:#ffffff;">${name}</span>
               <span>${info.price ? info.price.toLocaleString('en-IN') : 'N/A'}</span>
-              <span style="color:${color}; font-weight:600;">${sign}${info.pct_change}%</span>
+              <span style="color:${color}">${sign}${info.pct_change}%</span>
             </div>`;
           }
           tc.innerHTML = html;
         })
-        .catch(err => console.error("Failed to load indices", err));
+        .catch(err => {
+            const tc = document.getElementById('ticker-content');
+            if (tc) tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+        });
 
 </script>
 <!-- AI Modal -->
