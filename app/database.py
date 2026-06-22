@@ -2016,7 +2016,7 @@ def get_sector_momentum(days=7):
                             a.symbol,
                             a.status,
                             a.pnl_rs,
-                            a.entry_date::DATE as trade_date,
+                            a.alert_date::DATE as trade_date,
                             a.created_at::DATE as created_date
                         FROM alerts a
                         LEFT JOIN daily_watchlist dw ON a.symbol = dw."Stock"
