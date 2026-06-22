@@ -1001,9 +1001,25 @@ def api_indices():
     try:
         symbols = {"NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "SENSEX": "^BSESN"}
         data = {}
+        from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
         for name, sym in symbols.items():
-            ticker = yf.Ticker(sym)
-            info = ticker.info
+            try:
+                yf_acquire()
+                try:
+                    ticker = yf.Ticker(sym)
+                    info = ticker.info
+                finally:
+                    yf_release()
+            except CircuitOpenError as ce:
+                logger.error(f"YFinance circuit open; abort indices fetch: {ce}")
+                return jsonify(_indices_cache["data"] or {})
+            except Exception as e:
+                msg = str(e).lower()
+                if 'too many requests' in msg or 'rate limit' in msg:
+                    record_rate_limit()
+                logger.warning(f"Failed to fetch index {sym}: {e}")
+                info = {}
+
             price = info.get("regularMarketPrice") or info.get("previousClose")
             prev_close = info.get("regularMarketPreviousClose") or info.get("previousClose")
             pct_change = 0.0
@@ -1041,34 +1057,46 @@ def api_news(symbol):
         if cached and (time.time() - cached["timestamp"] < 900): # 15 min cache
             return jsonify(cached["data"])
             
-    try:
-        ticker = yf.Ticker(yf_symbol)
-        raw_news = ticker.news[:3]
-        news = []
-        for item in raw_news:
-            n = item.get("content", item)
-            news.append({
-                "title": n.get("title", ""),
-                "summary": n.get("summary", ""),
-                "link": n.get("link") or n.get("clickThroughUrl", {}).get("url", "") or n.get("canonicalUrl", {}).get("url", ""),
-                "provider": n.get("provider", {}).get("displayName", ""),
-                "date": n.get("pubDate", "") or n.get("providerPublishTime", "")
-            })
-            
-        with _news_lock:
-            _news_cache[yf_symbol] = {"data": news, "timestamp": time.time()}
         try:
-            mark_success('yfinance')
-        except Exception:
-            logger.exception('Failed to report yfinance success from dashboard news')
-        return jsonify(news)
-    except Exception as e:
-        logger.error(f"Failed to fetch news for {yf_symbol}: {e}")
-        try:
-            mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
-        except Exception:
-            logger.exception('Failed to report yfinance failure from dashboard news')
-        return jsonify([])
+            try:
+                yf_acquire()
+                try:
+                    ticker = yf.Ticker(yf_symbol)
+                    raw_news = ticker.news[:3]
+                finally:
+                    yf_release()
+            except CircuitOpenError as ce:
+                logger.error(f"YFinance circuit open; abort news fetch for {yf_symbol}: {ce}")
+                return jsonify([])
+            news = []
+            for item in raw_news:
+                n = item.get("content", item)
+                news.append({
+                    "title": n.get("title", ""),
+                    "summary": n.get("summary", ""),
+                    "link": n.get("link") or n.get("clickThroughUrl", {}).get("url", "") or n.get("canonicalUrl", {}).get("url", ""),
+                    "provider": n.get("provider", {}).get("displayName", ""),
+                    "date": n.get("pubDate", "") or n.get("providerPublishTime", "")
+                })
+
+            with _news_lock:
+                _news_cache[yf_symbol] = {"data": news, "timestamp": time.time()}
+            try:
+                mark_success('yfinance')
+            except Exception:
+                logger.exception('Failed to report yfinance success from dashboard news')
+            return jsonify(news)
+        except Exception as e:
+            msg = str(e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg:
+                from yf_rate_limiter import record_rate_limit
+                record_rate_limit()
+            logger.error(f"Failed to fetch news for {yf_symbol}: {e}")
+            try:
+                mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
+            except Exception:
+                logger.exception('Failed to report yfinance failure from dashboard news')
+            return jsonify([])
 
 import subprocess
 import json

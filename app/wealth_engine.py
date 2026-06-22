@@ -895,17 +895,31 @@ def run_wealth_scan():
                 if open_symbols:
                     logger.info(f"🔄 Fetching real-time prices for {len(open_symbols)} open positions...")
                     import time
+                    from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
                     for symbol in open_symbols:
                         retries = 2
                         current_price = None
                         for attempt in range(retries):
                             try:
-                                ticker = yf.Ticker(f"{symbol.replace('_', '-')}.NS")
-                                info = ticker.info
+                                yf_sym = f"{symbol.replace('_', '-')}.NS"
+                                try:
+                                    yf_acquire()
+                                    try:
+                                        ticker = yf.Ticker(yf_sym)
+                                        info = ticker.info
+                                    finally:
+                                        yf_release()
+                                except CircuitOpenError as ce:
+                                    logger.error(f"YFinance circuit open; abort realtime fetch for {yf_sym}: {ce}")
+                                    break
+
                                 current_price = info.get("currentPrice") or info.get("regularMarketPrice")
                                 if current_price:
                                     break
                             except Exception as e:
+                                msg = str(e).lower()
+                                if 'too many requests' in msg or 'rate limit' in msg:
+                                    record_rate_limit()
                                 if attempt < retries - 1:
                                     time.sleep(2 ** attempt)  # Exponential backoff
                                 else:

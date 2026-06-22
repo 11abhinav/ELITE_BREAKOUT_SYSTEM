@@ -1,0 +1,109 @@
+"""
+Global Yahoo Finance client-side rate limiter, backoff scheduler and circuit breaker.
+
+Provides a small, dependency-free coordinator to protect the app from
+YFinance 429 rate limits by:
+  - limiting concurrent calls (semaphore)
+  - enforcing a minimal interval between calls
+  - tracking recent 429 events and tripping a circuit breaker when threshold exceeded
+  - exposing helper backoff timings for retries (5s,15s,35s,75s) with jitter
+
+This module is intentionally simple and safe-by-default.
+"""
+from __future__ import annotations
+import threading
+import time
+import os
+import random
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# Concurrency & throttling tuning via env
+_MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
+_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "0.15"))  # minimal spacing between calls
+_RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
+_RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "5"))      # trip circuit if >= in window
+_COOLDOWN_S = int(os.getenv("YF_COOLDOWN_S", str(15 * 60)))      # seconds to pause when tripped
+
+_semaphore = threading.BoundedSemaphore(_MAX_CONCURRENCY)
+_last_call_ts = 0.0
+_lock = threading.Lock()
+
+# Rate-limit tracking
+_rate_count = 0
+_rate_window_start = 0.0
+# Circuit tripped until timestamp (0 = not tripped)
+_circuit_tripped_until = 0.0
+
+
+class CircuitOpenError(RuntimeError):
+    pass
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def acquire(timeout: Optional[float] = None) -> bool:
+    """Acquire permission to call Yahoo. Raises CircuitOpenError if circuit is tripped."""
+    global _last_call_ts
+    now = _now()
+    with _lock:
+        if _circuit_tripped_until and now < _circuit_tripped_until:
+            raise CircuitOpenError(f"Yahoo circuit open until {_circuit_tripped_until - now:.0f}s")
+        # Enforce minimal interval
+        since = now - _last_call_ts
+        if since < _MIN_INTERVAL_S:
+            sleep_for = _MIN_INTERVAL_S - since
+            time.sleep(sleep_for)
+        # Acquire semaphore (may block)
+    ok = _semaphore.acquire(timeout=timeout)
+    if ok:
+        with _lock:
+            _last_call_ts = _now()
+    return ok
+
+
+def release() -> None:
+    try:
+        _semaphore.release()
+    except Exception:
+        pass
+
+
+def record_rate_limit() -> None:
+    """Record a 429 event. If events exceed threshold within window, trip the circuit."""
+    global _rate_count, _rate_window_start, _circuit_tripped_until
+    now = _now()
+    with _lock:
+        if now - _rate_window_start > _RATE_WINDOW_S:
+            _rate_window_start = now
+            _rate_count = 0
+        _rate_count += 1
+        logger.warning(f"YF rate-limit event recorded ({_rate_count}/{_RATE_THRESHOLD}) in window")
+        if _rate_count >= _RATE_THRESHOLD:
+            _circuit_tripped_until = now + _COOLDOWN_S
+            logger.error(f"YF circuit tripped for {_COOLDOWN_S}s due to {_rate_count} rate-limit events")
+
+
+def is_circuit_open() -> bool:
+    return _now() < _circuit_tripped_until
+
+
+def get_backoff_delay(attempt: int) -> float:
+    """Return backoff delay for attempt index (0-based) using recommended schedule + jitter.
+
+    Schedule: 5s, 15s, 35s, 75s (then give up)
+    """
+    schedule = [5.0, 15.0, 35.0, 75.0]
+    if attempt < 0:
+        attempt = 0
+    if attempt >= len(schedule):
+        return schedule[-1]
+    base = schedule[attempt]
+    # jitter +/-20%
+    jitter = base * 0.2
+    return max(0.0, base + random.uniform(-jitter, jitter))
+

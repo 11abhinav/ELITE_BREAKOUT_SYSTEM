@@ -967,6 +967,49 @@ def save_alert_if_new(
     """
     context_str = json.dumps(context) if context is not None else None
     weights_str = json.dumps(bayesian_weights) if bayesian_weights is not None else None
+
+    # Safety: Never persist a BUY-style alert if the input/context indicates stale or fallback data.
+    # Many scanners pass `used_fallback_data`, `data_quality` or `alert_details` in `context` or **kwargs.
+    # If any of these flags indicate cached/stale data, suppress the insert and return as not-inserted.
+    try:
+        def _is_stale_buy() -> bool:
+            # Normalize context to dict if possible
+            ctx = context if isinstance(context, dict) else {}
+            # If context was passed as JSON string in some callers, try to decode it
+            if isinstance(context, str):
+                try:
+                    ctx = json.loads(context)
+                except Exception:
+                    ctx = {}
+
+            # Check common stale indicators
+            stale_indicators = ("CACHED_PREV_DAY", "CACHED_MULTI_DAY", "MISSING_PARTIAL")
+            if isinstance(ctx, dict):
+                if bool(ctx.get("used_fallback_data")):
+                    return True
+                if str(ctx.get("data_quality", "")).upper() in stale_indicators:
+                    return True
+
+            # Inspect kwargs for similar indicators (some callers pass them there)
+            if bool(kwargs.get("used_fallback_data", False)):
+                return True
+            if str(kwargs.get("data_quality", "")).upper() in stale_indicators:
+                return True
+
+            # Some scanners attach a richer alert_details / alert_context containing timestamps or flags
+            alert_details = kwargs.get("alert_details") or kwargs.get("alert_context") or kwargs.get("context")
+            if isinstance(alert_details, dict) and bool(alert_details.get("used_fallback_data", False)):
+                return True
+
+            # Conservative default: not stale
+            return False
+
+        if _is_stale_buy():
+            logger.warning(f"🛡️ save_alert_if_new: Suppressing persistence for {symbol} due to stale/fallback data in context")
+            return False, 0.0, 0
+    except Exception:
+        # If the check fails for any reason, prefer to continue and allow the insert (fail-open)
+        logger.exception("⚠️ save_alert_if_new: stale-data guard check failed unexpectedly — allowing insert")
     
     # Calculate portfolio allocation dynamically if not provided
     from portfolio_engine import calculate_trade_allocation
@@ -2708,6 +2751,32 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
     now_ist = datetime.now(ZoneInfo('Asia/Kolkata'))
     ist_today = now_ist.strftime('%Y-%m-%d')
     ist_time = now_ist.strftime('%H:%M:%S')
+
+    # Safety: Do not persist wealth BUY alerts when the input data is stale.
+    # Callers pass `data_quality` and/or `fallback_timestamp` when using cached data.
+    try:
+        stale_indicators = ("CACHED_PREV_DAY", "CACHED_MULTI_DAY", "MISSING_PARTIAL")
+        if data_quality and str(data_quality).upper() in stale_indicators:
+            logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} due to data_quality={data_quality}")
+            return False
+
+        if fallback_timestamp:
+            try:
+                from datetime import datetime as _dt
+                # Accept either ISO strings or naive timestamps
+                if isinstance(fallback_timestamp, str):
+                    ts = _dt.fromisoformat(fallback_timestamp)
+                else:
+                    ts = _dt(fallback_timestamp)
+                if ts.date() != now_ist.date():
+                    logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not today")
+                    return False
+            except Exception:
+                # If parsing fails, be conservative and suppress
+                logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol}; suppressing buy")
+                return False
+    except Exception:
+        logger.exception("⚠️ save_wealth_buy_alert: stale-data guard check failed unexpectedly — allowing insert")
     
     with _DB_WRITE_LOCK:
         try:

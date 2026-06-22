@@ -13,6 +13,7 @@ except Exception:
 import yfinance as yf
 from datetime import datetime, date
 import concurrent.futures
+from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +75,25 @@ def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
 
 def fetch_single_piotroski(symbol: str) -> dict:
     try:
-        t = yf.Ticker(f"{symbol.replace('_', '-')}.NS")
-        info = t.info
-        
-        # Combine financials and balance sheet to have all required rows
-        fin = t.financials
-        bs = t.balance_sheet
+        yf_sym = f"{symbol.replace('_', '-')}.NS"
+        try:
+            yf_acquire()
+            try:
+                t = yf.Ticker(yf_sym)
+                info = t.info
+                # Combine financials and balance sheet to have all required rows
+                fin = t.financials
+                bs = t.balance_sheet
+            finally:
+                yf_release()
+        except CircuitOpenError as ce:
+            logger.error(f"YFinance circuit open; abort fundamentals fetch for {yf_sym}: {ce}")
+            return {"score": -1, "date": str(date.today())}
+        except Exception as e:
+            msg = str(e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg:
+                record_rate_limit()
+            return {"score": -1, "date": str(date.today())}
         if fin.empty and bs.empty:
             return {"score": -1, "date": str(date.today())}
             

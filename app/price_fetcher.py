@@ -28,9 +28,10 @@ except Exception as _e:
     logger.debug(f"Unable to set yfinance tz cache location: {_e}")
 
 # Limit concurrent yfinance network calls to avoid provider rate limits
+# Lower-level coordination is delegated to yf_rate_limiter to centralize circuit/counters
 _YF_SEMAPHORE = threading.BoundedSemaphore(int(os.getenv('YF_CONCURRENCY', '6')))
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, get_backoff_delay, CircuitOpenError
 
 from database import get_cache_metadata, upsert_cache_metadata, upsert_data_fetch_health, get_all_data_fetch_health
 from data_registry import DATASETS
@@ -43,37 +44,72 @@ _price_cache_lock = threading.Lock()
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "price_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Retry wrapper for network calls
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(Exception),
-    reraise=True
-)
+# Fetch history with explicit retry/backoff
 def _fetch_history_with_retry(yf_symbol: str, period: str = "1y", auto_adjust: bool = True) -> pd.DataFrame:
-    ticker = yf.Ticker(yf_symbol)
-    hist = ticker.history(period=period, auto_adjust=auto_adjust)
-    if hist is None or hist.empty:
-        raise ValueError(f"Empty history returned for {yf_symbol}")
-        
-    # Validate with nsepython if auto_adjust is True
-    if auto_adjust:
+    """Fetch history with explicit retry/backoff and global limiter awareness.
+
+    Uses the yf_rate_limiter backoff schedule on 429s and a simpler exponential
+    fallback for other transient errors.
+    """
+    attempts = 4
+    for attempt in range(attempts):
         try:
-            from nsepython import nse_eq
-            symbol_raw = yf_symbol.replace(".NS", "")
-            nse_data = nse_eq(symbol_raw)
-            if 'priceInfo' in nse_data and 'lastPrice' in nse_data['priceInfo']:
-                nse_ltp = float(nse_data['priceInfo']['lastPrice'])
-                yf_ltp = float(hist['Close'].iloc[-1])
-                
-                # If discrepancy > 2%, yfinance applied a bad corporate action adjustment
-                if nse_ltp > 0 and abs(yf_ltp - nse_ltp) / nse_ltp > 0.02:
-                    logger.warning(f"⚠️ {yf_symbol}: yfinance adjusted data is stale/corrupt. Discrepancy > 2%. Falling back to unadjusted.")
-                    return ticker.history(period=period, auto_adjust=False)
+            # Respect circuit and rate limiter
+            yf_acquire()
+            try:
+                ticker = yf.Ticker(yf_symbol)
+                hist = ticker.history(period=period, auto_adjust=auto_adjust)
+            finally:
+                yf_release()
+
+            if hist is None or hist.empty:
+                raise ValueError(f"Empty history returned for {yf_symbol}")
+
+            # Validate with nsepython if auto_adjust is True
+            if auto_adjust:
+                try:
+                    from nsepython import nse_eq
+                    symbol_raw = yf_symbol.replace(".NS", "")
+                    nse_data = nse_eq(symbol_raw)
+                    if 'priceInfo' in nse_data and 'lastPrice' in nse_data['priceInfo']:
+                        nse_ltp = float(nse_data['priceInfo']['lastPrice'])
+                        yf_ltp = float(hist['Close'].iloc[-1])
+                        # If discrepancy > 2%, yfinance applied a bad corporate action adjustment
+                        if nse_ltp > 0 and abs(yf_ltp - nse_ltp) / nse_ltp > 0.02:
+                            logger.warning(f"⚠️ {yf_symbol}: yfinance adjusted data is stale/corrupt. Discrepancy > 2%. Falling back to unadjusted.")
+                            # Fetch unadjusted copy (also rate-limited)
+                            yf_acquire()
+                            try:
+                                return yf.Ticker(yf_symbol).history(period=period, auto_adjust=False)
+                            finally:
+                                yf_release()
+                except Exception as e:
+                    logger.debug(f"NSE Validation failed for {yf_symbol}: {e}")
+
+            return hist
+
+        except CircuitOpenError as ce:
+            logger.error(f"YF circuit open; abort fetch for {yf_symbol}: {ce}")
+            return pd.DataFrame()
         except Exception as e:
-            logger.debug(f"NSE Validation failed for {yf_symbol}: {e}")
-            
-    return hist
+            msg = str(e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg:
+                # Record and backoff according to recommended schedule
+                record_rate_limit()
+                delay = get_backoff_delay(attempt)
+                logger.warning(f"YFRateLimitError for {yf_symbol} (attempt {attempt+1}/{attempts}). Backing off {delay:.1f}s")
+                time.sleep(delay)
+                continue
+            else:
+                # non-429 transient errors: progressive exponential backoff
+                wait = (2 ** attempt) * 0.5
+                logger.warning(f"Transient error fetching {yf_symbol} (attempt {attempt+1}/{attempts}): {e}. Waiting {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+    # Exhausted attempts
+    logger.error(f"Exhausted attempts fetching historical data for {yf_symbol}")
+    return pd.DataFrame()
 
 
 def _cache_file_path(key: str) -> str:
