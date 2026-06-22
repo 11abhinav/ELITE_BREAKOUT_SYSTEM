@@ -1674,6 +1674,9 @@ async function allocateSelectedTrades() {
                         trade.shares_bought = resTrade.shares_bought;
                         trade.stop_loss = resTrade.stop_loss;
                         trade.target_price = resTrade.target_price;
+                        if (trade.status === 'REJECTED') {
+                            trade.status = 'OPEN';
+                        }
                     }
                 });
             }
@@ -1780,6 +1783,9 @@ async function reallocateCapital(id) {
                 trade.shares_bought = data.shares_bought;
                 trade.stop_loss = data.stop_loss;
                 trade.target_price = data.target_price;
+                if (trade.status === 'REJECTED') {
+                    trade.status = 'OPEN';
+                }
             }
             renderTradeTable();
             loadCapitalInfo();

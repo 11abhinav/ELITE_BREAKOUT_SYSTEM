@@ -3540,9 +3540,9 @@ def reallocate_capital(alert_id: int):
             from portfolio_engine import calculate_trade_allocation
             new_cap, new_shares = calculate_trade_allocation(entry_price, stop_loss, score or 80)
             
-            # Update the alert with the newly calculated amounts, plus the patched SL/Target
+            # Update the alert with the newly calculated amounts, plus the patched SL/Target, and ensure it's not marked rejected
             cur.execute(
-                "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s WHERE id = %s",
+                "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
                 (new_cap, new_shares, stop_loss, target_price, alert_id)
             )
             
@@ -3638,7 +3638,7 @@ def reallocate_capital_multiple(alert_ids: list):
                 new_cap = float(shares_to_buy * entry_price)
                 
                 cur.execute(
-                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s WHERE id = %s",
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
                     (new_cap, shares_to_buy, stop_loss, target_price, a_id)
                 )
                 
