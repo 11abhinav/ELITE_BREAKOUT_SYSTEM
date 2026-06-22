@@ -603,22 +603,23 @@ function playDing() {
       <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
     </div>
     <div class="card" style="margin-bottom:28px; padding:16px;">
+      <div style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-hourly" checked onchange="renderSignalLadder()"> Hourly Passed (1H)</label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-setup" checked onchange="renderSignalLadder()"> Setup Armed (30m)</label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-entry" checked onchange="renderSignalLadder()"> Entry Ready (15m)</label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-triggered" checked onchange="renderSignalLadder()"> Triggered (5m)</label>
+      </div>
       <div style="max-height: 250px; overflow-y: auto;">
         <table class="data-table" id="signal-ladder-table" style="width:100%; text-align:left; font-size:12px;">
           <thead>
             <tr>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Category</th>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">1H (Trend)</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">30m (Setup)</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">15m (Confirm)</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">5m (Entry)</th>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Updated</th>
             </tr>
           </thead>
           <tbody id="signal-ladder-body">
-            <tr><td colspan="8" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
+            <tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1087,6 +1088,8 @@ function renderKPIs(s) {
   window._kpiDefs = defs;
 }
 
+window.signalLadderData = [];
+
 async function fetchSignalLadder() {
   try {
     const res = await fetch('/api/breakout_watchlist');
@@ -1094,71 +1097,64 @@ async function fetchSignalLadder() {
     const json = await res.json();
     if(json.status !== "success") return;
     
-    const tbody = document.getElementById('signal-ladder-body');
-    tbody.innerHTML = '';
-    
-    if(!json.data || json.data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--muted); padding:12px;">No active setups tracking right now.</td></tr>';
-      return;
-    }
-    
-    json.data.forEach(item => {
-      const row = document.createElement('tr');
-      
-      let stateColor = 'var(--text)';
-      if(item.current_state === 'HOURLY_APPROVED') stateColor = 'var(--blue)';
-      else if(item.current_state === 'SETUP_ARMED') stateColor = 'var(--amber)';
-      else if(item.current_state === 'BREAKOUT_CONFIRMED') stateColor = 'var(--green)';
-      else if(item.current_state === 'ENTRY_READY') stateColor = 'var(--accent)';
-      else if(item.current_state === 'FAILED') stateColor = 'var(--red)';
-      
-      row.innerHTML = `
-        <td style="font-weight:bold; padding:8px 0; border-bottom:1px solid var(--border);">${item.symbol}</td>
-        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.category || '-'}</td>
-        <td style="font-weight:bold; color: ${stateColor}; padding:8px 0; border-bottom:1px solid var(--border);">${item.current_state}</td>
-        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.h1_status}</td>
-        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m30_status}</td>
-        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m15_status}</td>
-        <td style="font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${item.m5_status}</td>
-        <td style="font-size:11px; color: var(--muted); padding:8px 0; border-bottom:1px solid var(--border);">${new Date(item.last_updated).toLocaleTimeString()}</td>
-      `;
-      tbody.appendChild(row);
-    });
-  } catch (err) {
-    console.error("Failed to load signal ladder", err);
+    window.signalLadderData = json.data || [];
+    renderSignalLadder();
+  } catch(e) {
+    console.error("Error fetching signal ladder:", e);
   }
 }
 
-function drillKpi(id, el) {
-  const panel = document.getElementById('drill-panel');
-  if (activeKpi === id) { closeDrill(); return; }
-  document.querySelectorAll('.kpi').forEach(k => k.classList.remove('active'));
-  el.classList.add('active');
-  activeKpi = id;
-  const def = window._kpiDefs.find(d => d.id === id);
-  const trades = ALL_TRADES.filter(def.filter);
-  document.getElementById('drill-title').textContent = `${def.label} — ${trades.length} trade${trades.length!==1?'s':''}`;
-  document.getElementById('drill-body').innerHTML = renderMiniTable(trades);
-  panel.classList.add('open');
-  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
-}
-
-function closeDrill() {
-  document.getElementById('drill-panel').classList.remove('open');
-  document.querySelectorAll('.kpi').forEach(k => k.classList.remove('active'));
-  activeKpi = null;
+function renderSignalLadder() {
+  const tbody = document.getElementById('signal-ladder-body');
+  if(!tbody) return;
+  tbody.innerHTML = '';
   
-  if (window.activeScannerDrill) {
-    const sc = window.activeScannerDrill;
-    const stats = window._scannerStats || {};
-    const data = stats[sc];
-    if (data && data.is_acknowledged === false) {
-      const isApi = sc.startsWith('API_');
-      const endpoint = isApi ? `/api/data_fetch_health/acknowledge/${data.raw_source}` : `/api/scanner_health/acknowledge/${sc}`;
-      fetch(endpoint, {method: 'POST'}).then(() => window.location.reload());
-    }
-    window.activeScannerDrill = null;
+  if(!window.signalLadderData || window.signalLadderData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">No active setups tracking right now.</td></tr>';
+    return;
   }
+  
+  const showHourly = document.getElementById('filter-hourly')?.checked;
+  const showSetup = document.getElementById('filter-setup')?.checked;
+  const showEntry = document.getElementById('filter-entry')?.checked;
+  const showTriggered = document.getElementById('filter-triggered')?.checked;
+
+  let filtered = window.signalLadderData.filter(item => {
+    if (item.current_state === 'HOURLY_APPROVED') return showHourly;
+    if (item.current_state === 'SETUP_ARMED') return showSetup;
+    if (item.current_state === 'ENTRY_READY') return showEntry;
+    if (item.current_state === 'BREAKOUT_CONFIRMED' || item.current_state === 'TRIGGERED') return showTriggered;
+    return true; // FAILED or others
+  });
+
+  if(filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">No setups match selected filters.</td></tr>';
+    return;
+  }
+  
+  filtered.forEach(item => {
+    const row = document.createElement('tr');
+    
+    let stateColor = 'var(--text)';
+    if(item.current_state === 'HOURLY_APPROVED') stateColor = 'var(--blue)';
+    else if(item.current_state === 'SETUP_ARMED') stateColor = 'var(--amber)';
+    else if(item.current_state === 'BREAKOUT_CONFIRMED' || item.current_state === 'TRIGGERED') stateColor = 'var(--green)';
+    else if(item.current_state === 'ENTRY_READY') stateColor = 'var(--accent)';
+    else if(item.current_state === 'FAILED') stateColor = 'var(--red)';
+    
+    let timeStr = '-';
+    if(item.last_updated) {
+       let dt = new Date(item.last_updated);
+       timeStr = dt.toLocaleTimeString('en-IN');
+    }
+
+    row.innerHTML = `
+      <td style="font-weight:bold; padding:8px 0; border-bottom:1px solid var(--border);">${item.symbol}</td>
+      <td style="font-weight:bold; color: ${stateColor}; padding:8px 0; border-bottom:1px solid var(--border);">${item.current_state}</td>
+      <td style="font-family:var(--font-mono); font-size:10px; padding:8px 0; border-bottom:1px solid var(--border);">${timeStr}</td>
+    `;
+    tbody.appendChild(row);
+  });
 }
 
 // ── SCANNER STATUS
@@ -1174,7 +1170,6 @@ const SCANNER_META = {
   'BayesianUpdater': {label:'Bayesian Updater', desc:'Machine Learning Feedback Loop'},
 };
 
-// Fetch API errors for a specific scanner
 async function fetchScannerErrors(scannerName) {
   try {
     const response = await fetch(`/api/fetch_errors/by_scanner?name=${encodeURIComponent(scannerName)}`);
