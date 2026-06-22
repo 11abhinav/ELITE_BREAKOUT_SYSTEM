@@ -799,6 +799,25 @@ def api_reject_alert():
         logger.exception('❌ /api/alert/reject failed')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/alert/reject_multiple', methods=['POST'])
+def api_reject_multiple_alerts():
+    try:
+        data = request.json or {}
+        alert_ids = data.get('ids', [])
+        if not alert_ids:
+            return jsonify({'success': True})
+        
+        from database import reject_multiple_alerts
+        ok = reject_multiple_alerts(alert_ids)
+        if ok:
+            import threading
+            from performance_tracker import build_performance_data
+            threading.Thread(target=build_performance_data, daemon=True).start()
+        return jsonify({'success': bool(ok)})
+    except Exception as e:
+        logger.exception('❌ /api/alert/reject_multiple failed')
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/alert/accept', methods=['POST'])
 def api_accept_alert():
     try:

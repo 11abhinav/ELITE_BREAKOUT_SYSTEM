@@ -3434,6 +3434,32 @@ def reject_alert(alert_id: int):
         conn.commit()
     return True
 
+def reject_multiple_alerts(alert_ids: list):
+    """Marks multiple alerts as rejected and refunds their allocated capital."""
+    if not alert_ids:
+        return True
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            for alert_id in alert_ids:
+                cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+                row = cur.fetchone()
+                if not row:
+                    continue
+                is_rejected, capital_allocated = row
+                if is_rejected:
+                    continue
+                    
+                cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+                
+                cap = float(capital_allocated) if capital_allocated else 0.0
+                if cap > 0:
+                    cur.execute(
+                        "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                        ('trade_refund', cap, f"Refund for rejected alert #{alert_id}")
+                    )
+        conn.commit()
+    return True
+
 def accept_alert(alert_id: int):
     """Marks an alert as accepted (not rejected) and deducts its allocated capital."""
     with get_connection() as conn:
