@@ -2220,8 +2220,12 @@ function updateSim() {
           deployedCapital += t.entry_price * t.shares_bought;
       }
   });
-  let totalEquity = cap + realBookedPnl + realOpenPnl;
-  let availableCash = Math.max(0, totalEquity - deployedCapital);
+  let totalEquity = cap + realBookedPnl + realOpenPnl; // Total Net Worth including floating PnL
+  
+  // Available Cash should strictly be (Base + Realized Booked PnL) - Deployed Capital
+  // It should NOT include realOpenPnl because you haven't sold those stocks yet!
+  let realizedEquity = cap + realBookedPnl;
+  let availableCash = Math.max(0, realizedEquity - deployedCapital);
   
   const acEl = document.getElementById('availableCash');
   if(acEl) {
