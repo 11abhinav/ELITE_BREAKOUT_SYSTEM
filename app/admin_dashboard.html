@@ -1826,6 +1826,7 @@ function renderTradeTable() {
   let filtered = ALL_TRADES.filter(t => {
     if (sc && t.scanner !== sc) return false;
     if (st && t.status !== st) return false;
+    if (!st && t.status === 'REJECTED') return false; // Hide rejected trades by default
     if (cat && t.category !== cat) return false;
     if (sym && !t.symbol.includes(sym)) return false;
     if (dateFilt !== 'ALL') {
