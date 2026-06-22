@@ -23,10 +23,10 @@ class HoldScoreTrendAnalyzer:
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute('''
-                        SELECT recorded_at, hold_score, rs_6m 
+                        SELECT evaluation_date as recorded_at, hold_score, rs_6m 
                         FROM wealth_score_history 
                         WHERE symbol = %s 
-                        ORDER BY recorded_at DESC LIMIT 10
+                        ORDER BY evaluation_date DESC LIMIT 10
                     ''', (symbol,))
                     history = cur.fetchall()
                     
