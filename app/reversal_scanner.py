@@ -720,7 +720,7 @@ def _run_scan():
 
     # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
     from database import upsert_scanner_health, verify_alerts_saved_today
-    if total_alerts > 0:
+    if total_alerts > 0 and not is_test_mode:
         if not verify_alerts_saved_today("REVERSAL", total_alerts):
             logger.critical(f"🚨 CRITICAL ERROR: Reversal generated {total_alerts} alerts but save failed!")
             upsert_scanner_health(
