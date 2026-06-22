@@ -25,7 +25,11 @@ if APP_DIR not in sys.path:
 
 IST = ZoneInfo("Asia/Kolkata")
 
-def ist_converter(timestamp):
+def ist_converter(*args):
+    timestamp = args[-1] if args else None
+    if timestamp is None:
+        import time
+        timestamp = time.time()
     return datetime.fromtimestamp(timestamp, IST).timetuple()
 
 logging.Formatter.converter = ist_converter
