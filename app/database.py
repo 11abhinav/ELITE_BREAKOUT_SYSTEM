@@ -157,6 +157,19 @@ _DB_INITIALIZED = False
 _INIT_LOCK = threading.Lock()
 
 
+
+def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    INSERT INTO global_notifications (type, title, message, symbol)
+                    VALUES (%s, %s, %s, %s)
+                ''', (notif_type, title, message, symbol))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to insert notification: {e}")
+
 def init_db():
     global _DB_INITIALIZED
 
@@ -495,7 +508,20 @@ def init_db():
 
                 # ── System checkpoints table (persistent audit trail) ─────────────────────────
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS system_checkpoints (
+                    
+                # Unified Notification Center
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS global_notifications (
+                        id SERIAL PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        symbol TEXT,
+                        is_seen BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                ''')
+                CREATE TABLE IF NOT EXISTS system_checkpoints (
                         id SERIAL PRIMARY KEY,
                         checkpoint_name TEXT UNIQUE NOT NULL,
                         created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
@@ -942,7 +968,10 @@ def save_alert_if_new(
                           model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
                     conn.commit()
                     success = True
-                    return cur.rowcount > 0, capital_allocated, shares_bought
+                    inserted = cur.rowcount > 0
+                    if inserted:
+                        insert_notification('buy', 'New Breakout Alert', f'{breakout_type} Breakout detected for {symbol} at ₹{entry_price}', symbol)
+                    return inserted, capital_allocated, shares_bought
             except Exception:
                 logger.exception(f"❌ save_alert_if_new failed for {symbol}")
                 return False, 0.0, 0
@@ -2649,14 +2678,16 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                               position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
                               momentum_score, momentum_confidence, data_quality, fallback_timestamp))
                         
-                        
                         if cur.rowcount == 0:
                             logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")
                             return False  # Duplicate, skip
+
                         elif cur.rowcount == 1 and cur.statusmessage == 'INSERT 0 1':
                             pass # Normal insert
                         else:
-                            pass # Updated existing
+                            pass # Was an update
+                            
+                        insert_notification('buy', 'New Wealth Buy Alert', f'Wealth alert triggered for {symbol} at ₹{alert_price} ({breakout_type})', symbol)
                             
                         conn.commit()
                         success = True
@@ -2818,18 +2849,18 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None) -> b
                                 status = 'CLOSED'
                             WHERE id = %s
                         """, (exit_price, exit_date, exit_time, exit_signal, pnl_rs, pnl_pct, position_id))
-                        conn.commit()
-                        success = True
-                finally:
-                    if not success:
-                        conn.rollback()
-            
-            logger.info(f"✅ Position closed: {symbol} P&L: ₹{pnl_rs:.2f} ({pnl_pct:.2f}%)")
-            return True
+                        
+                    conn.commit()
+                    success = True
+                    logger.info(f"💰 POSITION CLOSED: {symbol} at {exit_price} (P&L: {pnl_pct:.2f}%)")
+                    insert_notification('sell', 'Position Closed', f'{symbol} closed at ₹{exit_price} ({exit_signal}). P&L: {pnl_pct:.2f}%', symbol)
+                except Exception as inner_e:
+                    logger.error(f"Failed to execute position close query: {inner_e}")
+                    conn.rollback()
+                return success
         except Exception as e:
             logger.error(f"❌ Failed to close position: {e}")
             return False
-
 
 def get_open_symbols() -> list:
     """Get list of symbols with open positions."""
