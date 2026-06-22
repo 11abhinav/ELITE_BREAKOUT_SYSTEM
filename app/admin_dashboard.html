@@ -1942,9 +1942,14 @@ document.addEventListener('click', e => {
 
 function populateFilters(trades) {
   const scanners = [...new Set(trades.map(t=>t.scanner))].sort();
-  const cats     = [...new Set(trades.map(t=>t.category))].sort();
+  const cats     = [...new Set(trades.map(t=>t.category).filter(Boolean))].sort();
   const sEl = document.getElementById('filterScanner');
   const cEl = document.getElementById('filterCategory');
+  
+  // Keep the first default option, remove the rest
+  while(sEl.options.length > 1) sEl.remove(1);
+  while(cEl.options.length > 1) cEl.remove(1);
+  
   scanners.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sEl.appendChild(o); });
   cats.forEach(c     => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
 }
@@ -2224,7 +2229,8 @@ function renderEquityCurve() {
     return da.localeCompare(db);
   });
   
-      let cap = parseFloat(document.getElementById('simCapital').value) || 500000;
+      const simCapitalEl = document.getElementById('simCapital');
+      let cap = (simCapitalEl && parseFloat(simCapitalEl.value)) || 500000;
   let equity = cap;
   let peakEquity = cap;
   
