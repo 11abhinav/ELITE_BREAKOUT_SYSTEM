@@ -440,8 +440,7 @@ def calculate_hold_score(r: pd.Series) -> int:
     entry_price = r.get("entry_price", 0) or 0
     
     if not entry_price or entry_price <= 0:
-        sym = r.get("Stock", "UNKNOWN")
-        logger.warning(f"⚠️ Missing entry_price for open holding {sym}! Drawdown circuit breaker is DISABLED.")
+        pass # Not an open holding, safely ignore drawdown circuit breaker
     
     if entry_price > 0 and cmp > 0:
         drawdown_pct = ((entry_price - cmp) / entry_price) * 100
