@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # Default RISK_PERCENT is conservative (1% of equity at risk per trade).
 BASE_CAPITAL = 500000.0
 RISK_PERCENT = 0.01  # 1% of total equity risked per trade
-MAX_POSITION_PCT = 0.15  # hard cap on capital allocated to a single trade (15% of equity)
+MAX_POSITION_PCT = 0.03  # hard cap on capital allocated to a single trade (3% of equity)
 
 def get_portfolio_state() -> dict:
     """
