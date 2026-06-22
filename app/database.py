@@ -3664,6 +3664,7 @@ def reallocate_capital_multiple(alert_ids: list):
                     "target_price": target_price
                 })
             conn.commit()
+            return results
 
 
 
