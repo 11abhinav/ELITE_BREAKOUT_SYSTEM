@@ -1095,13 +1095,19 @@ def get_all_alerts() -> list[dict]:
                     id, symbol, breakout_type, alert_time, alert_date,
                     scanner, category, entry_price, stop_loss, target_price,
                     signals, score, rsi, volume_ratio,
-                    status, exit_price, pnl_pct, closed_at,
+                    status, exit_price, pnl_pct, closed_at, is_rejected,
                     capital_allocated, shares_bought, pnl_rs, context,
                     model_version, data_partition
                 FROM alerts
                 ORDER BY alert_time DESC
             """)
-            return [dict(row) for row in cur.fetchall()]
+            rows = []
+            for row in cur.fetchall():
+                d = dict(row)
+                if d.get("is_rejected"):
+                    d["status"] = "REJECTED"
+                rows.append(d)
+            return rows
 
 
 # ── Scanner Health API ────────────────────────────────────────────────────────────────
@@ -3343,7 +3349,7 @@ def reject_alert(alert_id: int):
             if is_rejected:
                 return True
                 
-            cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
             
             cap = float(capital_allocated) if capital_allocated else 0.0
             if cap > 0:
@@ -3366,7 +3372,7 @@ def accept_alert(alert_id: int):
             if not is_rejected:
                 return True
                 
-            cur.execute("UPDATE alerts SET is_rejected = FALSE, status = 'OPEN' WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = FALSE WHERE id = %s", (alert_id,))
             
             cap = float(capital_allocated) if capital_allocated else 0.0
             if cap > 0:
