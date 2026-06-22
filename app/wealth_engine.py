@@ -103,6 +103,8 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
             if hist is None or hist.empty or len(hist) < 120:
                 return defaults
 
+            is_stale = getattr(hist, 'attrs', {}).get('is_stale', False)
+
             hist['sma_200'] = hist['Close'].rolling(window=200).mean()
             hist['sma_50']  = hist['Close'].rolling(window=50).mean()
             hist['ema_20']  = hist['Close'].ewm(span=20, adjust=False).mean()
@@ -161,7 +163,8 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
                 "ATR_Pct": atr_pct,
                 "momentum_score": mom_score,
                 "momentum_confidence": mom_conf,
-                "data_quality": DataQuality.LIVE.value
+                "data_quality": DataQuality.LIVE.value,
+                "is_stale": is_stale
             }
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")
@@ -611,6 +614,11 @@ def run_wealth_scan():
                     tech["data_quality"] = DataQuality.CACHED_PREV_DAY.value
                     tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now(IST).isoformat())
                     
+                    rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
+                elif tech.get("is_stale"):
+                    tech["used_fallback_data"] = True
+                    tech["data_quality"] = "STALE_INTRADAY"
+                    tech["fallback_timestamp"] = datetime.now(IST).isoformat()
                     rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                     try:
                         from database import upsert_fetch_error

@@ -118,32 +118,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
             except Exception:
                 pass
         else:
-            logger.error(f"❌ Batch failed completely. Engaging single-ticker fallback for {len(batch)} symbols...")
+            logger.error(f"❌ Batch failed or returned empty for {len(batch)} symbols.")
             try:
                 mark_failure(f"yfinance:{interval}", f"Batch failed for symbols {batch}.")
             except Exception:
                 pass
-            for sym in batch:
-                single_df = fetcher.get_ohlcv(sym, interval=interval, period=period, retries=3)
-                if single_df is not None:
-                    all_data[sym] = single_df
-                else:
-                    # Attempt to use stale cache for this symbol from the global run cache
-                    with _lock:
-                        fallback_entry = _cache.get((interval, period))
-                        if fallback_entry:
-                            stale_df = fallback_entry.get("data", {}).get(sym)
-                            if stale_df is not None:
-                                logger.warning(f"Using stale cache for {sym} [{interval}] after single-ticker fetch failed.")
-                                all_data[sym] = stale_df
-                                try:
-                                    mark_failure('yfinance', f"Stale served for {sym} after single fetch failed")
-                                except Exception:
-                                    pass
-                                continue
-                    # No stale data available — log and continue
-                    logger.debug(f"No stale cache available for {sym}; single fetch failed.")
-                time.sleep(0.5)
+            time.sleep(0.5)
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 

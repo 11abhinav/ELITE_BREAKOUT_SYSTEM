@@ -7,7 +7,13 @@ import logging
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, get_backoff_delay, CircuitOpenError
 
+from app.price_provider import PriceProvider
+from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
+
 logger = logging.getLogger(__name__)
+
+# Module-level shared provider to ensure cache is reused across fetcher instances
+_price_provider = PriceProvider(batch_size=BATCH_DOWNLOAD_SIZE, cache_ttl=PRICE_CACHE_TTL_SECONDS)
 
 class DataFetcher(ABC):
     @abstractmethod
@@ -73,68 +79,38 @@ class YFinanceFetcher(DataFetcher):
         return None
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
-        chunk_size = 50
+        # Use centralized PriceProvider batching to minimize calls and share caching across scanners
+        provider = _price_provider
+        normalized_map = {self._normalize_symbol(s): s for s in symbols}
+        ns_symbols = list(normalized_map.keys())
+
+        try:
+            fetched = provider.fetch_batch(ns_symbols, period=period, interval=interval)
+        except Exception as e:
+            logger.warning(f"Batch provider fetch failed: {e}")
+            fetched = {}
+
         all_data = {}
-        
-        for i in range(0, len(symbols), chunk_size):
-            chunk_symbols = symbols[i:i+chunk_size]
-            normalized_map = {self._normalize_symbol(s): s for s in chunk_symbols}
-            tickers_str = " ".join(normalized_map.keys())
-            
-            chunk_success = False
-            for attempt in range(retries):
+        for ns_sym, orig_sym in normalized_map.items():
+            df = fetched.get(ns_sym)
+            if df is not None and not df.empty:
+                # ensure a consistent format (reset index)
                 try:
-                    # Respect global Yahoo rate limiter (may raise CircuitOpenError)
-                    yf_acquire()
-                    try:
-                        # yf.download handles multiple tickers. threads=False prevents sudden connection spikes.
-                        raw = yf.download(tickers_str, period=period, interval=interval, progress=False, auto_adjust=True, threads=False, group_by="ticker")
-                    finally:
-                        yf_release()
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    df = df.reset_index().copy()
+                    # preserve any stale marker set by provider
+                    if getattr(df, 'attrs', {}).get('is_stale'):
+                        try:
+                            df.attrs['is_stale'] = True
+                        except Exception:
+                            pass
+                    all_data[orig_sym] = df
+                except Exception:
+                    all_data[orig_sym] = df
 
-                    if raw is None or raw.empty:
-                        raise ValueError("Empty dataframe returned by yfinance")
-
-                    if not isinstance(raw.columns, pd.MultiIndex) and len(chunk_symbols) > 1:
-                        raise ValueError("yfinance returned flat DF instead of MultiIndex for batch")
-
-                    if isinstance(raw.columns, pd.MultiIndex):
-                        level0 = raw.columns.get_level_values(0)
-                        for ns_sym, raw_sym in normalized_map.items():
-                            if ns_sym in level0:
-                                sym_df = raw[ns_sym].dropna(how='all').reset_index().copy()
-                                if not sym_df.empty:
-                                    all_data[raw_sym] = sym_df
-                    else:
-                        sym_df = raw.dropna(how='all').reset_index().copy()
-                        if not sym_df.empty:
-                            all_data[chunk_symbols[0]] = sym_df
-
-                    chunk_success = True
-                    break
-                except CircuitOpenError as ce:
-                    logger.error(f"YFinance circuit open; aborting batch fetch for chunk {i//chunk_size + 1}: {ce}")
-                    break
-                except Exception as e:
-                    msg = str(e).lower()
-                    if 'too many requests' in msg or 'rate limit' in msg:
-                        record_rate_limit()
-                        delay = get_backoff_delay(attempt)
-                        logger.warning(f"⚠️ Batch download rate-limited for chunk {i//chunk_size + 1} (Attempt {attempt+1}/{retries}). Backing off {delay:.1f}s")
-                        time.sleep(delay)
-                    else:
-                        logger.warning(f"⚠️ Batch download error for chunk {i//chunk_size + 1} (Attempt {attempt+1}/{retries}): {e}")
-                        # Progressive backoff for non-429 errors
-                        wait = (2 ** attempt) * random.uniform(2.0, 4.0)
-                        time.sleep(wait)
-
-            if not chunk_success:
-                logger.error(f"❌ Batch fetch failed for chunk {i//chunk_size + 1} ({len(chunk_symbols)} symbols) after {retries} retries.")
-                
-            # Sleep briefly between chunks to respect Yahoo Finance rate limits
-            if i + chunk_size < len(symbols):
-                time.sleep(random.uniform(1.0, 2.0))
-                
+        # Do NOT perform aggressive single-symbol fallbacks. If a symbol is missing from the batch
+        # response it will be treated as missing for this scan cycle. This avoids generating a storm
         return all_data
 
     def get_quote(self, symbol: str) -> dict:

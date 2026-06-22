@@ -313,10 +313,13 @@ def _run_scan():
                 logger.debug(f"  ⊘ {symbol} in failed-reversal cooldown — skipping")
                 continue
 
-            if symbol not in all_ticker_data or all_ticker_data[symbol].empty:
+            if symbol not in all_ticker_data or all_ticker_data[symbol] is None or all_ticker_data[symbol].empty:
                 continue
 
             ticker = all_ticker_data[symbol].copy()
+            if getattr(ticker, 'attrs', {}).get('is_stale'):
+                continue
+
             if isinstance(ticker.columns, pd.MultiIndex):
                 ticker.columns = ticker.columns.get_level_values(0)
             ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])

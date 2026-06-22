@@ -44,8 +44,9 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 
 def get_market_regime():
     try:
-        import yfinance as yf
-        nifty = yf.download("^NSEI", period="1mo", interval="1d", progress=False)
+        from data_provider import get_fetcher
+        fetcher = get_fetcher()
+        nifty = fetcher.get_ohlcv("^NSEI", interval="1d", period="1mo")
         if not nifty.empty and len(nifty) >= 20:
             val_now = nifty["Close"].iloc[-1]
             nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
@@ -81,6 +82,10 @@ def run_hourly_phase():
         
         df = ticker_data.get(symbol)
         if df is None or df.empty or len(df) < 200:
+            continue
+            
+        if getattr(df, 'attrs', {}).get('is_stale') == True:
+            logger.debug(f"⏭️ Skipping {symbol} (1H scan) due to stale data.")
             continue
 
         df = strip_forming_candle(df, 60, datetime.now(IST))
@@ -190,6 +195,10 @@ def run_lower_tf_phase(current_regime="BULL"):
 
             df = data_30m.get(symbol)
             if df is not None:
+                if getattr(df, 'attrs', {}).get('is_stale') == True:
+                    logger.debug(f"⏭️ Skipping {symbol} (30m decay check) due to stale data.")
+                    continue
+
                 df = strip_forming_candle(df, 30, ist_now)
                 if df is not None and len(df) >= 2:
                     close = float(df["Close"].iloc[-1])
@@ -203,6 +212,10 @@ def run_lower_tf_phase(current_regime="BULL"):
         if state == "HOURLY_APPROVED":
             df = data_30m.get(symbol)
             if df is not None:
+                if getattr(df, 'attrs', {}).get('is_stale') == True:
+                    logger.debug(f"⏭️ Skipping {symbol} (30m upgrade check) due to stale data.")
+                    continue
+
                 df = strip_forming_candle(df, 30, ist_now)
                 if df is None or df.empty or len(df) < 2:
                     continue
@@ -237,6 +250,10 @@ def run_lower_tf_phase(current_regime="BULL"):
         elif state == "SETUP_ARMED" or state == "ENTRY_READY":
             df = data_5m.get(symbol)
             if df is not None:
+                if getattr(df, 'attrs', {}).get('is_stale') == True:
+                    logger.debug(f"⏭️ Skipping {symbol} (5m trigger check) due to stale data.")
+                    continue
+
                 df = strip_forming_candle(df, 5, ist_now)
                 if df is None or df.empty or len(df) < 2:
                     continue
@@ -297,6 +314,10 @@ def run_lower_tf_phase(current_regime="BULL"):
                             trigger_type = "pullback"
                 
                 if is_ready:
+                    # Do not generate new buy alerts on stale data returned by provider
+                    if getattr(df, 'attrs', {}).get('is_stale'):
+                        logger.info(f"Skipping buy alert for {symbol} because data is stale")
+                        continue
                     # Idempotency check before alert using stricter symbol-trigger key
                     dedup_key = f"{cat}|MULTI_TF|{symbol}|{trigger_type}|{ist_now.strftime('%Y-%m-%d')}"
                     if not check_recent_alert(symbol, "INTRADAY", dedup_key, minutes=390):

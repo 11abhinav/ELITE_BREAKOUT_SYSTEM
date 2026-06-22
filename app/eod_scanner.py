@@ -64,9 +64,10 @@ def start():
     
     nifty_ret_20d = 5.0
     try:
-        import yfinance as yf
-        nifty = yf.download("^NSEI", period="1mo", progress=False)
-        if not nifty.empty and len(nifty) >= 20:
+        from data_provider import get_fetcher
+        fetcher = get_fetcher()
+        nifty = fetcher.get_ohlcv("^NSEI", interval="1d", period="1mo")
+        if nifty is not None and not nifty.empty and len(nifty) >= 20:
             val_now = nifty["Close"].iloc[-1]
             nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
             val_ago = nifty["Close"].iloc[-20]
@@ -172,6 +173,11 @@ def start():
 
                 if ticker.empty:
                     rejection_counts["no_data"] += 1
+                    continue
+
+                # If provider returned stale data (used as fallback during rate limits), skip EOD buy generation
+                if getattr(ticker, 'attrs', {}).get('is_stale'):
+                    rejection_counts["stale_data"] += 1
                     continue
 
                 if isinstance(ticker.columns, pd.MultiIndex):

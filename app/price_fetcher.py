@@ -203,6 +203,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
         # Stale: return stale if allowed and trigger background refresh
         if stale_serve and os.path.exists(cache_path):
             df = _read_cache_file(cache_path)
+            df.attrs['is_stale'] = True
             # Trigger background refresh if possible
             def _bg_refresh():
                 if not _acquire_lock(lock_path):
@@ -249,6 +250,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
             # Another process is refreshing. If stale exists return it, else wait briefly then try
             if os.path.exists(cache_path):
                 df = _read_cache_file(cache_path)
+                df.attrs['is_stale'] = True
                 if use_cache:
                     with _price_cache_lock:
                         _price_cache[cache_key] = df.copy()
@@ -282,6 +284,7 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
             is_intraday = cadence < 3600
             if os.path.exists(cache_path) and not is_intraday:
                 df = _read_cache_file(cache_path)
+                df.attrs['is_stale'] = True
                 if use_cache:
                     with _price_cache_lock:
                         _price_cache[cache_key] = df.copy()
