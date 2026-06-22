@@ -802,6 +802,16 @@ def api_reject_alert():
 def api_reject_multiple_alerts():
     try:
         data = request.json or {}
+        # Support payloads like { "ids": [1,2,3] } or comma-separated string
+        ids = data.get('ids') or data.get('alert_ids') or []
+        if isinstance(ids, str):
+            ids = [int(x) for x in ids.split(',') if x.strip()]
+        else:
+            ids = [int(x) for x in ids] if ids else []
+
+        from database import reject_multiple_alerts
+        ok = reject_multiple_alerts(ids)
+        if ok:
             import threading
             from performance_tracker import build_performance_data
             threading.Thread(target=build_performance_data, daemon=True).start()
