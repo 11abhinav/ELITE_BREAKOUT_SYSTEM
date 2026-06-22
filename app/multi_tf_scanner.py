@@ -327,6 +327,8 @@ def run_lower_tf_phase(current_regime="BULL"):
                         final_sl = max(structure_sl, invalidation_level)
                         if final_sl >= close:
                             final_sl = close - (0.5 * atr20) # Fallback if invalidation is too high
+                            
+                        calc_target = close + ((close - final_sl) * 2)
                         
                         ctx = json.dumps({
                             "ladder": "TRADE_ACTIVE",
@@ -345,6 +347,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                             category=cat,
                             entry_price=close,
                             stop_loss=final_sl,
+                            target_price=calc_target,
                             signals=f"Multi-TF Ladder (1h->30m->5m) | {trigger_type}",
                             score=min(100, int(80 + (vol_ratio * 5))), # Dynamic conviction
                             rsi=float(latest.get("RSI", 0)),

@@ -306,10 +306,12 @@ def start(run_once=False):
                         rejection_counts["duplicate"] += 1
                         continue
 
-                    # ── DETERMINISTIC STRUCTURAL SL ──
+                    # ── DETERMINISTIC STRUCTURAL SL & TARGET ──
                     suggested_stop = min(candle_low, e20) - (0.2 * atr)
                     if suggested_stop >= candle_close:
                         suggested_stop = candle_close - (0.5 * atr)
+                        
+                    calc_target = candle_close + ((candle_close - suggested_stop) * 2)
 
                     context = {
                         "technicals": {
@@ -336,7 +338,7 @@ def start(run_once=False):
                             rsi=round(float(latest["RSI"]), 1),
                             volume_ratio=round(volume_ratio, 2),
                             stop_loss=round(suggested_stop, 2),
-                            target_price=0.0,
+                            target_price=round(calc_target, 2),
                             context=context,
                             model_version=model_version,
                             bayesian_regime="INDEPENDENT",

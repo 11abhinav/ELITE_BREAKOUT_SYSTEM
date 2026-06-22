@@ -3491,13 +3491,46 @@ def reallocate_capital(alert_id: int):
     with get_connection() as conn:
         with conn.cursor() as cur:
             # Fetch current details
-            cur.execute("SELECT entry_price, stop_loss, score, capital_allocated, status, exit_price FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("SELECT entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id = %s", (alert_id,))
             row = cur.fetchone()
             if not row:
                 return False
             
-            entry_price, stop_loss, score, old_cap, status, exit_price = row
+            entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str = row
             old_cap = float(old_cap) if old_cap else 0.0
+            
+            # Auto-fill missing Stop Loss and Target Price
+            entry_price = float(entry_price) if entry_price else 0.0
+            stop_loss = float(stop_loss) if stop_loss else 0.0
+            target_price = float(target_price) if target_price else 0.0
+            
+            if entry_price > 0 and stop_loss <= 0:
+                # ── SCANNER-AWARE FALLBACK LOGIC ──
+                import json
+                fallback_sl = entry_price * 0.90  # Ultimate 10% safety net
+                try:
+                    ctx = json.loads(context_str) if context_str else {}
+                    if scanner == "1H" or scanner == "INTRADAY":
+                        # Rely on ATR stored in context during generation
+                        atr = float(ctx.get("execution", {}).get("atr", 0))
+                        if atr > 0:
+                            fallback_sl = entry_price - (1.5 * atr)
+                    elif scanner == "multi_tf_scanner":
+                        # Explicit final_sl is often stored here
+                        f_sl = float(ctx.get("final_sl", 0))
+                        if f_sl > 0:
+                            fallback_sl = f_sl
+                    elif scanner == "EOD":
+                        atr = float(ctx.get("technicals", {}).get("atr20", 0))
+                        if atr > 0:
+                            fallback_sl = entry_price - (2.0 * atr)
+                except Exception:
+                    pass
+                stop_loss = fallback_sl
+                
+            if entry_price > 0 and stop_loss > 0 and target_price <= 0:
+                risk_per_share = entry_price - stop_loss
+                target_price = entry_price + (risk_per_share * 2)  # Default 1:2 R:R if missing
             
             # Temporarily free the current margin from the DB view so portfolio_engine sees it
             if old_cap > 0:
@@ -3507,10 +3540,10 @@ def reallocate_capital(alert_id: int):
             from portfolio_engine import calculate_trade_allocation
             new_cap, new_shares = calculate_trade_allocation(entry_price, stop_loss, score or 80)
             
-            # Update the alert with the newly calculated amounts
+            # Update the alert with the newly calculated amounts, plus the patched SL/Target
             cur.execute(
-                "UPDATE alerts SET capital_allocated = %s, shares_bought = %s WHERE id = %s",
-                (new_cap, new_shares, alert_id)
+                "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s WHERE id = %s",
+                (new_cap, new_shares, stop_loss, target_price, alert_id)
             )
             
             # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees

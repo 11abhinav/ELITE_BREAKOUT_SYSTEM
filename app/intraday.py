@@ -344,6 +344,8 @@ def start(run_once=False):
                     suggested_stop = trigger["latest_5m_low"] - (0.2 * atr5)
                     if suggested_stop >= candle_close:
                         suggested_stop = candle_close - (0.5 * atr5)
+                        
+                    calc_target = candle_close + ((candle_close - suggested_stop) * 2)
 
                     context = {
                         "technicals": {
@@ -370,7 +372,7 @@ def start(run_once=False):
                             rsi=round(setup["rsi"], 1),
                             volume_ratio=round(setup["vol_ratio"], 2),
                             stop_loss=round(suggested_stop, 2),
-                            target_price=0.0,
+                            target_price=round(calc_target, 2),
                             context=context,
                             model_version="multi_tf_intraday_v2",
                             bayesian_regime="INDEPENDENT",
