@@ -615,7 +615,9 @@ function playDing() {
             <tr>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Updated</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border); text-align:right;">Chart</th>
             </tr>
           </thead>
           <tbody id="signal-ladder-body">
@@ -967,8 +969,19 @@ async function loadData() {
   for (const url of urls) {
     try { const r = await fetch(url); if (r.ok) return r.json(); } catch {}
   }
-  console.warn('Using demo data');
-  return getDemoData();
+
+  console.warn('Failed to load performance data, returning empty state.');
+  return {
+    generated_at: new Date().toISOString(),
+    summary: {
+      total_alerts: 0, judged: 0, winners: 0, losers: 0, open_positions: 0,
+      win_rate: 0, avg_return_pct: 0, avg_win_pct: 0, avg_loss_pct: 0,
+      best_trade_pct: 0, worst_trade_pct: 0, expectancy: 0, sl_triggered: 0, target_hit: 0,
+    },
+    trades: [],
+    by_scanner: {}, by_category: {}, equity_curve: [], monthly: [],
+  };
+
 }
 
 async function loadScannerStatus() {
@@ -992,73 +1005,7 @@ async function loadScannerStatus() {
   return stats;
 }
 
-function getDemoData() {
-  const scanners=['EOD','INTRADAY','1H','REVERSAL'], cats=['Elite Compounder','High Growth','Steady Compounder','Mature Quality','Turnaround'];
-  const syms=['RELIANCE','INFY','HDFCBANK','TCS','ICICIBANK','TATAMOTORS','WIPRO','ADANIENT','LT','SBIN'];
-  const rng=(lo,hi)=>lo+Math.random()*(hi-lo);
-  const today=new Date();
-  const todayStr = today.toISOString().slice(0,10);
-  const trades=[];
-  for(let i=0;i<80;i++){
-    const d=new Date(today); d.setDate(d.getDate()-Math.floor(rng(0,90)));
-    const entry=Math.round(rng(100,3000)*100)/100, pnl=Math.round(rng(-18,30)*100)/100;
-    const cur=Math.round(entry*(1+pnl/100)*100)/100, days=Math.floor(rng(0,90));
-    const st=days<=1?'OPEN':pnl>=2?'WIN':pnl<=-2?'LOSS':'NEUTRAL';
-    const sc = scanners[i%4];
-    const closedD = new Date(d); closedD.setHours(closedD.getHours()+Math.floor(rng(1,6)));
-    trades.push({
-      symbol:syms[i%10], scanner:sc, category:cats[i%5],
-      signals:'52W Breakout, Weekly Breakout',
-      entry_date:d.toISOString().slice(0,10),
-      alert_time:d.toISOString().slice(0,10)+' '+d.toTimeString().slice(0,5),
-      entry_price:entry, current_price:cur,
-      stop_loss:Math.round(entry*.97*100)/100, target_price:Math.round(entry*1.08*100)/100,
-      exit_price:st==='OPEN'?null:(st==='WIN'?Math.round(entry*1.08*100)/100:Math.round(entry*.97*100)/100),
-      closed_at:st==='OPEN'?null:closedD.toISOString(),
-      pnl_pct:pnl, status:st, days_held:days,
-      score:Math.floor(rng(70,96)), rsi:Math.round(rng(30,75)*10)/10,
-      volume_ratio:Math.round(rng(0.8,3.5)*100)/100,
-    });
-  }
-  const judged=trades.filter(t=>['WIN','LOSS','NEUTRAL'].includes(t.status));
-  const wins=judged.filter(t=>t.status==='WIN'), losses=judged.filter(t=>t.status==='LOSS');
-  const pnls=judged.map(t=>t.pnl_pct);
-  const avg=pnls.reduce((a,b)=>a+b,0)/pnls.length;
-  const avgW=wins.map(t=>t.pnl_pct).reduce((a,b)=>a+b,0)/(wins.length||1);
-  const avgL=losses.map(t=>t.pnl_pct).reduce((a,b)=>a+b,0)/(losses.length||1);
-  const wr=wins.length/judged.length*100;
 
-  // scanner_stats
-  const scanner_stats = {};
-  const now = new Date();
-  scanners.forEach((sc,i) => {
-    const scTrades = trades.filter(t=>t.scanner===sc && t.entry_date===todayStr);
-    const allTimes = trades.filter(t=>t.scanner===sc).map(t=>t.alert_time).sort();
-    scanner_stats[sc] = {
-      today_alerts: scTrades.length,
-      last_success: allTimes.length ? allTimes[allTimes.length-1] : null,
-      status: i===2 ? 'DOWN' : 'OK',
-      error: i===2 ? 'yfinance timeout: Connection refused' : null,
-      today_trades: scTrades.map(t=>({symbol:t.symbol,category:t.category,signals:t.signals,entry_price:t.entry_price,entry_time:t.alert_time,stop_loss:t.stop_loss,target_price:t.target_price,pnl_pct:t.pnl_pct,status:t.status,score:t.score})),
-    };
-  });
-
-  return {
-    generated_at:new Date().toISOString(),
-    summary:{
-      total_alerts:trades.length, judged:judged.length, winners:wins.length,
-      losers:losses.length, open_positions:trades.filter(t=>t.status==='OPEN').length,
-      win_rate:+wr.toFixed(1), avg_return_pct:+avg.toFixed(2),
-      avg_win_pct:+avgW.toFixed(2), avg_loss_pct:+avgL.toFixed(2),
-      best_trade_pct:+Math.max(...pnls).toFixed(2), worst_trade_pct:+Math.min(...pnls).toFixed(2),
-      expectancy:+(wr/100*avgW+(1-wr/100)*avgL).toFixed(2),
-      sl_triggered:losses.length, target_hit:wins.length,
-    },
-    trades:trades.sort((a,b)=>b.entry_date.localeCompare(a.entry_date)),
-    scanner_stats,
-    by_scanner:{}, by_category:{}, equity_curve:[], monthly:[],
-  };
-}
 
 // ── KPIs
 let ALL_TRADES = [], activeKpi = null;
@@ -1179,10 +1126,15 @@ function renderSignalLadder() {
        timeStr = dt.toLocaleTimeString('en-IN');
     }
 
+    const cmpStr = item.cmp ? '₹' + parseFloat(item.cmp).toFixed(2) : '—';
     row.innerHTML = `
-      <td style="font-weight:bold; padding:8px 0; border-bottom:1px solid var(--border);">${item.symbol}</td>
+      <td style="font-weight:bold; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer; text-decoration:underline;" onclick="openChart('${item.symbol}', ${item.cmp||0})">${item.symbol}</td>
       <td style="font-weight:bold; color: ${stateColor}; padding:8px 0; border-bottom:1px solid var(--border);">${item.current_state}</td>
+      <td style="font-family:var(--font-mono); font-size:11px; font-weight:600; padding:8px 0; border-bottom:1px solid var(--border);">${cmpStr}</td>
       <td style="font-family:var(--font-mono); font-size:10px; padding:8px 0; border-bottom:1px solid var(--border);">${timeStr}</td>
+      <td style="padding:8px 0; border-bottom:1px solid var(--border); text-align:right;">
+        <button onclick="openChart('${item.symbol}', ${item.cmp||0})" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer;">📈 Chart</button>
+      </td>
     `;
     tbody.appendChild(row);
   });
@@ -1468,7 +1420,7 @@ async function showScannerDrill(sc) {
     const trades = data.today_trades.map(t => ({
       ...t,
       entry_date: (t.entry_time||'').slice(0,10),
-      current_price: t.entry_price,
+      current_price: t.entry_price, scanner: sc,
       days_held: 0,
     }));
     document.getElementById('drill-title').textContent = `${meta.label} — Today's ${data.today_alerts} alert${data.today_alerts!==1?'s':''}`;

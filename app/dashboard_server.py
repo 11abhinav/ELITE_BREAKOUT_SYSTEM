@@ -22,6 +22,7 @@ except Exception:
     except Exception:
         pass
 import yfinance as yf
+from yf_rate_limiter import CircuitOpenError
 from data_fetch_status import mark_success, mark_failure
 
 logger = logging.getLogger(__name__)
@@ -432,7 +433,7 @@ def api_shortlist_excluded():
         excluded_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
         if not os.path.exists(excluded_path):
             return jsonify([])
-        df = pd.read_csv(excluded_path)
+        df = pd.read_csv(excluded_path).fillna("")
         import json
         records = json.loads(df.to_json(orient="records"))
         return jsonify(records)
@@ -789,6 +790,10 @@ def api_reject_alert():
         alert_id = int(data.get('id'))
         from database import reject_alert
         ok = reject_alert(alert_id)
+        if ok:
+            import threading
+            from performance_tracker import build_performance_data
+            threading.Thread(target=build_performance_data, daemon=True).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject failed')
@@ -1002,6 +1007,7 @@ def api_indices():
         symbols = {"NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "SENSEX": "^BSESN"}
         data = {}
         from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
+from yf_rate_limiter import CircuitOpenError
         for name, sym in symbols.items():
             try:
                 yf_acquire()
@@ -1472,6 +1478,24 @@ def api_breakout_watchlist():
     try:
         from database import get_active_breakout_watchlist
         data = get_active_breakout_watchlist()
+        
+        if data:
+            try:
+                import pandas as pd
+                from price_cache import fetch_watchlist_data
+                symbols = list(set([d["symbol"] for d in data]))
+                wl_df = pd.DataFrame([{"Stock": s} for s in symbols])
+                prices_data = fetch_watchlist_data(wl_df, period="5d", interval="1d")
+                prices = {}
+                for sym, df in prices_data.items():
+                    if not df.empty:
+                        prices[sym] = float(df["Close"].iloc[-1])
+                for d in data:
+                    d["cmp"] = prices.get(d["symbol"])
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to fetch CMP for watchlist: {e}")
+
         return jsonify({"status": "success", "data": data})
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
