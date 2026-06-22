@@ -46,11 +46,14 @@ def get_nse_bulk_block_deals():
         try:
             resp = session.get(url, timeout=10)
             if resp.status_code == 200:
-                data = resp.json()
-                if "data" in data:
-                    all_deals.extend(data["data"])
+                try:
+                    data = resp.json()
+                    if "data" in data:
+                        all_deals.extend(data["data"])
+                except json.JSONDecodeError:
+                    logger.debug(f"NSE returned non-JSON for {url} (Likely anti-scraping block).")
         except Exception as e:
-            logger.warning(f"Failed to fetch {url}: {e}")
+            logger.debug(f"Failed to fetch {url}: {e}")
             
     return all_deals
 
