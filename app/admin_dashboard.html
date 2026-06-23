@@ -1572,6 +1572,7 @@
             <option value="">All status</option>
             <option value="WIN">Win</option>
             <option value="LOSS">Loss</option>
+            <option value="CLOSED_TODAY">Closed Today</option>
             <option value="OPEN">Open</option>
             <option value="NEUTRAL">Neutral</option>
             <option value="REJECTED">Rejected</option>
@@ -2039,7 +2040,7 @@
       const expectancy = (winRate / 100 * avgWin) + ((1 - winRate / 100) * avgLoss);
 
       const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100);
-      const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) < min ? (t.pnl_pct || 0) : min, 100);
+      const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) <min ? (t.pnl_pct || 0) : min, 100);
       const openPositions = filteredTrades.filter(t => t.status === 'OPEN').length;
 
       const defs = [
@@ -2975,16 +2976,25 @@
 
       let filtered = ALL_TRADES.filter(t => {
         if (sc && t.scanner !== sc) return false;
-        if (st && t.status !== st) return false;
+        
+        if (st === 'CLOSED_TODAY') {
+            if (t.status !== 'WIN' && t.status !== 'LOSS') return false;
+            if (!t.closed_at) return false;
+            const cd = new Date(t.closed_at.replace(' ', 'T'));
+            if (cd < todayStart) return false;
+        } else if (st && t.status !== st) {
+            return false;
+        }
+        
         if (!st && t.status === 'REJECTED') return false; // Hide rejected trades by default
         if (sym && !t.symbol.includes(sym)) return false;
         if (dateFilt !== 'ALL') {
           const d = new Date((t.entry_date || '').replace(' ', 'T'));
-          if (dateFilt === 'TODAY' && d < todayStart) return false;
-          if (dateFilt === 'WEEK' && d < weekStart) return false;
-          if (dateFilt === 'YTD' && d < ytd) return false;
-          if (dateFilt === '30D' && d < d30) return false;
-          if (dateFilt === '90D' && d < d90) return false;
+          if (dateFilt === 'TODAY' && d <todayStart) return false;
+          if (dateFilt === 'WEEK' && d <weekStart) return false;
+          if (dateFilt === 'YTD' && d <ytd) return false;
+          if (dateFilt === '30D' && d <d30) return false;
+          if (dateFilt === '90D' && d <d90) return false;
         }
         return true;
       });
@@ -3002,7 +3012,7 @@
         }
         let va = a[sortCol], vb = b[sortCol];
         if (va == null) return 1; if (vb == null) return -1;
-        return sortDir * (va > vb ? 1 : va < vb ? -1 : 0);
+        return sortDir * (va > vb ? 1 : va <vb ? -1 : 0);
       });
       const maxAbs = Math.max(...ALL_TRADES.map(t => Math.abs(t.pnl_pct || 0)), 1);
       const tc = document.getElementById('tradeCount');
@@ -3552,7 +3562,7 @@ function renderSystemLogs(logs) {
   
   if(headerBtnArea) {
       headerBtnArea.innerHTML = `
-        < button class="btn btn-sm" onclick = "clearAllSystemLogs()" style = "font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;" >🗑️ Clear All</button >
+        <button class="btn btn-sm" onclick = "clearAllSystemLogs()" style = "font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;" >🗑️ Clear All</button >
           <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
       `;
   }
@@ -3562,7 +3572,7 @@ function renderSystemLogs(logs) {
     const levelColor = log.level === 'CRITICAL' ? 'var(--warn)' : 'var(--amber)';
     
     html += `
-        < div class="card" style = "padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;" >
+        <div class="card" style = "padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;" >
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
           <div>
             <span class="badge" style="background:${levelColor}; color:#fff;">${log.level}</span>
@@ -3648,7 +3658,7 @@ function renderNonCriticalErrors(errors) {
   Object.keys(byScanner).sort().forEach(scanner => {
     const scannerErrors = byScanner[scanner];
     html += `
-        < div style = "margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border);" >
+        <div style = "margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border);" >
         <div style="font-weight:600; color:var(--accent); margin-bottom:12px;">📊 ${scanner}</div>
         <div class="tbl-wrap" style="margin-bottom:0;">
           <table style="font-size:12px;">
@@ -3902,7 +3912,7 @@ if (checkViewerName()) {
             if (typeof info !== 'object' || info === null) continue;
             const color = info.pct_change >= 0 ? 'var(--accent)' : 'var(--warn)';
             const sign = info.pct_change >= 0 ? '+' : '';
-            html += `< div style = "display:flex; gap:6px; align-items:baseline;" >
+            html += `<div style = "display:flex; gap:6px; align-items:baseline;" >
               <span style="color:#ffffff;">${name}</span>
               <span>${info.price ? info.price.toLocaleString('en-IN') : 'N/A'}</span>
               <span style="color:${color}">${sign}${info.pct_change}%</span>
@@ -3991,7 +4001,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const matches = symbols.filter(s => s.startsWith(val)).slice(0, 50);
                     if(matches.length === 0) { dropdown.style.display = 'none'; return; }
 
-                    dropdown.innerHTML = matches.map(m => `< div style = "padding:8px 12px; cursor:pointer; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "document.getElementById('aiModalTicker').value='${m}'; this.parentNode.style.display='none';" > ${ m }</div >`).join('');
+                    dropdown.innerHTML = matches.map(m => `<div style = "padding:8px 12px; cursor:pointer; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "document.getElementById('aiModalTicker').value='${m}'; this.parentNode.style.display='none';" > ${ m }</div >`).join('');
                     dropdown.style.display = 'block';
                 });
                 
@@ -4348,9 +4358,9 @@ function fetchUsersData() {
         if (data.detailed_online && data.detailed_online.length > 0) {
             onlineBody.innerHTML = data.detailed_online.map(u => {
                 const unread = (data.unread_messages && data.unread_messages[u.name]) ? data.unread_messages[u.name] : 0;
-                const badgeHtml = unread > 0 ? `< span style = "background:var(--red); color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:8px;" > ${ unread }</span > ` : '';
+                const badgeHtml = unread > 0 ? `<span style = "background:var(--red); color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:8px;" > ${ unread }</span > ` : '';
                 return `
-    < tr style = "border-bottom:1px solid var(--border); cursor:pointer;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "openAdminChat('${u.name}')" >
+    <tr style = "border-bottom:1px solid var(--border); cursor:pointer;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "openAdminChat('${u.name}')" >
                     <td style="padding:8px; font-weight:600; color:var(--green);">${u.name} ${badgeHtml}</td>
                     <td style="padding:8px; font-family:var(--font-mono);">${u.ip_address}</td>
                     <td style="padding:8px; font-family:var(--font-mono);">${u.login_time}</td>
@@ -4363,7 +4373,7 @@ function fetchUsersData() {
 
         if (data.history && data.history.length > 0) {
             historyBody.innerHTML = data.history.map(u => `
-    < tr style = "border-bottom:1px solid var(--border);" >
+    <tr style = "border-bottom:1px solid var(--border);" >
                     <td style="padding:8px; font-weight:600;">${u.name}</td>
                     <td style="padding:8px; font-family:var(--font-mono); color:var(--muted);">${u.ip_address}</td>
                     <td style="padding:8px; font-family:var(--font-mono); color:var(--muted);">${u.login_time}</td>
@@ -4490,7 +4500,7 @@ function renderAdminMessages(messages) {
         const time = m.created_at ? m.created_at.split(' ')[1].substring(0,5) : '';
         
         html += `
-    < div style = "display:flex; flex-direction:column; align-items:${align}; width:100%;" >
+    <div style = "display:flex; flex-direction:column; align-items:${align}; width:100%;" >
             <div style="background:${bg}; color:${textColor}; padding:8px 14px; border-radius:${borderRadius}; max-width:85%; word-wrap:break-word;">
             ${m.message}
             </div>
@@ -4620,7 +4630,7 @@ async function fetchNotifications() {
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
-    < div class="notification-item ${unseenClass}" onclick = "markNotificationSeen(${n.id}, '${n.symbol}')" >
+    <div class="notification-item ${unseenClass}" onclick = "markNotificationSeen(${n.id}, '${n.symbol}')" >
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
                     <div class="notification-item-msg">${n.message}</div>
                     <div class="notification-item-meta">
@@ -4719,16 +4729,16 @@ async function loadPendingUsers() {
         let html = '';
         users.forEach(u => {
             html += `
-    < tr >
+                <tr>
                   <td>${u.username}</td>
                   <td>${u.first_name || ''} ${u.last_name || ''}</td>
                   <td>${u.email}</td>
                   <td>${u.mobile}</td>
                   <td style="text-align:right; display:flex; gap:4px; justify-content:flex-end;">
-                    <button class="refresh-btn" style="background:var(--success); color:white; border:none; padding:4px 8px; font-size:12px;" onclick="approveUser(${u.user_id})">Approve</button>
+                    <button class="refresh-btn" style="background:var(--win); color:white; border:none; padding:4px 8px; font-size:12px;" onclick="approveUser(${u.user_id})">Approve</button>
                     <button class="refresh-btn" style="background:var(--warn); color:white; border:none; padding:4px 8px; font-size:12px;" onclick="rejectUser(${u.user_id})">Reject</button>
                   </td>
-                </tr >
+                </tr>
     `;
         });
         tbody.innerHTML = html;

@@ -875,7 +875,7 @@ function renderKPIs(s) {
   const expectancy = (winRate/100 * avgWin) + ((1 - winRate/100) * avgLoss);
   
   const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct||0) > max ? (t.pnl_pct||0) : max, -100);
-  const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct||0) < min ? (t.pnl_pct||0) : min, 100);
+  const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct||0) <min ? (t.pnl_pct||0) : min, 100);
   const openPositions = filteredTrades.filter(t => t.status === 'OPEN').length;
 
   const defs = [
@@ -1288,11 +1288,11 @@ function renderTradeTable() {
     if (sym && !t.symbol.includes(sym)) return false;
     if (dateFilt !== 'ALL') {
       const d = new Date((t.entry_date || '').replace(' ','T'));
-      if (dateFilt === 'TODAY' && d < todayStart) return false;
-      if (dateFilt === 'WEEK' && d < weekStart) return false;
-      if (dateFilt === 'YTD' && d < ytd) return false;
-      if (dateFilt === '30D' && d < d30) return false;
-      if (dateFilt === '90D' && d < d90) return false;
+      if (dateFilt === 'TODAY' && d <todayStart) return false;
+      if (dateFilt === 'WEEK' && d <weekStart) return false;
+      if (dateFilt === 'YTD' && d <ytd) return false;
+      if (dateFilt === '30D' && d <d30) return false;
+      if (dateFilt === '90D' && d <d90) return false;
     }
     return true;
   });
