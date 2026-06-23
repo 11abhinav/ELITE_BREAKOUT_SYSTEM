@@ -192,12 +192,95 @@ def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = 
 
 
 # -----------------------------------------------------------------------------
-# MARKET-HOUR SHARED SNAPSHOT
+# MARKET-HOUR & INTRADAY SHARED SNAPSHOT
 # -----------------------------------------------------------------------------
 
 import os
 from config import DATA_DIR
 WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+
+# Tracks in-progress fetches so only one thread fetches per (interval, period)
+_inflight_fetches: dict[tuple, threading.Event] = {}
+
+
+def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str = "5d", wait_timeout: int = 30) -> dict[str, pd.DataFrame]:
+    """
+    Return cached intraday frames for (interval, period) for the provided symbols.
+    If cache is stale or missing, a single thread will perform the fetch and others
+    will wait up to `wait_timeout` seconds for the result. This guarantees only one
+    fetch per cache key is in-flight at any time.
+
+    Returns the raw mapping: { symbol: DataFrame }
+    """
+    cache_key = (interval, period)
+    cadence = _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
+    jitter = _TTL_JITTER.get(interval, 0)
+    cadence_with_jitter = cadence + jitter
+
+    # Quick cache check
+    with _lock:
+        entry = _cache.get(cache_key)
+        if entry is not None:
+            age = time.monotonic() - entry["ts"]
+            if age < cadence_with_jitter:
+                logger.debug(f"📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s")
+                # Return subset for requested symbols
+                return {s: entry["data"].get(s) for s in symbols}
+
+        # If another thread is already fetching this key, wait for it to complete
+        inflight = _inflight_fetches.get(cache_key)
+        if inflight:
+            logger.debug(f"⏳ Waiting for in-flight fetch for {cache_key} (wait_timeout={wait_timeout}s)")
+            # Release lock while waiting
+            # Wait outside lock
+            pass
+
+    # If inflight exists, wait for completion then return cache (may still be missing)
+    inflight = _inflight_fetches.get(cache_key)
+    if inflight:
+        inflight.wait(wait_timeout)
+        with _lock:
+            entry = _cache.get(cache_key)
+            if entry is None:
+                logger.warning(f"Intraday fetch completed but cache missing for {cache_key}")
+                return {s: None for s in symbols}
+            return {s: entry["data"].get(s) for s in symbols}
+
+    # No inflight — attempt to become the fetcher
+    evt = threading.Event()
+    with _lock:
+        # Double-check in case someone set it while creating event
+        if cache_key in _inflight_fetches:
+            inflight = _inflight_fetches[cache_key]
+        else:
+            _inflight_fetches[cache_key] = evt
+            inflight = None
+
+    if inflight:
+        # Race lost — wait for the actual fetcher
+        inflight.wait(wait_timeout)
+        with _lock:
+            entry = _cache.get(cache_key)
+            if entry is None:
+                return {s: None for s in symbols}
+            return {s: entry["data"].get(s) for s in symbols}
+
+    # This thread is responsible for fetching
+    try:
+        logger.info(f"🔁 Performing single fetch for intraday key {cache_key} for {len(symbols)} symbols")
+        watchlist_df = pd.DataFrame({"Stock": symbols})
+        # Use existing serialized path which already uses a global fetch lock
+        result = fetch_watchlist_data(watchlist_df, period=period, interval=interval)
+        # Return subset for requested symbols
+        return {s: result.get(s) for s in symbols} if result else {s: None for s in symbols}
+    finally:
+        # Signal completion so waiters can proceed
+        try:
+            evt.set()
+        except Exception:
+            pass
+        with _lock:
+            _inflight_fetches.pop(cache_key, None)
 
 
 def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d") -> dict:
