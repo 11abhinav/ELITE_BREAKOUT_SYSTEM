@@ -40,7 +40,7 @@
   /* Left Panel: Visuals */
   .visual-panel {
     position: relative;
-    background: url('/static/bg_split.png') center/cover no-repeat;
+    background: url('/static/bg_split.png') left center/cover no-repeat;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -49,13 +49,10 @@
   .visual-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(9,14,23,0.3) 0%, rgba(9,14,23,0.8) 100%);
+    background: linear-gradient(135deg, rgba(9,14,23,0.1) 0%, rgba(9,14,23,0.6) 100%);
   }
   .visual-content {
-    position: relative;
-    z-index: 10;
-    max-width: 480px;
-    animation: fadeRight 1s ease-out;
+    display: none;
   }
   .visual-title {
     font-family: var(--font-heading);
@@ -260,12 +257,6 @@
   <!-- Left Side: Visuals -->
   <div class="visual-panel">
     <div class="visual-overlay"></div>
-    <div class="visual-content">
-      <div class="visual-title">Algorithmic Market Intelligence</div>
-      <p style="font-size: 18px; color: rgba(255,255,255,0.8); line-height: 1.6;">
-        Harness the power of AI-driven quantitative models to detect high-probability breakouts before they hit the mainstream ticker.
-      </p>
-    </div>
   </div>
 
   <!-- Right Side: Form -->
