@@ -106,6 +106,7 @@ class FyersFetcher(DataFetcher):
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
         """Fetch OHLCV data for a single symbol from Fyers."""
         ns_symbol = self._normalize_symbol(symbol)
+        logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
         
         res = self.INTERVAL_MAP.get(interval)
         if not res:
@@ -177,6 +178,7 @@ class FyersFetcher(DataFetcher):
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
+        logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
         normalized_map = {}
         for s in symbols:
             ns_sym = self._normalize_symbol(s)
@@ -211,6 +213,7 @@ class FyersFetcher(DataFetcher):
     def get_quote(self, symbol: str) -> dict:
         """Fetch current market quote for a single symbol from Fyers."""
         ns_symbol = self._normalize_symbol(symbol)
+        logger.info(f"📥 Fetching quote for {symbol} via Fyers API...")
         client = fyers_auth.get_fyers_client()
         if not client:
             logger.error("Fyers API client not initialized.")

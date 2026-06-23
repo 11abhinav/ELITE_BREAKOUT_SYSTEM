@@ -43,6 +43,7 @@ class YFinanceFetcher(DataFetcher):
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)
+        logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         for attempt in range(retries):
             try:
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
@@ -80,6 +81,7 @@ class YFinanceFetcher(DataFetcher):
         return None
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+        logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via YFinance...")
         # Use centralized PriceProvider batching to minimize calls and share caching across scanners
         provider = _price_provider
         normalized_map = {}
@@ -126,6 +128,7 @@ class YFinanceFetcher(DataFetcher):
 
     def get_quote(self, symbol: str) -> dict:
         ns_sym = self._normalize_symbol(symbol)
+        logger.info(f"📥 Fetching quote for {symbol} via YFinance...")
         try:
             yf_acquire()
             try:
