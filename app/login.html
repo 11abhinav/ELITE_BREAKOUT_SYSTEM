@@ -246,6 +246,21 @@
     font-size: 14px;
     margin-top: 0;
   }
+
+  @media(max-width: 480px) {
+    .chat-widget {
+      width: calc(100vw - 40px);
+      right: 20px;
+      bottom: 20px;
+    }
+    .form-row {
+      flex-direction: column;
+      gap: 0;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+  }
 </style>
 </head>
 <body>
