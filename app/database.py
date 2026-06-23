@@ -3182,7 +3182,7 @@ def get_online_users_and_history():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Active Viewers
                 cur.execute("""
-                    SELECT u.username, s.ip_address, s.login_time 
+                    SELECT u.username, u.first_name, u.last_name, s.ip_address, s.login_time 
                     FROM user_sessions s
                     JOIN users u ON s.user_id = u.user_id
                     WHERE s.is_online = TRUE
@@ -3192,7 +3192,7 @@ def get_online_users_and_history():
 
                 # Session History (last 50)
                 cur.execute("""
-                    SELECT u.username, s.ip_address, s.login_time, s.logoff_time 
+                    SELECT u.username, u.first_name, u.last_name, s.ip_address, s.login_time, s.logoff_time 
                     FROM user_sessions s
                     JOIN users u ON s.user_id = u.user_id
                     WHERE s.is_online = FALSE
@@ -3202,12 +3202,17 @@ def get_online_users_and_history():
 
         # Format dates/times for cleaner frontend display
         for row in online:
-            # strip fractional seconds if any
             row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
+            fn = row.get('first_name') or ''
+            ln = row.get('last_name') or ''
+            row['name'] = f"{fn} {ln}".strip() or row['username']
             
         for row in history:
             row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
             row['logoff_time'] = row['logoff_time'].split('.')[0] if row['logoff_time'] else ''
+            fn = row.get('first_name') or ''
+            ln = row.get('last_name') or ''
+            row['name'] = f"{fn} {ln}".strip() or row['username']
             
         return {"online": online, "history": history}
     except Exception as e:

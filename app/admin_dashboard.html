@@ -4360,10 +4360,10 @@ function fetchUsersData() {
 
         if (data.detailed_online && data.detailed_online.length > 0) {
             onlineBody.innerHTML = data.detailed_online.map(u => {
-                const unread = (data.unread_messages && data.unread_messages[u.name]) ? data.unread_messages[u.name] : 0;
-                const badgeHtml = unread > 0 ? `<span style = "background:var(--red); color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:8px;" > ${ unread }</span > ` : '';
+                const unread = (data.unread_messages && data.unread_messages[u.username]) ? data.unread_messages[u.username] : 0;
+                const badgeHtml = unread > 0 ? `<span style="background:var(--red); color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:8px;">${unread}</span>` : '';
                 return `
-    <tr style = "border-bottom:1px solid var(--border); cursor:pointer;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "openAdminChat('${u.name}')" >
+                <tr style="border-bottom:1px solid var(--border); cursor:pointer;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'" onclick="openAdminChat('${u.username}')">
                     <td style="padding:8px; font-weight:600; color:var(--green);">${u.name} ${badgeHtml}</td>
                     <td style="padding:8px; font-family:var(--font-mono);">${u.ip_address}</td>
                     <td style="padding:8px; font-family:var(--font-mono);">${u.login_time}</td>
