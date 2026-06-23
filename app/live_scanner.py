@@ -109,6 +109,9 @@ def start(run_once=False):
                 "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
                 "no_breakout", "extended_breakout", "exhaustion_bar", "stale_data", "duplicate"
             ]}
+            
+            # Collect prices to update open positions with fresh data
+            position_prices = {}
 
             nifty_intraday_down = False
             if ENABLE_REGIME_GATE_1H:
@@ -224,6 +227,11 @@ def start(run_once=False):
                     candle_low   = float(latest["Low"])
                     candle_open  = float(latest["Open"])
                     candle_close = float(latest["Close"])
+                    
+                    # Capture price for batch position update (5 min refresh for open positions)
+                    if symbol and candle_close > 0:
+                        position_prices[symbol] = {"price": candle_close, "score": None}
+                    
                     candle_range = candle_high - candle_low
                     candle_body  = abs(candle_close - candle_open)
                     upper_wick   = candle_high - candle_close
@@ -357,6 +365,15 @@ def start(run_once=False):
                     logger.exception(f"❌ UNHANDLED ERROR processing {symbol}")
                     rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
                     continue
+            
+            # Batch update open positions with fresh prices from this scan
+            if position_prices:
+                try:
+                    from database import update_position_real_time_prices
+                    updated_count = update_position_real_time_prices(position_prices)
+                    logger.info(f"📊 Updated {updated_count} position prices from 1H scan data")
+                except Exception as e:
+                    logger.warning(f"⚠️  Failed to update position prices: {e}")
             
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()
             sleep_time = max(0, 300 - elapsed)

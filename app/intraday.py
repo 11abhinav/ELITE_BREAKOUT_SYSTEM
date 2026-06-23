@@ -302,6 +302,9 @@ def start(run_once=False):
                     pass
             
             total_alerts = 0
+            
+            # Collect prices to update open positions with fresh data
+            position_prices = {}
 
             for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
                 symbol = "UNKNOWN"
@@ -340,6 +343,11 @@ def start(run_once=False):
                         continue
 
                     candle_close = trigger["latest_5m_close"]
+                    
+                    # Capture price for batch position update (5 min refresh for open positions)
+                    if symbol and candle_close > 0:
+                        position_prices[symbol] = {"price": candle_close, "score": None}
+                    
                     atr5 = setup["atr5"]
                     suggested_stop = trigger["latest_5m_low"] - (0.2 * atr5)
                     if suggested_stop >= candle_close:
@@ -392,6 +400,15 @@ def start(run_once=False):
                     except Exception:
                         pass
                     continue
+            
+            # Batch update open positions with fresh prices from this scan
+            if position_prices:
+                try:
+                    from database import update_position_real_time_prices
+                    updated_count = update_position_real_time_prices(position_prices)
+                    logger.info(f"📊 Updated {updated_count} position prices from INTRADAY scan data")
+                except Exception as e:
+                    logger.warning(f"⚠️  Failed to update position prices: {e}")
             
             if total_alerts == 0:
                 logger.info("📭 No INTRADAY alerts this cycle")
