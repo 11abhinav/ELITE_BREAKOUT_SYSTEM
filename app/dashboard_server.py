@@ -443,6 +443,20 @@ def clear_all_notifications():
         logger.error(f"Error clearing all notifications: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/notifications/clear/<int:id>', methods=['POST'])
+@login_required
+def clear_notification(id):
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM global_notifications WHERE id = %s', (id,))
+            conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error clearing notification {id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # ── CORS + cache headers on every response ──────────────────────────────────────────
 @app.after_request
 def add_headers(response):

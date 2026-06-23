@@ -81,7 +81,13 @@ class YFinanceFetcher(DataFetcher):
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
         # Use centralized PriceProvider batching to minimize calls and share caching across scanners
         provider = _price_provider
-        normalized_map = {self._normalize_symbol(s): s for s in symbols}
+        normalized_map = {}
+        for s in symbols:
+            ns_sym = self._normalize_symbol(s)
+            if ns_sym not in normalized_map:
+                normalized_map[ns_sym] = []
+            normalized_map[ns_sym].append(s)
+            
         ns_symbols = list(normalized_map.keys())
 
         try:
@@ -91,7 +97,7 @@ class YFinanceFetcher(DataFetcher):
             fetched = {}
 
         all_data = {}
-        for ns_sym, orig_sym in normalized_map.items():
+        for ns_sym, orig_syms in normalized_map.items():
             df = fetched.get(ns_sym)
             if df is not None and not df.empty:
                 # ensure a consistent format (reset index)
@@ -105,9 +111,11 @@ class YFinanceFetcher(DataFetcher):
                             df.attrs['is_stale'] = True
                         except Exception:
                             pass
-                    all_data[orig_sym] = df
+                    for orig_sym in orig_syms:
+                        all_data[orig_sym] = df.copy() if len(orig_syms) > 1 else df
                 except Exception:
-                    all_data[orig_sym] = df
+                    for orig_sym in orig_syms:
+                        all_data[orig_sym] = df.copy() if len(orig_syms) > 1 else df
 
         # Do NOT perform aggressive single-symbol fallbacks. If a symbol is missing from the batch
         # response it will be treated as missing for this scan cycle. This avoids generating a storm

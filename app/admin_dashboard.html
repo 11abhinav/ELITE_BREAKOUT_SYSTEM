@@ -1259,6 +1259,26 @@
     .notification-item:hover {
       background: var(--card2);
     }
+    .clear-notif-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px;
+      line-height: 1;
+      opacity: 0;
+      transition: opacity 0.2s, color 0.2s;
+    }
+    .notification-item:hover .clear-notif-btn {
+      opacity: 1;
+    }
+    .clear-notif-btn:hover {
+      color: var(--warn);
+    }
 
     .notification-item.unseen {
       background: var(--accent-dim);
@@ -4708,6 +4728,7 @@ async function fetchNotifications() {
             html += `
     <div class="notification-item ${unseenClass}" onclick = "markNotificationSeen(${n.id}, '${n.symbol}')" >
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
+                    <button class="clear-notif-btn" onclick="event.stopPropagation(); clearNotification(${n.id})" title="Clear notification">✕</button>
                     <div class="notification-item-msg">${n.message}</div>
                     <div class="notification-item-meta">
                         <span>${n.symbol || ''}</span>
@@ -4737,6 +4758,13 @@ async function fetchNotifications() {
     } catch (err) {
         console.error('Notification poll error:', err);
     }
+}
+
+async function clearNotification(id) {
+    try {
+        await fetch(`/api/notifications/clear/${id}`, {method: 'POST'});
+        fetchNotifications();
+    } catch(e) { console.error('Failed to clear notification', e); }
 }
 
 async function markNotificationSeen(id, symbol) {
