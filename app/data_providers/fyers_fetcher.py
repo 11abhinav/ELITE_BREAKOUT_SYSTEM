@@ -217,7 +217,18 @@ class FyersFetcher(DataFetcher):
             except Exception as e:
                 error_str = str(e)
                 # Do not retry for non-retryable errors like bad symbols
-                if "Invalid symbol provided" in error_str or "Invalid input" in error_str:
+                if "Invalid symbol provided" in error_str:
+                    if ns_symbol.endswith("-EQ"):
+                        fallback_sym = ns_symbol.replace("-EQ", "-BE")
+                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
+                        ns_symbol = fallback_sym
+                        data["symbol"] = fallback_sym
+                        continue  # Immediate retry with -BE without sleeping
+                    
+                    logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
+                    return None
+                    
+                if "Invalid input" in error_str:
                     logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
                     return None
                     
