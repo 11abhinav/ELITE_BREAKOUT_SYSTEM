@@ -303,7 +303,7 @@ def build_performance_data():
             "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
             "context":       row.get("context"),          # Diagnostic filters and context
             "is_rejected":   row.get("is_rejected", False),
-            "_db_closed":    row.get("status") in ("WIN", "LOSS"),  # internal flag
+            "_db_closed":    row.get("status") in ("WIN", "LOSS", "REJECTED"),  # internal flag
         })
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
