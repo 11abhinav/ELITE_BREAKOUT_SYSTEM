@@ -786,12 +786,22 @@ def run_startup_self_test(timeout_per_task: int = 120):
         logger.warning("database module not importable for self-test")
         return
 
-    # Enable dry-run
+    # Determine if market is currently open
+    now = datetime.now(IST)
+    from datetime import time as dt_time
+    market_open = dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
+    
     orig_flag = getattr(database, "DONT_SAVE_ALERTS", False)
     orig_wealth_flag = getattr(database, "DONT_SAVE_WEALTH", False)
-    database.DONT_SAVE_ALERTS = True
-    database.DONT_SAVE_WEALTH = True
-    logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS and DONT_SAVE_WEALTH enabled — running scanners in dry-run")
+    
+    if market_open:
+        database.DONT_SAVE_ALERTS = False
+        database.DONT_SAVE_WEALTH = False
+        logger.info("🧪 STARTUP SELF-TEST | Market is OPEN! Scanners WILL save alerts during self-test.")
+    else:
+        database.DONT_SAVE_ALERTS = True
+        database.DONT_SAVE_WEALTH = True
+        logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS and DONT_SAVE_WEALTH enabled — running scanners in dry-run")
 
     tasks = []
 
