@@ -99,7 +99,12 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
     }
     for attempt in range(RETRY_ATTEMPTS):
         try:
-            hist = fetch_historical_data(symbol, period="1y", resolution="1d", dataset_key="price_1d")
+            # OPTIMIZATION: Use unified price_cache instead of price_fetcher
+            # This allows cache sharing across wealth_engine, eod_scanner, and reversal_scanner
+            from price_cache import fetch_unified_historical
+            hist_dict = fetch_unified_historical([symbol], period="1y", interval="1d")
+            hist = hist_dict.get(symbol)
+            
             if hist is None or hist.empty or len(hist) < 120:
                 return defaults
 

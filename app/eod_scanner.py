@@ -112,6 +112,8 @@ def start():
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             future_delivery = pool.submit(fetch_delivery_data, ist_now.date())
+            # Keep "2y" for EOD - needs 2 years of volume data for delivery analysis
+            # EOD has separate cache key (1d, 2y) but still benefits from TTL extensions
             future_prices   = pool.submit(fetch_watchlist_data, watchlist, "2y", "1d")
             for future in as_completed([future_delivery, future_prices]):
                 if future is future_delivery:

@@ -26,7 +26,8 @@ CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 # TTLs are strictly smaller than candle size to prevent stale-but-not-expired candles
 _INTERVAL_CADENCE = {
     '1m': 30,         # 30 seconds
-    '15m': 300,       # 5 minutes
+    '5m': 90,         # 90 seconds (OPTIMIZATION: was 30s, scanners run every 5m, extend for reuse)
+    '15m': 360,       # 6 minutes (OPTIMIZATION: was 300s, allows reuse just past 5m boundary)
     '1h': 600,        # 10 minutes
     '1d': 1800,       # 30 minutes
 }
@@ -142,5 +143,15 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
             mark_failure(f"yfinance:{interval}", "No symbols returned after batch + fallback")
     except Exception:
         pass
-        
+
+def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d") -> dict[str, pd.DataFrame]:
+    """
+    Unified data fetcher for wealth_engine, eod_scanner, and reversal_scanner.
+    Uses unified cache key (interval, period) to allow cross-scanner reuse.
+    
+    OPTIMIZATION: All 1D data now shares cache key (1d, 1y) instead of
+    having separate cache per module (price_fetcher vs price_cache).
+    """
+    watchlist_df = pd.DataFrame({"Stock": symbols})
+    return fetch_watchlist_data(watchlist_df, period=period, interval=interval)
     return all_data
