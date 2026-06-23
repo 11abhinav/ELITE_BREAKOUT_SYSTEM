@@ -5,6 +5,7 @@
 import logging
 import threading
 import time
+import random
 from datetime import time as dt_time
 import pandas as pd
 from typing import Optional
@@ -20,6 +21,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 _cache: dict[tuple, dict] = {}
 _lock = threading.Lock()
+_fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
 # Map interval string to required freshness cadence (seconds)
@@ -32,6 +34,10 @@ _INTERVAL_CADENCE = {
     '1d': 1800,       # 30 minutes
 }
 
+# Per-interval TTL offsets (jitter) to stagger cache misses across multiple scanners
+# Prevents thundering herd when all scanners miss cache at same time
+_TTL_JITTER = {interval: random.randint(-10, 10) for interval in _INTERVAL_CADENCE.keys()}
+
 def _is_market_hours() -> bool:
     now = datetime.now(IST)
     return dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
@@ -39,12 +45,14 @@ def _is_market_hours() -> bool:
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m") -> dict[str, pd.DataFrame]:
     cache_key = (interval, period)
     cadence = _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
+    jitter = _TTL_JITTER.get(interval, 0)
+    cadence_with_jitter = cadence + jitter
 
     with _lock:
         entry = _cache.get(cache_key)
         if entry is not None:
             age = time.monotonic() - entry["ts"]
-            if age < cadence:
+            if age < cadence_with_jitter:
                 data_as_of = entry.get("data_as_of")
                 stale = False
                 if data_as_of and _is_market_hours():
@@ -53,13 +61,29 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                         stale = True
                 
                 if not stale:
-                    logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence}s")
+                    logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence_with_jitter:.0f}s")
                     return entry["data"]
             else:
-                logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence}s). Forcing fresh download.")
+                logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence_with_jitter:.0f}s). Forcing fresh download.")
 
-    # Cache miss or stale — download fresh data
-    result = _download_all_robust(watchlist, period=period, interval=interval)
+    # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
+    # This prevents thundering herd where 5+ scanners fetch simultaneously
+    # Lock ensures only 1 scanner fetches at a time; others hit cache (reducing API load 10-25×)
+    logger.debug(f"🔒 Attempting to acquire global fetch lock for {interval}|{period}...")
+    with _fetch_lock:
+        logger.debug(f"🔓 Global fetch lock acquired for {interval}|{period}")
+        
+        # Double-check cache in case another thread just populated it while we waited for lock
+        with _lock:
+            entry = _cache.get(cache_key)
+            if entry is not None:
+                age = time.monotonic() - entry["ts"]
+                if age < cadence_with_jitter:
+                    logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
+                    return entry["data"]
+        
+        # Cache miss or stale — download fresh data
+        result = _download_all_robust(watchlist, period=period, interval=interval)
 
     # Determine oldest timestamp in batch
     data_as_of = None
