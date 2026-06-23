@@ -2026,11 +2026,8 @@
 
     function renderKPIs(s) {
       const filteredTrades = window._currentFilteredTrades || ALL_TRADES;
-      const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      const yy = nowIst.getFullYear();
-      const mm = String(nowIst.getMonth() + 1).padStart(2, '0');
-      const dd = String(nowIst.getDate()).padStart(2, '0');
-      const todayStr = `${yy}-${mm}-${dd}`;
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const todayStr = formatter.format(new Date());
 
       const todaysCount = filteredTrades.filter(t => (t.alert_time || t.entry_date || '').startsWith(todayStr)).length;
       const judged = filteredTrades.filter(t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status));
@@ -2085,7 +2082,7 @@
           tableHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
-      renderTrades();
+      renderTradeTable();
     }
 
     window.signalLadderData = [];
@@ -2498,11 +2495,8 @@
     let sortCol = 'status', sortDir = 1;
 
     function buildTradeRows(trades, maxAbs, prefix) {
-      const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      const yy = nowIst.getFullYear();
-      const mm = String(nowIst.getMonth() + 1).padStart(2, '0');
-      const dd = String(nowIst.getDate()).padStart(2, '0');
-      const todayStr = `${yy}-${mm}-${dd}`;
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const todayStr = formatter.format(new Date());
 
       return trades.map((t, i) => {
         const id = prefix + i;
@@ -3053,6 +3047,58 @@
         return;
       }
       body.innerHTML = buildTradeRows(filtered, maxAbs, 'main-');
+      
+      // Calculate and append summary if drilled down
+      if (activeKpi && activeKpi !== 'total' && filtered.length > 0) {
+        let best = -Infinity, worst = Infinity, closedCount = 0;
+        let winCount = 0, lossCount = 0;
+        filtered.forEach(t => {
+            if (t.status === 'WIN' || t.status === 'LOSS') {
+                closedCount++;
+                const p = t.pnl_pct || 0;
+                if (p > best) best = p;
+                if (p < worst) worst = p;
+                if (t.status === 'WIN') winCount++;
+                if (t.status === 'LOSS') lossCount++;
+            }
+        });
+        
+        if (closedCount > 0) {
+            const winRate = winCount / closedCount;
+            const lossRate = lossCount / closedCount;
+            const avgWin = winCount > 0 ? filtered.filter(t=>t.status==='WIN').reduce((s,t)=>s+(t.pnl_pct||0),0)/winCount : 0;
+            const avgLoss = lossCount > 0 ? Math.abs(filtered.filter(t=>t.status==='LOSS').reduce((s,t)=>s+(t.pnl_pct||0),0)/lossCount) : 0;
+            const expectancy = (winRate * avgWin) - (lossRate * avgLoss);
+            
+            const bestStr = best === -Infinity ? '—' : `+${best.toFixed(2)}%`;
+            const worstStr = worst === Infinity ? '—' : `${worst.toFixed(2)}%`;
+            const expStr = isNaN(expectancy) ? '—' : `${expectancy > 0 ? '+' : ''}${expectancy.toFixed(2)}%`;
+            const expColor = isNaN(expectancy) || expectancy === 0 ? 'var(--text)' : (expectancy > 0 ? 'var(--accent)' : 'var(--warn)');
+            
+            const summaryHtml = `
+            <tr style="background: rgba(255,255,255,0.02); border-top: 2px solid var(--border);">
+                <td colspan="14" style="padding: 20px 16px; text-align: center;">
+                    <div style="display: inline-flex; gap: 48px; font-size: 13px;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Best Trade</span>
+                            <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${bestStr}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Worst Trade</span>
+                            <span style="color: var(--warn); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${worstStr}</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Expectancy</span>
+                            <span style="color: ${expColor}; font-weight: 700; font-family: var(--font-mono); font-size: 15px; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05);">${expStr}</span>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            `;
+            body.innerHTML += summaryHtml;
+        }
+      }
+
       document.querySelector('th[data-col="entry_date"]').textContent = 'Date & Time';
       document.querySelectorAll('thead th[data-col]').forEach(th => {
         th.classList.remove('sort-asc', 'sort-desc');

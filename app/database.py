@@ -3204,14 +3204,18 @@ def get_online_users_and_history():
         for row in online:
             row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
             fn = row.get('first_name') or ''
+            if fn.lower() == 'undefined': fn = ''
             ln = row.get('last_name') or ''
+            if ln.lower() == 'undefined': ln = ''
             row['name'] = f"{fn} {ln}".strip() or row['username']
             
         for row in history:
             row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
             row['logoff_time'] = row['logoff_time'].split('.')[0] if row['logoff_time'] else ''
             fn = row.get('first_name') or ''
+            if fn.lower() == 'undefined': fn = ''
             ln = row.get('last_name') or ''
+            if ln.lower() == 'undefined': ln = ''
             row['name'] = f"{fn} {ln}".strip() or row['username']
             
         return {"online": online, "history": history}
