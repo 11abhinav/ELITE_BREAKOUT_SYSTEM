@@ -805,9 +805,9 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks = []
 
-    # Intraday - run one cycle
     def _t_intraday():
         try:
+            database.DONT_SAVE_ALERTS = not market_open
             import intraday
             intraday.start(run_once=True)
         except Exception:
@@ -815,9 +815,9 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_intraday, timeout_per_task))
 
-    # Live scanner - run one cycle
     def _t_live():
         try:
+            database.DONT_SAVE_ALERTS = not market_open
             import live_scanner
             live_scanner.start(run_once=True)
         except Exception:
@@ -825,9 +825,9 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_live, timeout_per_task))
 
-    # Multi TF scanner - run one cycle
     def _t_multi_tf():
         try:
+            database.DONT_SAVE_ALERTS = not market_open
             import multi_tf_scanner
             multi_tf_scanner.start(run_once=True)
         except Exception:
@@ -835,9 +835,10 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_multi_tf, timeout_per_task))
 
-    # EOD scanner - single-shot
     def _t_eod():
         try:
+            # EOD is meant for 18:30+, so it should dry-run during market hours
+            database.DONT_SAVE_ALERTS = True
             import eod_scanner
             eod_scanner.start()
         except Exception:
@@ -845,9 +846,9 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_eod, timeout_per_task))
 
-    # Reversal scanner - single-shot (internal runner)
     def _t_reversal():
         try:
+            database.DONT_SAVE_ALERTS = True
             import reversal_scanner
             reversal_scanner.start()
         except Exception:
@@ -855,7 +856,6 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_reversal, timeout_per_task))
 
-    # Performance tracker - build once
     def _t_perf():
         try:
             from performance_tracker import build_performance_data
@@ -865,7 +865,7 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks.append((_t_perf, timeout_per_task))
 
-    # Execute tasks sequentially with timeouts to avoid heavy parallel API usage
+    # Execute tasks sequentially with timeouts
     for fn, to in tasks:
         logger.info(f"🧪 Running self-test task: {fn.__name__}")
         _run_with_timeout(fn, timeout=to)
