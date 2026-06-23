@@ -1939,19 +1939,26 @@ def api_breakout_watchlist():
         
         if data:
             try:
-                from data_providers.yfinance_fetcher import YFinanceFetcher
+                import pandas as pd
+                import os
+                from config import DATA_DIR
                 symbols = list(set([d["symbol"] for d in data]))
-                if symbols:
-                    fetcher = YFinanceFetcher()
-                    # Only fetch 1 day of data via YFinance (free, no Fyers limits)
-                    prices_data = fetcher.get_batch_ohlcv(symbols, interval="1d", period="1d", retries=1)
-                    prices = {}
-                    if prices_data:
-                        for sym, df in prices_data.items():
-                            if df is not None and not df.empty:
-                                prices[sym] = float(df["Close"].iloc[-1])
-                    for d in data:
-                        d["cmp"] = prices.get(d["symbol"])
+                prices = {}
+                for sym in symbols:
+                    sym_clean = sym.replace(':', '_')
+                    # Check the most frequently updated caches first (5m from Intraday, then 15m, then 1d)
+                    for interval in ["5m", "15m", "1d"]:
+                        file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
+                        if os.path.exists(file_path):
+                            try:
+                                df = pd.read_parquet(file_path)
+                                if not df.empty:
+                                    prices[sym] = float(df["Close"].iloc[-1])
+                                    break # Got the price, move to next symbol
+                            except Exception:
+                                pass
+                for d in data:
+                    d["cmp"] = prices.get(d["symbol"])
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to fetch CMP for watchlist: {e}")
