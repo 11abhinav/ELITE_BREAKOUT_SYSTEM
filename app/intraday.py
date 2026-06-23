@@ -269,16 +269,32 @@ def start(run_once=False):
                 data_15m_raw = f15.result()
                 data_5m_raw = f5.result()
 
+            # Handle rate limit / partial data gracefully
             if not data_15m_raw or not data_5m_raw:
-                logger.error("❌ YFinance returned 0 data for one of the timeframes. Aborting scan.")
+                missing = []
+                if not data_15m_raw:
+                    missing.append("15m")
+                if not data_5m_raw:
+                    missing.append("5m")
+                logger.warning(f"⚠️ YFinance returned 0 data for {','.join(missing)} (likely rate-limited). Continuing with partial data...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("INTRADAY", "DOWN", error_msg="CRITICAL: YFinance returned 0 data. Rate limited.")
+                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: {','.join(missing)} returned 0 symbols")
                 except Exception:
                     pass
-                return
-                
-            logger.info(f"📥 Data downloaded | 15m: {len(data_15m_raw)} | 5m: {len(data_5m_raw)}")
+                # Ensure we have at least empty dicts instead of None
+                if not data_15m_raw:
+                    data_15m_raw = {}
+                if not data_5m_raw:
+                    data_5m_raw = {}
+            else:
+                logger.info(f"✅ Data downloaded | 15m: {len(data_15m_raw)} | 5m: {len(data_5m_raw)}")
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health("INTRADAY", "OK", error_msg=None)
+                except Exception:
+                    pass
+
             
             # ── PRECOMPUTE INDICATORS ONCE PER DATASET ──
             for sym, df in data_15m_raw.items():

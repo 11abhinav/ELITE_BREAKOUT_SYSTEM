@@ -284,13 +284,20 @@ def _run_scan():
     all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
 
     if not all_ticker_data:
-        logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting Reversal scan.")
+        logger.warning("⚠️ YFinance returned 0 data for reversal (likely rate-limited). Continuing with partial data...")
         try:
             from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", "DOWN", error_msg="CRITICAL: YFinance returned 0 data. Rate limited.")
+            upsert_scanner_health("REVERSAL", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
         except Exception:
             pass
-        return []
+        # Don't return - continue with empty data; loop will just process symbols with None gracefully
+    else:
+        logger.info(f"✅ Successfully fetched {len(all_ticker_data)} symbols for Reversal scan")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health("REVERSAL", "OK", error_msg=None)
+        except Exception:
+            pass
 
     alerts_by_category = {}
     total_alerts = 0

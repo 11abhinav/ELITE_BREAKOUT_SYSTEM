@@ -76,10 +76,19 @@ def run_hourly_phase():
     # 2. Fetch 1H data
     ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
     
-    # Handle rate limiting or fetch failures gracefully
-    if ticker_data is None or not ticker_data:
-        logger.warning("⚠️ 1H data fetch failed or rate-limited. Aborting hourly phase.")
-        return
+    # Handle rate limiting or fetch failures gracefully - continue with partial data
+    if ticker_data is None:
+        logger.warning("⚠️ 1H data fetch returned None (rate-limited or API down). Continuing with empty data...")
+        ticker_data = {}
+    elif not ticker_data:
+        logger.warning("⚠️ 1H data fetch returned 0 symbols (likely rate-limited). Continuing with partial data...")
+    else:
+        logger.info(f"✅ Successfully fetched {len(ticker_data)} symbols for 1H hourly phase")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health("MULTI_TF", "OK", error_msg=None)
+        except Exception:
+            pass
     
     for idx, row in watchlist.iterrows():
         symbol = row["Stock"]
@@ -158,7 +167,11 @@ def run_lower_tf_phase(current_regime="BULL"):
     
     import pandas as pd
     data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
+    if data_30m is None:
+        data_30m = {}
     data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
+    if data_5m is None:
+        data_5m = {}
 
     ist_now = datetime.now(IST)
 

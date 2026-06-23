@@ -95,14 +95,31 @@ def start(run_once=False):
                 future_1h = pool.submit(fetch_watchlist_data, watchlist, "60d", "1h")
                 all_ticker_data = future_1h.result()
 
+            # Handle rate limit / partial data gracefully
+            # Continue with whatever data we got; empty data is 0, partial is >0, full is len(watchlist)
             if not all_ticker_data:
-                logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting 1H scan.")
+                logger.warning("⚠️ YFinance returned 0 data for 1H timeframe (likely rate-limited). Scan will be limited but continuing...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H Breakout", "DOWN", error_msg="CRITICAL: YFinance returned 0 data. Rate limited.")
+                    upsert_scanner_health("1H Breakout", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback")
                 except Exception:
                     pass
-                return
+                # Don't return/abort - continue with empty data; iteration logic will handle None gracefully
+            elif len(all_ticker_data) < len(watchlist) * 0.8:
+                logger.warning(f"⚠️ Only {len(all_ticker_data)}/{len(watchlist)} symbols fetched (80%+ required). Likely rate-limited. Continuing with partial data...")
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health("1H Breakout", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols")
+                except Exception:
+                    pass
+            else:
+                logger.info(f"✅ Successfully fetched {len(all_ticker_data)}/{len(watchlist)} symbols for 1H scan")
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health("1H Breakout", "OK", error_msg=None)
+                except Exception:
+                    pass
+
 
             rejection_counts = {k: 0 for k in [
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 

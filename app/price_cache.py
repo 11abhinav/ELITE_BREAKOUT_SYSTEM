@@ -105,6 +105,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
     total = len(symbols)
     batch_size = BATCH_DOWNLOAD_SIZE
     fetcher = get_fetcher()
+    rate_limited = False
 
     for i in range(0, total, batch_size):
         batch = symbols[i : i + batch_size]
@@ -120,6 +121,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
                 pass
         else:
             logger.error(f"❌ Batch failed or returned empty for {len(batch)} symbols.")
+            rate_limited = True
             try:
                 mark_failure(f"yfinance:{interval}", f"Batch failed for symbols {batch}.")
             except Exception:
@@ -128,21 +130,30 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 
-    # Record missing symbols
+    # Record missing symbols but DON'T reject the entire fetch
+    missing_count = 0
     for sym in symbols:
         if sym not in all_data:
+            missing_count += 1
             try:
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
                 pass
 
     try:
+        # Mark as success if we got ANY data, not just full coverage
+        # Partial data + stale fallback is better than aborting the scan
         if len(all_data) > 0:
             mark_success(f"yfinance:{interval}")
+        elif rate_limited:
+            # Rate limited but couldn't fetch anything
+            mark_failure(f"yfinance:{interval}", "Rate limited and no fallback data available")
         else:
             mark_failure(f"yfinance:{interval}", "No symbols returned after batch + fallback")
     except Exception:
         pass
+    
+    return all_data
 
 def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d") -> dict[str, pd.DataFrame]:
     """

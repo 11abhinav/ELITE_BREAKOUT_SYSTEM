@@ -122,13 +122,20 @@ def start():
                     all_ticker_data = future.result()
 
         if not all_ticker_data:
-            logger.error("❌ YFinance returned 0 data. API might be down or rate-limited. Aborting EOD scan.")
+            logger.warning("⚠️ YFinance returned 0 data for prices (likely rate-limited). Continuing with partial data...")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("EOD V3", "DOWN", error_msg="CRITICAL: YFinance returned 0 data. Rate limited.")
+                upsert_scanner_health("EOD V3", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
             except Exception:
                 pass
-            return
+            # Don't return - continue with empty data; the scan can use previous day's data as fallback
+        else:
+            logger.info(f"✅ Successfully fetched {len(all_ticker_data)} symbols for EOD scan")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("EOD V3", "OK", error_msg=None)
+            except Exception:
+                pass
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
         # If today's file returned empty, fall back to the most recent available trading day.

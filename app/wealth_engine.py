@@ -610,11 +610,14 @@ def run_wealth_scan():
         all_historical_data = fetch_unified_historical(all_symbols, period="1y", interval="1d")
         
         # Handle rate limiting or fetch failures gracefully
-        if all_historical_data is None or not all_historical_data:
-            logger.warning(f"⚠️ Batch fetch failed or rate-limited. Using fallback: individual fetches inside threads.")
-            all_historical_data = {}  # Empty cache → threads will fetch individually (with fallback)
+        # Return empty dict (not None) so thread logic can fallback to individual fetches
+        if all_historical_data is None:
+            logger.warning(f"⚠️ Batch fetch returned None (rate-limited or API down). Threads will use fallback data.")
+            all_historical_data = {}
         
-        logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {len(all_historical_data)} symbols cached.")
+        fetched_count = len(all_historical_data) if all_historical_data else 0
+        logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {fetched_count}/{len(df)} symbols have fresh data.")
+
 
         def process_symbol(idx, row, historical_cache=None):
             try:
