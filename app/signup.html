@@ -205,38 +205,37 @@
 
   /* Selection Color */
   ::selection { background: var(--accent); color: #000; }
-
-  /* Chat Widget */
-  .chat-widget {
-    position: fixed; bottom: 24px; right: 24px;
-    width: 320px; background: var(--glass-bg);
-    border: 1px solid var(--glass-border); border-radius: 16px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
-    backdrop-filter: blur(24px); z-index: 1000;
-    overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Support Modal */
+  .support-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999;
+    display: none; align-items: center; justify-content: center; backdrop-filter: blur(8px);
   }
-  .chat-header {
-    background: rgba(0, 229, 160, 0.1); padding: 14px 20px; cursor: pointer;
-    display: flex; justify-content: space-between; align-items: center;
-    font-family: var(--font-heading); font-weight: 600; font-size: 15px;
-    border-bottom: 1px solid rgba(255,255,255,0.05); color: #fff;
+  .support-modal {
+    background: var(--glass-bg); padding: 40px; border-radius: 24px;
+    border: 1px solid var(--glass-border); width: 100%; max-width: 400px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5); position: relative;
+    animation: fadeUp 0.3s ease-out;
   }
-  .chat-header:hover { background: rgba(0, 229, 160, 0.15); }
-  .chat-body { display: none; padding: 20px; }
-  .chat-body input, .chat-body textarea {
-    width: 100%; margin-bottom: 12px; background: rgba(0,0,0,0.4);
-    border: 1px solid var(--glass-border); border-radius: 8px;
-    color: var(--text); padding: 12px; font-family: var(--font-body);
+  .support-modal h3 { font-family: var(--font-heading); margin: 0 0 16px 0; font-size: 20px; }
+  .close-modal {
+    position: absolute; top: 20px; right: 20px; cursor: pointer;
+    font-size: 24px; color: var(--muted); line-height: 1; transition: color 0.2s;
+  }
+  .close-modal:hover { color: #fff; }
+  .support-modal input, .support-modal textarea {
+    width: 100%; margin-bottom: 16px; background: rgba(0,0,0,0.4);
+    border: 1px solid var(--glass-border); border-radius: 12px;
+    color: var(--text); padding: 16px; font-family: var(--font-body);
     font-size: 14px; outline: none; transition: border 0.3s;
   }
-  .chat-body textarea { resize: none; }
-  .chat-body input:focus, .chat-body textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,160,0.1); }
-  .chat-body button {
-    width: 100%; padding: 12px; font-family: var(--font-heading);
-    font-weight: 600; background: var(--accent); color: #000;
-    border: none; border-radius: 8px; cursor: pointer; transition: 0.2s;
+  .support-modal textarea { resize: none; }
+  .support-modal input:focus, .support-modal textarea:focus { border-color: var(--accent); }
+  .support-modal button {
+    width: 100%; padding: 16px; font-family: var(--font-heading); text-transform: uppercase;
+    font-weight: 700; background: var(--accent); color: #000;
+    border: none; border-radius: 12px; cursor: pointer; transition: 0.2s;
   }
-  .chat-body button:hover { background: #00faae; box-shadow: 0 4px 12px var(--accent-glow); }
+  .support-modal button:hover { background: #00faae; box-shadow: 0 4px 12px var(--accent-glow); }
 
   /* Responsive */
   @media(max-width: 900px) {
@@ -245,8 +244,9 @@
     body { overflow: auto; }
     .form-panel { padding: 20px; }
   }
+
   @media(max-width: 480px) {
-    .chat-widget { width: calc(100vw - 40px); right: 20px; bottom: 20px; }
+    .support-modal { padding: 32px 20px; width: calc(100vw - 40px); }
     .container { padding: 32px 20px; }
     .form-panel { padding: 12px; }
     .form-row { flex-direction: column; gap: 0; }
@@ -309,20 +309,19 @@
       </form>
       
       <div class="footer stagger-6">
-        Already registered? <a href="/login">Authenticate Here</a>
+        Already registered? <a href="/login">Authenticate Here</a><br><br>
+        <a href="#" onclick="openSupportModal(); return false;" style="font-weight: 500; font-size: 13px;">Need help? Contact Support</a>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Chat Widget -->
-<div id="chat-widget" class="chat-widget">
-  <div class="chat-header" onclick="toggleChat()">
-    <span>💬 Contact Admin</span>
-    <span id="chat-toggle-icon">▲</span>
-  </div>
-  <div class="chat-body" id="chat-body">
-    <div id="chat-success" style="display:none; color: var(--accent); text-align:center; padding: 20px; font-weight:600;">Message sent successfully!</div>
+<!-- Support Modal -->
+<div id="support-modal-overlay" class="support-modal-overlay">
+  <div class="support-modal">
+    <span class="close-modal" onclick="closeSupportModal()">&times;</span>
+    <h3>Contact Support</h3>
+    <div id="chat-success" style="display:none; color: var(--accent); text-align:center; padding: 10px 0 20px 0; font-weight:600;">Message sent successfully!</div>
     <form id="chat-form">
       <input type="text" id="chat-name" placeholder="Your Name" required>
       <input type="email" id="chat-email" placeholder="Your Email" required>
@@ -394,17 +393,20 @@
     }
   });
 
-  function toggleChat() {
-    const body = document.getElementById('chat-body');
-    const icon = document.getElementById('chat-toggle-icon');
-    if (body.style.display === 'block') {
-      body.style.display = 'none';
-      icon.textContent = '▲';
-    } else {
-      body.style.display = 'block';
-      icon.textContent = '▼';
-    }
+  function openSupportModal() {
+    document.getElementById('support-modal-overlay').style.display = 'flex';
   }
+
+  function closeSupportModal() {
+    document.getElementById('support-modal-overlay').style.display = 'none';
+  }
+
+  // Close modal when clicking outside of it
+  document.getElementById('support-modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) {
+      closeSupportModal();
+    }
+  });
 
   document.getElementById('chat-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -423,7 +425,7 @@
         document.getElementById('chat-form').style.display = 'none';
         document.getElementById('chat-success').style.display = 'block';
         setTimeout(() => {
-          toggleChat();
+          closeSupportModal();
           document.getElementById('chat-form').reset();
           document.getElementById('chat-form').style.display = 'block';
           document.getElementById('chat-success').style.display = 'none';

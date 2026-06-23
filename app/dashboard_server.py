@@ -225,9 +225,21 @@ def guest_chat():
         return jsonify({"error": "Invalid email address"}), 400
         
     try:
+        # Save to database
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO global_notifications (type, title, message)
+                    VALUES (%s, %s, %s)
+                """, ('support', f"Support Request from {name}", f"Email: {email}\n\nMessage:\n{message}"))
+            conn.commit()
+
+        # Send to telegram
         from telegram_engine import queue_telegram_message
         telegram_msg = f"📩 <b>New Guest Message</b>\n\n👤 <b>Name:</b> {name}\n📧 <b>Email:</b> {email}\n💬 <b>Message:</b>\n{message}"
         queue_telegram_message(telegram_msg)
+        
         return jsonify({"success": True, "message": "Message sent successfully!"}), 200
     except Exception as e:
         logger.error(f"Guest chat error: {e}")
