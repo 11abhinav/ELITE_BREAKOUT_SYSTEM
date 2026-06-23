@@ -55,6 +55,11 @@ class FyersFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
         """Translates standard symbols (e.g. RELIANCE, FIVESTAR.NS, ^NSEI) to Fyers specific formats."""
         sym = symbol.upper()
+        
+        # If already formatted with exchange prefix, return as is (prevents double-normalization)
+        if sym.startswith("NSE:") or sym.startswith("BSE:") or sym.startswith("MCX:"):
+            return sym
+            
         if sym.endswith(".NS"):
             sym = sym[:-3]
         sym = sym.replace("_", "-")
@@ -71,6 +76,7 @@ class FyersFetcher(DataFetcher):
             
         # Standard stock format
         return f"NSE:{sym}-EQ"
+
 
     def _get_date_range(self, period: str) -> tuple[str, str]:
         """Calculates historical range_from and range_to date strings based on period string."""
