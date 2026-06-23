@@ -893,6 +893,37 @@ function renderKPIs(s) {
   window._kpiDefs = defs;
 }
 
+window.drillKpi = function(kpiId, element) {
+  activeKpi = kpiId;
+  const def = window._kpiDefs ? window._kpiDefs.find(d => d.id === kpiId) : null;
+  if (def) {
+    window._currentFilteredTrades = ALL_TRADES.filter(def.filter);
+    // Remove active class from all KPIs
+    document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
+    // Add active class to clicked element
+    if (element) element.classList.add('active');
+    
+    // Re-render table and stats
+    renderTradeTable();
+    renderCategoryStats();
+  }
+}
+
+window.fetchSignalLadder = async function() {
+  try {
+     const res = await fetch('/api/active_watchlist');
+     if (!res.ok) {
+         const ladderEl = document.getElementById('signalLadderRefresh');
+         if (ladderEl && ladderEl.parentElement) {
+             ladderEl.parentElement.style.display = 'none';
+         }
+         return;
+     }
+  } catch(e) {
+      console.warn("fetchSignalLadder not implemented or failed");
+  }
+}
+
 // ── TRADE TABLE
 let expandedIds = new Set();
 let sortCol = 'status', sortDir = 1;
@@ -2010,10 +2041,19 @@ async function markMessagesAsRead() {
   } catch (e) {}
 }
 
+let chatPollInterval = null;
+
 async function fetchChatMessages() {
   const viewerName = localStorage.getItem('viewerName') || 'Unknown';
   try {
     const res = await fetch(`${getChatApiBase()}/api/messages?user=${encodeURIComponent(viewerName)}&t=${Date.now()}`, { cache: 'no-store' });
+    if (res.status === 404 || res.status === 401 || res.status === 403) {
+      if (chatPollInterval) {
+        clearInterval(chatPollInterval);
+        chatPollInterval = null;
+      }
+      return;
+    }
     if (!res.ok) return;
     const messages = await res.json();
     
@@ -2098,7 +2138,7 @@ async function sendChatMessage() {
 }
 
 // Poll for messages every 3 seconds
-setInterval(fetchChatMessages, 3000);
+chatPollInterval = setInterval(fetchChatMessages, 3000);
 // Initial fetch
 setTimeout(fetchChatMessages, 1000);
 </script>

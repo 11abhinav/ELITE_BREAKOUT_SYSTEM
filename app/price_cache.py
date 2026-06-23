@@ -180,6 +180,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 fetch_groups["FULL"] = []
             fetch_groups["FULL"].append((sym, None))
 
+    fresh_count = 0
+
     # Process each group
     for group_key, items in fetch_groups.items():
         group_symbols = [item[0] for item in items]
@@ -198,11 +200,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             if batch_results:
                 for sym in batch:
                     new_df = batch_results.get(sym)
+                    cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
                     if new_df is not None and not new_df.empty:
-                        # Find the matching cached_df
-                        cached_df = next((item[1] for item in items if item[0] == sym), None)
-                        
+                        fresh_count += 1
                         if cached_df is not None and not cached_df.empty:
                             # Merge them
                             combined = pd.concat([cached_df, new_df])
@@ -229,32 +230,44 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             all_data[sym].to_parquet(file_path)
                         except Exception as e:
                             logger.error(f"Failed to write disk cache for {sym}: {e}")
-                            
+                    else:
+                        # Fallback to stale cached data if fresh fetch returned empty
+                        if cached_df is not None and not cached_df.empty:
+                            all_data[sym] = cached_df
             else:
                 logger.error(f"❌ Batch {desc} failed or returned empty for {len(batch)} symbols.")
                 rate_limited = True
+                # Fallback entire batch to stale cache
+                for sym in batch:
+                    cached_df = next((item[1] for item in items if item[0] == sym), None)
+                    if cached_df is not None and not cached_df.empty:
+                        all_data[sym] = cached_df
                 time.sleep(0.5)
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 
     # Record missing symbols but DON'T reject the entire fetch
-    missing_count = 0
     for sym in symbols:
         if sym not in all_data:
-            missing_count += 1
             try:
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
                 pass
 
     try:
-        # Mark as success if we got ANY data, not just full coverage
-        if len(all_data) > 0:
-            mark_success(f"yfinance:{interval}")
-        elif rate_limited:
-            mark_failure(f"yfinance:{interval}", "Rate limited and no fallback data available")
+        from data_fetch_status import mark_success, mark_failure
+        
+        failed_fresh = total - fresh_count
+        
+        if total > 0:
+            failure_rate = failed_fresh / total
+            if failure_rate > 0.25:
+                mark_failure(f"yfinance:{interval}", f"Scanner failed: >25% stale/missing ({failed_fresh}/{total} records failed fresh fetch)")
+            else:
+                # >= 75% success is acceptable
+                mark_success(f"yfinance:{interval}")
         else:
-            mark_failure(f"yfinance:{interval}", "No symbols returned after batch + fallback")
+            mark_failure(f"yfinance:{interval}", "No data returned (completely empty)")
     except Exception:
         pass
     

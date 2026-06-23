@@ -209,6 +209,30 @@ def signup():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+@app.route("/api/guest_chat", methods=["POST"])
+@csrf.exempt
+@limiter.limit("3 per minute")
+def guest_chat():
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip()
+    message = request.form.get("message", "").strip()
+    
+    if not name or not email or not message:
+        return jsonify({"error": "Name, email, and message are required"}), 400
+        
+    import re
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return jsonify({"error": "Invalid email address"}), 400
+        
+    try:
+        from telegram_engine import queue_telegram_message
+        telegram_msg = f"📩 <b>New Guest Message</b>\n\n👤 <b>Name:</b> {name}\n📧 <b>Email:</b> {email}\n💬 <b>Message:</b>\n{message}"
+        queue_telegram_message(telegram_msg)
+        return jsonify({"success": True, "message": "Message sent successfully!"}), 200
+    except Exception as e:
+        logger.error(f"Guest chat error: {e}")
+        return jsonify({"error": "Failed to send message"}), 500
+
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.clear()

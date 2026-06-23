@@ -83,9 +83,16 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
                     prices[sym] = float(df["Close"].dropna().iloc[-1])
                 except Exception:
                     pass
+        from data_fetch_status import mark_success
+        mark_success('performance_tracker')
         return prices
-    except Exception:
-        logger.warning("⚠️ DataFetcher price fetch failed in performance_tracker")
+    except Exception as e:
+        logger.warning(f"⚠️ DataFetcher price fetch failed in performance_tracker: {e}")
+        try:
+            from data_fetch_status import mark_failure
+            mark_failure('performance_tracker', f"Batch price fetch failed: {str(e)}")
+        except Exception:
+            pass
         return {}
 
 
@@ -170,8 +177,13 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime]) ->
 
         return hist if not hist.empty else None
 
-    except Exception:
-        logger.exception(f"⚠️ Could not fetch bars for {symbol} (alert={alert_time_val})")
+    except Exception as e:
+        logger.exception(f"⚠️ Could not fetch bars for {symbol} (alert={alert_time_val}): {e}")
+        try:
+            from data_fetch_status import mark_failure
+            mark_failure('performance_tracker', f"{symbol} bars fetch failed: {str(e)}")
+        except Exception:
+            pass
         return None
 
 

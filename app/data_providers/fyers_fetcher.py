@@ -254,6 +254,11 @@ class FyersFetcher(DataFetcher):
                 time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
+            try:
+            from data_fetch_status import mark_failure
+            mark_failure('fyers', f"Failed to download history for {symbol} after {retries} attempts.")
+        except Exception:
+            pass
         return None
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
@@ -335,7 +340,17 @@ class FyersFetcher(DataFetcher):
             else:
                 error_msg = response.get("message", "Unknown error") if response else "Empty response"
                 logger.error(f"Fyers quotes API returned error for {ns_symbol}: {error_msg}")
+                try:
+                    from data_fetch_status import mark_failure
+                    mark_failure('fyers', f"Quote API error for {symbol}: {error_msg}")
+                except Exception:
+                    pass
                 return {}
         except Exception as e:
             logger.error(f"Failed to fetch quote for symbol {symbol}: {e}")
+            try:
+                from data_fetch_status import mark_failure
+                mark_failure('fyers', f"Quote fetch exception for {symbol}: {str(e)}")
+            except Exception:
+                pass
             return {}
