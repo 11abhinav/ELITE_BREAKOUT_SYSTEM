@@ -1939,17 +1939,19 @@ def api_breakout_watchlist():
         
         if data:
             try:
-                import pandas as pd
-                from price_cache import fetch_watchlist_data
+                from data_providers.yfinance_fetcher import YFinanceFetcher
                 symbols = list(set([d["symbol"] for d in data]))
-                wl_df = pd.DataFrame([{"Stock": s} for s in symbols])
-                prices_data = fetch_watchlist_data(wl_df, period="5d", interval="1d")
-                prices = {}
-                for sym, df in prices_data.items():
-                    if not df.empty:
-                        prices[sym] = float(df["Close"].iloc[-1])
-                for d in data:
-                    d["cmp"] = prices.get(d["symbol"])
+                if symbols:
+                    fetcher = YFinanceFetcher()
+                    # Only fetch 1 day of data via YFinance (free, no Fyers limits)
+                    prices_data = fetcher.get_batch_ohlcv(symbols, interval="1d", period="1d", retries=1)
+                    prices = {}
+                    if prices_data:
+                        for sym, df in prices_data.items():
+                            if df is not None and not df.empty:
+                                prices[sym] = float(df["Close"].iloc[-1])
+                    for d in data:
+                        d["cmp"] = prices.get(d["symbol"])
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to fetch CMP for watchlist: {e}")
