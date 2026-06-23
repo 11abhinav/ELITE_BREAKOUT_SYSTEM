@@ -608,6 +608,12 @@ def run_wealth_scan():
         all_symbols = df["Stock"].tolist()
         from price_cache import fetch_unified_historical
         all_historical_data = fetch_unified_historical(all_symbols, period="1y", interval="1d")
+        
+        # Handle rate limiting or fetch failures gracefully
+        if all_historical_data is None or not all_historical_data:
+            logger.warning(f"⚠️ Batch fetch failed or rate-limited. Using fallback: individual fetches inside threads.")
+            all_historical_data = {}  # Empty cache → threads will fetch individually (with fallback)
+        
         logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {len(all_historical_data)} symbols cached.")
 
         def process_symbol(idx, row, historical_cache=None):
