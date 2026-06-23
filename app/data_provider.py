@@ -54,6 +54,7 @@ class YFinanceFetcher(DataFetcher):
 
                 if df is not None and not df.empty:
                     # Flatten MultiIndex if it exists
+                    # For default yfinance (no group_by): Level 0 = Price types, Level 1 = Tickers
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
                     # Reset index so 'Date' or 'Datetime' is a column
@@ -103,7 +104,9 @@ class YFinanceFetcher(DataFetcher):
                 # ensure a consistent format (reset index)
                 try:
                     if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
+                        # For group_by='ticker' (from PriceProvider): Level 0 = Tickers, Level 1 = Price types
+                        # So we need to flatten to the price types (level 1)
+                        df.columns = df.columns.get_level_values(1)
                     df = df.reset_index().copy()
                     # preserve any stale marker set by provider
                     if getattr(df, 'attrs', {}).get('is_stale'):

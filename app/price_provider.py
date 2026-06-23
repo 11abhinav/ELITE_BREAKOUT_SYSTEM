@@ -198,11 +198,9 @@ class PriceProvider:
                     if isinstance(df, dict):
                         result[t] = df.get(t)
                     else:
-                        # extract columns for ticker
+                        # extract columns for ticker (tickers are in level 0)
                         if t in df.columns.get_level_values(0):
                             result[t] = df[t].dropna(how='all')
-                        elif t in df.columns.get_level_values(1):
-                            result[t] = df.xs(t, axis=1, level=1).dropna(how='all')
                         else:
                             result[t] = None
             except Exception:
