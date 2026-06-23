@@ -2527,6 +2527,7 @@ async function doRefresh(isAuto = false) {
   await loadCapitalInfo(); // Ensure capital is always fresh on refresh
   renderTradeTable();
   updateSim();
+  loadPendingUsers();
 
   if (diagnosticsLoaded) {
       loadDiagnostics();
@@ -2903,6 +2904,7 @@ async function initDashboard() {
   loadCapitalInfo(); 
   renderTradeTable();
   fetchSignalLadder();
+  loadPendingUsers();
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
   setInterval(async () => {
@@ -3573,7 +3575,7 @@ async function fetchNotifications() {
         // Render pending user notifications first
         pendingData.forEach(u => {
             html += `
-                <div class="notification-item unseen" style="cursor:pointer;" onclick="document.getElementById('pendingUsersContainer').scrollIntoView({behavior: 'smooth'})">
+                <div class="notification-item unseen" style="cursor:pointer;" onclick="document.getElementById('notif-dropdown').classList.remove('show'); document.getElementById('pendingUsersContainer').scrollIntoView({behavior: 'smooth', block: 'start'})">
                     <div class="notification-item-title notification-type-sell">Pending Action: User Approval</div>
                     <div class="notification-item-msg">User <b>${u.username}</b> (${u.email}) is waiting for approval.</div>
                     <div class="notification-item-meta">
@@ -3677,6 +3679,79 @@ async function markAllNotificationsSeen(e) {
 // Poll every 5 seconds
 setInterval(fetchNotifications, 5000);
 fetchNotifications();
+
+async function loadPendingUsers() {
+    try {
+        const res = await fetch('/admin/pending_users');
+        const container = document.getElementById('pendingUsersContainer');
+        if (!res.ok) {
+            container.style.display = 'none';
+            return;
+        }
+        const users = await res.json();
+        const tbody = document.getElementById('pendingUsersTableBody');
+        
+        if (users.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'block';
+        let html = '';
+        users.forEach(u => {
+            html += `
+                <tr>
+                  <td>${u.username}</td>
+                  <td>${u.first_name || ''} ${u.last_name || ''}</td>
+                  <td>${u.email}</td>
+                  <td>${u.mobile}</td>
+                  <td style="text-align:right; display:flex; gap:4px; justify-content:flex-end;">
+                    <button class="refresh-btn" style="background:var(--success); color:white; border:none; padding:4px 8px; font-size:12px;" onclick="approveUser(${u.user_id})">Approve</button>
+                    <button class="refresh-btn" style="background:var(--warn); color:white; border:none; padding:4px 8px; font-size:12px;" onclick="rejectUser(${u.user_id})">Reject</button>
+                  </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+async function approveUser(id) {
+    if(!confirm('Approve this user?')) return;
+    try {
+        const res = await fetch(`/admin/approve_user/${id}`, {method: 'POST'});
+        if(res.ok) {
+            loadPendingUsers();
+            fetchNotifications();
+        } else {
+            const data = await res.json();
+            alert('Error: ' + data.error);
+        }
+    } catch(e) {
+        console.error(e);
+        alert('Failed to approve user');
+    }
+}
+
+async function rejectUser(id) {
+    if(!confirm('Reject this user and delete account?')) return;
+    try {
+        const res = await fetch(`/admin/reject_user/${id}`, {method: 'POST'});
+        if(res.ok) {
+            loadPendingUsers();
+            fetchNotifications();
+        } else {
+            const data = await res.json();
+            alert('Error: ' + data.error);
+        }
+    } catch(e) {
+        console.error(e);
+        alert('Failed to reject user');
+    }
+}
+
 // ============================================================================
 
 </script>
