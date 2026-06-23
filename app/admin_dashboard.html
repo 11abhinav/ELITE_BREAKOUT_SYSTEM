@@ -1434,7 +1434,10 @@
           <div class="notification-dropdown" id="notif-dropdown">
             <div class="notification-header">
               <h3>Alerts & Notifications</h3>
-              <span class="mark-all-seen" onclick="markAllNotificationsSeen(event)">Mark all seen</span>
+              <div style="display: flex; gap: 12px; align-items: center;">
+                <span class="mark-all-seen" onclick="markAllNotificationsSeen(event)">Mark all seen</span>
+                <span class="mark-all-seen" style="color: var(--warn);" onclick="clearAllNotifications(event)">Clear all</span>
+              </div>
             </div>
             <div class="notification-list" id="notif-list">
               <!-- Items injected by JS -->
@@ -4699,6 +4702,17 @@ async function markAllNotificationsSeen(e) {
     if(e) e.stopPropagation();
     try {
         await fetch('/api/notifications/mark_all_seen', {method: 'POST'});
+        fetchNotifications();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function clearAllNotifications(e) {
+    if(e) e.stopPropagation();
+    if(!confirm("Are you sure you want to clear all notifications?")) return;
+    try {
+        await fetch('/api/notifications/clear_all', {method: 'POST'});
         fetchNotifications();
     } catch (e) {
         console.error(e);

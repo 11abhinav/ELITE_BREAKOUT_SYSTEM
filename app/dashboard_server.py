@@ -429,6 +429,20 @@ def mark_all_notifications_seen():
         logger.error(f"Error marking all notifications as seen: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/notifications/clear_all', methods=['POST'])
+@login_required
+def clear_all_notifications():
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM global_notifications')
+            conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error clearing all notifications: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # ── CORS + cache headers on every response ──────────────────────────────────────────
 @app.after_request
 def add_headers(response):
