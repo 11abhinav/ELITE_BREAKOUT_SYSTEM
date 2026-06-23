@@ -722,6 +722,26 @@ def init_db():
                 cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL")
                 cur.execute("UPDATE users SET password_hash = 'PLACEHOLDER' WHERE password_hash IS NULL")
                 cur.execute("ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL")
+                
+                cur.execute("""
+                DO $$
+                BEGIN
+                    BEGIN
+                        ALTER TABLE users ADD CONSTRAINT uq_users_username UNIQUE (username);
+                    EXCEPTION WHEN others THEN NULL;
+                    END;
+                    
+                    BEGIN
+                        ALTER TABLE users ADD CONSTRAINT uq_users_email UNIQUE (email);
+                    EXCEPTION WHEN others THEN NULL;
+                    END;
+                    
+                    BEGIN
+                        ALTER TABLE users ADD CONSTRAINT uq_users_mobile UNIQUE (mobile);
+                    EXCEPTION WHEN others THEN NULL;
+                    END;
+                END $$;
+                """)
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -3742,9 +3762,21 @@ def bootstrap_admin():
 
 def create_user(username, email, mobile, password, first_name='', last_name='', role='user'):
     try:
-        p_hash = generate_password_hash(password, method='scrypt')
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # Manually check for duplicates since older DB schemas might lack UNIQUE constraints
+                cur.execute("SELECT username, email, mobile FROM users WHERE username = %s OR email = %s OR mobile = %s", (username, email, mobile))
+                row = cur.fetchone()
+                if row:
+                    existing_username, existing_email, existing_mobile = row
+                    if existing_username == username:
+                        raise ValueError("Username already exists")
+                    if existing_email == email:
+                        raise ValueError("Email already exists")
+                    if existing_mobile == mobile:
+                        raise ValueError("Mobile already exists")
+
+                p_hash = generate_password_hash(password, method='scrypt')
                 cur.execute("""
                     INSERT INTO users (username, email, mobile, password_hash, first_name, last_name, role, is_active)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
@@ -3753,6 +3785,8 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
                 user_id = cur.fetchone()[0]
             conn.commit()
             return user_id
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(f"Failed to create user: {e}")
         return None

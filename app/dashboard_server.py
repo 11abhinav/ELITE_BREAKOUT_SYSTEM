@@ -81,8 +81,8 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
 
-app.config['WTF_CSRF_ENABLED'] = False
-csrf = CSRFProtect(app)
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False
+# csrf = CSRFProtect(app)
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -192,15 +192,18 @@ def signup():
     if not all([username, email, mobile, password]):
         return jsonify({"error": "All fields are required"}), 400
         
-    user_id = database.create_user(username, email, mobile, password, first_name, last_name, role='user')
-    if user_id:
-        # Success. Do NOT log them in. 
-        # For simplicity with fetch, just return 200 JSON with a success flag,
-        # or rely on frontend to redirect to a 'pending' page or login page with a message.
-        return jsonify({"success": True, "message": "Account created. Pending admin approval."}), 200
-    
-    # Duplicate or DB error
-    return jsonify({"error": "Username, Email, or Mobile already exists"}), 400
+    try:
+        user_id = database.create_user(username, email, mobile, password, first_name, last_name, role='user')
+        if user_id:
+            # Success. Do NOT log them in. 
+            # For simplicity with fetch, just return 200 JSON with a success flag,
+            # or rely on frontend to redirect to a 'pending' page or login page with a message.
+            return jsonify({"success": True, "message": "Account created. Pending admin approval."}), 200
+        
+        # Duplicate or DB error
+        return jsonify({"error": "Failed to create account"}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
@@ -236,6 +239,11 @@ def complete_profile():
         
         with database.get_connection() as conn:
             with conn.cursor() as cur:
+                # Enforce unique email/mobile before updating
+                cur.execute("SELECT user_id FROM users WHERE (username = %s OR email = %s OR mobile = %s) AND user_id != %s", (username, email, mobile, session['user_id']))
+                if cur.fetchone():
+                    return jsonify({"error": "Error updating profile. Username/Email/Mobile already in use."}), 400
+
                 cur.execute("""
                     UPDATE users 
                     SET username = %s, email = %s, mobile = %s, first_name = %s, last_name = %s, 
