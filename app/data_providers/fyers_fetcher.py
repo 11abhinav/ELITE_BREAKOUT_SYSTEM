@@ -36,8 +36,8 @@ class RateLimiter:
             self.last_call = time.time()
 
 # Shared rate limiter across Fyers fetcher instances. 
-# Fyers limit is 10/sec. We use 4.0 to ensure bursts from threads don't overwhelm it.
-_fyers_rate_limiter = RateLimiter(max_per_second=4.0)
+# Fyers limit is often ~200/minute. We use 2.5 to stay around 150/min.
+_fyers_rate_limiter = RateLimiter(max_per_second=2.5)
 
 
 class FyersFetcher(DataFetcher):
@@ -127,10 +127,17 @@ class FyersFetcher(DataFetcher):
         # Ensure we never produce a span > 365 days for daily resolution callers
         return start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         """Fetch OHLCV data for a single symbol from Fyers."""
         ns_symbol = self._normalize_symbol(symbol)
-        logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
+        
+        # Determine if this is an incremental fetch
+        if range_from and range_to:
+            logger.info(f"📥 Fetching incremental OHLCV for {symbol} ({interval}) from {range_from} to {range_to} via Fyers API...")
+            calc_range_from, calc_range_to = range_from, range_to
+        else:
+            logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
+            calc_range_from, calc_range_to = self._get_date_range(period)
         
         # Normalize interval key and map to Fyers resolution
         res = self.INTERVAL_MAP.get(interval.lower()) if isinstance(interval, str) else None
@@ -141,7 +148,7 @@ class FyersFetcher(DataFetcher):
         res = str(res).upper()
 
         # Compute date range and then enforce strict 365-day cap for daily resolution
-        range_from, range_to = self._get_date_range(period)
+        range_from, range_to = calc_range_from, calc_range_to
         try:
             start_date = datetime.strptime(range_from, "%Y-%m-%d").date()
             end_date = datetime.strptime(range_to, "%Y-%m-%d").date()
@@ -232,22 +239,30 @@ class FyersFetcher(DataFetcher):
                     logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
                     return None
                     
-                # Log the failed payload to help debug "Invalid input" cases (captures trailing spaces, bad dates, floats)
-                try:
-                    logger.error(f"Failed Payload for {ns_symbol}: {data}")
-                except Exception:
-                    pass
-                logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
                 # Add larger exponential backoff to handle rate limits gracefully
+                if "request limit reached" in error_str:
+                    logger.info(f"⏳ Rate limited by Fyers for {ns_symbol}. Backing off... (Attempt {attempt+1}/{retries})")
+                else:
+                    # Log the failed payload to help debug "Invalid input" cases
+                    try:
+                        logger.error(f"Failed Payload for {ns_symbol}: {data}")
+                    except Exception:
+                        pass
+                    logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
+                
                 import random
                 time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
-        logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
+        if range_from and range_to:
+            logger.info(f"📥 Fetching incremental batch OHLCV for {len(symbols)} symbols ({interval}, {range_from} to {range_to}) via Fyers API...")
+        else:
+            logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
+            
         normalized_map = {}
         for s in symbols:
             orig = s.strip() if isinstance(s, str) else s
@@ -263,7 +278,7 @@ class FyersFetcher(DataFetcher):
         max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
-                executor.submit(self.get_ohlcv, ns_sym, interval, period, retries): ns_sym
+                executor.submit(self.get_ohlcv, ns_sym, interval, period, retries, range_from, range_to): ns_sym
                 for ns_sym in ns_symbols
             }
             

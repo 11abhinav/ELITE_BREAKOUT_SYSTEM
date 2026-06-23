@@ -17,12 +17,12 @@ _price_provider = PriceProvider(batch_size=BATCH_DOWNLOAD_SIZE, cache_ttl=PRICE_
 
 class DataFetcher(ABC):
     @abstractmethod
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         """Fetch OHLCV data for a single symbol."""
         pass
 
     @abstractmethod
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
         """Fetch OHLCV data for multiple symbols simultaneously."""
         pass
 
@@ -41,7 +41,7 @@ class YFinanceFetcher(DataFetcher):
             return sym
         return f"{sym}.NS" if not sym.endswith(".NS") else sym
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)
         logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         for attempt in range(retries):
@@ -80,7 +80,7 @@ class YFinanceFetcher(DataFetcher):
         logger.error(f"❌ Exhausted retries fetching {symbol}")
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
         logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via YFinance...")
         # Use centralized PriceProvider batching to minimize calls and share caching across scanners
         provider = _price_provider
@@ -172,32 +172,32 @@ class AutoSwitchingFetcher(DataFetcher):
         except Exception:
             return False
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         if self._should_use_fyers():
             try:
-                df = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries)
+                df = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
                 if df is not None and not df.empty:
                     return df
                 logger.warning(f"Fyers fetch returned empty/failed for {symbol}. Falling back to YFinance.")
             except Exception as e:
                 logger.error(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
-        return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries)
+        return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
         if self._should_use_fyers():
             try:
-                results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries)
+                results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to)
                 missing_symbols = [s for s in symbols if results.get(s) is None or results[s].empty]
                 if missing_symbols:
                     logger.warning(f"Fyers batch fetch returned empty/missing data for {len(missing_symbols)} symbols. Querying YFinance for these.")
-                    yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries)
+                    yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to)
                     for s in missing_symbols:
                         if s in yf_results:
                             results[s] = yf_results[s]
                 return results
             except Exception as e:
                 logger.error(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
-        return self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries)
+        return self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to)
 
     def get_quote(self, symbol: str) -> dict:
         if self._should_use_fyers():
