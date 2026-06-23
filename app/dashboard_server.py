@@ -127,8 +127,7 @@ def check_session_validity():
         # Check for profile completion intercept
         if session.get('must_change_password'):
             # Allow them to hit the complete_profile page, logout, and static assets
-            allowed_routes = ['/complete_profile', '/logout', '/favicon.ico']
-            if request.path not in allowed_routes and not request.path.startswith('/static/'):
+            if request.endpoint not in ('complete_profile', 'login', 'logout', 'static', 'get_csrf_token', 'favicon'):
                 return redirect('/complete_profile')
 
 # ── Auth Routes ──────────────────────────────────────────────────────────
