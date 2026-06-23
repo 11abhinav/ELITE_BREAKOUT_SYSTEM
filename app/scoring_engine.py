@@ -777,7 +777,7 @@ def calculate_score(
             ticker, latest, volume_ratio, symbol, timeframe=timeframe, min_vol=min_vol
         )
         if disq:
-            return 0, model_version, weights, weights
+            return 0, model_version, weights
             
     # ── STEP 1.5: PIOTROSKI F-SCORE DISQUALIFIER & CAP ──────────────────────────────
     f_score_pts = 0
