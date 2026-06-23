@@ -212,7 +212,7 @@ def _check_sl_and_target(
 
 def _days_held(alert_date_str: str) -> int:
     try:
-        return (date.today() - date.fromisoformat(alert_date_str)).days
+        return (datetime.now(IST).date() - date.fromisoformat(alert_date_str)).days
     except Exception:
         return 0
 
@@ -573,7 +573,7 @@ def build_performance_data():
         t.pop("_db_closed", None)
 
     # ── 9. Write scanner health to Postgres (source of truth) ──────────────────
-    today_str = date.today().isoformat()
+    today_str = datetime.now(IST).date().isoformat()
     for sc in all_scanners:
         sc_today = [t for t in trades if t["scanner"] == sc and t["entry_date"] == today_str]
         try:

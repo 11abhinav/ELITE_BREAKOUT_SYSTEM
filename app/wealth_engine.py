@@ -512,7 +512,7 @@ LTCG_THRESHOLD_DAYS = 365  # Indian LTCG: > 12 months
 LTCG_BONUS_WINDOW   = 30   # Apply bonus in final 30 days before 1-year mark
 
 def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
-    today = date.today()
+    today = datetime.now(IST).date()
     holding_days = (today - entry_date).days
     days_to_ltcg = LTCG_THRESHOLD_DAYS - holding_days
 

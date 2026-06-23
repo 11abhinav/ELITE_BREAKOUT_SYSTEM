@@ -148,7 +148,7 @@ def start():
             rotation_result = get_sector_scores()
         except Exception:
             from sector_rotation import SectorRotationResult
-            rotation_result = SectorRotationResult({}, set(), set(), "", date.today(), 0.0)
+            rotation_result = SectorRotationResult({}, set(), set(), "", datetime.now(IST).date(), 0.0)
 
         total_alerts       = 0
         alerts_by_category = {}

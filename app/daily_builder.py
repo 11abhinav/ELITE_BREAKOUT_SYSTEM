@@ -664,12 +664,11 @@ CHECKPOINT_FILE = "data/build_state.json"
 
 def load_checkpoint() -> dict:
     import json, os
-    from datetime import date
     if os.path.exists(CHECKPOINT_FILE):
         try:
             with open(CHECKPOINT_FILE) as f:
                 state = json.load(f)
-                if state.get("date") != str(date.today()):
+                if state.get("date") != str(datetime.now(IST).date()):
                     return {}
                 return state
         except Exception:
@@ -678,9 +677,8 @@ def load_checkpoint() -> dict:
 
 def save_checkpoint(state: dict):
     import json, os
-    from datetime import date
     os.makedirs(os.path.dirname(CHECKPOINT_FILE), exist_ok=True)
-    state["date"] = str(date.today())
+    state["date"] = str(datetime.now(IST).date())
     with open(CHECKPOINT_FILE, "w") as f:
         json.dump(state, f, indent=2)
 

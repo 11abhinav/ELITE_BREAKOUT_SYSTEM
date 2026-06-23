@@ -606,7 +606,7 @@ def get_sector_scores(
             )
             return _cache
 
-    today         = date.today()
+    today         = datetime.now(IST).date()
     errors        = []
     sector_scores = {}
 

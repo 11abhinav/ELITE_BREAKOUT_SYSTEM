@@ -3313,8 +3313,7 @@ def save_hold_score_history(symbol: str, hold_score: int, fm_score: float, rs_6m
     """
     init_db()
     if evaluation_date is None:
-        from datetime import date
-        evaluation_date = date.today().isoformat()
+        evaluation_date = datetime.now(IST).date().isoformat()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:

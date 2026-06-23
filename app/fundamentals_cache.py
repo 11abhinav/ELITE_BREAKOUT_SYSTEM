@@ -12,10 +12,12 @@ except Exception:
         pass
 import yfinance as yf
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 import concurrent.futures
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 CACHE_FILE = "data/fundamentals_cache.json"
 
@@ -88,20 +90,20 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 yf_release()
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; abort fundamentals fetch for {yf_sym}: {ce}")
-            return {"score": -1, "date": str(date.today())}
+            return {"score": -1, "date": str(datetime.now(IST).date())}
         except Exception as e:
             msg = str(e).lower()
             if 'too many requests' in msg or 'rate limit' in msg:
                 record_rate_limit()
-            return {"score": -1, "date": str(date.today())}
+            return {"score": -1, "date": str(datetime.now(IST).date())}
         if fin.empty and bs.empty:
-            return {"score": -1, "date": str(date.today())}
+            return {"score": -1, "date": str(datetime.now(IST).date())}
             
         combined = pd.concat([fin, bs])
         score = compute_piotroski(info, combined)
-        return {"score": score, "date": str(date.today())}
+        return {"score": score, "date": str(datetime.now(IST).date())}
     except Exception as e:
-        return {"score": -1, "date": str(date.today())}
+        return {"score": -1, "date": str(datetime.now(IST).date())}
 
 
 def get_tier(market_cap_cr: float) -> str:
@@ -117,7 +119,7 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
         return True
     try:
         entry_date = datetime.strptime(cache_entry["date"], "%Y-%m-%d").date()
-        days_old = (date.today() - entry_date).days
+        days_old = (datetime.now(IST).date() - entry_date).days
         return days_old > FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)
     except Exception:
         return True
