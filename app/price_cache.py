@@ -189,4 +189,103 @@ def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = 
     """
     watchlist_df = pd.DataFrame({"Stock": symbols})
     return fetch_watchlist_data(watchlist_df, period=period, interval=interval)
-    return all_data
+
+
+# -----------------------------------------------------------------------------
+# MARKET-HOUR SHARED SNAPSHOT
+# -----------------------------------------------------------------------------
+
+import os
+from config import DATA_DIR
+WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+
+
+def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d") -> dict:
+    """
+    Fetch a small, shared snapshot optimized for market-hours:
+      - Recent daily OHLCV for `recent_period` (default 5d) via cached batch fetch
+      - SMA200 lookup from persisted Wealth parquet (fast) when available
+      - Compute SMA200 from recent data only if enough bars exist (avoid 1y re-fetch)
+
+    Returns: {
+      "daily": dict[str, pd.DataFrame],
+      "sma_200": dict[str, Optional[float]],
+      "data_as_of": datetime or None
+    }
+    """
+    result = {
+        "daily": {},
+        "sma_200": {},
+        "data_as_of": None,
+    }
+
+    if not symbols:
+        return result
+
+    # 1) Fetch recent daily bars using the unified cached path (this is serialized by fetch_watchlist_data)
+    try:
+        daily = fetch_unified_historical(symbols, period=recent_period, interval="1d")
+    except Exception as e:
+        logger.warning(f"Failed to fetch recent daily data for snapshot: {e}")
+        daily = {}
+
+    result["daily"] = daily or {}
+
+    # Determine data_as_of (oldest/latest timestamp across fetched frames)
+    timestamps = []
+    for df in result["daily"].values():
+        try:
+            if df is None or df.empty:
+                continue
+            if "Datetime" in df.columns:
+                ts = pd.to_datetime(df["Datetime"].iloc[-1])
+            elif "Date" in df.columns:
+                ts = pd.to_datetime(df["Date"].iloc[-1])
+            else:
+                ts = pd.to_datetime(df.index[-1])
+            if ts.tzinfo is None:
+                ts = ts.tz_localize(IST)
+            else:
+                ts = ts.tz_convert(IST)
+            timestamps.append(ts)
+        except Exception:
+            continue
+
+    if timestamps:
+        result["data_as_of"] = min(timestamps)
+
+    # 2) Load SMA200 values from persisted wealth parquet (fast lookup)
+    sma_map = {}
+    try:
+        if os.path.exists(WEALTH_PATH):
+            prev = pd.read_parquet(WEALTH_PATH)
+            if "Stock" in prev.columns and "sma_200" in prev.columns:
+                for _, row in prev[["Stock", "sma_200"]].iterrows():
+                    sym = row["Stock"]
+                    try:
+                        sma_map[sym] = float(row["sma_200"]) if not pd.isna(row["sma_200"]) else None
+                    except Exception:
+                        sma_map[sym] = None
+    except Exception as e:
+        logger.warning(f"Could not read wealth parquet for SMA lookup: {e}")
+
+    # 3) Fill missing SMA200 by computing from available recent daily frames only when possible
+    for sym in symbols:
+        if sym in sma_map and sma_map[sym] is not None:
+            result["sma_200"][sym] = sma_map[sym]
+            continue
+        df = result["daily"].get(sym)
+        try:
+            if df is None or df.empty:
+                result["sma_200"][sym] = None
+                continue
+            # If we have at least 200 bars in the recent fetch (unlikely for 5d), compute; else leave None
+            if len(df) >= 200 and "Close" in df.columns:
+                sma_val = float(df["Close"].rolling(window=200).mean().iloc[-1])
+                result["sma_200"][sym] = sma_val
+            else:
+                result["sma_200"][sym] = None
+        except Exception:
+            result["sma_200"][sym] = None
+
+    return result
