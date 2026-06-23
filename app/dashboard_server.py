@@ -13,6 +13,16 @@ from zoneinfo import ZoneInfo
 import time
 import threading
 from flask import Flask, jsonify, send_file, Response, request, make_response
+
+from flask import session, redirect, url_for, abort, g
+from functools import wraps
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from datetime import timedelta
+import uuid
+import database
+
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
     import app.yf_bootstrap
@@ -58,7 +68,183 @@ def get_html_path(filename):
 USER_DASHBOARD_PATH = get_html_path("user_dashboard.html")
 ADMIN_DASHBOARD_PATH = get_html_path("admin_dashboard.html")
 
+
 app = Flask(__name__)
+
+app.secret_key = os.getenv("SECRET_KEY", "fallback_dev_key_if_missing_in_prod")
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
+
+csrf = CSRFProtect(app)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+# ── Auth Decorators ──────────────────────────────────────────────────────────
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized'}), 401
+            return redirect('/login')
+        # Check absolute & idle timeout implicitly handled by Flask if session.permanent is set
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized'}), 401
+            return redirect('/login')
+        if session.get('role') != 'admin':
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Forbidden'}), 403
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.before_request
+def check_session_validity():
+    # If the user is logged in, check if must_change_password
+    if 'user_id' in session:
+        # Prevent idle timeout tracking on static files or background api polls if desired, 
+        # but standard Flask sessions just update timestamp on modify.
+        session.modified = True
+        
+        # Check for profile completion intercept
+        if session.get('must_change_password'):
+            # Allow them to hit the complete_profile page, logout, and static assets
+            allowed_routes = ['/complete_profile', '/logout', '/favicon.ico']
+            if request.path not in allowed_routes and not request.path.startswith('/static/'):
+                return redirect('/complete_profile')
+
+# ── Auth Routes ──────────────────────────────────────────────────────────
+
+@app.route("/api/csrf_token", methods=["GET"])
+def get_csrf_token():
+    from flask_wtf.csrf import generate_csrf
+    return jsonify({'csrf_token': generate_csrf()})
+
+@app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute", methods=["POST"])
+def login():
+    if request.method == "GET":
+        path = get_html_path("login.html")
+        return send_file(path) if path and os.path.exists(path) else "login.html missing"
+        
+    identifier = request.form.get("username")
+    password = request.form.get("password")
+    
+    if not identifier or not password:
+        return jsonify({"error": "Missing credentials"}), 400
+        
+    user_data = database.verify_user(identifier, password)
+    if user_data:
+        if isinstance(user_data, dict) and user_data.get('error') == 'pending_approval':
+            return jsonify({"error": "Account pending admin approval"}), 403
+            
+        session.clear() # Anti-fixation
+        session.permanent = True
+        session['user_id'] = user_data['user_id']
+        session['username'] = user_data['username']
+        session['role'] = user_data['role']
+        session['must_change_password'] = user_data['must_change_password']
+        session['session_token'] = user_data['session_token']
+        
+        if user_data['must_change_password']:
+            return redirect('/complete_profile')
+        if user_data['role'] == 'admin':
+            return redirect('/admin')
+        return redirect('/')
+    
+    # Generic error
+    return jsonify({"error": "Invalid credentials"}), 401
+
+@app.route("/signup", methods=["GET", "POST"])
+@limiter.limit("5 per minute", methods=["POST"])
+def signup():
+    if request.method == "GET":
+        path = get_html_path("signup.html")
+        return send_file(path) if path and os.path.exists(path) else "signup.html missing"
+        
+    username = request.form.get("username")
+    email = request.form.get("email")
+    mobile = request.form.get("mobile")
+    password = request.form.get("password")
+    first_name = request.form.get("first_name", "")
+    last_name = request.form.get("last_name", "")
+    
+    if not all([username, email, mobile, password]):
+        return jsonify({"error": "All fields are required"}), 400
+        
+    user_id = database.create_user(username, email, mobile, password, first_name, last_name, role='user')
+    if user_id:
+        # Success. Do NOT log them in. 
+        # For simplicity with fetch, just return 200 JSON with a success flag,
+        # or rely on frontend to redirect to a 'pending' page or login page with a message.
+        return jsonify({"success": True, "message": "Account created. Pending admin approval."}), 200
+    
+    # Duplicate or DB error
+    return jsonify({"error": "Username, Email, or Mobile already exists"}), 400
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear()
+    return redirect('/login')
+
+@app.route("/complete_profile", methods=["GET", "POST"])
+@login_required
+def complete_profile():
+    if not session.get('must_change_password'):
+        return redirect('/')
+        
+    if request.method == "GET":
+        path = get_html_path("complete_profile.html")
+        return send_file(path) if path and os.path.exists(path) else "complete_profile.html missing"
+        
+    # Process the form
+    username = request.form.get("username")
+    email = request.form.get("email")
+    mobile = request.form.get("mobile")
+    first_name = request.form.get("first_name", "")
+    last_name = request.form.get("last_name", "")
+    new_password = request.form.get("new_password")
+    
+    if not all([username, email, mobile, new_password]):
+        return jsonify({"error": "All fields are required"}), 400
+        
+    try:
+        from werkzeug.security import generate_password_hash
+        p_hash = generate_password_hash(new_password, method='scrypt')
+        new_token = str(uuid.uuid4())
+        
+        with database.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE users 
+                    SET username = %s, email = %s, mobile = %s, first_name = %s, last_name = %s, 
+                        password_hash = %s, must_change_password = FALSE, session_token = %s
+                    WHERE user_id = %s
+                """, (username, email, mobile, first_name, last_name, p_hash, new_token, session['user_id']))
+            conn.commit()
+            
+        session['must_change_password'] = False
+        session['username'] = username
+        session['session_token'] = new_token
+        return redirect('/admin' if session['role'] == 'admin' else '/')
+    except Exception as e:
+        return jsonify({"error": "Error updating profile. Username/Email/Mobile may already be in use."}), 400
+
+
 
 @app.route('/favicon.ico')
 def favicon():
@@ -79,6 +265,7 @@ from database import (
 )
 
 @app.route("/api/viewers", methods=["POST", "GET"])
+@login_required
 def api_viewers():
     """Tracks active viewers by IP and Name using DB. Cleans up inactive ones (>120s)."""
     # 1. First, mark any inactive sessions as offline
@@ -110,6 +297,7 @@ def api_viewers():
     })
 
 @app.route("/api/messages", methods=["GET", "POST"])
+@login_required
 def api_messages():
     """Get or send messages for a specific user."""
     if request.method == "GET":
@@ -144,6 +332,7 @@ def api_messages():
             return jsonify({"error": "Failed to send message"}), 500
 
 @app.route("/api/messages/read", methods=["POST"])
+@login_required
 def api_messages_read():
     """Mark messages as read for a specific user."""
     data = request.json or {}
@@ -165,6 +354,7 @@ def api_messages_read():
 # NOTIFICATIONS API
 # =====================================================================================
 @app.route('/api/notifications', methods=['GET'])
+@login_required
 def get_notifications():
     try:
         from database import get_connection
@@ -194,6 +384,7 @@ def get_notifications():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/mark_seen/<int:notif_id>', methods=['POST'])
+@login_required
 def mark_notification_seen(notif_id):
     try:
         from database import get_connection
@@ -207,6 +398,7 @@ def mark_notification_seen(notif_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/mark_all_seen', methods=['POST'])
+@login_required
 def mark_all_notifications_seen():
     try:
         from database import get_connection
@@ -227,10 +419,14 @@ def add_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Cache-Control"]                = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"]                       = "no-cache"
+    response.headers["X-Frame-Options"]              = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"]       = "nosniff"
+    response.headers["Strict-Transport-Security"]    = "max-age=31536000; includeSubDomains"
     return response
 
 
 @app.route("/")
+@login_required
 def index():
     """Serve the user dashboard HTML."""
     if USER_DASHBOARD_PATH and os.path.exists(USER_DASHBOARD_PATH):
@@ -246,6 +442,7 @@ def index():
     )
 
 @app.route("/admin")
+@admin_required
 def admin_index():
     """Serve the admin dashboard HTML."""
     if ADMIN_DASHBOARD_PATH and os.path.exists(ADMIN_DASHBOARD_PATH):
@@ -262,6 +459,7 @@ def admin_index():
 
 
 @app.route("/data/performance_data.json")
+@login_required
 def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
     try:
@@ -333,6 +531,7 @@ def health():
     })
 
 @app.route("/admin/export/<table>")
+@admin_required
 def export_csv_data(table):
     """Exports the requested database table as a CSV file."""
     # Prevent SQL injection by strictly whitelisting allowed tables
@@ -370,6 +569,7 @@ def export_csv_data(table):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/admin/export/watchlist/<list_type>")
+@admin_required
 def export_watchlist(list_type):
     """Exports the daily generated watchlist CSVs."""
     from config import DATA_DIR
@@ -392,6 +592,7 @@ def export_watchlist(list_type):
 
 
 @app.route("/api/summary")
+@login_required
 def api_summary():
     """Quick JSON summary — useful for curl checks, loaded from DB."""
     try:
@@ -409,6 +610,7 @@ def api_summary():
 
 
 @app.route("/api/shortlist")
+@login_required
 def api_shortlist():
     """Returns the elite fundamental watchlist data as JSON."""
     from config import WATCHLIST_PATH
@@ -425,6 +627,7 @@ def api_shortlist():
         return jsonify([])
 
 @app.route("/api/shortlist_excluded")
+@login_required
 def api_shortlist_excluded():
     """Returns excluded stocks data as JSON."""
     from config import DATA_DIR
@@ -442,6 +645,7 @@ def api_shortlist_excluded():
         return jsonify([])
 
 @app.route("/api/wealth")
+@login_required
 def api_wealth():
     """Returns the elite wealth system data as JSON."""
     from config import DATA_DIR
@@ -459,6 +663,7 @@ def api_wealth():
         return jsonify([])
 
 @app.route("/api/macro_state")
+@login_required
 def api_macro_state():
     """Returns the current Macro Regime state (Nifty correction)."""
     try:
@@ -478,6 +683,7 @@ def api_macro_state():
 
 # ── Fetch errors API (admin) ─────────────────────────────────────────────────────
 @app.route("/api/fetch_errors")
+@login_required
 def api_fetch_errors():
     """Return recent aggregated fetch errors for admin triage."""
     try:
@@ -489,6 +695,7 @@ def api_fetch_errors():
         return jsonify([]), 200
 
 @app.route("/api/system_logs", methods=["GET"])
+@login_required
 def api_system_logs():
     try:
         from database import get_connection
@@ -523,6 +730,7 @@ def api_system_logs():
         logger.exception("Failed to fetch system logs")
         return jsonify({"status": "error", "message": str(e)}), 500
 @app.route("/api/system_logs/acknowledge", methods=["POST"])
+@login_required
 def acknowledge_system_log():
     try:
         data = request.json or {}
@@ -540,6 +748,7 @@ def acknowledge_system_log():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/system_logs/clear_all", methods=["POST"])
+@login_required
 def clear_all_system_logs():
     try:
         from database import get_connection
@@ -553,6 +762,7 @@ def clear_all_system_logs():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/fetch_errors/by_scanner", methods=["GET"])
+@login_required
 def api_fetch_errors_by_scanner():
     """Return unacknowledged fetch_errors for a specific scanner."""
     try:
@@ -568,6 +778,7 @@ def api_fetch_errors_by_scanner():
 
 
 @app.route("/api/fetch_errors/ack/<int:error_id>", methods=["POST"])
+@login_required
 def api_ack_fetch_error(error_id):
     """Acknowledge a specific fetch error so it stops alerting in UI."""
     try:
@@ -580,6 +791,7 @@ def api_ack_fetch_error(error_id):
 
 
 @app.route("/api/fetch_errors/all", methods=["DELETE"])
+@login_required
 def api_clear_all_fetch_errors():
     """Clear all fetch errors at once (acknowledge all)."""
     try:
@@ -592,6 +804,7 @@ def api_clear_all_fetch_errors():
 
 
 @app.route("/api/deposit_funds", methods=["POST"])
+@login_required
 def api_deposit_funds():
     """Deposit funds to capital_history (admin only)."""
     try:
@@ -611,6 +824,7 @@ def api_deposit_funds():
 
 
 @app.route("/api/capital_info", methods=["GET"])
+@login_required
 def api_capital_info():
     """Get capital breakdown: base_capital, total_deposited, total_capital."""
     try:
@@ -622,6 +836,7 @@ def api_capital_info():
         return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
 
 @app.route("/api/sector_momentum", methods=["GET"])
+@login_required
 def api_sector_momentum():
     """Get sector momentum for the last 7 days."""
     try:
@@ -636,6 +851,7 @@ def api_sector_momentum():
 
 # ── MANUAL PORTFOLIO TRACKER ──────────────────────────────────────────────────
 @app.route("/api/portfolio", methods=["GET"])
+@login_required
 def api_get_portfolio():
     """Returns manual portfolio with live recommendations based on Wealth Engine data."""
     try:
@@ -712,6 +928,7 @@ def api_get_portfolio():
         return jsonify([])
 
 @app.route("/api/portfolio/add", methods=["POST"])
+@login_required
 def api_add_portfolio():
     try:
         data = request.json
@@ -731,6 +948,7 @@ def api_add_portfolio():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/portfolio/remove", methods=["POST"])
+@login_required
 def api_remove_portfolio():
     try:
         data = request.json
@@ -743,6 +961,7 @@ def api_remove_portfolio():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/data_fetch_health")
+@login_required
 def api_data_fetch_health():
     """Return the health status of external data providers (cache/fetch failures)."""
     try:
@@ -755,6 +974,7 @@ def api_data_fetch_health():
 
 
 @app.route('/api/todays_alerts')
+@login_required
 def api_todays_alerts():
     """Return alerts fired today (includes seen flags)."""
     try:
@@ -770,6 +990,7 @@ def api_todays_alerts():
 
 
 @app.route('/api/alert/mark_seen', methods=['POST'])
+@login_required
 def api_mark_alert_seen():
     """Mark an alert as seen by user/admin via POST {id: int, role: 'user'|'admin'}."""
     try:
@@ -784,6 +1005,7 @@ def api_mark_alert_seen():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/reject', methods=['POST'])
+@login_required
 def api_reject_alert():
     try:
         data = request.json or {}
@@ -800,6 +1022,7 @@ def api_reject_alert():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/reject_multiple', methods=['POST'])
+@login_required
 def api_reject_multiple_alerts():
     try:
         data = request.json or {}
@@ -822,6 +1045,7 @@ def api_reject_multiple_alerts():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/accept', methods=['POST'])
+@login_required
 def api_accept_alert():
     try:
         data = request.json or {}
@@ -838,6 +1062,7 @@ def api_accept_alert():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/reallocate', methods=['POST'])
+@login_required
 def api_reallocate_alert():
     try:
         data = request.json or {}
@@ -868,6 +1093,7 @@ def api_reallocate_alert():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/reallocate_multiple', methods=['POST'])
+@login_required
 def api_reallocate_multiple_alerts():
     try:
         data = request.json or {}
@@ -890,6 +1116,7 @@ def api_reallocate_multiple_alerts():
 
 
 @app.route("/api/data_fetch_health/acknowledge/<source_name>", methods=["POST"])
+@login_required
 def api_acknowledge_health(source_name):
     """Admin endpoint to dismiss persistent API warnings."""
     try:
@@ -901,6 +1128,7 @@ def api_acknowledge_health(source_name):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/scanner_health/acknowledge/<scanner_name>", methods=["POST"])
+@login_required
 def api_acknowledge_scanner_health(scanner_name):
     """Admin endpoint to dismiss persistent scanner warnings."""
     try:
@@ -912,11 +1140,13 @@ def api_acknowledge_scanner_health(scanner_name):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/wealth")
+@login_required
 def route_wealth():
     from config import BASE_DIR
     return send_file(os.path.join(BASE_DIR, "app", "wealth_dashboard.html"))
 
 @app.route("/api/download_shortlist")
+@login_required
 def api_download_shortlist():
     """Serves the elite fundamental watchlist as a CSV file."""
     from config import WATCHLIST_PATH
@@ -940,6 +1170,7 @@ def api_download_shortlist():
         return "Server Error", 500
 
 @app.route("/api/scanner_status")
+@login_required
 def api_scanner_status():
     """
     Return per-scanner health stats and today's trades — all sourced from Postgres.
@@ -1062,6 +1293,7 @@ _indices_cache = {"data": None, "timestamp": 0}
 _indices_lock = threading.Lock()
 
 @app.route("/api/indices")
+@login_required
 def api_indices():
     """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching."""
     with _indices_lock:
@@ -1117,6 +1349,7 @@ _news_cache = {}
 _news_lock = threading.Lock()
 
 @app.route("/api/news/<symbol>")
+@login_required
 def api_news(symbol):
     """Fetch recent 3 news headlines for a symbol with 15-min caching."""
     # Append .NS for Yahoo Finance compatibility if not present and if it doesn't have an extension
@@ -1172,6 +1405,7 @@ import subprocess
 import json
 
 @app.route("/api/notices/<symbol>")
+@login_required
 def api_notices(symbol):
     """Fetch recent corporate announcements from NSE via requests.Session to bypass WAF."""
     yf_symbol = symbol.replace('.NS', '').replace('_', '-')
@@ -1225,6 +1459,7 @@ def api_notices(symbol):
         return jsonify([])
 
 @app.route('/api/all_tickers', methods=['GET'])
+@login_required
 def api_all_tickers():
     """Returns a list of all active NSE symbols for frontend autocomplete."""
     try:
@@ -1368,6 +1603,7 @@ def fetch_and_analyze_concall(symbol):
         return {"error": str(e)}
 
 @app.route("/api/concall_ai/<symbol>")
+@login_required
 def api_concall_ai(symbol):
     from database import get_recent_concall_analysis
     cached = get_recent_concall_analysis(symbol, max_age_days=60)
@@ -1382,6 +1618,7 @@ def api_concall_ai(symbol):
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
 
 @app.route("/api/wealth/alerts", methods=["GET"])
+@login_required
 def get_wealth_alerts():
     """Retrieve wealth buy alerts (all or filtered by symbol)."""
     from database import get_wealth_buy_alerts, get_today_wealth_alerts
@@ -1403,6 +1640,7 @@ def get_wealth_alerts():
 
 
 @app.route("/api/wealth/save-alert", methods=["POST"])
+@login_required
 def save_wealth_alert():
     """Save a new wealth buy alert."""
     from database import save_wealth_buy_alert
@@ -1428,6 +1666,7 @@ def save_wealth_alert():
 
 
 @app.route("/api/wealth/update-alert/<int:alert_id>", methods=["POST"])
+@login_required
 def update_wealth_alert(alert_id):
     """Update status of a wealth buy alert."""
     from database import update_wealth_alert_status
@@ -1450,6 +1689,7 @@ def update_wealth_alert(alert_id):
 
 
 @app.route("/api/wealth/open-positions", methods=["GET"])
+@login_required
 def get_open_positions_api():
     """Get all open positions."""
     from database import get_open_positions
@@ -1462,6 +1702,7 @@ def get_open_positions_api():
 
 
 @app.route("/api/wealth/closed-positions", methods=["GET"])
+@login_required
 def get_closed_positions_api():
     """Get closed positions (filterable by days)."""
     from database import get_closed_positions
@@ -1476,6 +1717,7 @@ def get_closed_positions_api():
 
 
 @app.route("/api/wealth/close-position", methods=["POST"])
+@login_required
 def close_position_api():
     """Manually close a position (or auto-close on SELL signal)."""
     from database import close_position
@@ -1537,6 +1779,7 @@ def start_dashboard_server():
 
 
 @app.route("/api/breakout_watchlist", methods=["GET"])
+@login_required
 def api_breakout_watchlist():
     """Returns the live multi-tf breakout watchlist from the database."""
     try:
@@ -1564,3 +1807,41 @@ def api_breakout_watchlist():
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/admin/pending_users", methods=["GET"])
+@admin_required
+def get_pending_users():
+    try:
+        with database.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id, username, email, first_name, last_name, mobile, created_at FROM users WHERE is_active = FALSE")
+                rows = cur.fetchall()
+                users = []
+                for r in rows:
+                    users.append({
+                        "user_id": r[0],
+                        "username": r[1],
+                        "email": r[2],
+                        "name": f"{r[3] or ''} {r[4] or ''}".strip(),
+                        "mobile": r[5],
+                        "created_at": r[6]
+                    })
+        return jsonify(users)
+    except Exception as e:
+        logger.error(f"Failed to fetch pending users: {e}")
+        return jsonify({"error": "Failed to fetch pending users"}), 500
+
+@app.route("/admin/approve_user/<int:user_id>", methods=["POST"])
+@admin_required
+def approve_user(user_id):
+    try:
+        with database.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET is_active = TRUE WHERE user_id = %s", (user_id,))
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Failed to approve user: {e}")
+        return jsonify({"error": "Failed to approve user"}), 500
+

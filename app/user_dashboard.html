@@ -435,6 +435,54 @@
 
 </style>
 <script>
+
+let globalCsrfToken = '';
+async function initAuth() {
+    try {
+        const res = await fetch('/api/csrf_token');
+        if (res.ok) {
+            const data = await res.json();
+            globalCsrfToken = data.csrf_token;
+        }
+    } catch(e) {}
+}
+initAuth();
+
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    let [resource, config] = args;
+    if (config && ['POST', 'PUT', 'DELETE'].includes(config.method)) {
+        config.headers = config.headers || {};
+        if (globalCsrfToken && !config.headers['X-CSRFToken']) {
+            config.headers['X-CSRFToken'] = globalCsrfToken;
+        }
+    }
+    const response = await originalFetch(resource, config);
+    if (response.status === 401) {
+        window.location.href = '/login';
+    } else if (response.status === 403) {
+        // If it's a JSON response, maybe it's pending approval
+        try {
+            const clone = response.clone();
+            const data = await clone.json();
+            if (data.error) alert("Access Denied: " + data.error);
+        } catch(e) {
+            alert("Access Denied.");
+        }
+    }
+    // Also if we get a 400 Bad Request with CSRF failure, refresh token
+    if (response.status === 400) {
+        try {
+            const clone = response.clone();
+            const data = await clone.json();
+            if (data.error && data.error.includes("CSRF")) {
+                await initAuth();
+            }
+        } catch(e){}
+    }
+    return response;
+};
+
   const savedTheme = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-theme', savedTheme);
 
@@ -522,7 +570,7 @@ function playDing() {
       </div>
       <!-- END NOTIFICATION BELL -->
 
-      <a href="/wealth" class="refresh-btn" style="text-decoration: none; border-color: rgba(139, 92, 246, 0.5); color: #a78bfa; margin-right: 10px;">
+      <a href="/wealth" class="refresh-btn"<button onclick="window.location.href='/logout'" class="refresh-btn" style="background:var(--warn); margin-left: 10px;">Logout</button> style="text-decoration: none; border-color: rgba(139, 92, 246, 0.5); color: #a78bfa; margin-right: 10px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         Wealth System
       </a>

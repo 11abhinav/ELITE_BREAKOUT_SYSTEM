@@ -676,12 +676,52 @@ def init_db():
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         user_id SERIAL PRIMARY KEY,
-                        name TEXT UNIQUE NOT NULL,
-                        role TEXT DEFAULT 'USER',
+                        username TEXT UNIQUE NOT NULL,
+                        email VARCHAR(255) UNIQUE,
+                        first_name VARCHAR(100),
+                        last_name VARCHAR(100),
+                        mobile VARCHAR(20) UNIQUE,
+                        password_hash VARCHAR(255),
+                        role TEXT DEFAULT 'user',
+                        is_active BOOLEAN DEFAULT FALSE,
+                        must_change_password BOOLEAN DEFAULT FALSE,
+                        failed_login_attempts INT DEFAULT 0,
+                        locked_until TIMESTAMP WITH TIME ZONE,
+                        last_login TIMESTAMP WITH TIME ZONE,
+                        session_token UUID,
                         created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     )
                 """)
-                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'USER'")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
+                
+                # Auth fields migration
+                cur.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'name') THEN
+                        ALTER TABLE users RENAME COLUMN name TO username;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_hash') THEN
+                        ALTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE;
+                        ALTER TABLE users ADD COLUMN first_name VARCHAR(100);
+                        ALTER TABLE users ADD COLUMN last_name VARCHAR(100);
+                        ALTER TABLE users ADD COLUMN mobile VARCHAR(20) UNIQUE;
+                        ALTER TABLE users ADD COLUMN password_hash VARCHAR(255);
+                        ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT FALSE;
+                        ALTER TABLE users ADD COLUMN failed_login_attempts INT DEFAULT 0;
+                        ALTER TABLE users ADD COLUMN locked_until TIMESTAMP WITH TIME ZONE;
+                        ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE;
+                        ALTER TABLE users ADD COLUMN session_token UUID;
+                    END IF;
+                END $$;
+                """)
+                
+                # Clean up existing rows
+                cur.execute("UPDATE users SET email = username || '@elitebreakout.temp' WHERE email IS NULL")
+                cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL")
+                cur.execute("UPDATE users SET password_hash = 'PLACEHOLDER' WHERE password_hash IS NULL")
+                cur.execute("ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -840,6 +880,7 @@ ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status
         logger.info("✅ Database ready (Postgres) — all columns ensured")
         logger.info("ℹ️  Data Retention Active: preserving all alerts for historical analysis.")
 
+        bootstrap_admin()
 
 # =====================================================================================
 # FAILED-REVERSAL COOLDOWN (v6.1)
@@ -3669,3 +3710,77 @@ def reallocate_capital_multiple(alert_ids: list):
 
 
 
+
+import secrets
+from werkzeug.security import generate_password_hash, check_password_hash
+
+def bootstrap_admin():
+    import os
+    if os.getenv('BOOTSTRAP_AUTH') != 'true':
+        return
+        
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
+                if cur.fetchone():
+                    return  # Already exists
+                    
+                password = secrets.token_urlsafe(16)
+                p_hash = generate_password_hash(password, method='scrypt')
+                
+                cur.execute("""
+                    INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password)
+                    VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
+                """, (p_hash,))
+            conn.commit()
+            print(f"\n[SECURITY] Admin setup required. Login as 'admin' with password: {password}\n")
+    except Exception as e:
+        logger.error(f"Failed to bootstrap admin: {e}")
+
+def create_user(username, email, mobile, password, first_name='', last_name='', role='user'):
+    try:
+        p_hash = generate_password_hash(password, method='scrypt')
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO users (username, email, mobile, password_hash, first_name, last_name, role, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
+                    RETURNING user_id
+                """, (username, email, mobile, p_hash, first_name, last_name, role))
+                user_id = cur.fetchone()[0]
+            conn.commit()
+            return user_id
+    except Exception as e:
+        logger.error(f"Failed to create user: {e}")
+        return None
+
+def verify_user(identifier, password):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT user_id, username, password_hash, role, is_active, must_change_password, session_token 
+                    FROM users 
+                    WHERE username = %s OR email = %s
+                """, (identifier, identifier))
+                row = cur.fetchone()
+                
+                if row and check_password_hash(row[2], password):
+                    if row[4]: # is_active
+                        # reset failed attempts and update last_login
+                        cur.execute("UPDATE users SET failed_login_attempts = 0, last_login = NOW() WHERE user_id = %s", (row[0],))
+                        conn.commit()
+                        return {
+                            'user_id': row[0],
+                            'username': row[1],
+                            'role': row[3],
+                            'must_change_password': row[5],
+                            'session_token': str(row[6]) if row[6] else None
+                        }
+                    else:
+                        return {'error': 'pending_approval'}
+        return None
+    except Exception as e:
+        logger.error(f"Failed to verify user: {e}")
+        return None

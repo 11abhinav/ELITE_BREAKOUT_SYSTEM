@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign Up - Elite Breakout System</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --border: rgba(255,255,255,.08); --text: #f8fafc;
+    --muted: #94a3b8; --accent: #059669; --warn: #e11d48; --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif;
+    margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px;
+  }
+  .container {
+    background: var(--surface); padding: 40px; border-radius: var(--radius);
+    border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,.2);
+    width: 100%; max-width: 450px;
+  }
+  h2 { margin: 0 0 24px; font-weight: 600; font-size: 24px; text-align: center; }
+  .form-row { display: flex; gap: 16px; margin-bottom: 20px; }
+  .form-group { flex: 1; }
+  .form-group.full { width: 100%; margin-bottom: 20px; flex: none; }
+  label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
+  input {
+    width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: inherit; font-size: 15px; outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none;
+    border-radius: 6px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.9; }
+  .error { color: var(--warn); font-size: 14px; margin-bottom: 16px; display: none; text-align: center; }
+  .footer { margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted); }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h2>Create an Account</h2>
+    <div id="error-msg" class="error"></div>
+    <form id="signup-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>First Name</label>
+          <input type="text" id="first_name" required>
+        </div>
+        <div class="form-group">
+          <label>Last Name</label>
+          <input type="text" id="last_name" required>
+        </div>
+      </div>
+      <div class="form-group full">
+        <label>Username</label>
+        <input type="text" id="username" required>
+      </div>
+      <div class="form-group full">
+        <label>Email Address</label>
+        <input type="email" id="email" required>
+      </div>
+      <div class="form-group full">
+        <label>Mobile Number</label>
+        <input type="tel" id="mobile" required>
+      </div>
+      <div class="form-group full">
+        <label>Password</label>
+        <input type="password" id="password" required>
+      </div>
+      <button type="submit">Sign Up</button>
+    </form>
+    <div class="footer">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+
+<script>
+  let csrfToken = '';
+  
+  async function fetchCsrf() {
+      const res = await fetch('/api/csrf_token');
+      const data = await res.json();
+      csrfToken = data.csrf_token;
+  }
+  
+  fetchCsrf();
+  
+  document.getElementById('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.textContent = 'Creating account...';
+    btn.disabled = true;
+    
+    const formData = new FormData();
+    formData.append('first_name', document.getElementById('first_name').value);
+    formData.append('last_name', document.getElementById('last_name').value);
+    formData.append('username', document.getElementById('username').value);
+    formData.append('email', document.getElementById('email').value);
+    formData.append('mobile', document.getElementById('mobile').value);
+    formData.append('password', document.getElementById('password').value);
+    
+    try {
+      const res = await fetch('/signup', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFToken': csrfToken
+        }
+      });
+      
+      if (res.redirected) {
+        window.location.href = res.url;
+      } else if (!res.ok) {
+        const data = await res.json();
+        document.getElementById('error-msg').textContent = data.error || 'Signup failed';
+        document.getElementById('error-msg').style.display = 'block';
+        if (res.status === 400 && data.error && data.error.includes("CSRF")) {
+            await fetchCsrf(); // Refresh token
+        }
+      } else {
+        const data = await res.json();
+        document.getElementById('error-msg').style.color = '#059669'; // success color
+        document.getElementById('error-msg').textContent = data.message || 'Account created successfully!';
+        document.getElementById('error-msg').style.display = 'block';
+        setTimeout(() => window.location.href = '/login', 3000);
+      }
+    } catch (err) {
+      document.getElementById('error-msg').textContent = 'Network error occurred.';
+      document.getElementById('error-msg').style.display = 'block';
+    } finally {
+      btn.textContent = 'Sign Up';
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
