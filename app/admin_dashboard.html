@@ -587,7 +587,10 @@ function playDing() {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         Wealth System
       </a>
-      <button onclick="window.location.href='/logout'" class="refresh-btn" style="background:var(--warn); margin-right: 10px; border:none; color:white;">Logout</button>
+      <button onclick="window.location.href='/logout'" class="refresh-btn" style="margin-right: 10px; color: var(--muted);">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Logout
+      </button>
       <button class="refresh-btn" onclick="toggleTheme()" style="font-size:16px; padding:4px 8px; border-radius:50%; width:32px; height:32px; justify-content:center;">🌓</button>
       <span id="viewerCount" title="Active Viewers" onclick="openUsersModal()" style="cursor:pointer; font-family:var(--font-mono); font-size:12px; color:var(--accent); display:flex; align-items:center; gap:6px; background:var(--accent-dim); padding:6px 10px; border-radius:6px; border:1px solid rgba(5,150,105,0.2); transition:all 0.2s;">
         <div class="live-dot" style="margin:0;"></div> <span id="vCountVal">1</span> online

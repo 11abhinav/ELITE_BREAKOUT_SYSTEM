@@ -182,15 +182,19 @@ def signup():
         path = get_html_path("signup.html")
         return send_file(path) if path and os.path.exists(path) else "signup.html missing"
         
-    username = request.form.get("username")
-    email = request.form.get("email")
-    mobile = request.form.get("mobile")
+    username = request.form.get("username", "").strip()
+    email = request.form.get("email", "").strip()
+    mobile = request.form.get("mobile", "").strip()
     password = request.form.get("password")
-    first_name = request.form.get("first_name", "")
-    last_name = request.form.get("last_name", "")
+    first_name = request.form.get("first_name", "").strip()
+    last_name = request.form.get("last_name", "").strip()
     
     if not all([username, email, mobile, password]):
         return jsonify({"error": "All fields are required"}), 400
+        
+    import re
+    if not re.match(r'^\d{10}$', mobile):
+        return jsonify({"error": "Mobile number must be exactly 10 digits"}), 400
         
     try:
         user_id = database.create_user(username, email, mobile, password, first_name, last_name, role='user')
@@ -231,6 +235,10 @@ def complete_profile():
     
     if not all([username, email, mobile, new_password]):
         return jsonify({"error": "All fields are required"}), 400
+        
+    import re
+    if not re.match(r'^\d{10}$', mobile):
+        return jsonify({"error": "Mobile number must be exactly 10 digits"}), 400
         
     try:
         from werkzeug.security import generate_password_hash

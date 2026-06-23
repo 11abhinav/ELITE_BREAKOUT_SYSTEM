@@ -727,12 +727,12 @@ def init_db():
                 DO $$
                 BEGIN
                     BEGIN
-                        ALTER TABLE users ADD CONSTRAINT uq_users_username UNIQUE (username);
+                        CREATE UNIQUE INDEX uq_users_username_lower ON users (LOWER(username));
                     EXCEPTION WHEN others THEN NULL;
                     END;
                     
                     BEGIN
-                        ALTER TABLE users ADD CONSTRAINT uq_users_email UNIQUE (email);
+                        CREATE UNIQUE INDEX uq_users_email_lower ON users (LOWER(email));
                     EXCEPTION WHEN others THEN NULL;
                     END;
                     
@@ -3749,14 +3749,22 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # Normalize inputs
+                username = username.lower() if username else username
+                email = email.lower() if email else email
+                
                 # Manually check for duplicates since older DB schemas might lack UNIQUE constraints
-                cur.execute("SELECT username, email, mobile FROM users WHERE username = %s OR email = %s OR mobile = %s", (username, email, mobile))
+                cur.execute("""
+                    SELECT username, email, mobile 
+                    FROM users 
+                    WHERE LOWER(username) = %s OR LOWER(email) = %s OR mobile = %s
+                """, (username, email, mobile))
                 row = cur.fetchone()
                 if row:
                     existing_username, existing_email, existing_mobile = row
-                    if existing_username == username:
+                    if existing_username and existing_username.lower() == username:
                         raise ValueError("Username already exists")
-                    if existing_email == email:
+                    if existing_email and existing_email.lower() == email:
                         raise ValueError("Email already exists")
                     if existing_mobile == mobile:
                         raise ValueError("Mobile already exists")
@@ -3780,11 +3788,12 @@ def verify_user(identifier, password):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                identifier_lower = identifier.lower() if identifier else identifier
                 cur.execute("""
                     SELECT user_id, username, password_hash, role, is_active, must_change_password, session_token 
                     FROM users 
-                    WHERE username = %s OR email = %s
-                """, (identifier, identifier))
+                    WHERE LOWER(username) = %s OR LOWER(email) = %s
+                """, (identifier_lower, identifier_lower))
                 row = cur.fetchone()
                 
                 if row and check_password_hash(row[2], password):
