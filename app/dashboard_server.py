@@ -275,7 +275,7 @@ import logging as _logging
 _logging.getLogger("werkzeug").setLevel(_logging.WARNING)
 
 from database import (
-    upsert_user, ping_user_session, cleanup_stale_sessions, get_online_users_and_history,
+    get_user_id_by_username, ping_user_session, cleanup_stale_sessions, get_online_users_and_history,
     send_user_message, get_user_messages, mark_user_messages_read, get_unread_message_counts
 )
 
@@ -288,16 +288,11 @@ def api_viewers():
 
     # 2. If it's a heartbeat/ping, update or start their session
     if request.method == "POST":
-        data = request.json or {}
-        name = data.get("name", "Unknown").strip()
-        
-        if name:
+        user_id = session.get("user_id")
+        if user_id:
             ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
-            # Ensure user exists in users table
-            user_id = upsert_user(name)
-            if user_id:
-                # Ping their session table
-                ping_user_session(user_id, ip)
+            # Ping their session table
+            ping_user_session(user_id, ip)
 
     # 3. Always return current state (online + history)
     stats = get_online_users_and_history()
@@ -305,7 +300,7 @@ def api_viewers():
     
     return jsonify({
         "active_count": len(stats["online"]),
-        "viewers": [u["name"] for u in stats["online"]],
+        "viewers": [u["username"] for u in stats["online"]],
         "history": stats["history"],
         "detailed_online": stats["online"],
         "unread_messages": unread
@@ -320,7 +315,7 @@ def api_messages():
         if not user_name:
             return jsonify({"error": "Missing user parameter"}), 400
         
-        user_id = upsert_user(user_name)
+        user_id = get_user_id_by_username(user_name)
         if not user_id:
             return jsonify({"error": "User not found"}), 404
             
@@ -336,7 +331,7 @@ def api_messages():
         if not user_name or not message:
             return jsonify({"error": "Missing user or message"}), 400
             
-        user_id = upsert_user(user_name)
+        user_id = get_user_id_by_username(user_name)
         if not user_id:
             return jsonify({"error": "User not found"}), 404
             
@@ -357,7 +352,7 @@ def api_messages_read():
     if not user_name:
         return jsonify({"error": "Missing user"}), 400
         
-    user_id = upsert_user(user_name)
+    user_id = get_user_id_by_username(user_name)
     if not user_id:
         return jsonify({"error": "User not found"}), 404
         

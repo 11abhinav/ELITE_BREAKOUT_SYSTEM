@@ -3118,31 +3118,16 @@ def update_position_real_time_prices(symbols_metrics: dict) -> int:
 
 # ── USER AND SESSION TRACKING ─────────────────────────────────────────────
 
-def upsert_user(name: str) -> Optional[int]:
-    """Ensure user exists and return their user_id.
-
-    Use INSERT ... ON CONFLICT DO NOTHING followed by a SELECT to avoid
-    performing an UPDATE on every call (which causes RowExclusiveLock thrashing
-    when many concurrent processes upsert the same username such as 'aB').
-    This minimizes row locking. If high contention persists, consider an
-    application-level cache or advisory locks per username.
-    """
+def get_user_id_by_username(username: str) -> Optional[int]:
+    """Retrieve user_id by username."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Insert if missing, but do NOT force an update; doing updates on
-                # identical values creates unnecessary row locks under concurrency.
-                cur.execute(
-                    "INSERT INTO users (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
-                    (name,)
-                )
-                # Retrieve the user_id whether it was inserted now or already existed
-                cur.execute("SELECT user_id FROM users WHERE name = %s", (name,))
+                cur.execute("SELECT user_id FROM users WHERE username = %s", (username,))
                 row = cur.fetchone()
-                conn.commit()
                 return row[0] if row else None
     except Exception as e:
-        logger.error(f"❌ Failed to upsert user {name}: {e}")
+        logger.error(f"❌ Failed to get user_id for {username}: {e}")
         return None
 
 def ping_user_session(user_id: int, ip_address: str):
@@ -3197,7 +3182,7 @@ def get_online_users_and_history():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Active Viewers
                 cur.execute("""
-                    SELECT u.name, s.ip_address, s.login_time 
+                    SELECT u.username, s.ip_address, s.login_time 
                     FROM user_sessions s
                     JOIN users u ON s.user_id = u.user_id
                     WHERE s.is_online = TRUE
@@ -3207,7 +3192,7 @@ def get_online_users_and_history():
 
                 # Session History (last 50)
                 cur.execute("""
-                    SELECT u.name, s.ip_address, s.login_time, s.logoff_time 
+                    SELECT u.username, s.ip_address, s.login_time, s.logoff_time 
                     FROM user_sessions s
                     JOIN users u ON s.user_id = u.user_id
                     WHERE s.is_online = FALSE
@@ -3296,13 +3281,13 @@ def get_unread_message_counts() -> dict:
             from psycopg2.extras import RealDictCursor
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT u.name, COUNT(m.id) as unread_count
+                    SELECT u.username, COUNT(m.id) as unread_count
                     FROM user_messages m
                     JOIN users u ON m.user_id = u.user_id
                     WHERE m.is_from_admin = FALSE AND m.is_read = FALSE
-                    GROUP BY u.name
+                    GROUP BY u.username
                 """)
-                return {row['name']: row['unread_count'] for row in cur.fetchall()}
+                return {row['username']: row['unread_count'] for row in cur.fetchall()}
     except Exception as e:
         logger.error(f"❌ Failed to fetch unread message counts: {e}")
         return {}
