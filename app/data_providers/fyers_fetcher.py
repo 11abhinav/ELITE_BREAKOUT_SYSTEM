@@ -35,8 +35,9 @@ class RateLimiter:
                 time.sleep(self.interval - elapsed)
             self.last_call = time.time()
 
-# Shared rate limiter across Fyers fetcher instances, set slightly below Fyers' 10 req/sec limit
-_fyers_rate_limiter = RateLimiter(max_per_second=9.0)
+# Shared rate limiter across Fyers fetcher instances. 
+# Fyers limit is 10/sec. We use 4.0 to ensure bursts from threads don't overwhelm it.
+_fyers_rate_limiter = RateLimiter(max_per_second=4.0)
 
 
 class FyersFetcher(DataFetcher):
@@ -214,15 +215,21 @@ class FyersFetcher(DataFetcher):
                 return df
                 
             except Exception as e:
+                error_str = str(e)
+                # Do not retry for non-retryable errors like bad symbols
+                if "Invalid symbol provided" in error_str or "Invalid input" in error_str:
+                    logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
+                    return None
+                    
                 # Log the failed payload to help debug "Invalid input" cases (captures trailing spaces, bad dates, floats)
                 try:
                     logger.error(f"Failed Payload for {ns_symbol}: {data}")
                 except Exception:
                     pass
                 logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
-                # Add small jitter to avoid synchronized retries
+                # Add larger exponential backoff to handle rate limits gracefully
                 import random
-                time.sleep((2 ** attempt) * 0.5 + random.uniform(0, 0.5))
+                time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
         return None
@@ -241,7 +248,8 @@ class FyersFetcher(DataFetcher):
         ns_symbols = list(normalized_map.keys())
         results = {}
         
-        max_workers = min(5, len(ns_symbols) if ns_symbols else 1)
+        # Restrict max workers to 3 to prevent burst spikes on Fyers API
+        max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
                 executor.submit(self.get_ohlcv, ns_sym, interval, period, retries): ns_sym
