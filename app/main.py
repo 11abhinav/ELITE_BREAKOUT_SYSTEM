@@ -681,8 +681,9 @@ def run_system_scheduler():
 # from pledge_worker import worker_loop as run_pledge_loop
 
 RESTARTABLE_THREADS = {
-    "IntradayScanner":    run_intraday_scanner,
-    "LiveScanner":        run_live_scanner,
+    # Intraday and Live scanners disabled per ops request to reduce API load during market hours.
+    # "IntradayScanner":    run_intraday_scanner,
+    # "LiveScanner":        run_live_scanner,
     "MultiTFScanner":     run_multi_tf_scanner,
     "PerformanceTracker": run_performance_tracker,
     # "AI Worker":          run_worker_loop,
