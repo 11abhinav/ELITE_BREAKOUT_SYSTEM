@@ -37,10 +37,9 @@
     min-height: 100vh;
   }
   
-  /* Left Panel: Visuals */
   .visual-panel {
     position: relative;
-    background: url('/static/bg_split.png') center/cover no-repeat;
+    background: url('/static/bg_split.png') left center/cover no-repeat;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -49,25 +48,12 @@
   .visual-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(9,14,23,0.3) 0%, rgba(9,14,23,0.8) 100%);
+    background: linear-gradient(135deg, rgba(9,14,23,0.1) 0%, rgba(9,14,23,0.6) 100%);
   }
   .visual-content {
-    position: relative;
-    z-index: 10;
-    max-width: 480px;
-    animation: fadeRight 1s ease-out;
+    display: none; /* Text is baked into the background image */
   }
-  .visual-title {
-    font-family: var(--font-heading);
-    font-size: 56px;
-    font-weight: 700;
-    line-height: 1.1;
-    margin-bottom: 24px;
-    background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    text-shadow: 0 0 40px var(--accent-glow);
-  }
+
   
   /* Right Panel: Form */
   .form-panel {
@@ -252,25 +238,19 @@
   <!-- Left Side: Visuals -->
   <div class="visual-panel">
     <div class="visual-overlay"></div>
-    <div class="visual-content">
-      <div class="visual-title">Algorithmic Market Intelligence</div>
-      <p style="font-size: 18px; color: rgba(255,255,255,0.8); line-height: 1.6;">
-        Harness the power of AI-driven quantitative models to detect high-probability breakouts before they hit the mainstream ticker.
-      </p>
-    </div>
   </div>
 
   <!-- Right Side: Form -->
   <div class="form-panel">
     <div class="container">
       <div class="logo-container stagger-1">
-        <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:40px; height:40px; margin-bottom:8px;">
           <path d="M3 21H21" stroke="#00e5a0" stroke-width="2" stroke-linecap="round"/>
           <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M16 5H20V9" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <h2>Elite Breakout System</h2>
-        <div class="subtitle">Access Your Portfolio</div>
+        <div style="font-size: 16px; font-weight: 600; margin-bottom: 24px;">Elite Breakout System</div>
+        <h2>Sign In to Your Account</h2>
       </div>
 
       <div id="error-msg" class="error stagger-1"></div>
@@ -284,13 +264,20 @@
           <input type="password" id="password" required>
           <label>Password</label>
         </div>
+        <div class="stagger-4" style="text-align: right; margin-bottom: 16px;">
+          <a href="#" style="color: var(--muted); font-size: 13px; text-decoration: none;">Forgot Password?</a>
+        </div>
         <div class="stagger-4">
           <button type="submit">Authenticate</button>
         </div>
       </form>
       
       <div class="footer stagger-4">
-        No access protocols? <a href="/signup">Request Access</a>
+        <div style="margin-bottom: 16px; position: relative; text-align: center;">
+          <span style="background: var(--glass-bg); padding: 0 10px; position: relative; z-index: 1;">Or sign in with SSO</span>
+          <div style="position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.1); z-index: 0;"></div>
+        </div>
+        Need an account? <a href="/signup">Sign Up</a>
       </div>
     </div>
   </div>
