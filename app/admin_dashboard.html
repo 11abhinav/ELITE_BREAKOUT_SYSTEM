@@ -2070,6 +2070,22 @@
       window._kpiDefs = defs;
     }
 
+    function drillKpi(id, el) {
+      if (activeKpi === id) {
+        activeKpi = null;
+        if (el) el.classList.remove('active');
+      } else {
+        activeKpi = id;
+        document.querySelectorAll('.kpi').forEach(k => k.classList.remove('active'));
+        if (el) el.classList.add('active');
+        
+        // Scroll down to the table to show the user the filtered results
+        const tableHeader = document.querySelector('.section-label:nth-of-type(3)') || document.querySelector('.filter-bar');
+        if (tableHeader) tableHeader.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      renderTrades();
+    }
+
     window.signalLadderData = [];
 
     async function fetchSignalLadder() {
@@ -3001,6 +3017,15 @@
         }
         return true;
       });
+      
+      // Apply KPI Drilldown Filter
+      if (activeKpi && window._kpiDefs) {
+        const def = window._kpiDefs.find(d => d.id === activeKpi);
+        if (def && def.filter) {
+          filtered = filtered.filter(def.filter);
+        }
+      }
+
       window._currentFilteredTrades = filtered;
       filtered = [...filtered].sort((a, b) => {
         if (sortCol === 'status') {
