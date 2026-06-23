@@ -82,7 +82,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
 
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False
-# csrf = CSRFProtect(app)
+csrf = CSRFProtect(app)
 limiter = Limiter(
     get_remote_address,
     app=app,
