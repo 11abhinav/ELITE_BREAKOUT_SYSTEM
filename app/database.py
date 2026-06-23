@@ -3716,17 +3716,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 def bootstrap_admin():
     import os
-    if os.getenv('BOOTSTRAP_AUTH', '').lower() != 'true':
+    env_val = os.getenv('BOOTSTRAP_AUTH', '')
+    logger.info(f"BOOTSTRAP_AUTH is currently set to: '{env_val}'")
+    if env_val.strip().strip("'").strip('"').lower() != 'true':
         return
         
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # =====================================================================
-                # TODO(Abhinav): REMOVE THIS TRUNCATE ONCE YOU HAVE YOUR ADMIN ACC!
-                # If left in, this will wipe all registered users on every restart!
-                # =====================================================================
-                cur.execute("TRUNCATE TABLE users CASCADE")
+                cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
+                if cur.fetchone():
+                    return  # Already exists
                 
                 password = secrets.token_urlsafe(16)
                 p_hash = generate_password_hash(password, method='scrypt')

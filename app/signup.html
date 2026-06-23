@@ -104,6 +104,7 @@
     formData.append('email', document.getElementById('email').value);
     formData.append('mobile', document.getElementById('mobile').value);
     formData.append('password', document.getElementById('password').value);
+    formData.append('csrf_token', csrfToken);
     
     try {
       const res = await fetch('/signup', {

@@ -61,7 +61,7 @@
         <input type="text" id="username" required>
       </div>
       <div class="form-group full">
-        <label>Real Email Address</label>
+        <label>Email Address</label>
         <input type="email" id="email" required>
       </div>
       <div class="form-group full">
@@ -100,6 +100,7 @@
     formData.append('email', document.getElementById('email').value);
     formData.append('mobile', document.getElementById('mobile').value);
     formData.append('new_password', document.getElementById('new_password').value);
+    formData.append('csrf_token', csrfToken);
     
     try {
       const res = await fetch('/complete_profile', {
