@@ -81,6 +81,7 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
 
+app.config['WTF_CSRF_ENABLED'] = False
 csrf = CSRFProtect(app)
 limiter = Limiter(
     get_remote_address,
@@ -138,6 +139,7 @@ def get_csrf_token():
     return jsonify({'csrf_token': generate_csrf()})
 
 @app.route("/login", methods=["GET", "POST"])
+@csrf.exempt
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
     if request.method == "GET":
@@ -173,6 +175,7 @@ def login():
     return jsonify({"error": "Invalid credentials"}), 401
 
 @app.route("/signup", methods=["GET", "POST"])
+@csrf.exempt
 @limiter.limit("5 per minute", methods=["POST"])
 def signup():
     if request.method == "GET":
@@ -205,6 +208,7 @@ def logout():
     return redirect('/login')
 
 @app.route("/complete_profile", methods=["GET", "POST"])
+@csrf.exempt
 @login_required
 def complete_profile():
     if not session.get('must_change_password'):

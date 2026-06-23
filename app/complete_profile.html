@@ -80,7 +80,7 @@
   let csrfToken = '';
   
   async function fetchCsrf() {
-      const res = await fetch('/api/csrf_token');
+      const res = await fetch('/api/csrf_token', { credentials: 'same-origin' });
       const data = await res.json();
       csrfToken = data.csrf_token;
   }
@@ -106,6 +106,7 @@
       const res = await fetch('/complete_profile', {
         method: 'POST',
         body: formData,
+        credentials: 'same-origin',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
           'X-CSRFToken': csrfToken
