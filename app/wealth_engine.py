@@ -90,7 +90,7 @@ class DataQuality(str, Enum):
     CACHED_MULTI_DAY = "CACHED_MULTI_DAY"
     MISSING_PARTIAL = "MISSING_PARTIAL"
 
-def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
+def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cache: dict = None) -> dict:
     """Fetch MAs, 6-month RS vs Nifty, distance to 52W high, Liquidity, RSI, and ATR."""
     defaults = {
         "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None, 
@@ -99,11 +99,19 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float) -> dict:
     }
     for attempt in range(RETRY_ATTEMPTS):
         try:
-            # OPTIMIZATION: Use unified price_cache instead of price_fetcher
-            # This allows cache sharing across wealth_engine, eod_scanner, and reversal_scanner
-            from price_cache import fetch_unified_historical
-            hist_dict = fetch_unified_historical([symbol], period="1y", interval="1d")
-            hist = hist_dict.get(symbol)
+            # 🔧 CRITICAL FIX: Use pre-fetched historical cache if available
+            if historical_cache and symbol in historical_cache:
+                hist = historical_cache[symbol]
+                if hist is not None and not hist.empty:
+                    logger.debug(f"Using pre-fetched cache for {symbol}")
+                else:
+                    logger.warning(f"Pre-fetched cache for {symbol} is empty, fetching fresh...")
+                    hist = None
+            else:
+                # Fallback: Fetch single symbol if cache not available
+                from price_cache import fetch_unified_historical
+                hist_dict = fetch_unified_historical([symbol], period="1y", interval="1d")
+                hist = hist_dict.get(symbol) if hist_dict else None
             
             if hist is None or hist.empty or len(hist) < 120:
                 return defaults
@@ -593,10 +601,20 @@ def run_wealth_scan():
         clear_price_cache()
         rejection_counts = {}
 
-        def process_symbol(idx, row):
+        # 🔧 CRITICAL FIX: Fetch ALL watchlist symbols in one batch BEFORE threading
+        # This prevents cache pollution where subsequent threads get incomplete cache hits
+        # and fallback to stale data from yesterday.
+        logger.info(f"💰 [WEALTH ENGINE] Batch fetching 1D data for {len(df)} symbols...")
+        all_symbols = df["Stock"].tolist()
+        from price_cache import fetch_unified_historical
+        all_historical_data = fetch_unified_historical(all_symbols, period="1y", interval="1d")
+        logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {len(all_historical_data)} symbols cached.")
+
+        def process_symbol(idx, row, historical_cache=None):
             try:
                 sym = row["Stock"]
-                tech = calculate_wealth_technicals(sym, nifty_6m_ret)
+                # Use pre-fetched historical data instead of fetching single symbol in thread
+                tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=historical_cache)
                 
                 # Fallback if Yahoo Finance fails
                 if tech.get("cmp") is None and not prev_wealth_df.empty and sym in prev_wealth_df["Stock"].values:
@@ -672,7 +690,7 @@ def run_wealth_scan():
 
         technicals = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-            futures = {executor.submit(process_symbol, i, row): i for i, row in df.iterrows()}
+            futures = {executor.submit(process_symbol, i, row, all_historical_data): i for i, row in df.iterrows()}
             completed = 0
             for future in concurrent.futures.as_completed(futures):
                 try:
