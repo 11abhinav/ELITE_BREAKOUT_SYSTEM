@@ -3722,7 +3722,10 @@ def bootstrap_admin():
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # WIPE OUT USERS TABLE
+                # =====================================================================
+                # TODO(Abhinav): REMOVE THIS TRUNCATE ONCE YOU HAVE YOUR ADMIN ACC!
+                # If left in, this will wipe all registered users on every restart!
+                # =====================================================================
                 cur.execute("TRUNCATE TABLE users CASCADE")
                 
                 password = secrets.token_urlsafe(16)
@@ -3733,7 +3736,7 @@ def bootstrap_admin():
                     VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
                 """, (p_hash,))
             conn.commit()
-            print(f"\n[SECURITY] Admin setup required. Login as 'admin' with password: {password}\n")
+            logger.info(f"🔐 [SECURITY] Admin setup required. Login as 'admin' with password: {password}")
     except Exception as e:
         logger.error(f"Failed to bootstrap admin: {e}")
 
