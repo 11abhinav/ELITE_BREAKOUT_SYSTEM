@@ -287,7 +287,13 @@
       if (res.redirected) {
         window.location.href = res.url;
       } else if (!res.ok) {
-        const data = await res.json();
+        let data = {};
+        try {
+            data = await res.json();
+        } catch(e) {
+            data = { error: res.status === 429 ? 'Too many attempts. Please wait.' : 'Signup failed (' + res.status + ')' };
+        }
+        
         document.getElementById('error-msg').textContent = data.error || 'Signup failed';
         document.getElementById('error-msg').style.display = 'block';
         if (res.status === 400 && data.error && data.error.includes("CSRF")) {
@@ -303,7 +309,8 @@
         setTimeout(() => window.location.href = '/login', 3000);
       }
     } catch (err) {
-      document.getElementById('error-msg').textContent = 'Network error occurred.';
+      console.error(err);
+      document.getElementById('error-msg').textContent = 'Network protocol error. Please try again.';
       document.getElementById('error-msg').style.display = 'block';
     } finally {
       btn.textContent = 'Establish Credentials';
