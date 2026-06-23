@@ -2080,8 +2080,10 @@
         if (el) el.classList.add('active');
         
         // Scroll down to the table to show the user the filtered results
-        const tableHeader = document.querySelector('.section-label:nth-of-type(3)') || document.querySelector('.filter-bar');
-        if (tableHeader) tableHeader.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const tableHeader = document.querySelector('.filter-bar');
+        if (tableHeader) {
+          tableHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       }
       renderTrades();
     }
