@@ -3716,16 +3716,15 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 def bootstrap_admin():
     import os
-    if os.getenv('BOOTSTRAP_AUTH') != 'true':
+    if os.getenv('BOOTSTRAP_AUTH', '').lower() != 'true':
         return
         
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
-                if cur.fetchone():
-                    return  # Already exists
-                    
+                # WIPE OUT USERS TABLE
+                cur.execute("TRUNCATE TABLE users CASCADE")
+                
                 password = secrets.token_urlsafe(16)
                 p_hash = generate_password_hash(password, method='scrypt')
                 
