@@ -201,6 +201,8 @@ class PriceProvider:
                         # extract columns for ticker
                         if t in df.columns.get_level_values(0):
                             result[t] = df[t].dropna(how='all')
+                        elif t in df.columns.get_level_values(1):
+                            result[t] = df.xs(t, axis=1, level=1).dropna(how='all')
                         else:
                             result[t] = None
             except Exception:
