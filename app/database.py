@@ -2831,6 +2831,9 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                 # Accept either ISO strings or naive timestamps
                 if isinstance(fallback_timestamp, str):
                     ts = _dt.fromisoformat(fallback_timestamp)
+                    if ts.tzinfo is None:
+                        from zoneinfo import ZoneInfo as _ZI
+                        ts = ts.replace(tzinfo=_ZI("Asia/Kolkata"))
                 else:
                     ts = _dt(fallback_timestamp)
                 if ts.date() != now_ist.date():

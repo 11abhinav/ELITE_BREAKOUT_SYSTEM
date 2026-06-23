@@ -187,6 +187,8 @@ def fetch_historical_data(symbol: str, period: str = "1y", resolution: str = "1d
     if meta:
         try:
             last_fetched = datetime.fromisoformat(meta['last_fetched'])
+            if last_fetched.tzinfo is None:
+                last_fetched = last_fetched.replace(tzinfo=IST)
             age = (now - last_fetched).total_seconds()
         except Exception:
             age = float('inf')

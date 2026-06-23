@@ -564,6 +564,8 @@ def health():
             gen_at = data.get("generated_at")
             if gen_at:
                 gen_dt = datetime.fromisoformat(gen_at)
+                if gen_dt.tzinfo is None:
+                    gen_dt = gen_dt.replace(tzinfo=IST)
                 now_dt = datetime.now(IST)
                 perf_age = round((now_dt - gen_dt).total_seconds() / 3600, 1)
     except Exception:
