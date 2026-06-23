@@ -354,7 +354,7 @@ def start(run_once=False):
                         saved, cap_alloc, shares = save_alert_if_new(
                             symbol,
                             dedup_key,
-                            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S+05:30"),
                             scanner="1H",
                             category=category,
                             entry_price=round(candle_close, 2),

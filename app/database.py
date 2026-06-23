@@ -116,9 +116,10 @@ def get_connection(timeout: int = 5):
                 raise OperationalError('Connection pool exhausted (acquire timeout)')
 
         conn = p.getconn()
-        # Test connection is alive before returning
+        # Test connection is alive and set timezone to IST before returning
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
+            cur.execute("SET TIME ZONE 'Asia/Kolkata'")
         yield conn
     except OperationalError as e:
         # Circuit breaker: log and fail fast instead of hanging

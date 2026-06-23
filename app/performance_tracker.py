@@ -96,11 +96,11 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime]) ->
     """
     try:
         if isinstance(alert_time_val, datetime):
-            # If it's timezone aware, convert to IST then naive it.
+            # If it's timezone aware, convert to IST.
             if alert_time_val.tzinfo is not None:
                 alert_dt_ist = alert_time_val.astimezone(IST)
             else:
-                alert_dt_ist = alert_time_val.replace(tzinfo=IST)
+                alert_dt_ist = alert_time_val.replace(tzinfo=ZoneInfo("UTC")).astimezone(IST)
         else:
             alert_time_str = str(alert_time_val).replace("Z", "+00:00")
             alert_dt_naive = datetime.fromisoformat(alert_time_str)

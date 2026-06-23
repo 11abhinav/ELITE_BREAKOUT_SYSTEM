@@ -360,7 +360,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                         save_alert_if_new(
                             symbol=symbol,
                             breakout_type="INTRADAY",
-                            alert_time=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
+                            alert_time=ist_now.strftime('%Y-%m-%d %H:%M:%S+05:30'),
                             scanner="multi_tf_scanner",
                             category=cat,
                             entry_price=close,
