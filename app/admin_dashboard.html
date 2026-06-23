@@ -4731,7 +4731,7 @@ async function loadPendingUsers() {
             html += `
                 <tr>
                   <td>${u.username}</td>
-                  <td>${u.first_name || ''} ${u.last_name || ''}</td>
+                  <td>${u.name || ''}</td>
                   <td>${u.email}</td>
                   <td>${u.mobile}</td>
                   <td style="text-align:right; display:flex; gap:4px; justify-content:flex-end;">
@@ -4750,7 +4750,7 @@ async function loadPendingUsers() {
 async function approveUser(id) {
     if(!confirm('Approve this user?')) return;
     try {
-        const res = await fetch(`/ admin / approve_user / ${ id } `, {method: 'POST'});
+        const res = await fetch(`/admin/approve_user/${id}`, {method: 'POST'});
         if(res.ok) {
             loadPendingUsers();
             fetchNotifications();
@@ -4767,7 +4767,7 @@ async function approveUser(id) {
 async function rejectUser(id) {
     if(!confirm('Reject this user and delete account?')) return;
     try {
-        const res = await fetch(`/ admin / reject_user / ${ id }`, {method: 'POST'});
+        const res = await fetch(`/admin/reject_user/${id}`, {method: 'POST'});
         if(res.ok) {
             loadPendingUsers();
             fetchNotifications();

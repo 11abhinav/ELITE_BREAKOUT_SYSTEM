@@ -1863,3 +1863,15 @@ def approve_user(user_id):
         logger.error(f"Failed to approve user: {e}")
         return jsonify({"error": "Failed to approve user"}), 500
 
+@app.route("/admin/reject_user/<int:user_id>", methods=["POST"])
+@admin_required
+def reject_user(user_id):
+    try:
+        with database.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Failed to reject user: {e}")
+        return jsonify({"error": "Failed to reject user"}), 500
