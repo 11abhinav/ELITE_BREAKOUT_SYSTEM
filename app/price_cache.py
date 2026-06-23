@@ -42,7 +42,8 @@ def _is_market_hours() -> bool:
     now = datetime.now(IST)
     return dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
 
-def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m") -> dict[str, pd.DataFrame]:
+def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
+    requester = requester or threading.current_thread().name or "Unknown"
     cache_key = (interval, period)
     cadence = _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
     jitter = _TTL_JITTER.get(interval, 0)
@@ -83,7 +84,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     return entry["data"]
         
         # Cache miss or stale — download fresh data
-        result = _download_all_robust(watchlist, period=period, interval=interval)
+        result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
 
     # Determine oldest timestamp in batch
     data_as_of = None
@@ -123,7 +124,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
 
     return result
 
-def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) -> dict[str, pd.DataFrame]:
+def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, requester: str = None) -> dict[str, pd.DataFrame]:
     symbols = watchlist["Stock"].tolist()
     all_data: dict[str, pd.DataFrame] = {}
     total = len(symbols)
@@ -134,7 +135,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
     for i in range(0, total, batch_size):
         batch = symbols[i : i + batch_size]
         batch_end = min(i + batch_size, total)
-        logger.info(f"📥 Fetching Batch ({i}–{batch_end}/{total}) [{interval}]")
+        logger.info(f"[{requester}] 📥 Fetching Batch ({i}–{batch_end}/{total}) [{interval}]")
         
         batch_results = fetcher.get_batch_ohlcv(batch, interval=interval, period=period, retries=3)
         if batch_results:
@@ -179,7 +180,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str) ->
     
     return all_data
 
-def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d") -> dict[str, pd.DataFrame]:
+def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d", requester: str = None) -> dict[str, pd.DataFrame]:
     """
     Unified data fetcher for wealth_engine, eod_scanner, and reversal_scanner.
     Uses unified cache key (interval, period) to allow cross-scanner reuse.
@@ -188,7 +189,7 @@ def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = 
     having separate cache per module (price_fetcher vs price_cache).
     """
     watchlist_df = pd.DataFrame({"Stock": symbols})
-    return fetch_watchlist_data(watchlist_df, period=period, interval=interval)
+    return fetch_watchlist_data(watchlist_df, period=period, interval=interval, requester=requester)
 
 
 # -----------------------------------------------------------------------------
@@ -203,7 +204,8 @@ WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 _inflight_fetches: dict[tuple, threading.Event] = {}
 
 
-def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str = "5d", wait_timeout: int = 30) -> dict[str, pd.DataFrame]:
+def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str = "5d", wait_timeout: int = 30, requester: str = None) -> dict[str, pd.DataFrame]:
+    requester = requester or threading.current_thread().name or "Unknown"
     """
     Return cached intraday frames for (interval, period) for the provided symbols.
     If cache is stale or missing, a single thread will perform the fetch and others
@@ -223,14 +225,14 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
         if entry is not None:
             age = time.monotonic() - entry["ts"]
             if age < cadence_with_jitter:
-                logger.debug(f"📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s")
+                logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s")
                 # Return subset for requested symbols
                 return {s: entry["data"].get(s) for s in symbols}
 
         # If another thread is already fetching this key, wait for it to complete
         inflight = _inflight_fetches.get(cache_key)
         if inflight:
-            logger.debug(f"⏳ Waiting for in-flight fetch for {cache_key} (wait_timeout={wait_timeout}s)")
+            logger.debug(f"[{requester}] ⏳ Waiting for in-flight fetch for {cache_key} (wait_timeout={wait_timeout}s)")
             # Release lock while waiting
             # Wait outside lock
             pass
@@ -267,7 +269,7 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
 
     # This thread is responsible for fetching
     try:
-        logger.info(f"🔁 Performing single fetch for intraday key {cache_key} for {len(symbols)} symbols")
+        logger.info(f"[{requester}] 🔁 Performing single fetch for intraday key {cache_key} for {len(symbols)} symbols")
         watchlist_df = pd.DataFrame({"Stock": symbols})
         # Use existing serialized path which already uses a global fetch lock
         result = fetch_watchlist_data(watchlist_df, period=period, interval=interval)
@@ -283,7 +285,8 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
             _inflight_fetches.pop(cache_key, None)
 
 
-def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d") -> dict:
+def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d", requester: str = None) -> dict:
+    requester = requester or threading.current_thread().name or "Unknown"
     """
     Fetch a small, shared snapshot optimized for market-hours:
       - Recent daily OHLCV for `recent_period` (default 5d) via cached batch fetch
@@ -307,9 +310,9 @@ def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d") ->
 
     # 1) Fetch recent daily bars using the unified cached path (this is serialized by fetch_watchlist_data)
     try:
-        daily = fetch_unified_historical(symbols, period=recent_period, interval="1d")
+        daily = fetch_unified_historical(symbols, period=recent_period, interval="1d", requester=requester)
     except Exception as e:
-        logger.warning(f"Failed to fetch recent daily data for snapshot: {e}")
+        logger.warning(f"[{requester}] Failed to fetch recent daily data for snapshot: {e}")
         daily = {}
 
     result["daily"] = daily or {}
