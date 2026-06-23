@@ -4,326 +4,322 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login - Elite Breakout System</title>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #090e17; 
-    --glass-bg: rgba(13, 17, 28, 0.6); 
-    --glass-border: rgba(255,255,255,0.08); 
+    --glass-bg: rgba(13, 17, 28, 0.7); 
+    --glass-border: rgba(255, 255, 255, 0.08); 
     --text: #f8fafc;
     --muted: #94a3b8; 
     --accent: #00e5a0; 
-    --accent-glow: rgba(0, 229, 160, 0.4);
+    --accent-glow: rgba(0, 229, 160, 0.5);
     --warn: #ff4757; 
     --radius: 16px;
+    --font-heading: 'Outfit', sans-serif;
+    --font-body: 'Inter', sans-serif;
   }
-  * { box-sizing: border-box; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
   body {
     background: var(--bg); 
     color: var(--text); 
-    font-family: 'Inter', sans-serif;
-    margin: 0; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
+    font-family: var(--font-body);
     min-height: 100vh;
     overflow: hidden;
-    position: relative;
-    background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #090e17 60%);
   }
   
-  /* Dynamic Background Effects */
-  .bg-orb {
+  /* Split Layout */
+  .split-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 100vh;
+  }
+  
+  /* Left Panel: Visuals */
+  .visual-panel {
+    position: relative;
+    background: url('/static/bg_split.png') center/cover no-repeat;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px;
+  }
+  .visual-overlay {
     position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.5;
-    z-index: 0;
-    animation: float 10s infinite alternate ease-in-out;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(9,14,23,0.3) 0%, rgba(9,14,23,0.8) 100%);
   }
-  .orb-1 {
-    width: 400px; height: 400px;
-    background: rgba(0, 229, 160, 0.15);
-    top: -100px; left: -100px;
+  .visual-content {
+    position: relative;
+    z-index: 10;
+    max-width: 480px;
+    animation: fadeRight 1s ease-out;
   }
-  .orb-2 {
-    width: 300px; height: 300px;
-    background: rgba(0, 150, 255, 0.15);
-    bottom: -50px; right: -50px;
-    animation-delay: -5s;
+  .visual-title {
+    font-family: var(--font-heading);
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 40px var(--accent-glow);
   }
-  @keyframes float {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(30px, 50px) scale(1.1); }
+  
+  /* Right Panel: Form */
+  .form-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    background: radial-gradient(circle at top right, #1e293b 0%, #090e17 80%);
+    position: relative;
   }
-
+  
+  /* Glass Form Container */
   .container {
     background: var(--glass-bg); 
     padding: 48px 40px; 
-    border-radius: var(--radius);
+    border-radius: 24px;
     border: 1px solid var(--glass-border); 
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.02);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
     width: 100%; 
-    max-width: 420px;
-    z-index: 1;
+    max-width: 440px;
     position: relative;
-    animation: fadeUp 0.6s ease-out;
-  }
-  
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    animation: fadeUp 0.8s ease-out;
   }
 
-  .logo-container {
-    text-align: center;
-    margin-bottom: 32px;
+  /* Micro-Animations */
+  @keyframes fadeRight {
+    from { opacity: 0; transform: translateX(-40px); }
+    to { opacity: 1; transform: translateX(0); }
   }
-  .logo-svg {
-    width: 64px;
-    height: 64px;
-    margin-bottom: 16px;
-    filter: drop-shadow(0 0 12px var(--accent-glow));
-    animation: pulseGlow 3s infinite alternate;
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
   }
   @keyframes pulseGlow {
     from { filter: drop-shadow(0 0 12px var(--accent-glow)); }
     to { filter: drop-shadow(0 0 24px rgba(0,229,160,0.8)); }
   }
   
-  h2 { 
-    margin: 0 0 8px; 
-    font-weight: 700; 
-    font-size: 28px; 
-    text-align: center; 
-    font-family: 'Outfit', sans-serif;
-    letter-spacing: -0.5px;
-    background: linear-gradient(to right, #fff, #a5b4fc);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-  .subtitle {
-    text-align: center;
-    color: var(--muted);
-    font-size: 14px;
-    margin-bottom: 32px;
-  }
+  /* Staggered Form Elements */
+  .stagger-1 { animation: fadeUp 0.6s 0.1s both; }
+  .stagger-2 { animation: fadeUp 0.6s 0.2s both; }
+  .stagger-3 { animation: fadeUp 0.6s 0.3s both; }
+  .stagger-4 { animation: fadeUp 0.6s 0.4s both; }
 
-  .form-group { margin-bottom: 24px; position: relative; }
-  label { 
-    display: block; 
-    margin-bottom: 8px; 
-    font-size: 13px; 
-    font-weight: 500;
-    color: var(--muted); 
+  .logo-container { text-align: center; margin-bottom: 40px; }
+  .logo-svg {
+    width: 64px; height: 64px; margin-bottom: 16px;
+    filter: drop-shadow(0 0 12px var(--accent-glow));
+    animation: pulseGlow 3s infinite alternate;
+  }
+  h2 { 
+    font-family: var(--font-heading);
+    font-weight: 700; font-size: 28px; 
+    margin: 0 0 8px; color: #fff;
+  }
+  .subtitle { color: var(--muted); font-size: 15px; margin-bottom: 32px; }
+
+  /* Floating Labels */
+  .form-group { position: relative; margin-bottom: 24px; }
+  .form-group input {
+    width: 100%;
+    padding: 24px 16px 10px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+  .form-group label {
+    position: absolute;
+    top: 18px;
+    left: 16px;
+    color: var(--muted);
+    font-size: 15px;
+    pointer-events: none;
+    transition: 0.2s ease all;
+  }
+  .form-group input:focus, .form-group input:valid {
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.5);
+    box-shadow: 0 0 0 4px rgba(0, 229, 160, 0.1);
+  }
+  .form-group input:focus ~ label, .form-group input:valid ~ label {
+    top: 8px;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  input {
-    width: 100%; 
-    padding: 14px 16px; 
-    background: rgba(0,0,0,0.25); 
-    border: 1px solid var(--glass-border);
-    border-radius: 8px; 
-    color: var(--text); 
-    font-family: inherit; 
-    font-size: 15px; 
-    outline: none;
-    transition: all 0.3s ease;
-  }
-  input:focus { 
-    border-color: var(--accent); 
-    background: rgba(0,0,0,0.4);
-    box-shadow: 0 0 0 3px rgba(0, 229, 160, 0.15);
-  }
-  
-  button {
-    width: 100%; 
-    padding: 14px; 
-    background: var(--accent); 
-    color: #000; 
+
+  /* Button */
+  button[type="submit"] {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(90deg, var(--accent) 0%, #00faae 100%);
+    color: #000;
     border: none;
-    border-radius: 8px; 
-    font-weight: 700; 
-    font-size: 16px; 
-    font-family: 'Outfit', sans-serif;
-    cursor: pointer; 
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 14px var(--accent-glow);
+    border-radius: 12px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 16px;
     text-transform: uppercase;
     letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 24px var(--accent-glow);
     margin-top: 8px;
   }
-  button:hover { 
+  button[type="submit"]:hover { 
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px var(--accent-glow);
-    background: #00faae;
+    box-shadow: 0 12px 32px rgba(0, 229, 160, 0.6);
   }
-  button:active {
-    transform: translateY(1px);
-  }
-  
+  button[type="submit"]:active { transform: translateY(1px); }
+
   .error { 
-    color: var(--warn); 
-    font-size: 14px; 
-    margin-bottom: 20px; 
-    display: none; 
-    text-align: center; 
-    background: rgba(255, 71, 87, 0.1);
-    padding: 10px;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 71, 87, 0.2);
+    color: var(--warn); font-size: 14px; 
+    margin-bottom: 20px; display: none; text-align: center; 
+    background: rgba(255, 71, 87, 0.1); padding: 12px;
+    border-radius: 8px; border: 1px solid rgba(255, 71, 87, 0.2);
   }
   
-  .footer { 
-    margin-top: 32px; 
-    text-align: center; 
-    font-size: 14px; 
-    color: var(--muted); 
-  }
-  .footer a { 
-    color: var(--accent); 
-    text-decoration: none; 
-    font-weight: 600;
-    transition: color 0.2s;
-  }
-  .footer a:hover { 
-    color: #fff; 
-  }
+  .footer { margin-top: 32px; text-align: center; font-size: 14px; color: var(--muted); }
+  .footer a { color: var(--accent); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+  .footer a:hover { color: #fff; text-shadow: 0 0 8px var(--accent-glow); }
+
+  /* Selection Color */
+  ::selection { background: var(--accent); color: #000; }
 
   /* Chat Widget */
   .chat-widget {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 300px;
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    backdrop-filter: blur(20px);
-    z-index: 1000;
-    overflow: hidden;
-    transition: all 0.3s ease;
+    position: fixed; bottom: 24px; right: 24px;
+    width: 320px; background: var(--glass-bg);
+    border: 1px solid var(--glass-border); border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    backdrop-filter: blur(24px); z-index: 1000;
+    overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .chat-header {
-    background: rgba(0, 229, 160, 0.1);
-    padding: 12px 16px;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: 600;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(0, 229, 160, 0.1); padding: 14px 20px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--font-heading); font-weight: 600; font-size: 15px;
+    border-bottom: 1px solid rgba(255,255,255,0.05); color: #fff;
   }
-  .chat-header:hover {
-    background: rgba(0, 229, 160, 0.2);
-  }
-  .chat-body {
-    display: none;
-    padding: 16px;
-  }
+  .chat-header:hover { background: rgba(0, 229, 160, 0.15); }
+  .chat-body { display: none; padding: 20px; }
   .chat-body input, .chat-body textarea {
-    width: 100%;
-    margin-bottom: 10px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid var(--glass-border);
-    border-radius: 6px;
-    color: var(--text);
-    padding: 10px;
-    font-family: inherit;
-    resize: none;
-    font-size: 14px;
-    outline: none;
+    width: 100%; margin-bottom: 12px; background: rgba(0,0,0,0.4);
+    border: 1px solid var(--glass-border); border-radius: 8px;
+    color: var(--text); padding: 12px; font-family: var(--font-body);
+    font-size: 14px; outline: none; transition: border 0.3s;
   }
-  .chat-body input:focus, .chat-body textarea:focus {
-    border-color: var(--accent);
-  }
+  .chat-body textarea { resize: none; }
+  .chat-body input:focus, .chat-body textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,160,0.1); }
   .chat-body button {
-    padding: 10px;
-    font-size: 14px;
-    margin-top: 0;
+    width: 100%; padding: 12px; font-family: var(--font-heading);
+    font-weight: 600; background: var(--accent); color: #000;
+    border: none; border-radius: 8px; cursor: pointer; transition: 0.2s;
   }
+  .chat-body button:hover { background: #00faae; box-shadow: 0 4px 12px var(--accent-glow); }
 
+  /* Responsive */
+  @media(max-width: 900px) {
+    .split-layout { grid-template-columns: 1fr; }
+    .visual-panel { display: none; }
+    body { overflow: auto; }
+  }
   @media(max-width: 480px) {
-    .chat-widget {
-      width: calc(100vw - 40px);
-      right: 20px;
-      bottom: 20px;
-    }
-    .form-row {
-      flex-direction: column;
-      gap: 0;
-    }
-    .form-group {
-      margin-bottom: 20px;
-    }
+    .chat-widget { width: calc(100vw - 40px); right: 20px; bottom: 20px; }
+    .container { padding: 40px 24px; }
   }
 </style>
 </head>
 <body>
-  <div class="bg-orb orb-1"></div>
-  <div class="bg-orb orb-2"></div>
 
-  <div class="container">
-    <div class="logo-container">
-      <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M3 21H21" stroke="#00e5a0" stroke-width="2" stroke-linecap="round"/>
-        <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M16 5H20V9" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.2"/>
-      </svg>
-      <h2>Elite Breakout</h2>
-      <div class="subtitle">AI-Powered Trading Intelligence</div>
-    </div>
-    
-    <div id="error-msg" class="error"></div>
-    
-    <form id="login-form">
-      <div class="form-group">
-        <label>Username or Email</label>
-        <input type="text" id="username" placeholder="Enter your credentials" required>
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="password" placeholder="••••••••" required>
-      </div>
-      <button type="submit">Initialize Session</button>
-    </form>
-    
-    <div class="footer">
-      No access protocols? <a href="/signup">Request Access</a>
+<div class="split-layout">
+  <!-- Left Side: Visuals -->
+  <div class="visual-panel">
+    <div class="visual-overlay"></div>
+    <div class="visual-content">
+      <div class="visual-title">Algorithmic Market Intelligence</div>
+      <p style="font-size: 18px; color: rgba(255,255,255,0.8); line-height: 1.6;">
+        Harness the power of AI-driven quantitative models to detect high-probability breakouts before they hit the mainstream ticker.
+      </p>
     </div>
   </div>
 
-  <!-- Chat Widget -->
-  <div id="chat-widget" class="chat-widget">
-    <div class="chat-header" onclick="toggleChat()">
-      <span>💬 Contact Admin</span>
-      <span id="chat-toggle-icon">▲</span>
-    </div>
-    <div class="chat-body" id="chat-body">
-      <div id="chat-success" style="display:none; color: var(--accent); text-align:center; padding: 20px;">Message sent successfully!</div>
-      <form id="chat-form">
-        <input type="text" id="chat-name" placeholder="Your Name" required>
-        <input type="email" id="chat-email" placeholder="Your Email" required>
-        <textarea id="chat-message" placeholder="How can we help you?" required rows="4"></textarea>
-        <button type="submit" id="chat-submit">Send Message</button>
+  <!-- Right Side: Form -->
+  <div class="form-panel">
+    <div class="container">
+      <div class="logo-container stagger-1">
+        <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 21H21" stroke="#00e5a0" stroke-width="2" stroke-linecap="round"/>
+          <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M16 5H20V9" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h2>Elite Breakout System</h2>
+        <div class="subtitle">Access Your Portfolio</div>
+      </div>
+
+      <div id="error-msg" class="error stagger-1"></div>
+      
+      <form id="login-form">
+        <div class="form-group stagger-2">
+          <input type="text" id="username" required>
+          <label>Username</label>
+        </div>
+        <div class="form-group stagger-3">
+          <input type="password" id="password" required>
+          <label>Password</label>
+        </div>
+        <div class="stagger-4">
+          <button type="submit">Authenticate</button>
+        </div>
       </form>
+      
+      <div class="footer stagger-4">
+        No access protocols? <a href="/signup">Request Access</a>
+      </div>
     </div>
   </div>
+</div>
+
+<!-- Chat Widget -->
+<div id="chat-widget" class="chat-widget">
+  <div class="chat-header" onclick="toggleChat()">
+    <span>💬 Contact Support</span>
+    <span id="chat-toggle-icon">▲</span>
+  </div>
+  <div class="chat-body" id="chat-body">
+    <div id="chat-success" style="display:none; color: var(--accent); text-align:center; padding: 20px; font-weight:600;">Message sent successfully!</div>
+    <form id="chat-form">
+      <input type="text" id="chat-name" placeholder="Your Name" required>
+      <input type="email" id="chat-email" placeholder="Your Email" required>
+      <textarea id="chat-message" placeholder="How can we help you?" required rows="4"></textarea>
+      <button type="submit" id="chat-submit">Send Message</button>
+    </form>
+  </div>
+</div>
 
 <script>
   let csrfToken = '';
-  
   async function fetchCsrf() {
       const res = await fetch('/api/csrf_token');
       const data = await res.json();
       csrfToken = data.csrf_token;
   }
-  
   fetchCsrf();
   
   document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -354,28 +350,31 @@
         try {
             data = await res.json();
         } catch(e) {
-            data = { error: res.status === 429 ? 'Too many attempts. Please wait.' : 'Authentication failed (' + res.status + ')' };
+            data = { error: res.status === 429 ? 'Too many attempts. Please wait.' : 'Login failed (' + res.status + ')' };
         }
         
-        document.getElementById('error-msg').textContent = data.error || 'Authentication failed';
+        document.getElementById('error-msg').textContent = data.error || 'Login failed';
         document.getElementById('error-msg').style.display = 'block';
         if (res.status === 400 && data.error && data.error.includes("CSRF")) {
-            await fetchCsrf(); // Refresh token
+            await fetchCsrf();
         }
       } else {
-        window.location.href = '/';
+        const data = await res.json();
+        if (data.redirect) {
+            window.location.href = data.redirect;
+        } else {
+            window.location.href = '/';
+        }
       }
     } catch (err) {
-      console.error(err);
       document.getElementById('error-msg').textContent = 'Network protocol error. Please try again.';
       document.getElementById('error-msg').style.display = 'block';
     } finally {
-      btn.textContent = 'Initialize Session';
+      btn.textContent = 'Authenticate';
       btn.disabled = false;
     }
   });
 
-  // Chat Widget Logic
   function toggleChat() {
     const body = document.getElementById('chat-body');
     const icon = document.getElementById('chat-toggle-icon');
