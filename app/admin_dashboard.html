@@ -3539,23 +3539,48 @@ document.addEventListener('click', (e) => {
 
 async function fetchNotifications() {
     try {
-        const res = await fetch('/api/notifications');
-        if (!res.ok) return;
-        const data = await res.json();
+        const [notifRes, pendingRes] = await Promise.all([
+            fetch('/api/notifications'),
+            fetch('/admin/pending_users')
+        ]);
+        if (!notifRes.ok) return;
+        
+        const data = await notifRes.json();
+        let pendingData = [];
+        if (pendingRes.ok) {
+            pendingData = await pendingRes.json();
+        }
         
         const list = document.getElementById('notif-list');
         const badge = document.getElementById('notif-badge');
         if(!list || !badge) return;
         
-        let unseenCount = 0;
+        let unseenCount = pendingData.length;
         let newNotifs = false;
         
-        if (data.length === 0) {
+        if (data.length === 0 && pendingData.length === 0) {
             list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--muted); font-size:12px;">No notifications yet.</div>';
+            badge.classList.remove('active');
+            badge.textContent = '0';
             return;
         }
         
         let html = '';
+        
+        // Render pending user notifications first
+        pendingData.forEach(u => {
+            html += `
+                <div class="notification-item unseen" style="cursor:pointer;" onclick="document.getElementById('pendingUsersContainer').scrollIntoView({behavior: 'smooth'})">
+                    <div class="notification-item-title notification-type-sell">Pending Action: User Approval</div>
+                    <div class="notification-item-msg">User <b>${u.username}</b> (${u.email}) is waiting for approval.</div>
+                    <div class="notification-item-meta">
+                        <span>Action Required</span>
+                        <span>${u.created_at || ''}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
         const currentIds = new Set();
         
         data.forEach(n => {
