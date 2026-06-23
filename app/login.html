@@ -4,59 +4,228 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Login - Elite Breakout System</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0f172a; --surface: #1e293b; --border: rgba(255,255,255,.08); --text: #f8fafc;
-    --muted: #94a3b8; --accent: #059669; --warn: #e11d48; --radius: 10px;
+    --bg: #090e17; 
+    --glass-bg: rgba(13, 17, 28, 0.6); 
+    --glass-border: rgba(255,255,255,0.08); 
+    --text: #f8fafc;
+    --muted: #94a3b8; 
+    --accent: #00e5a0; 
+    --accent-glow: rgba(0, 229, 160, 0.4);
+    --warn: #ff4757; 
+    --radius: 16px;
   }
   * { box-sizing: border-box; }
   body {
-    background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif;
-    margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh;
+    background: var(--bg); 
+    color: var(--text); 
+    font-family: 'Inter', sans-serif;
+    margin: 0; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    min-height: 100vh;
+    overflow: hidden;
+    position: relative;
+    background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #090e17 60%);
   }
+  
+  /* Dynamic Background Effects */
+  .bg-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.5;
+    z-index: 0;
+    animation: float 10s infinite alternate ease-in-out;
+  }
+  .orb-1 {
+    width: 400px; height: 400px;
+    background: rgba(0, 229, 160, 0.15);
+    top: -100px; left: -100px;
+  }
+  .orb-2 {
+    width: 300px; height: 300px;
+    background: rgba(0, 150, 255, 0.15);
+    bottom: -50px; right: -50px;
+    animation-delay: -5s;
+  }
+  @keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(30px, 50px) scale(1.1); }
+  }
+
   .container {
-    background: var(--surface); padding: 40px; border-radius: var(--radius);
-    border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,.2);
-    width: 100%; max-width: 400px;
+    background: var(--glass-bg); 
+    padding: 48px 40px; 
+    border-radius: var(--radius);
+    border: 1px solid var(--glass-border); 
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.02);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    width: 100%; 
+    max-width: 420px;
+    z-index: 1;
+    position: relative;
+    animation: fadeUp 0.6s ease-out;
   }
-  h2 { margin: 0 0 24px; font-weight: 600; font-size: 24px; text-align: center; }
-  .form-group { margin-bottom: 20px; }
-  label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
+  
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo-container {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .logo-svg {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 0 12px var(--accent-glow));
+    animation: pulseGlow 3s infinite alternate;
+  }
+  @keyframes pulseGlow {
+    from { filter: drop-shadow(0 0 12px var(--accent-glow)); }
+    to { filter: drop-shadow(0 0 24px rgba(0,229,160,0.8)); }
+  }
+  
+  h2 { 
+    margin: 0 0 8px; 
+    font-weight: 700; 
+    font-size: 28px; 
+    text-align: center; 
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: -0.5px;
+    background: linear-gradient(to right, #fff, #a5b4fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+
+  .form-group { margin-bottom: 24px; position: relative; }
+  label { 
+    display: block; 
+    margin-bottom: 8px; 
+    font-size: 13px; 
+    font-weight: 500;
+    color: var(--muted); 
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
   input {
-    width: 100%; padding: 12px; background: rgba(0,0,0,0.2); border: 1px solid var(--border);
-    border-radius: 6px; color: var(--text); font-family: inherit; font-size: 15px; outline: none;
-    transition: border-color 0.2s;
+    width: 100%; 
+    padding: 14px 16px; 
+    background: rgba(0,0,0,0.25); 
+    border: 1px solid var(--glass-border);
+    border-radius: 8px; 
+    color: var(--text); 
+    font-family: inherit; 
+    font-size: 15px; 
+    outline: none;
+    transition: all 0.3s ease;
   }
-  input:focus { border-color: var(--accent); }
+  input:focus { 
+    border-color: var(--accent); 
+    background: rgba(0,0,0,0.4);
+    box-shadow: 0 0 0 3px rgba(0, 229, 160, 0.15);
+  }
+  
   button {
-    width: 100%; padding: 12px; background: var(--accent); color: #fff; border: none;
-    border-radius: 6px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s;
+    width: 100%; 
+    padding: 14px; 
+    background: var(--accent); 
+    color: #000; 
+    border: none;
+    border-radius: 8px; 
+    font-weight: 700; 
+    font-size: 16px; 
+    font-family: 'Outfit', sans-serif;
+    cursor: pointer; 
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 14px var(--accent-glow);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 8px;
   }
-  button:hover { opacity: 0.9; }
-  .error { color: var(--warn); font-size: 14px; margin-bottom: 16px; display: none; text-align: center; }
-  .footer { margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted); }
-  .footer a { color: var(--accent); text-decoration: none; }
-  .footer a:hover { text-decoration: underline; }
+  button:hover { 
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--accent-glow);
+    background: #00faae;
+  }
+  button:active {
+    transform: translateY(1px);
+  }
+  
+  .error { 
+    color: var(--warn); 
+    font-size: 14px; 
+    margin-bottom: 20px; 
+    display: none; 
+    text-align: center; 
+    background: rgba(255, 71, 87, 0.1);
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 71, 87, 0.2);
+  }
+  
+  .footer { 
+    margin-top: 32px; 
+    text-align: center; 
+    font-size: 14px; 
+    color: var(--muted); 
+  }
+  .footer a { 
+    color: var(--accent); 
+    text-decoration: none; 
+    font-weight: 600;
+    transition: color 0.2s;
+  }
+  .footer a:hover { 
+    color: #fff; 
+  }
 </style>
 </head>
 <body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
   <div class="container">
-    <h2>Welcome Back</h2>
+    <div class="logo-container">
+      <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 21H21" stroke="#00e5a0" stroke-width="2" stroke-linecap="round"/>
+        <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16 5H20V9" stroke="#00e5a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 14L8 9L12 13L20 5" stroke="#00e5a0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" opacity="0.2"/>
+      </svg>
+      <h2>Elite Breakout</h2>
+      <div class="subtitle">AI-Powered Trading Intelligence</div>
+    </div>
+    
     <div id="error-msg" class="error"></div>
+    
     <form id="login-form">
       <div class="form-group">
         <label>Username or Email</label>
-        <input type="text" id="username" required>
+        <input type="text" id="username" placeholder="Enter your credentials" required>
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="password" required>
+        <input type="password" id="password" placeholder="••••••••" required>
       </div>
-      <button type="submit">Sign In</button>
+      <button type="submit">Initialize Session</button>
     </form>
+    
     <div class="footer">
-      Don't have an account? <a href="/signup">Sign up</a>
+      No access protocols? <a href="/signup">Request Access</a>
     </div>
   </div>
 
@@ -74,7 +243,7 @@
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = e.target.querySelector('button');
-    btn.textContent = 'Signing in...';
+    btn.textContent = 'Authenticating...';
     btn.disabled = true;
     
     const formData = new FormData();
@@ -96,7 +265,7 @@
         window.location.href = res.url;
       } else if (!res.ok) {
         const data = await res.json();
-        document.getElementById('error-msg').textContent = data.error || 'Login failed';
+        document.getElementById('error-msg').textContent = data.error || 'Authentication failed';
         document.getElementById('error-msg').style.display = 'block';
         if (res.status === 400 && data.error && data.error.includes("CSRF")) {
             await fetchCsrf(); // Refresh token
@@ -105,10 +274,10 @@
         window.location.href = '/';
       }
     } catch (err) {
-      document.getElementById('error-msg').textContent = 'Network error occurred.';
+      document.getElementById('error-msg').textContent = 'Network protocol error.';
       document.getElementById('error-msg').style.display = 'block';
     } finally {
-      btn.textContent = 'Sign In';
+      btn.textContent = 'Initialize Session';
       btn.disabled = false;
     }
   });
