@@ -143,6 +143,70 @@ class YFinanceFetcher(DataFetcher):
             logger.error(f"Failed to fetch quote for {symbol}: {e}")
             return {}
 
+# ── Auto Switching & Fallback Fetcher ───────────────────────────────────────
+
+class AutoSwitchingFetcher(DataFetcher):
+    """Fetcher that uses Fyers as primary if authenticated, falling back to YFinance on any failure."""
+    def __init__(self):
+        self.yfinance_fetcher = YFinanceFetcher()
+        self.fyers_fetcher = None
+        try:
+            from data_providers.fyers_fetcher import FyersFetcher
+            self.fyers_fetcher = FyersFetcher()
+        except Exception as e:
+            logger.warning(f"FyersFetcher could not be loaded: {e}. Falling back completely to YFinance.")
+
+    def _should_use_fyers(self) -> bool:
+        if not self.fyers_fetcher:
+            return False
+        try:
+            import fyers_auth
+            import config
+            if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
+                return False
+            token = fyers_auth.get_access_token()
+            return token is not None
+        except Exception:
+            return False
+
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
+        if self._should_use_fyers():
+            try:
+                df = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries)
+                if df is not None and not df.empty:
+                    return df
+                logger.warning(f"Fyers fetch returned empty/failed for {symbol}. Falling back to YFinance.")
+            except Exception as e:
+                logger.error(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
+        return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries)
+
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3) -> dict[str, pd.DataFrame]:
+        if self._should_use_fyers():
+            try:
+                results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries)
+                missing_symbols = [s for s in symbols if results.get(s) is None or results[s].empty]
+                if missing_symbols:
+                    logger.warning(f"Fyers batch fetch returned empty/missing data for {len(missing_symbols)} symbols. Querying YFinance for these.")
+                    yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries)
+                    for s in missing_symbols:
+                        if s in yf_results:
+                            results[s] = yf_results[s]
+                return results
+            except Exception as e:
+                logger.error(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
+        return self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries)
+
+    def get_quote(self, symbol: str) -> dict:
+        if self._should_use_fyers():
+            try:
+                quote = self.fyers_fetcher.get_quote(symbol)
+                if quote:
+                    return quote
+            except Exception as e:
+                logger.error(f"Fyers quote fetch exception for {symbol}: {e}. Falling back to YFinance.")
+        return self.yfinance_fetcher.get_quote(symbol)
+
+
 # ── Factory ─────────────────────────────────────────────────────────────────
 
 def get_fetcher() -> DataFetcher:
@@ -150,4 +214,13 @@ def get_fetcher() -> DataFetcher:
     if DATA_PROVIDER == "kite":
         from data_providers.kite_fetcher import KiteFetcher
         return KiteFetcher()
-    return YFinanceFetcher()
+    elif DATA_PROVIDER == "fyers":
+        from data_providers.fyers_fetcher import FyersFetcher
+        return FyersFetcher()
+    elif DATA_PROVIDER == "yfinance":
+        return YFinanceFetcher()
+    
+    # "auto" or default uses the AutoSwitchingFetcher
+    return AutoSwitchingFetcher()
+
+

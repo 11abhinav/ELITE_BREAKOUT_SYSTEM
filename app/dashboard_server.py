@@ -576,8 +576,91 @@ def health():
         "performance_age_h": perf_age,
     })
 
+
+@app.route("/fyers/login")
+@admin_required
+def fyers_login():
+    """Redirect admin user to Fyers OAuth authentication portal."""
+    try:
+        from fyers_auth import get_login_url
+        login_url = get_login_url()
+        return redirect(login_url)
+    except Exception as e:
+        logger.error(f"Fyers login URL generation failed: {e}")
+        return f"Error generating Fyers login URL: {e}", 500
+
+
+@app.route("/fyers/callback")
+def fyers_callback():
+    """Fyers OAuth Redirect URI callback: captures authorization code, gets token, and caches it."""
+    auth_code = request.args.get("auth_code") or request.args.get("code")
+    if not auth_code:
+        return "Authorization code missing in Fyers callback parameters.", 400
+        
+    try:
+        from fyers_auth import save_access_token
+        save_access_token(auth_code)
+        
+        # Display elegant responsive confirmation page
+        return """
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Fyers Authentication Success</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                        background: #0d1117;
+                        color: #c9d1d9;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        height: 100vh;
+                        margin: 0;
+                    }
+                    .card {
+                        background: #161b22;
+                        border: 1px solid #30363d;
+                        border-radius: 12px;
+                        padding: 40px;
+                        text-align: center;
+                        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+                        max-width: 450px;
+                    }
+                    h1 { color: #58a6ff; font-size: 24px; margin-bottom: 16px; font-weight: 600; }
+                    p { font-size: 15px; line-height: 1.6; margin-bottom: 28px; color: #8b949e; }
+                    a {
+                        background: #238636;
+                        color: #ffffff;
+                        padding: 12px 24px;
+                        text-decoration: none;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        display: inline-block;
+                        transition: background 0.2s;
+                    }
+                    a:hover { background: #2ea043; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h1>Authentication Successful!</h1>
+                    <p>The daily Fyers API access token has been generated and cached locally. The Elite Breakout scanners can now pull premium data without rate limits.</p>
+                    <a href="/admin">Go to Dashboard</a>
+                </div>
+            </body>
+        </html>
+        """, 200
+    except Exception as e:
+        logger.error(f"Fyers callback token exchange failed: {e}")
+        return f"Error exchanging Fyers token: {e}", 500
+
+
 @app.route("/admin/export/<table>")
 @admin_required
+
 def export_csv_data(table):
     """Exports the requested database table as a CSV file."""
     # Prevent SQL injection by strictly whitelisting allowed tables
@@ -1013,10 +1096,30 @@ def api_data_fetch_health():
     try:
         from database import get_all_data_fetch_health
         rows = get_all_data_fetch_health()
+        
+        # Inject Fyers API session health if using Fyers data provider
+        from config import DATA_PROVIDER
+        if DATA_PROVIDER == "fyers":
+            from fyers_auth import get_access_token
+            token = get_access_token()
+            token_valid = token is not None
+            
+            fyers_row = {
+                "source_name": "Fyers API Session",
+                "last_success": datetime.now(IST) if token_valid else None,
+                "last_failure": None if token_valid else datetime.now(IST),
+                "consecutive_failures": 0 if token_valid else 1,
+                "error_msg": "Session active and token cached." if token_valid else 'Token missing or expired. <a href="/fyers/login" style="color:#00d4a1; font-weight:bold; text-decoration:underline;">Click here to Authorize Fyers API</a>.',
+                "is_acknowledged": 0,
+                "updated_at": datetime.now(IST)
+            }
+            rows.append(fyers_row)
+            
         return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception("❌ /api/data_fetch_health failed")
         return jsonify([]), 500
+
 
 
 @app.route('/api/todays_alerts')

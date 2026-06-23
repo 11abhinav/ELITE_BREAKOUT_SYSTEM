@@ -16,3 +16,4 @@ gunicorn>=21.2.0
 rapidfuzz==3.10.1
 Flask-WTF>=1.2.1
 Flask-Limiter>=3.8.0
+fyers-apiv3>=3.0.0
