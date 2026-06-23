@@ -69,7 +69,11 @@ USER_DASHBOARD_PATH = get_html_path("user_dashboard.html")
 ADMIN_DASHBOARD_PATH = get_html_path("admin_dashboard.html")
 
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__)
+# Tell Flask it is behind a reverse proxy (Railway) so it sets the secure cookie on HTTPS
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 app.secret_key = os.getenv("SECRET_KEY", "fallback_dev_key_if_missing_in_prod")
 app.config['SESSION_COOKIE_HTTPONLY'] = True
