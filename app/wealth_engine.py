@@ -668,11 +668,13 @@ def run_wealth_scan():
                     return {"Stock": sym}
                     
                 tech["Stock"] = sym
-                try:
-                    tech["Promoter_Pledge"] = fetch_promoter_pledge(sym)
-                except Exception as e:
-                    logger.warning(f"Promoter pledge fetch failed for {sym}: {e}")
-                    tech["Promoter_Pledge"] = 0
+                # PLEDGE SCRAPER DISABLED PER USER REQUEST
+                # try:
+                #     tech["Promoter_Pledge"] = fetch_promoter_pledge(sym)
+                # except Exception as e:
+                #     logger.warning(f"Promoter pledge fetch failed for {sym}: {e}")
+                #     tech["Promoter_Pledge"] = 0
+                tech["Promoter_Pledge"] = 0
                 
                 # Extract AI Concall Confidence
                 try:
