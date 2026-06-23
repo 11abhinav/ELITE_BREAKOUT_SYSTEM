@@ -75,7 +75,12 @@ def run_hourly_phase():
 
     # 2. Fetch 1H data
     ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
-
+    
+    # Handle rate limiting or fetch failures gracefully
+    if ticker_data is None or not ticker_data:
+        logger.warning("⚠️ 1H data fetch failed or rate-limited. Aborting hourly phase.")
+        return
+    
     for idx, row in watchlist.iterrows():
         symbol = row["Stock"]
         category = row["Category"]
