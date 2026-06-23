@@ -49,11 +49,17 @@ class FyersFetcher(DataFetcher):
             "15m": "15",
             "30m": "30",
             "1h": "60",
-            "1d": "D"
+            "1d": "1D"
         }
 
     def _normalize_symbol(self, symbol: str) -> str:
-        """Translates standard symbols (e.g. RELIANCE, FIVESTAR.NS, ^NSEI) to Fyers specific formats."""
+        """Translates standard symbols (e.g. RELIANCE, FIVESTAR.NS, ^NSEI) to Fyers specific formats.
+        Also trims whitespace and normalizes casing to avoid "Invalid input" caused by trailing spaces or stray newlines.
+        """
+        if not symbol:
+            return ""
+        # Trim invisible characters first
+        symbol = symbol.strip()
         sym = symbol.upper()
         
         # If already formatted with exchange prefix, return as is (prevents double-normalization)
@@ -79,34 +85,45 @@ class FyersFetcher(DataFetcher):
 
 
     def _get_date_range(self, period: str) -> tuple[str, str]:
-        """Calculates historical range_from and range_to date strings based on period string."""
+        """Calculates historical range_from and range_to date strings based on period string.
+        For 'y' (year) requests, cap at 365 days to avoid Fyers 'Invalid input' on daily resolution.
+        Uses zero-padded YYYY-MM-DD strings.
+        """
         today = datetime.now(IST).date()
         days_back = 30
-        
-        p = period.lower()
+        p = (period or "").lower()
+
         if p.endswith("d"):
             try:
                 days_back = int(p[:-1])
             except ValueError:
                 days_back = 5
-        elif p.endswith("mo") or p.endswith("m"):
+            buffer_days = max(3, int(days_back * 0.2))
+        elif p.endswith("mo") or (p.endswith("m") and len(p) > 1):
             unit = p[:-2] if p.endswith("mo") else p[:-1]
             try:
                 days_back = int(unit) * 30
             except ValueError:
                 days_back = 30
+            buffer_days = max(5, int(days_back * 0.25))
         elif p.endswith("y"):
             try:
-                days_back = int(p[:-1]) * 365
+                requested_years = int(p[:-1])
             except ValueError:
-                days_back = 365
+                requested_years = 1
+            # Cap any yearly request to at most 365 days per single call
+            days_back = min(requested_years * 365, 365)
+            buffer_days = 0
         elif p == "max":
-            days_back = 365 * 5  # Fyers historical data limit (5 years max)
-            
-        # Add buffer (40%) to account for trading holidays/weekends
-        buffer_days = max(10, int(days_back * 0.4))
+            days_back = 365 * 5  # keep as-is for non-daily resolutions
+            buffer_days = int(days_back * 0.2)
+        else:
+            # default last 30 days
+            days_back = 30
+            buffer_days = max(3, int(days_back * 0.2))
+
         start_date = today - timedelta(days=days_back + buffer_days)
-        
+        # Ensure we never produce a span > 365 days for daily resolution callers
         return start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3) -> pd.DataFrame:
@@ -114,21 +131,42 @@ class FyersFetcher(DataFetcher):
         ns_symbol = self._normalize_symbol(symbol)
         logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
         
-        res = self.INTERVAL_MAP.get(interval)
+        # Normalize interval key and map to Fyers resolution
+        res = self.INTERVAL_MAP.get(interval.lower()) if isinstance(interval, str) else None
         if not res:
             logger.error(f"Unsupported interval for FyersFetcher: {interval}")
             return None
-            
+        # Ensure resolution is uppercase (Fyers can be strict about case)
+        res = str(res).upper()
+
+        # Compute date range and then enforce strict 365-day cap for daily resolution
         range_from, range_to = self._get_date_range(period)
+        try:
+            start_date = datetime.strptime(range_from, "%Y-%m-%d").date()
+            end_date = datetime.strptime(range_to, "%Y-%m-%d").date()
+        except Exception:
+            # Fall back to safe defaults
+            end_date = datetime.now(IST).date()
+            start_date = end_date - timedelta(days=30)
+            range_from = start_date.strftime("%Y-%m-%d")
+            range_to = end_date.strftime("%Y-%m-%d")
+
+        if res in ("1D", "D"):
+            span_days = (end_date - start_date).days
+            if span_days > 365:
+                # Cap span to 365 days to avoid Fyers 'Invalid input'
+                start_date = end_date - timedelta(days=365)
+                range_from = start_date.strftime("%Y-%m-%d")
+
         client = fyers_auth.get_fyers_client()
         if not client:
             logger.error("Fyers API client is uninitialized. Generate a token via /fyers/login.")
             return None
-            
+
         data = {
             "symbol": ns_symbol,
             "resolution": res,
-            "date_format": "1",  # Unix timestamp output
+            "date_format": "1",  # YYYY-MM-DD string format
             "range_from": range_from,
             "range_to": range_to,
             "cont_flag": "1"
@@ -176,8 +214,15 @@ class FyersFetcher(DataFetcher):
                 return df
                 
             except Exception as e:
+                # Log the failed payload to help debug "Invalid input" cases (captures trailing spaces, bad dates, floats)
+                try:
+                    logger.error(f"Failed Payload for {ns_symbol}: {data}")
+                except Exception:
+                    pass
                 logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
-                time.sleep((2 ** attempt) * 0.5)
+                # Add small jitter to avoid synchronized retries
+                import random
+                time.sleep((2 ** attempt) * 0.5 + random.uniform(0, 0.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
         return None
@@ -187,10 +232,11 @@ class FyersFetcher(DataFetcher):
         logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
         normalized_map = {}
         for s in symbols:
-            ns_sym = self._normalize_symbol(s)
+            orig = s.strip() if isinstance(s, str) else s
+            ns_sym = self._normalize_symbol(orig)
             if ns_sym not in normalized_map:
                 normalized_map[ns_sym] = []
-            normalized_map[ns_sym].append(s)
+            normalized_map[ns_sym].append(orig)
             
         ns_symbols = list(normalized_map.keys())
         results = {}
