@@ -8,8 +8,9 @@ import time
 import random
 from datetime import time as dt_time
 import pandas as pd
+import re
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from data_fetch_status import mark_success, mark_failure
 from database import upsert_fetch_error
@@ -29,42 +30,44 @@ def _is_market_hours() -> bool:
     return dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
 
 def get_dynamic_cadence(interval: str) -> int:
-    """Calculates exact seconds until the next NSE candle boundary for the given interval."""
+    """Calculates exact seconds until the next NSE candle boundary for any given interval."""
     if not _is_market_hours():
         return 3600  # 1 hour cache outside market hours
         
     now_dt = datetime.now(IST)
-    minutes = now_dt.minute
+    market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     
-    if interval == "30m":
-        # NSE 30m candles start at 9:15, so boundaries are :15 and :45
-        next_m = 15 if minutes < 15 else (45 if minutes < 45 else 75)
-        secs = (next_m - minutes) * 60 - now_dt.second
-        return max(15, secs + 5) # 5s buffer to allow broker data to settle
+    # If it's before market open, the next boundary is market open
+    if now_dt < market_open:
+        secs = (market_open - now_dt).total_seconds()
+        return max(5, int(secs))
         
-    elif interval == "15m":
-        # 15m boundaries are :00, :15, :30, :45
-        next_m = ((minutes // 15) + 1) * 15
-        secs = (next_m - minutes) * 60 - now_dt.second
-        return max(15, secs + 5)
+    # Parse the interval (e.g., '15m', '45m', '1h')
+    match = re.match(r'^(\d+)(m|h)$', interval.lower())
+    if not match:
+        return CACHE_TTL_SECONDS
         
-    elif interval == "5m":
-        # 5m boundaries
-        next_m = ((minutes // 5) + 1) * 5
-        secs = (next_m - minutes) * 60 - now_dt.second
-        return max(10, secs + 3)
+    val = int(match.group(1))
+    unit = match.group(2)
+    
+    if unit == 'h':
+        val = val * 60
         
-    elif interval == "1m":
-        secs = 60 - now_dt.second
-        return max(5, secs + 2)
+    if val <= 0:
+        return CACHE_TTL_SECONDS
         
-    elif interval in ("1h", "60m"):
-        # Hourly candles on NSE close at :15
-        next_m = 15 if minutes < 15 else 75
-        secs = (next_m - minutes) * 60 - now_dt.second
-        return max(30, secs + 10)
-        
-    return CACHE_TTL_SECONDS
+    # Calculate minutes since market open (9:15 AM)
+    minutes_since_open = (now_dt - market_open).total_seconds() / 60.0
+    
+    # Find the next multiple of the interval
+    next_multiple = ((int(minutes_since_open) // val) + 1) * val
+    
+    # Calculate the exact timestamp of the next boundary
+    next_boundary = market_open + timedelta(minutes=next_multiple)
+    secs = (next_boundary - now_dt).total_seconds()
+    
+    # Add a small 5s buffer to allow broker data to settle on their end before fetching
+    return max(5, int(secs) + 5)
 
 
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
