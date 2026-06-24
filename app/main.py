@@ -263,12 +263,9 @@ def run_eod_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
-            logger.info("✅ EOD SCANNER | Completed successfully — exiting")
+            logger.info("✅ EOD SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
-            # Mark thread as completed cleanly so watchdog doesn't restart
-            import threading
-            threading.current_thread().completed_cleanly = True
-            return
+            continue
             
         except Exception as exc:
             retry_count += 1
@@ -277,17 +274,14 @@ def run_eod_scanner():
             # Force stop at midnight
             if now.hour == 0 or now.hour >= 1:
                 logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
-                from database import upsert_scanner_health
                 upsert_scanner_health(
                     "EOD",
                     status="DOWN",
                     error_msg=f"Stopped at midnight after {retry_count} failed attempts",
                     scheduled_for="06:30 IST"
                 )
-                # Telegram notification removed (2026-06-17)
-                import threading
-                threading.current_thread().completed_cleanly = True
-                return
+                retry_count = 0
+                continue
             
             # Retry logic
             tb = traceback.format_exc()
@@ -368,12 +362,9 @@ def run_reversal_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
-            logger.info("✅ REVERSAL SCANNER | Completed successfully — exiting")
+            logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
-            # Mark thread as completed cleanly so watchdog doesn't restart
-            import threading
-            threading.current_thread().completed_cleanly = True
-            return
+            continue
             
         except Exception as exc:
             retry_count += 1
@@ -382,17 +373,14 @@ def run_reversal_scanner():
             # Force stop at midnight
             if now.hour == 0 or now.hour >= 1:
                 logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
-                from database import upsert_scanner_health
                 upsert_scanner_health(
                     "REVERSAL",
                     status="DOWN",
                     error_msg=f"Stopped at midnight after {retry_count} failed attempts",
                     scheduled_for="06:30 IST"
                 )
-                # Telegram notification removed (2026-06-17)
-                import threading
-                threading.current_thread().completed_cleanly = True
-                return
+                retry_count = 0
+                continue
             
             # Retry logic
             tb = traceback.format_exc()
