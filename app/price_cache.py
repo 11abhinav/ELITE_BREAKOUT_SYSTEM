@@ -24,48 +24,63 @@ _lock = threading.Lock()
 _fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
-# Map interval string to required freshness cadence (seconds)
-# TTLs are strictly smaller than candle size to prevent stale-but-not-expired candles
-_INTERVAL_CADENCE = {
-    '1m': 30,         # 30 seconds
-    '5m': 90,         # 90 seconds (OPTIMIZATION: was 30s, scanners run every 5m, extend for reuse)
-    '15m': 360,       # 6 minutes (OPTIMIZATION: was 300s, allows reuse just past 5m boundary)
-    '1h': 600,        # 10 minutes
-    '1d': 1800,       # 30 minutes
-}
-
-# Per-interval TTL offsets (jitter) to stagger cache misses across multiple scanners
-# Prevents thundering herd when all scanners miss cache at same time
-_TTL_JITTER = {interval: random.randint(-10, 10) for interval in _INTERVAL_CADENCE.keys()}
-
 def _is_market_hours() -> bool:
     now = datetime.now(IST)
     return dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
 
+def get_dynamic_cadence(interval: str) -> int:
+    """Calculates exact seconds until the next NSE candle boundary for the given interval."""
+    if not _is_market_hours():
+        return 3600  # 1 hour cache outside market hours
+        
+    now_dt = datetime.now(IST)
+    minutes = now_dt.minute
+    
+    if interval == "30m":
+        # NSE 30m candles start at 9:15, so boundaries are :15 and :45
+        next_m = 15 if minutes < 15 else (45 if minutes < 45 else 75)
+        secs = (next_m - minutes) * 60 - now_dt.second
+        return max(15, secs + 5) # 5s buffer to allow broker data to settle
+        
+    elif interval == "15m":
+        # 15m boundaries are :00, :15, :30, :45
+        next_m = ((minutes // 15) + 1) * 15
+        secs = (next_m - minutes) * 60 - now_dt.second
+        return max(15, secs + 5)
+        
+    elif interval == "5m":
+        # 5m boundaries
+        next_m = ((minutes // 5) + 1) * 5
+        secs = (next_m - minutes) * 60 - now_dt.second
+        return max(10, secs + 3)
+        
+    elif interval == "1m":
+        secs = 60 - now_dt.second
+        return max(5, secs + 2)
+        
+    elif interval in ("1h", "60m"):
+        # Hourly candles on NSE close at :15
+        next_m = 15 if minutes < 15 else 75
+        secs = (next_m - minutes) * 60 - now_dt.second
+        return max(30, secs + 10)
+        
+    return CACHE_TTL_SECONDS
+
+
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     requester = requester or threading.current_thread().name or "Unknown"
     cache_key = (interval, period)
-    cadence = _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
-    jitter = _TTL_JITTER.get(interval, 0)
-    cadence_with_jitter = cadence + jitter
+    cadence = get_dynamic_cadence(interval)
 
     with _lock:
         entry = _cache.get(cache_key)
         if entry is not None:
             age = time.monotonic() - entry["ts"]
-            if age < cadence_with_jitter:
-                data_as_of = entry.get("data_as_of")
-                stale = False
-                if data_as_of and _is_market_hours():
-                    if (datetime.now(IST) - data_as_of).total_seconds() > 120:
-                        logger.warning(f"Cache stale: oldest data is {data_as_of}. Forcing refresh.")
-                        stale = True
-                
-                if not stale:
-                    logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence_with_jitter:.0f}s")
-                    return entry["data"]
+            if age < cadence:
+                logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
+                return entry["data"]
             else:
-                logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence_with_jitter:.0f}s). Forcing fresh download.")
+                logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence:.0f}s). Forcing fresh download.")
 
     # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
     # This prevents thundering herd where 5+ scanners fetch simultaneously
@@ -79,7 +94,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
             entry = _cache.get(cache_key)
             if entry is not None:
                 age = time.monotonic() - entry["ts"]
-                if age < cadence_with_jitter:
+                if age < cadence:
                     logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
                     return entry["data"]
         

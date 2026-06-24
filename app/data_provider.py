@@ -43,7 +43,7 @@ class YFinanceFetcher(DataFetcher):
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)
-        logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
+        logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         for attempt in range(retries):
             try:
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)

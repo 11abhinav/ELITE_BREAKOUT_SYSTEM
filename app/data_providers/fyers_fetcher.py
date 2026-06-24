@@ -133,10 +133,10 @@ class FyersFetcher(DataFetcher):
         
         # Determine if this is an incremental fetch
         if range_from and range_to:
-            logger.info(f"📥 Fetching incremental OHLCV for {symbol} ({interval}) from {range_from} to {range_to} via Fyers API...")
+            logger.debug(f"📥 Fetching incremental OHLCV for {symbol} ({interval}) from {range_from} to {range_to} via Fyers API...")
             calc_range_from, calc_range_to = range_from, range_to
         else:
-            logger.info(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
+            logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via Fyers API...")
             calc_range_from, calc_range_to = self._get_date_range(period)
         
         # Normalize interval key and map to Fyers resolution
