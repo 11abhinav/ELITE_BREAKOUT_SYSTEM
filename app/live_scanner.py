@@ -440,4 +440,7 @@ def start(run_once=False):
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()
             sleep_time = max(0, 300 - elapsed)
 
+        if run_once:
+            break
+
         time.sleep(sleep_time)
