@@ -154,6 +154,37 @@ def manifest():
     response.headers["Content-Type"] = "application/manifest+json"
     return response
 
+@app.route("/api/push/vapid_public_key", methods=["GET"])
+def vapid_public_key():
+    """Returns the VAPID public key so the frontend can subscribe."""
+    pub_key = os.getenv("VAPID_PUBLIC_KEY")
+    if not pub_key:
+        return jsonify({"error": "VAPID key not configured on server"}), 500
+    return jsonify({"vapid_public_key": pub_key})
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@login_required
+@csrf.exempt
+def push_subscribe():
+    """Saves the user's push subscription."""
+    sub_data = request.json
+    if not sub_data or not sub_data.get("endpoint"):
+        return jsonify({"error": "Invalid subscription data"}), 400
+        
+    keys = sub_data.get("keys", {})
+    p256dh = keys.get("p256dh")
+    auth = keys.get("auth")
+    
+    if not p256dh or not auth:
+        return jsonify({"error": "Missing subscription keys"}), 400
+        
+    user_id = session.get('user_id')
+    success = database.save_push_subscription(user_id, sub_data["endpoint"], p256dh, auth)
+    
+    if success:
+        return jsonify({"success": True, "message": "Subscribed successfully"}), 201
+    return jsonify({"error": "Database error"}), 500
+
 # ── Auth Routes ──────────────────────────────────────────────────────────
 
 @app.route("/api/csrf_token", methods=["GET"])

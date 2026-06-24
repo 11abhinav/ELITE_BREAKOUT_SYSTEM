@@ -514,6 +514,19 @@ def init_db():
                 cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_current INTEGER")
                 cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS re_eval_due_date DATE")
 
+                # ── PWA Push Subscriptions ────────────────────────────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS push_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        endpoint TEXT NOT NULL UNIQUE,
+                        p256dh TEXT NOT NULL,
+                        auth TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+
                 # ── Parquet Binary Cache ──────────────────────────────────────────
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS parquet_cache (
@@ -1112,6 +1125,16 @@ def save_alert_if_new(
                     if inserted:
                         msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | TGT: ₹{target_price}'
                         insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
+                        
+                        # Trigger web push notification
+                        try:
+                            import push_service
+                            title = f"🚨 {symbol} Breakout"
+                            body = f"Buy Alert at ₹{entry_price} ({category})"
+                            threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
+                        except Exception as e:
+                            logger.error(f"Failed to start push thread: {e}")
+                            
                     return inserted, capital_allocated, shares_bought
             except Exception:
                 logger.exception(f"❌ save_alert_if_new failed for {symbol}")
@@ -3831,3 +3854,54 @@ def verify_user(identifier, password):
     except Exception as e:
         logger.error(f"Failed to verify user: {e}")
         return None
+
+# ── PWA Push Notifications ───────────────────────────────────────────────────
+
+def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str) -> bool:
+    """Save a user's web push subscription."""
+    try:
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (endpoint) DO UPDATE 
+                        SET user_id = EXCLUDED.user_id,
+                            p256dh = EXCLUDED.p256dh,
+                            auth = EXCLUDED.auth,
+                            created_at = NOW()
+                    """, (user_id, endpoint, p256dh, auth))
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save push subscription: {e}")
+        return False
+
+def remove_push_subscription(endpoint: str) -> bool:
+    """Remove a stale or unsubscribed endpoint."""
+    try:
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM push_subscriptions WHERE endpoint = %s", (endpoint,))
+                conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to remove push subscription: {e}")
+        return False
+
+def get_all_push_subscriptions() -> list[dict]:
+    """Get all active push subscriptions for broadcasting alerts."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions")
+                rows = cur.fetchall()
+                return [
+                    {"user_id": r[0], "endpoint": r[1], "p256dh": r[2], "auth": r[3]}
+                    for r in rows
+                ]
+    except Exception as e:
+        logger.error(f"Failed to get push subscriptions: {e}")
+        return []
