@@ -150,6 +150,7 @@ def run_hourly_phase():
                     h1_status="PASSED",
                     breakout_level=prior_high,
                     trigger_level=prior_high
+                )
                 logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
             
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
