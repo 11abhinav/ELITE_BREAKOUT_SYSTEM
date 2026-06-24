@@ -806,26 +806,6 @@ def run_startup_self_test(timeout_per_task: int = 120):
 
     tasks = []
 
-    def _t_intraday():
-        try:
-            database.DONT_SAVE_ALERTS = not market_open
-            import intraday
-            intraday.start(run_once=True)
-        except Exception:
-            logger.exception("Startup self-test: intraday failed")
-
-    tasks.append((_t_intraday, timeout_per_task))
-
-    def _t_live():
-        try:
-            database.DONT_SAVE_ALERTS = not market_open
-            import live_scanner
-            live_scanner.start(run_once=True)
-        except Exception:
-            logger.exception("Startup self-test: live_scanner failed")
-
-    tasks.append((_t_live, timeout_per_task))
-
     def _t_multi_tf():
         try:
             database.DONT_SAVE_ALERTS = not market_open

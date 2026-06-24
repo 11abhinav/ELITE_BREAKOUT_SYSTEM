@@ -472,4 +472,8 @@ def start(run_once=False):
                 upsert_scanner_health("INTRADAY", "DOWN", error_msg=str(e))
             except Exception:
                 pass
+            
+            if run_once:
+                break
+                
             time.sleep(seconds_to_next_15m(datetime.now(IST)))
