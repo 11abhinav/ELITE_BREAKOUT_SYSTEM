@@ -47,28 +47,23 @@ THREAD_TO_SCANNER = {
     "EODScanner":         "EOD",
     "ReversalScanner":    "REVERSAL",
     "MultiTFScanner":     "MULTI_TF",
+    "PerformanceTracker": "PERFORMANCE_TRACKER",
 }
 
 # Lazy import — dashboard_server may not be ready yet at module load
 def _notify_down(name: str, err: str):
-    if name == "PerformanceTracker":
-        return
     try:
         scanner_name = THREAD_TO_SCANNER.get(name, name)
         from dashboard_server import notify_scanner_down
         notify_scanner_down(scanner_name, err)
-        # Telegram notification removed (2026-06-17)
     except Exception:
         pass
 
 def _clear_down(name: str):
-    if name == "PerformanceTracker":
-        return
     try:
         scanner_name = THREAD_TO_SCANNER.get(name, name)
         from dashboard_server import clear_scanner_down
         clear_scanner_down(scanner_name)
-        # Telegram notification removed (2026-06-17)
     except Exception:
         pass
 
