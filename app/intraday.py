@@ -14,7 +14,8 @@ except Exception:
         pass
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor
+# [BUG FIX 2026-06-24] ThreadPoolExecutor removed — was used for fake parallelism
+# with price_cache's global _fetch_lock making it sequential anyway. See fetch section below.
 
 from zoneinfo import ZoneInfo
 from datetime import datetime, time as dt_time
@@ -268,14 +269,13 @@ def start(run_once=False):
                 raise ValueError("Watchlist is missing or empty. Cannot run scan.")
             
             # ── DUAL BATCH DOWNLOAD ──────────────────────
-            data_15m = {}
-            data_5m = {}
-            
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                f15 = pool.submit(fetch_watchlist_data, watchlist, "10d", "15m")
-                f5  = pool.submit(fetch_watchlist_data, watchlist, "5d", "5m")
-                data_15m_raw = f15.result()
-                data_5m_raw = f5.result()
+            # [BUG FIX 2026-06-24] Previously used ThreadPoolExecutor(max_workers=2) to
+            # fetch 15m and 5m data "in parallel". However, price_cache.py uses a single
+            # global _fetch_lock that serializes ALL API fetches. So the two threads were
+            # never actually running in parallel — they were queueing behind the same lock,
+            # adding thread overhead with zero benefit. Changed to sequential fetches.
+            data_15m_raw = fetch_watchlist_data(watchlist, "10d", "15m", requester="intraday_15m")
+            data_5m_raw  = fetch_watchlist_data(watchlist, "5d",  "5m",  requester="intraday_5m")
 
             # Handle rate limit / partial data gracefully
             if not data_15m_raw or not data_5m_raw:

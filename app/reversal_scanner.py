@@ -750,16 +750,21 @@ def _run_scan():
 
 
 def start() -> int:
-    init_db()
-
-    from surveillance import force_refresh_blacklist
-    force_refresh_blacklist()
     """
     Single-shot scan. Called once by main.py at the 18:30 window.
     Returns the number of alerts generated (0 = no setups found).
     Raises on failure so main.py can send a Telegram crash alert.
+
+    [BUG FIX 2026-06-24] Removed duplicate init_db() call. Previously init_db()
+    was called twice on every run — once before the docstring and once after it.
+    The docstring was also misplaced (after the first init_db() call), so Python
+    never registered it as the function's docstring. Fixed both issues here.
     """
     init_db()
+
+    from surveillance import force_refresh_blacklist
+    force_refresh_blacklist()
+
     try:
         return _run_scan()
     except Exception as e:

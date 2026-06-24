@@ -12,7 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
 import threading
-from flask import Flask, jsonify, send_file, Response, request, make_response
+from flask import Flask, jsonify, send_file, send_from_directory, Response, request, make_response
 
 from flask import session, redirect, url_for, abort, g
 from functools import wraps
@@ -130,6 +130,29 @@ def check_session_validity():
             # Allow them to hit the complete_profile page, logout, and static assets
             if request.endpoint not in ('complete_profile', 'login', 'logout', 'static', 'get_csrf_token', 'favicon'):
                 return redirect('/complete_profile')
+
+# ── PWA Routes ───────────────────────────────────────────────
+# IMPORTANT: Service worker MUST be served from the root path '/'
+# to allow it to control ALL pages. If served from /static/,
+# it can only control pages under /static/ which breaks the PWA.
+
+@app.route("/service-worker.js")
+def service_worker():
+    """Serve the service worker from root so it has full-site scope."""
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    response = send_from_directory(static_dir, "service-worker.js")
+    # Must be no-cache so browsers always get the latest version
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+@app.route("/manifest.json")
+def manifest():
+    """Serve the manifest from root for maximum compatibility."""
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    response = send_from_directory(static_dir, "manifest.json")
+    response.headers["Content-Type"] = "application/manifest+json"
+    return response
 
 # ── Auth Routes ──────────────────────────────────────────────────────────
 

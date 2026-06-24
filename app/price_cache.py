@@ -322,6 +322,31 @@ import os
 from config import DATA_DIR
 WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 
+
+# [BUG FIX 2026-06-24] _INTERVAL_CADENCE and _TTL_JITTER were used inside
+# get_intraday_snapshot() but were never defined anywhere in this file.
+# This was a latent NameError crash waiting to happen if any scanner called
+# get_intraday_snapshot(). Defined here to match the dynamic cadence logic
+# in get_dynamic_cadence() above.
+_INTERVAL_CADENCE: dict[str, int] = {
+    "1m":  60,
+    "5m":  300,
+    "15m": 900,
+    "30m": 1800,
+    "1h":  3600,
+    "1d":  86400,
+}
+
+# Jitter adds a small buffer after the candle closes to allow broker data to settle
+_TTL_JITTER: dict[str, int] = {
+    "1m":  5,
+    "5m":  10,
+    "15m": 15,
+    "30m": 20,
+    "1h":  30,
+    "1d":  60,
+}
+
 # Tracks in-progress fetches so only one thread fetches per (interval, period)
 _inflight_fetches: dict[tuple, threading.Event] = {}
 

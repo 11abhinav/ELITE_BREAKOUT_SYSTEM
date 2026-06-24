@@ -2,9 +2,33 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Abhinav's Screener Dashboard</title>
-<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Elite Breakout System</title>
+
+<!-- ── PWA: Manifest + Icons ── -->
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-96.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-72.png">
+
+<!-- ── PWA: iOS Splash Screen + Status Bar ── -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EliteBreakout">
+<meta name="mobile-web-app-capable" content="yes">
+
+<!-- ── PWA: Theme Color ── -->
+<meta name="theme-color" content="#0b0e14" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0b0e14">
+
+<!-- ── SEO + Share ── -->
+<meta name="description" content="Real-time NSE breakout scanner with live alerts, scanner status and performance tracking.">
+<meta property="og:title" content="Elite Breakout System">
+<meta property="og:description" content="Real-time NSE breakout scanner">
+<meta property="og:image" content="/static/icons/icon-512.png">
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -2357,4 +2381,211 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(err => console.error("Failed to load ticker list", err));
 });
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     PWA: SERVICE WORKER REGISTRATION + INSTALL BANNER + MOBILE UX
+═══════════════════════════════════════════════════════════════ -->
+<style>
+  /* ── Safe-area for iPhone notch / home indicator ── */
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-top: env(safe-area-inset-top);
+  }
+  .header {
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
+
+  /* ── PWA Install Banner ── */
+  #pwa-install-banner {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: linear-gradient(135deg, #161b22, #0d1117);
+    border-top: 1px solid rgba(0,229,160,0.3);
+    padding: 14px 20px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 9999;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
+    animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  #pwa-install-banner.show { display: flex; }
+  #pwa-install-banner img {
+    width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
+  }
+  #pwa-install-banner .banner-text { flex: 1; }
+  #pwa-install-banner .banner-title {
+    font-size: 14px; font-weight: 700; color: #e8eaf0; margin-bottom: 2px;
+  }
+  #pwa-install-banner .banner-sub {
+    font-size: 12px; color: #94a3b8;
+  }
+  #pwa-install-banner .banner-actions { display: flex; gap: 8px; }
+  #pwa-install-btn {
+    background: #00e5a0; color: #0b0e14;
+    border: none; padding: 10px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    transition: all 0.2s;
+  }
+  #pwa-install-btn:hover { background: #00d4a1; transform: scale(1.03); }
+  #pwa-dismiss-btn {
+    background: transparent; color: #6b7280;
+    border: 1px solid rgba(107,114,128,0.3);
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; cursor: pointer;
+  }
+
+  /* ── iOS Install Hint ── */
+  #ios-install-hint {
+    display: none;
+    position: fixed;
+    bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #1c2333; border: 1px solid rgba(0,229,160,0.3);
+    border-radius: 16px; padding: 14px 20px;
+    z-index: 9999; text-align: center;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.6);
+    max-width: 320px; width: calc(100% - 40px);
+    animation: slideUp 0.4s ease;
+  }
+  #ios-install-hint.show { display: block; }
+  #ios-install-hint .hint-title { font-size: 14px; font-weight: 700; color: #00e5a0; margin-bottom: 8px; }
+  #ios-install-hint .hint-text { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+  #ios-install-hint .hint-share { font-size: 18px; }
+  #ios-install-hint button {
+    margin-top: 12px; background: transparent; color: #6b7280;
+    border: none; font-size: 12px; cursor: pointer;
+  }
+
+  /* ── Mobile Market Status Bar ── */
+  @media (max-width: 768px) {
+    /* Sticky market status at top on mobile */
+    #market-ticker {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+
+    /* Bottom safe area padding when install banner is hidden */
+    #main { padding-bottom: 16px; }
+
+    /* Larger touch targets for mobile */
+    .refresh-btn { padding: 10px 16px; min-height: 44px; }
+    select, input { min-height: 44px; font-size: 16px !important; }
+
+    /* Remove horizontal scroll on kpi row */
+    .kpi-row { overflow-x: auto; flex-wrap: nowrap; display: flex; }
+    .kpi { min-width: 120px; flex-shrink: 0; }
+
+    /* Better card spacing on mobile */
+    .scanner-grid { gap: 10px; }
+    .card { padding: 14px; }
+  }
+</style>
+
+<div id="pwa-install-banner">
+  <img src="/static/icons/icon-192.png" alt="Elite Breakout">
+  <div class="banner-text">
+    <div class="banner-title">📲 Install Elite Breakout</div>
+    <div class="banner-sub">Add to home screen for instant alerts</div>
+  </div>
+  <div class="banner-actions">
+    <button id="pwa-install-btn">Install</button>
+    <button id="pwa-dismiss-btn">✕</button>
+  </div>
+</div>
+
+<div id="ios-install-hint">
+  <div class="hint-title">📲 Install on iPhone</div>
+  <div class="hint-text">
+    Tap <span class="hint-share">⬆️</span> <strong>Share</strong> in Safari,<br>
+    then <strong>"Add to Home Screen"</strong>
+  </div>
+  <button onclick="document.getElementById('ios-install-hint').classList.remove('show')">Got it</button>
+</div>
+
+<script>
+// ── SERVICE WORKER REGISTRATION ──────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+      .then(reg => {
+        console.log('[PWA] Service worker registered:', reg.scope);
+        // Check for updates every time page loads
+        reg.update();
+      })
+      .catch(err => console.warn('[PWA] Service worker registration failed:', err));
+  });
+}
+
+// ── PWA INSTALL BANNER (Android / Desktop) ───────────────────
+let deferredPrompt = null;
+const installBanner = document.getElementById('pwa-install-banner');
+const installBtn    = document.getElementById('pwa-install-btn');
+const dismissBtn    = document.getElementById('pwa-dismiss-btn');
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show after 3 seconds so it doesn't immediately pop up on load
+  setTimeout(() => {
+    if (deferredPrompt && !localStorage.getItem('pwa-dismissed')) {
+      installBanner.classList.add('show');
+    }
+  }, 3000);
+});
+
+installBtn.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  installBanner.classList.remove('show');
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log('[PWA] Install outcome:', outcome);
+  deferredPrompt = null;
+});
+
+dismissBtn.addEventListener('click', () => {
+  installBanner.classList.remove('show');
+  localStorage.setItem('pwa-dismissed', '1');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[PWA] App installed successfully!');
+  installBanner.classList.remove('show');
+  deferredPrompt = null;
+});
+
+// ── iOS INSTALL HINT ─────────────────────────────────────────
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches ||
+                           window.navigator.standalone === true;
+const iosHintDismissed = localStorage.getItem('ios-hint-dismissed');
+
+if (isIOS && !isInStandaloneMode && !iosHintDismissed) {
+  setTimeout(() => {
+    document.getElementById('ios-install-hint').classList.add('show');
+    localStorage.setItem('ios-hint-dismissed', '1');
+  }, 4000);
+}
+
+// ── PUSH NOTIFICATION PERMISSION REQUEST ─────────────────────
+async function requestPushPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') return;
+  if (Notification.permission === 'denied') return;
+
+  // Request after user interacts (required by browsers)
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') {
+    console.log('[PWA] Push notifications granted!');
+  }
+}
+
+// Request push permission 10 seconds after load (non-intrusive)
+setTimeout(requestPushPermission, 10000);
 </script>
