@@ -40,7 +40,7 @@ except Exception:
 import yfinance as yf
 
 from config import MIN_STOCK_PRICE
-from database import DB_PATH, get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
+from database import get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
