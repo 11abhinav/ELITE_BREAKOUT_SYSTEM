@@ -96,7 +96,7 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
         return {}
 
 
-def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime]) -> Optional[pd.DataFrame]:
+def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], prefetched_hist: pd.DataFrame = None) -> Optional[pd.DataFrame]:
     """
     Fetch 5m bars for *symbol* from the alert date to today using DataFetcher.
     Filters out any bars that occurred before the alert_time.
@@ -147,8 +147,14 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime]) ->
         else:
             interval = "1d"
 
-        fetcher = get_fetcher()
-        hist = fetcher.get_ohlcv(symbol, interval=interval, period=period_str, retries=2)
+        if prefetched_hist is not None:
+            if isinstance(prefetched_hist, pd.DataFrame) and not prefetched_hist.empty:
+                hist = prefetched_hist.copy()
+            else:
+                return None
+        else:
+            fetcher = get_fetcher()
+            hist = fetcher.get_ohlcv(symbol, interval=interval, period=period_str, retries=2)
 
         if hist is None or hist.empty:
             return None
@@ -327,6 +333,42 @@ def build_performance_data():
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
     logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")
 
+    # [OPTIMIZATION] Pre-fetch all required intraday histories in big batches to avoid individual API hits
+    fetch_groups = {}
+    now_ist = datetime.now(IST)
+    market_open_ist = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+    for t in trades:
+        if t["_db_closed"] or t["entry_price"] is None or not t["stop_loss"] or not t["target_price"] or not t["alert_time"]:
+            continue
+            
+        alert_time_val = t["alert_time"]
+        if isinstance(alert_time_val, datetime):
+            alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
+        else:
+            alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00"))
+            alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
+            
+        alert_date = alert_dt_ist.date()
+        if alert_date == now_ist.date() and now_ist < market_open_ist:
+            continue
+            
+        days_since = (now_ist.date() - alert_date).days
+        period_days = max(days_since + 2, 5)
+        period_str = f"{period_days}d"
+        interval = "5m" if period_days <= 59 else ("1h" if period_days <= 720 else "1d")
+        
+        key = (interval, period_str)
+        fetch_groups.setdefault(key, []).append(t["symbol"])
+
+    prefetched_data = {}
+    if fetch_groups:
+        fetcher = get_fetcher()
+        for (interval, period_str), syms in fetch_groups.items():
+            logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades ({interval}/{period_str}) to prevent API spam...")
+            batch_res = fetcher.get_batch_ohlcv(syms, interval=interval, period=period_str, retries=2)
+            if batch_res:
+                prefetched_data.update(batch_res)
+
     for t in trades:
         sym        = t["symbol"]
         ep         = t["entry_price"]
@@ -353,7 +395,8 @@ def build_performance_data():
 
         if sl and tp and alert_time:
             # ── Full SL + Target detection ───────────────────────────────────────
-            hist = _fetch_post_alert_bars(sym, alert_time)
+            pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
+            hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
             if hist is not None:
                 outcome, exit_p, hit_time = _check_sl_and_target(hist, sl, tp)
