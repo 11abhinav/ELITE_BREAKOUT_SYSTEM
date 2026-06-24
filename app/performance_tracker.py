@@ -22,10 +22,12 @@
 import os
 import json
 import logging
-from typing import Optional, Tuple, Union
+import sqlite3
 import pandas as pd
+from typing import Union, Optional, Tuple
 from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
+from price_cache import fetch_watchlist_data
 
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
@@ -37,7 +39,8 @@ except Exception:
         pass
 import yfinance as yf
 
-from database import get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
+from config import MIN_STOCK_PRICE
+from database import DB_PATH, get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -74,8 +77,9 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
     if not symbols:
         return {}
     try:
-        fetcher = get_fetcher()
-        raw_dict = fetcher.get_batch_ohlcv(symbols, interval="1d", period="2d", retries=2)
+        # Route through price_cache instead of hitting DataFetcher directly
+        df_request = pd.DataFrame({"Stock": symbols})
+        raw_dict = fetch_watchlist_data(df_request, interval="1d", period="2d", requester="performance_tracker")
         prices = {}
         for sym, df in raw_dict.items():
             if df is not None and not df.empty and "Close" in df.columns:
@@ -153,8 +157,10 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
             else:
                 return None
         else:
-            fetcher = get_fetcher()
-            hist = fetcher.get_ohlcv(symbol, interval=interval, period=period_str, retries=2)
+            # Route fallback through global cache
+            df_request = pd.DataFrame({"Stock": [symbol]})
+            raw_dict = fetch_watchlist_data(df_request, interval=interval, period=period_str, requester="performance_tracker")
+            hist = raw_dict.get(symbol)
 
         if hist is None or hist.empty:
             return None
@@ -362,10 +368,10 @@ def build_performance_data():
 
     prefetched_data = {}
     if fetch_groups:
-        fetcher = get_fetcher()
         for (interval, period_str), syms in fetch_groups.items():
             logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades ({interval}/{period_str}) to prevent API spam...")
-            batch_res = fetcher.get_batch_ohlcv(syms, interval=interval, period=period_str, retries=2)
+            df_request = pd.DataFrame({"Stock": syms})
+            batch_res = fetch_watchlist_data(df_request, interval=interval, period=period_str, requester="performance_tracker")
             if batch_res:
                 prefetched_data.update(batch_res)
 

@@ -476,9 +476,10 @@ def _batch_download_closes(tickers: list[str]) -> dict[str, Optional[pd.Series]]
         f"| period={DOWNLOAD_PERIOD}"
     )
 
-    fetcher = get_fetcher()
     try:
-        raw_dict = fetcher.get_batch_ohlcv(unique_tickers, interval="1d", period=DOWNLOAD_PERIOD)
+        from price_cache import fetch_watchlist_data
+        df_request = pd.DataFrame({"Stock": unique_tickers})
+        raw_dict = fetch_watchlist_data(df_request, interval="1d", period=DOWNLOAD_PERIOD, requester="sector_rotation")
 
         if not raw_dict:
             logger.warning("⚠️  Sector batch download returned empty — all sectors will be skipped")

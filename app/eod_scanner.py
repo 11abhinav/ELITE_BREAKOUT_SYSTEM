@@ -64,9 +64,9 @@ def start():
     
     nifty_ret_20d = 5.0
     try:
-        from data_provider import get_fetcher
-        fetcher = get_fetcher()
-        nifty = fetcher.get_ohlcv("^NSEI", interval="1d", period="1mo")
+        from price_cache import fetch_watchlist_data
+        nifty_batch = fetch_watchlist_data(pd.DataFrame({"Stock": ["^NSEI"]}), interval="1d", period="1mo", requester="eod_scanner")
+        nifty = nifty_batch.get("^NSEI") if nifty_batch else None
         if nifty is not None and not nifty.empty and len(nifty) >= 20:
             val_now = nifty["Close"].iloc[-1]
             nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
