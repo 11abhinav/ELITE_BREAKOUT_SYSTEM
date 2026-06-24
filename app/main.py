@@ -187,15 +187,82 @@ def run_performance_tracker():
         
     while True:
         now = datetime.now(IST)
-        if now.weekday() >= 5:
-            logger.info("📊 PERFORMANCE TRACKER | Weekend | Sleeping 1 hour...")
-            time.sleep(3600)
-            continue
-        try:
-            build_performance_data()
-        except Exception:
-            logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+        
+        is_weekday = now.weekday() < 5
+        is_market_hours = is_weekday and (9 <= now.hour <= 15)
+        
+        if is_market_hours:
+            try:
+                build_performance_data()
+            except Exception:
+                logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+        
         time.sleep(300)
+
+def verify_watchlist_is_pristine() -> bool:
+    """Check if local disk has today's watchlist. If not, try DB, then trigger daily builder."""
+    from config import WATCHLIST_PATH
+    import pandas as pd
+    from database import download_parquet_from_db
+    import os
+    
+    now = datetime.now(IST)
+    def is_disk_fresh():
+        if not os.path.exists(WATCHLIST_PATH): return False
+        try:
+            df = pd.read_parquet(WATCHLIST_PATH)
+            if "Scan Time" in df.columns and not df.empty:
+                scan_date_str = str(df["Scan Time"].iloc[0])[:10]
+                scan_date = datetime.strptime(scan_date_str, "%Y-%m-%d").date()
+                return scan_date >= now.date()
+        except Exception:
+            pass
+        return False
+
+    if is_disk_fresh():
+        return True
+        
+    logger.warning("⚠️ Local disk missing/stale watchlist. Checking DB for fresh backup...")
+    download_parquet_from_db("daily_builder", WATCHLIST_PATH)
+    
+    if is_disk_fresh():
+        logger.info("✅ Watchlist successfully restored from DB to local disk.")
+        from watchlist_cache import get_watchlist
+        get_watchlist()
+        return True
+        
+    logger.warning("⚠️ DB backup is ALSO missing/stale! Triggering full daily builder rebuild.")
+    try:
+        from daily_builder import main as build_watchlist
+        build_watchlist()
+        from watchlist_cache import get_watchlist
+        get_watchlist()
+    except Exception as e:
+        logger.error(f"❌ Daily Builder failed: {e}")
+        from database import upsert_scanner_health
+        upsert_scanner_health("FUNDAMENTAL WATCHLIST", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+        return False
+        
+    return is_disk_fresh()
+
+def block_until_watchlist_ready():
+    """Blocks the thread until the watchlist is pristine."""
+    from database import upsert_scanner_health
+    first_block = True
+    while not verify_watchlist_is_pristine():
+        if first_block:
+            logger.warning("⏳ Watchlist not ready. Updating dashboard to show scanners as WAITING...")
+            for scanner in ["Wealth Engine", "MULTI-TF LADDER", "REVERSAL", "EOD"]:
+                upsert_scanner_health(
+                    scanner,
+                    status="WAITING",
+                    error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
+                )
+            first_block = False
+        logger.warning("⏳ Retrying watchlist check in 60 seconds...")
+        time.sleep(60)
+    if not first_block:
+        logger.info("✅ Watchlist is pristine. Unblocking scanners.")
 
 
 # =====================================================================================
@@ -217,6 +284,7 @@ def run_eod_scanner():
     """
     retry_count = 0
     while True:
+        block_until_watchlist_ready()
         wait_for_window("eod")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
@@ -316,6 +384,7 @@ def run_reversal_scanner():
     """
     retry_count = 0
     while True:
+        block_until_watchlist_ready()
         wait_for_window("reversal")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
@@ -448,7 +517,7 @@ def run_system_scheduler():
     last_wealth_market_run = None  # Track last market-hours wealth run
 
     def safe_run_daily_builder():
-        """Run Daily Builder with success tracking."""
+        """Helper to run the builder and update the memory cache."""
         try:
             logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
             from daily_builder import main as build_watchlist
@@ -549,32 +618,8 @@ def run_system_scheduler():
         logger.info("🕒 SCHEDULER | [8:30 AM] Verifying file readiness")
         now = datetime.now(IST)
 
-        # 1. Verify Watchlist — use robust embedded date check to prevent clock-skew issues
-        try:
-            if not os.path.exists(WATCHLIST_PATH):
-                logger.warning("⚠️ Watchlist missing! Forcing rebuild.")
-                safe_run_daily_builder()
-            else:
-                import pandas as pd
-                try:
-                    df = pd.read_parquet(WATCHLIST_PATH)
-                    if "Scan Time" in df.columns and not df.empty:
-                        scan_date_str = str(df["Scan Time"].iloc[0])[:10]
-                        scan_date = datetime.strptime(scan_date_str, "%Y-%m-%d").date()
-                        if scan_date < now.date():
-                            logger.warning(f"⚠️ Watchlist stale! Embedded date is {scan_date}, expected {now.date()}. Forcing rebuild.")
-                            safe_run_daily_builder()
-                        else:
-                            logger.info("✅ Watchlist embedded date is fresh.")
-                    else:
-                        logger.warning("⚠️ Watchlist missing 'Scan Time' column! Forcing rebuild.")
-                        safe_run_daily_builder()
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to read Watchlist parquet ({e}). Forcing rebuild.")
-                    safe_run_daily_builder()
-        except Exception:
-            logger.exception("Failed to verify watchlist; forcing rebuild.")
-            safe_run_daily_builder()
+        # 1. Verify Watchlist
+        block_until_watchlist_ready()
 
         # 2. Verify Wealth Engine
         try:
@@ -638,11 +683,11 @@ def run_system_scheduler():
             
             now = datetime.now(IST)
             
-            # 9:15 AM - Verify Scans
-            if now.hour == 9 and now.minute >= 15 and not verify_scans_ran:
+            # 8:30 AM - Verify Scans
+            if now.hour == 8 and now.minute >= 30 and not verify_scans_ran:
                 verify_scans_ran = True
                 verify_scans()
-            elif now.hour != 9:
+            elif now.hour != 8:
                 verify_scans_ran = False
             
             # Market hours: Wealth Engine every 5 minutes from 9:15 AM - 3:30 PM

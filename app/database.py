@@ -2309,7 +2309,12 @@ def check_data_exists_for_today() -> bool:
                 # 3. Check row count for today (quote column name to handle case sensitivity)
                 cur.execute(f'SELECT COUNT(*) FROM daily_watchlist WHERE "{date_col}" = %s', (today_str,))
                 count = cur.fetchone()[0]
-                return count > 0
+                
+                # 4. Check if parquet_cache is also up to date
+                cur.execute("SELECT 1 FROM parquet_cache WHERE name = 'daily_builder' AND date = %s", (today_str,))
+                has_parquet = cur.fetchone() is not None
+                
+                return count > 0 and has_parquet
     except Exception as e:
         logger.error(f"Error checking if today's data exists in DB: {e}")
         return False
