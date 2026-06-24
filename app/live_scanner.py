@@ -73,8 +73,14 @@ def start(run_once=False):
 
         is_active_window = run_once or (weekday < 5 and market_open)
         if not is_active_window:
-            logger.info("⏰ Outside 1H window - running in TEST mode (no db saves)")
-
+            logger.info("⏰ Outside 1H window. Scanner pausing until next market session...")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("1H", "IDLE", last_success=datetime.now(IST).isoformat())
+            except Exception:
+                pass
+            time.sleep(300)
+            continue
         scan_start         = datetime.now(IST)
         total_alerts       = 0
 

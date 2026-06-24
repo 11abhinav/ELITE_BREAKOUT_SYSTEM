@@ -400,8 +400,17 @@ def start(run_once=False):
             
             import database
             if not is_active_window:
-                logger.info("Market closed, running in TEST MODE (no db saves).")
-                database.DONT_SAVE_ALERTS = True
+                logger.info("Market closed. Scanner pausing until next market session...")
+                try:
+                    upsert_scanner_health(
+                        scanner_name="MultiTFScanner",
+                        status="IDLE",
+                        last_success=datetime.now(IST).isoformat()
+                    )
+                except Exception:
+                    pass
+                time.sleep(300)
+                continue
             else:
                 database.DONT_SAVE_ALERTS = False
                 
