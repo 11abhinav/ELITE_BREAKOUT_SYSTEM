@@ -3,7 +3,7 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v1';
+const CACHE_NAME = 'elite-breakout-v2';
 const STATIC_ASSETS = [
   '/',
   '/login',
