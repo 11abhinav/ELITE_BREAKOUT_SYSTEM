@@ -260,6 +260,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     else:
                         # Fallback to stale cached data if fresh fetch returned empty
                         if cached_df is not None and not cached_df.empty:
+                            cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
             else:
                 logger.error(f"❌ Batch {desc} failed or returned empty for {len(batch)} symbols.")
@@ -268,6 +269,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 for sym in batch:
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     if cached_df is not None and not cached_df.empty:
+                        cached_df.attrs['is_stale'] = True
                         all_data[sym] = cached_df
                 time.sleep(0.5)
 
