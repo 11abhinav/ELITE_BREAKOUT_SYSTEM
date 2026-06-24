@@ -43,6 +43,7 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 
 
 def get_market_regime():
+    import pandas as pd
     try:
         from price_cache import fetch_watchlist_data
         nifty_batch = fetch_watchlist_data(pd.DataFrame({"Stock": ["^NSEI"]}), interval="1d", period="1mo", requester="multi_tf_scanner")

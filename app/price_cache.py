@@ -31,12 +31,21 @@ def _is_market_hours() -> bool:
 
 def get_dynamic_cadence(interval: str) -> int:
     """Calculates exact seconds until the next NSE candle boundary for any given interval."""
-    if not _is_market_hours():
-        return 3600  # 1 hour cache outside market hours
-        
     now_dt = datetime.now(IST)
     market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     
+    if not _is_market_hours():
+        # If after 15:30, calculate seconds until 9:15 AM tomorrow
+        if now_dt.time() > dt_time(15, 30):
+            next_open = (now_dt + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
+        else:
+            # It's before 9:15 AM today
+            next_open = market_open
+        
+        secs_to_open = (next_open - now_dt).total_seconds()
+        return max(3600, int(secs_to_open))  # Cache until market opens
+        
+
     # If it's before market open, the next boundary is market open
     if now_dt < market_open:
         secs = (market_open - now_dt).total_seconds()
