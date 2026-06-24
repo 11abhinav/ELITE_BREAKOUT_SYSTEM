@@ -729,13 +729,18 @@ def run_watchdog():
             _logged_ready = True
             
             # --- POST-DEPLOYMENT INSTANT VERIFICATION ---
-            # Run a short self-test across core scanners on restart. This executes
-            # each scanner in dry-run mode (no alerts persisted) so startup health
-            # can be validated without affecting production data.
-            try:
-                run_startup_self_test()
-            except Exception:
-                logger.exception("Startup self-test failed")
+            # Skip during market hours — scanners will run on their own schedule.
+            # Running self-test during market hours wastes API calls and can block
+            # the watchdog if a scanner has an import/crash error.
+            _now_st = datetime.now(IST)
+            _market_open_st = dt_time(9, 15) <= _now_st.time() <= dt_time(15, 30) and _now_st.weekday() < 5
+            if _market_open_st:
+                logger.info("🧪 STARTUP SELF-TEST | SKIPPED — market is open, scanners will run on schedule")
+            else:
+                try:
+                    run_startup_self_test()
+                except Exception:
+                    logger.exception("Startup self-test failed")
             # --------------------------------------------
 
         for name, thread in list(active_threads.items()):
