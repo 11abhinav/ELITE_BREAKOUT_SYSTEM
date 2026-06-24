@@ -254,7 +254,7 @@ class FyersFetcher(DataFetcher):
                 time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
-            try:
+        try:
             from data_fetch_status import mark_failure
             mark_failure('fyers', f"Failed to download history for {symbol} after {retries} attempts.")
         except Exception:
