@@ -107,7 +107,7 @@ def start(run_once=False):
                 logger.warning("⚠️ YFinance returned 0 data for 1H timeframe (likely rate-limited). Scan will be limited but continuing...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H Breakout", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback")
+                    upsert_scanner_health("1H", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback")
                 except Exception:
                     pass
                 # Don't return/abort - continue with empty data; iteration logic will handle None gracefully
@@ -115,14 +115,15 @@ def start(run_once=False):
                 logger.warning(f"⚠️ Only {len(all_ticker_data)}/{len(watchlist)} symbols fetched (80%+ required). Likely rate-limited. Continuing with partial data...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H Breakout", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols")
+                    upsert_scanner_health("1H", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols")
                 except Exception:
                     pass
             else:
                 logger.info(f"✅ Successfully fetched {len(all_ticker_data)}/{len(watchlist)} symbols for 1H scan")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H Breakout", "OK", error_msg=None)
+                    # We will update OK at the end of the loop, no need to do it here
+
                 except Exception:
                     pass
 
@@ -153,7 +154,12 @@ def start(run_once=False):
                                 logger.warning(f"🚨 REGIME GATE ACTIVE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
                                 nifty_intraday_down = True
                 except Exception as e:
-                    pass
+                    logger.warning(f"Failed to fetch market regime: {e}")
+                    try:
+                        from database import upsert_scanner_health
+                        upsert_scanner_health("1H", "DEGRADED", error_msg=f"Regime fetch failed: {str(e)[:100]}")
+                    except:
+                        pass
             else:
                 logger.info("ℹ️ REGIME GATE is configured to OFF. Bypassing Nifty drop checks.")
 
@@ -420,12 +426,25 @@ def start(run_once=False):
                     )
                     raise RuntimeError("Alert save verification failed - database connectivity issue")
             
+            status = "OK" if is_active_window else "IDLE"
+            error_msg = None
+            
+            stale_pct = rejection_counts["stale_data"] / len(watchlist) if len(watchlist) > 0 else 0
+            if stale_pct > 0.1:
+                status = "DEGRADED"
+                error_msg = f"Stale Data: {rejection_counts['stale_data']}/{len(watchlist)} symbols"
+                
+            if len(all_ticker_data) < len(watchlist):
+                status = "DEGRADED"
+                error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"
+                
             try:
                 upsert_scanner_health(
                     scanner_name="1H",
-                    status="OK" if is_active_window else "IDLE",
+                    status=status,
                     last_success=datetime.now(IST).isoformat(),
-                    today_alerts=total_alerts if is_active_window else 0
+                    today_alerts=total_alerts if is_active_window else 0,
+                    error_msg=error_msg
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for 1H")

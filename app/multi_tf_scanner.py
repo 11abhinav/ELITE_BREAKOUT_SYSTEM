@@ -58,6 +58,11 @@ def get_market_regime():
             if ret > 0.05: return "BULL"
     except Exception as e:
         logger.warning(f"Failed to fetch market regime: {e}")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health("MULTI_TF", "DEGRADED", error_msg=f"Market regime fetch failed: {str(e)[:100]}")
+        except:
+            pass
     return "SIDEWAYS"
 
 def run_hourly_phase():
@@ -72,7 +77,7 @@ def run_hourly_phase():
     watchlist = get_watchlist()
     if watchlist.empty:
         logger.warning("No watchlist found.")
-        return
+        return {"fetched": 0, "total": 0, "stale": 0}
 
     # 2. Fetch 1H data
     ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
@@ -85,11 +90,8 @@ def run_hourly_phase():
         logger.warning("⚠️ 1H data fetch returned 0 symbols (likely rate-limited). Continuing with partial data...")
     else:
         logger.info(f"✅ Successfully fetched {len(ticker_data)} symbols for 1H hourly phase")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("MULTI_TF", "OK", error_msg=None)
-        except Exception:
-            pass
+        
+    stale_count = 0
     
     for idx, row in watchlist.iterrows():
         symbol = row["Stock"]
@@ -101,6 +103,7 @@ def run_hourly_phase():
             
         if getattr(df, 'attrs', {}).get('is_stale') == True:
             logger.debug(f"⏭️ Skipping {symbol} (1H scan) due to stale data.")
+            stale_count += 1
             continue
 
         df = strip_forming_candle(df, 60, datetime.now(IST))
@@ -147,8 +150,9 @@ def run_hourly_phase():
                     h1_status="PASSED",
                     breakout_level=prior_high,
                     trigger_level=prior_high
-                )
                 logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+            
+    return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
 
 def run_lower_tf_phase(current_regime="BULL"):
     """
@@ -160,7 +164,7 @@ def run_lower_tf_phase(current_regime="BULL"):
     active_items = get_active_breakout_watchlist()
     if not active_items:
         logger.info("No active setups to track.")
-        return
+        return {"fetched": 0, "total": 0, "stale": 0}
 
     # Bucket symbols by required timeframe to minimize downloads
     needs_30m = [i["symbol"] for i in active_items if i["current_state"] == "HOURLY_APPROVED"]
@@ -173,6 +177,8 @@ def run_lower_tf_phase(current_regime="BULL"):
     data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
     if data_5m is None:
         data_5m = {}
+
+    stale_count = 0
 
     ist_now = datetime.now(IST)
 
@@ -216,6 +222,7 @@ def run_lower_tf_phase(current_regime="BULL"):
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (30m decay check) due to stale data.")
+                    stale_count += 1
                     continue
 
                 df = strip_forming_candle(df, 30, ist_now)
@@ -233,6 +240,7 @@ def run_lower_tf_phase(current_regime="BULL"):
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (30m upgrade check) due to stale data.")
+                    stale_count += 1
                     continue
 
                 df = strip_forming_candle(df, 30, ist_now)
@@ -380,6 +388,8 @@ def run_lower_tf_phase(current_regime="BULL"):
                         mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
                         logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
 
+    return {"fetched": max(len(data_30m), len(data_5m)), "total": len(active_items), "stale": stale_count}
+
 def run_sweeper():
     sweep_stale_breakout_watchlist()
     logger.info("🧹 Swept stale breakout watchlist setups.")
@@ -403,7 +413,7 @@ def start(run_once=False):
                 logger.info("Market closed. Scanner pausing until next market session...")
                 try:
                     upsert_scanner_health(
-                        scanner_name="MultiTFScanner",
+                        scanner_name="MULTI_TF",
                         status="IDLE",
                         last_success=datetime.now(IST).isoformat()
                     )
@@ -421,21 +431,36 @@ def start(run_once=False):
             run_sweeper()
             
             # 2. Hourly phase (could be scheduled to only run top/bottom of hour, but we run it to keep it simple or wrapper handles scheduling)
-            run_hourly_phase()
+            metrics_a = run_hourly_phase()
             
             # 3. Lower TF updater
-            run_lower_tf_phase(current_regime)
+            metrics_b = run_lower_tf_phase(current_regime)
             
             logger.info("🚦 MULTI-TF LADDER COMPLETE.")
             
             # Reset DONT_SAVE_ALERTS back to False just in case
             database.DONT_SAVE_ALERTS = False
             
+            status = "OK" if market_open else "IDLE"
+            error_msg = None
+            
+            total_stale = (metrics_a.get("stale", 0) + metrics_b.get("stale", 0))
+            total_symbols = (metrics_a.get("total", 0) + metrics_b.get("total", 0))
+            
+            if total_symbols > 0 and total_stale / total_symbols > 0.1:
+                status = "DEGRADED"
+                error_msg = f"Stale Data: {total_stale}/{total_symbols} symbols"
+                
+            if metrics_a.get("fetched", 0) < metrics_a.get("total", 0) and metrics_a.get("total", 0) > 0:
+                status = "DEGRADED"
+                error_msg = f"Partial Fetch: {metrics_a.get('fetched')}/{metrics_a.get('total')} symbols"
+            
             try:
                 upsert_scanner_health(
-                    scanner_name="MultiTFScanner",
-                    status="OK" if market_open else "IDLE",
-                    last_success=datetime.now(IST).isoformat()
+                    scanner_name="MULTI_TF",
+                    status=status,
+                    last_success=datetime.now(IST).isoformat(),
+                    error_msg=error_msg
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for MULTI_TF")

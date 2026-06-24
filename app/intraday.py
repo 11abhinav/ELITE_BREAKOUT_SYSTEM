@@ -297,16 +297,18 @@ def start(run_once=False):
                     data_5m_raw = {}
             else:
                 logger.info(f"✅ Data downloaded | 15m: {len(data_15m_raw)} | 5m: {len(data_5m_raw)}")
-                try:
-                    from database import upsert_scanner_health
-                    upsert_scanner_health("INTRADAY", "OK", error_msg=None)
-                except Exception:
-                    pass
+                # We will update OK at the end of the loop, no need to do it here
+                pass
 
+            
+            stale_count = 0
             
             # ── PRECOMPUTE INDICATORS ONCE PER DATASET ──
             for sym, df in data_15m_raw.items():
                 try:
+                    if getattr(df, 'attrs', {}).get('is_stale') == True:
+                        stale_count += 1
+                        continue
                     norm_df = normalize_index(df)
                     if not norm_df.empty:
                         ind_df = apply_indicators(norm_df, timeframe="15m")
@@ -317,6 +319,9 @@ def start(run_once=False):
                     
             for sym, df in data_5m_raw.items():
                 try:
+                    if getattr(df, 'attrs', {}).get('is_stale') == True:
+                        # Only count stale once per symbol (checked in 15m)
+                        continue
                     norm_df = normalize_index(df)
                     if not norm_df.empty:
                         ind_df = apply_indicators(norm_df, timeframe="5m")
@@ -452,12 +457,25 @@ def start(run_once=False):
                     )
                     raise RuntimeError("Alert save verification failed - database connectivity issue")
             
+            status = "OK" if is_active_window else "IDLE"
+            error_msg = None
+            
+            stale_pct = stale_count / len(watchlist) if len(watchlist) > 0 else 0
+            if stale_pct > 0.1:
+                status = "DEGRADED"
+                error_msg = f"Stale Data: {stale_count}/{len(watchlist)} symbols"
+                
+            if len(data_15m_raw) < len(watchlist):
+                status = "DEGRADED"
+                error_msg = f"Partial Fetch: {len(data_15m_raw)}/{len(watchlist)} symbols"
+
             try:
                 upsert_scanner_health(
                     scanner_name="INTRADAY",
-                    status="OK" if is_active_window else "IDLE",
+                    status=status,
                     last_success=datetime.now(IST).isoformat(),
-                    today_alerts=total_alerts if is_active_window else 0
+                    today_alerts=total_alerts if is_active_window else 0,
+                    error_msg=error_msg
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for INTRADAY")

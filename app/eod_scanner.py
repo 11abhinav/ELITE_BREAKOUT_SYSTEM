@@ -125,17 +125,14 @@ def start():
             logger.warning("⚠️ YFinance returned 0 data for prices (likely rate-limited). Continuing with partial data...")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("EOD V3", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
+                upsert_scanner_health("EOD", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
             except Exception:
                 pass
             # Don't return - continue with empty data; the scan can use previous day's data as fallback
         else:
             logger.info(f"✅ Successfully fetched {len(all_ticker_data)} symbols for EOD scan")
-            try:
-                from database import upsert_scanner_health
-                upsert_scanner_health("EOD V3", "OK", error_msg=None)
-            except Exception:
-                pass
+            # We will update OK at the end, so no need to do it here
+            pass
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
         # If today's file returned empty, fall back to the most recent available trading day.
@@ -593,12 +590,25 @@ def start():
                 )
                 raise RuntimeError("Alert save verification failed - database connectivity issue")
 
+        status = "OK"
+        error_msg = None
+        
+        stale_pct = rejection_counts["stale_data"] / len(watchlist) if len(watchlist) > 0 else 0
+        if stale_pct > 0.1:
+            status = "DEGRADED"
+            error_msg = f"Stale Data: {rejection_counts['stale_data']}/{len(watchlist)} symbols"
+            
+        if len(all_ticker_data) < len(watchlist):
+            status = "DEGRADED"
+            error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"
+
         try:
             upsert_scanner_health(
                 scanner_name="EOD",
-                status="OK",
+                status=status,
                 last_success=datetime.now(IST).isoformat(),
-                today_alerts=total_alerts
+                today_alerts=total_alerts,
+                error_msg=error_msg
             )
         except Exception:
             logger.exception("❌ Failed to update scanner health for EOD")
