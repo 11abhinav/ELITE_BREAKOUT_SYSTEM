@@ -75,7 +75,8 @@ def start():
     now_time = ist_now.time()
     scan_start = datetime.strptime("18:30", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
-    is_test_mode = not (scan_start <= now_time <= scan_end)
+    import database
+    is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
     if is_test_mode:
         logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
