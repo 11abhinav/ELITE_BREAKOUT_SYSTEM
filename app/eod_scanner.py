@@ -67,9 +67,9 @@ def start(force: bool = False):
 
     
     ist_now = datetime.now(IST)
-    logger.info("=" * 80)
-    logger.info(f"🔄 EOD SCAN | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info(f"🚀🚀🚀 [START] EOD SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
+    logger.info("=" * 80 + "\n")
 
     # Check if we are outside the valid EOD window (18:30 - 23:59:59)
     now_time = ist_now.time()
@@ -617,6 +617,9 @@ def start(force: bool = False):
             except Exception:
                 pass
 
+        logger.info("\n" + "=" * 80)
+        logger.info(f"🛑🛑🛑 [END] EOD SCANNER COMPLETE | Alerts={total_alerts} 🛑🛑🛑")
+        logger.info("=" * 80 + "\n")
         return total_alerts
 
     except Exception as e:

@@ -263,9 +263,9 @@ def _run_scan(force: bool = False):
     init_db()
 
     ist_now = datetime.now(IST)
-    logger.info("=" * 80)
-    logger.info(f"🔄 MEAN REVERSION SCAN | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info(f"🚀🚀🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
+    logger.info("=" * 80 + "\n")
 
     # Check if we are outside the valid REVERSAL window (18:30 - 23:59:59)
     now_time = ist_now.time()

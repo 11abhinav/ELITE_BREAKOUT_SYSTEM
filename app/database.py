@@ -2202,11 +2202,13 @@ def upload_parquet_to_db(name: str, file_path: str):
             binary_data = f.read()
         with get_connection() as conn:
             with conn.cursor() as cur:
+                logger.info(f"🔄 [DB] Attempting to insert/update parquet_cache for name={name}, date={today}")
                 cur.execute("""
                     INSERT INTO parquet_cache (name, date, data)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                 """, (name, today, binary_data))
+                logger.info(f"✅ [DB] Successfully executed ON CONFLICT DO UPDATE for {name}")
             conn.commit()
         logger.info(f"💾 Uploaded {name} to DB parquet_cache for {today}")
     except Exception as e:
