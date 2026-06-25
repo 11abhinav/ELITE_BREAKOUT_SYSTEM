@@ -405,6 +405,7 @@ class SectorRotationResult:
     weak_sectors:     set[str]                 # WEAKENING + LAGGING
     scan_date:        date
     nifty_return_pct: float
+    report:           str                      = ""
     errors:           list[str] = field(default_factory=list)
 
     def score_bonus_for(self, tv_sector: str) -> int:
@@ -621,14 +622,22 @@ def get_sector_scores(
     nifty_close = close_map.get(BENCHMARK_TICKER)
     if nifty_close is None or len(nifty_close) < MIN_BARS_REQUIRED:
         logger.error("❌ Sector Rotation: Nifty 50 download failed")
-        result = SectorRotationResult({}, set(), set(), "⚠️ Unavailable", today, 0.0, ["Nifty 50"])
+        result = SectorRotationResult(
+            scores={}, strong_sectors=set(), weak_sectors=set(),
+            scan_date=today, nifty_return_pct=0.0,
+            report="⚠️ Nifty 50 Unavailable", errors=["Nifty 50"]
+        )
         _cache, _cache_time = result, datetime.now(IST)
         return result
 
     nifty_return = _pct_return(nifty_close, rs_lookback)
     if nifty_return is None:
         logger.error("❌ Sector Rotation: insufficient Nifty bars")
-        result = SectorRotationResult({}, set(), set(), "⚠️ Insufficient data", today, 0.0, ["Nifty 50 bars"])
+        result = SectorRotationResult(
+            scores={}, strong_sectors=set(), weak_sectors=set(),
+            scan_date=today, nifty_return_pct=0.0,
+            report="⚠️ Insufficient Nifty 50 data", errors=["Nifty 50 bars"]
+        )
         _cache, _cache_time = result, datetime.now(IST)
         return result
 
@@ -683,8 +692,9 @@ def get_sector_scores(
     report = _build_report(sector_scores, strong_sectors, nifty_return, today, errors)
 
     result = SectorRotationResult(
-        sector_scores, strong_sectors, weak_sectors, report,
-        today, round(nifty_return, 2), errors,
+        scores=sector_scores, strong_sectors=strong_sectors, weak_sectors=weak_sectors,
+        scan_date=today, nifty_return_pct=round(nifty_return, 2),
+        report=report, errors=errors
     )
     _cache, _cache_time = result, datetime.now(IST)
     return result
