@@ -38,3 +38,4 @@ test_*.py
 
 # ── Stale artifacts ──
 1cd
+.npm_cache/
