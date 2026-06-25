@@ -627,12 +627,7 @@ def main():
     
     global _DELIVERY_DATA, _INST_BUYS
     
-    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    market_open = dt_time(9, 15) <= ist_now.time() <= dt_time(15, 30)
-    
-    if market_open and ist_now.weekday() < 5 and os.path.exists(WATCHLIST_PATH):
-        logger.warning("⏳ Market is open. Skipping daily builder to avoid unstable snapshot.")
-        return
+
 
     from database import upsert_scanner_health
     try:
