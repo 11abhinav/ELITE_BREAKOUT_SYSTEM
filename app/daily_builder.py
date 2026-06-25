@@ -4,11 +4,9 @@
 # =====================================================================================
 
 import os
-import traceback
 import threading
 import pandas as pd
 import logging
-import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")
@@ -445,7 +443,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     return _build_row(
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=opm, debt_equity=debt_equity, debt_missing=debt_missing,
-        qoq_rev=qoq_sales, yoy_rev=yoy_sales, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin
+        qoq_rev=qoq_sales, yoy_rev=(true_yoy_rev if true_yoy_rev is not None else yoy_sales), qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin
     )
 
 # =====================================================================================
@@ -465,6 +463,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         fund_data = {}
 
     insider_hold = fund_data.get("insider_hold")
+    forensic_flags = fund_data.get("forensic_flags", 0)
 
     close_price = fv("close")
     avg_volume  = fv("average_volume_30d_calc")
@@ -517,6 +516,9 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED (FIN): Promoter Blacklist / NSE Surveillance (ASM/GSM)")
         
+    if forensic_flags >= 2:
+        return skip(f"JUNK BLOCKED (FIN): Forensic Red Flags ({forensic_flags} detected)")
+
     # Both revenue AND profits collapsing = structural failure (Yes Bank, DHFL type)
     if yoy_rev < -20 and yoy_profit < -20:
         return skip(f"JUNK BLOCKED (FIN): Structural collapse Rev={yoy_rev:.1f}% Profit={yoy_profit:.1f}%")
@@ -553,11 +555,13 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     # NEW: Market Share Gainer
     sector = str(row.get("sector", ""))
     sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
-    market_share_gainer = (yoy_rev > (sec_median * 1.2) and yoy_margin_expanding)
+    market_share_gainer = False
+    if _SECTOR_MEDIANS:
+        market_share_gainer = (yoy_rev > (sec_median * 1.2) and yoy_margin_expanding)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
-    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and roa >= 1.5 and rev_5y is not None and rev_5y >= 15.0)
+    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and roa >= 1.5 and rev_5y is not None and rev_5y >= 15.0 and yoy_margin_expanding)
 
     if not any([fin_high_growth, fin_compounder, fin_mature_quality, fin_turnaround, diamond_hold, efficient_lender, dividend_aristocrat, inst_accumulation, market_share_gainer, small_cap_compounder]):
         return skip(f"No financial category — YoY NII={yoy_rev:.1f}%, YoY Profit={yoy_profit:.1f}%")
@@ -624,7 +628,7 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     return score
 
 
-def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature, fin_compounder, dividend_aristocrat=False) -> int:
+def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature, fin_compounder, dividend_aristocrat=False, sector="") -> int:
     score = 0
     if yoy_rev >= 20: score += 20
     elif yoy_rev >= 10: score += 10
@@ -646,6 +650,11 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, f
     if fin_mature: score += 10
     if fin_compounder: score += 5
     if dividend_aristocrat: score += 5
+    
+    # Sector Tailwinds
+    if sector in HIGH_TAILWIND_SECTORS: score += 12
+    elif sector in MEDIUM_TAILWIND_SECTORS: score += 6
+
     return score
 
 # =====================================================================================
@@ -814,9 +823,9 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
-            with _classify_lock:
-                _DELIVERY_DATA = fetch_previous_day_delivery()
-                _INST_BUYS = get_institutional_buys()
+            global _DELIVERY_DATA, _INST_BUYS
+            _DELIVERY_DATA = fetch_previous_day_delivery()
+            _INST_BUYS = get_institutional_buys()
             
             run_fii_detector()
         except Exception as e:
@@ -845,9 +854,9 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
-            with _classify_lock:
-                _DELIVERY_DATA = fetch_previous_day_delivery()
-                _INST_BUYS = get_institutional_buys()
+            global _DELIVERY_DATA, _INST_BUYS
+            _DELIVERY_DATA = fetch_previous_day_delivery()
+            _INST_BUYS = get_institutional_buys()
             
             run_fii_detector()
         except Exception:
@@ -866,8 +875,9 @@ def _main_impl(force_rebuild: bool = False):
         if "total_revenue_yoy_growth_ttm" in universe_df.columns:
             # NOTE: For financial sectors, total_revenue_yoy_growth_ttm is NII/fee income,
             # so computing median against it is architecturally acceptable for market share checks.
-            _SECTOR_MEDIANS = universe_df.groupby("sector")["total_revenue_yoy_growth_ttm"].median().to_dict()
-        else:
+            _SECTOR_MEDIANS = universe_df.groupby("sector")["total_revenue_yoy_growth_ttm"].median().dropna().to_dict()
+        
+        if not _SECTOR_MEDIANS:
             logger.warning("⚠️ _SECTOR_MEDIANS is empty — market_share_gainer will be disabled this run")
 
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
