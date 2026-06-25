@@ -32,3 +32,27 @@ def test_compute_tax_hold_bonus():
     # Minor profit, high tax drag
     res = compute_tax_hold_bonus(entry_date=date.today(), unrealized_pnl_pct=5.0)
     assert "reason" in res
+
+from unittest.mock import patch
+from app.wealth_engine import calculate_wealth_technicals
+
+@patch("price_cache.fetch_unified_historical")
+def test_calculate_wealth_technicals_fallback_logic(mock_fetch):
+    """
+    Test that if historical_cache is provided (even if empty), we DO NOT fallback
+    to single-symbol fetches which would cause a rate-limit cascade.
+    """
+    # 1. Provide an empty dict as the batch cache (simulating rate-limited batch fetch)
+    res = calculate_wealth_technicals("TCS", 5.0, historical_cache={})
+    
+    # It should return defaults and NOT call fetch_unified_historical
+    assert res["cmp"] is None
+    assert res["data_quality"] == "MISSING_PARTIAL"
+    mock_fetch.assert_not_called()
+    
+    # 2. Provide None (meaning no batch fetch was attempted)
+    # The function SHOULD fallback to single fetch
+    mock_fetch.return_value = {"TCS": pd.DataFrame()} # Return empty DF to fast-fail
+    res_none = calculate_wealth_technicals("TCS", 5.0, historical_cache=None)
+    assert res_none["cmp"] is None
+    mock_fetch.assert_called_once()
