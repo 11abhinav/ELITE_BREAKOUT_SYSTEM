@@ -1061,12 +1061,18 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
       <td>${fmt(t.entry_price)}</td>
-      <td>${fmt(t.exit_price || t.current_price)}</td>
+      <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+        ${fmt(t.exit_price || t.current_price)}
+        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+      </td>
       <td>${fmt(t.capital_allocated)}</td>
       <td>${t.shares_bought||'\u2014'}</td>
       <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(t.pnl_pct)}">${pct(t.pnl_pct)}</span></div></td>
       <td class="${pctClass(t.status === 'OPEN' && t.shares_bought && t.current_price ? (t.current_price - t.entry_price) * t.shares_bought : t.pnl_rs)}">${t.status === 'OPEN' && t.shares_bought && t.current_price ? fmt((t.current_price - t.entry_price) * t.shares_bought) : (t.pnl_rs != null ? fmt(t.pnl_rs) : '—')}</td>
-      <td>${sc}</td>
+      <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
+        ${sc}
+        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(t.alert_time || t.entry_date)}</div>
+      </td>
       <td style="color:var(--muted)">${t.days_held!=null?t.days_held+'d':'—'}</td>
       <td>${badgeHtml(t.status)}</td>
     </tr>
@@ -1738,6 +1744,7 @@ async function doRefresh(isAuto = false) {
   btn.classList.add('spinning');
   await loadCapitalInfo();
   const data = await loadData();
+  window.DATA_GENERATED_AT = data.generated_at;
 
   ALL_TRADES = data.trades || [];
   populateFilters(ALL_TRADES);

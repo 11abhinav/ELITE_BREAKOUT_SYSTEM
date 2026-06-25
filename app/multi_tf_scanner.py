@@ -393,18 +393,19 @@ def start(run_once=False):
             import database
             if not is_active_window:
                 logger.info("Market closed. Scanner pausing until next market session...")
-                try:
-                    upsert_scanner_health(
-                        scanner_name="MULTI_TF",
-                        status="IDLE",
-                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
-                    )
-                except Exception:
-                    pass
+                if not getattr(database, "DONT_SAVE_ALERTS", False):
+                    try:
+                        upsert_scanner_health(
+                            scanner_name="MULTI_TF",
+                            status="IDLE",
+                            scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                        )
+                    except Exception:
+                        pass
                 time.sleep(300)
                 continue
             else:
-                database.DONT_SAVE_ALERTS = False
+                pass
                 
             # Cache regime once per cycle
             current_regime = get_macro_regime()
@@ -420,9 +421,6 @@ def start(run_once=False):
             
             logger.info("🚦 MULTI-TF LADDER COMPLETE.")
             
-            # Reset DONT_SAVE_ALERTS back to False just in case
-            database.DONT_SAVE_ALERTS = False
-            
             status = "OK" if market_open else "IDLE"
             error_msg = None
             
@@ -437,16 +435,17 @@ def start(run_once=False):
                 status = "DEGRADED"
                 error_msg = f"Partial Fetch: {metrics_a.get('fetched')}/{metrics_a.get('total')} symbols"
             
-            try:
-                upsert_scanner_health(
-                    scanner_name="MULTI_TF",
-                    status=status,
-                    last_success=datetime.now(IST).isoformat(),
-                    error_msg=error_msg,
-                    scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
-                )
-            except Exception:
-                logger.exception("❌ Failed to update scanner health for MULTI_TF")
+            if not getattr(database, "DONT_SAVE_ALERTS", False):
+                try:
+                    upsert_scanner_health(
+                        scanner_name="MULTI_TF",
+                        status=status,
+                        last_success=datetime.now(IST).isoformat(),
+                        error_msg=error_msg,
+                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                    )
+                except Exception:
+                    logger.exception("❌ Failed to update scanner health for MULTI_TF")
             
             if run_once:
                 break
@@ -456,15 +455,16 @@ def start(run_once=False):
             
         except Exception as e:
             logger.exception(f"❌ MULTI-TF LADDER CRASHED: {e}")
-            try:
-                upsert_scanner_health(
-                    scanner_name="MULTI_TF",
-                    status="DOWN",
-                    error_msg=str(e)[:500],
-                    scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
-                )
-            except Exception:
-                pass
+            if not getattr(database, "DONT_SAVE_ALERTS", False):
+                try:
+                    upsert_scanner_health(
+                        scanner_name="MULTI_TF",
+                        status="DOWN",
+                        error_msg=str(e)[:500],
+                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                    )
+                except Exception:
+                    pass
 
             if run_once:
                 break

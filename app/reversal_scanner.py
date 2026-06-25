@@ -294,19 +294,21 @@ def _run_scan():
     fetched_count = len(all_ticker_data) if all_ticker_data else 0
     if fetched_count < len(watchlist) * 0.5:
         logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
-        except Exception:
-            pass
+        if not is_test_mode:
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("REVERSAL", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
+            except Exception:
+                pass
         raise Exception(f"Data Provider Error: Only fetched {fetched_count}/{len(watchlist)} symbols. Aborting run to trigger 5-minute retry loop.")
     else:
         logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for Reversal scan")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", "OK", error_msg=None)
-        except Exception:
-            pass
+        if not is_test_mode:
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("REVERSAL", "OK", error_msg=None)
+            except Exception:
+                pass
 
     alerts_by_category = {}
     total_alerts = 0
@@ -762,6 +764,12 @@ def _run_scan():
             )
         except Exception:
             logger.exception("❌ Failed to update scanner health for REVERSAL")
+            
+        try:
+            from database import insert_notification
+            insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts today.")
+        except Exception:
+            pass
     return total_alerts
 
 
@@ -785,9 +793,11 @@ def start() -> int:
         return _run_scan()
     except Exception as e:
         logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", "DOWN", error_msg=str(e))
-        except Exception:
-            pass
+        import database
+        if not getattr(database, "DONT_SAVE_ALERTS", False):
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("REVERSAL", "DOWN", error_msg=str(e))
+            except Exception:
+                pass
         raise

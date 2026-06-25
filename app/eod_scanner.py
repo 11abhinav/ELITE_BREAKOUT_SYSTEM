@@ -116,11 +116,12 @@ def start():
         fetched_count = len(all_ticker_data) if all_ticker_data else 0
         if fetched_count < len(watchlist) * 0.5:
             logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
-            try:
-                from database import upsert_scanner_health
-                upsert_scanner_health("EOD", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
-            except Exception:
-                pass
+            if not is_test_mode:
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health("EOD", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
+                except Exception:
+                    pass
             raise Exception(f"Data Provider Error: Only fetched {fetched_count}/{len(watchlist)} symbols. Aborting run to trigger 5-minute retry loop.")
         else:
             logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
@@ -606,14 +607,21 @@ def start():
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for EOD")
+                
+            try:
+                from database import insert_notification
+                insert_notification("info", f"✅ EOD Scan Completed", f"Generated {total_alerts} alerts today.")
+            except Exception:
+                pass
 
         return total_alerts
 
     except Exception as e:
         logger.exception("❌ CRITICAL EOD SCAN ERROR")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("EOD", "DOWN", error_msg=str(e))
-        except Exception:
-            pass
+        if not is_test_mode:
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("EOD", "DOWN", error_msg=str(e))
+            except Exception:
+                pass
         raise  # re-raise so caller can send Telegram crash alert

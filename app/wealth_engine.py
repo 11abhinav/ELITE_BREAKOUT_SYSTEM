@@ -527,7 +527,9 @@ def run_wealth_scan():
 
     WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
     logger.info("💰 Fund Manager Wealth Engine v2 Started Scan.")
-    upsert_scanner_health("Wealth Engine", "IDLE", last_success=None, today_alerts=0)
+    import database
+    if not getattr(database, "DONT_SAVE_WEALTH", False):
+        upsert_scanner_health("Wealth Engine", "IDLE", last_success=None, today_alerts=0)
 
     try:
         if not os.path.exists(WATCHLIST_PATH):
@@ -537,7 +539,9 @@ def run_wealth_scan():
                 build_watchlist()
             except Exception as e:
                 logger.error(f"❌ Wealth Engine failed to build watchlist: {e}")
-                upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Watchlist build failed")
+                import database
+                if not getattr(database, "DONT_SAVE_WEALTH", False):
+                    upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Watchlist build failed")
                 return
 
 
@@ -700,10 +704,12 @@ def run_wealth_scan():
         tech_df = pd.DataFrame(technicals)
         if not tech_df.empty and (tech_df.get("cmp") is None or tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
             logger.error("❌ YFinance returned 0 prices. API might be down or rate-limited. Aborting this scan cycle.")
-            try:
-                upsert_scanner_health("Wealth Engine", "DOWN", error_msg="CRITICAL: YFinance returned 0 prices. Rate limited.")
-            except Exception:
-                pass
+            import database
+            if not getattr(database, "DONT_SAVE_WEALTH", False):
+                try:
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg="CRITICAL: YFinance returned 0 prices. Rate limited.")
+                except Exception:
+                    pass
             return
 
         wealth_df = pd.merge(df, tech_df, on="Stock", how="left")
@@ -1006,14 +1012,18 @@ def run_wealth_scan():
         core_count = len(core_capped)
         logger.info(f"✅ [WEALTH ENGINE] Updated | Core: {core_count} | Buys: {buy_count} | Total: {len(wealth_df)}")
         
-        upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count)
+        import database
+        if not getattr(database, "DONT_SAVE_WEALTH", False):
+            upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count)
 
         # Weekly Telegram Alert removed (2026-06-17)
 
     except Exception as e:
         logger.exception(f"❌ [WEALTH ENGINE] Scan crashed: {e}")
-        try:
-            upsert_scanner_health("Wealth Engine", "DOWN", error_msg=str(e))
-        except Exception:
-            pass
+        import database
+        if not getattr(database, "DONT_SAVE_WEALTH", False):
+            try:
+                upsert_scanner_health("Wealth Engine", "DOWN", error_msg=str(e))
+            except Exception:
+                pass
         raise e

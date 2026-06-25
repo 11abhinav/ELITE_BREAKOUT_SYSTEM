@@ -890,8 +890,12 @@ def api_wealth():
             return jsonify([])
         df = pd.read_parquet(WEALTH_PATH)
         import json
+        import os
+        from datetime import datetime
         records = json.loads(df.to_json(orient="records"))
-        return jsonify(records)
+        mtime = os.path.getmtime(WEALTH_PATH)
+        generated_at = datetime.fromtimestamp(mtime).isoformat()
+        return jsonify({"data": records, "generated_at": generated_at})
     except Exception as e:
         logger.error(f"Failed to load wealth JSON: {e}")
         return jsonify([])
