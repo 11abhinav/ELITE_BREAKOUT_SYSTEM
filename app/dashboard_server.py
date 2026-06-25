@@ -2036,17 +2036,17 @@ def api_breakout_watchlist():
                 prices = {}
                 for sym in symbols:
                     sym_clean = sym.replace(':', '_')
-                    from price_fetcher import _symbol_to_yf
-                    # Check the most frequently updated caches first (5m from Intraday, then 15m, then 1d)
-                    for interval in ["5m", "15m", "1d"]:
-                        yf_sym = _symbol_to_yf(sym)
-                        file_path = os.path.join(DATA_DIR, "price_cache", f"price_{interval}____{yf_sym}.parquet")
+                    # Check the most frequently updated caches first
+                    for interval in ["5m", "15m", "30m", "1d"]:
+                        file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
                         if os.path.exists(file_path):
                             try:
                                 df = pd.read_parquet(file_path)
-                                if not df.empty:
-                                    prices[sym] = float(df["Close"].iloc[-1])
-                                    break # Got the price, move to next symbol
+                                if not df.empty and "Close" in df.columns:
+                                    df_valid = df.dropna(subset=["Close"])
+                                    if not df_valid.empty:
+                                        prices[sym] = float(df_valid["Close"].iloc[-1])
+                                        break # Got the price, move to next symbol
                             except Exception:
                                 pass
                 for d in data:
