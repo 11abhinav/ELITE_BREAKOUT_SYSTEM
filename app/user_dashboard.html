@@ -991,10 +991,10 @@ window.renderSignalLadder = function() {
   const t = document.getElementById('filter-triggered')?.checked;
   
   let filtered = window._signalLadderData.filter(d => {
-      if (d.current_state === 'Hourly Passed' && h) return true;
-      if (d.current_state === 'Setup Armed' && s) return true;
-      if (d.current_state === 'Entry Ready' && e) return true;
-      if (d.current_state === 'Triggered' && t) return true;
+      if (d.current_state === 'HOURLY_APPROVED' && h) return true;
+      if (d.current_state === 'SETUP_ARMED' && s) return true;
+      if (d.current_state === 'ENTRY_READY' && e) return true;
+      if (d.current_state === 'BREAKOUT_CONFIRMED' && t) return true;
       return false;
   });
   
@@ -1008,10 +1008,10 @@ window.renderSignalLadder = function() {
       return 0;
   });
   
-  document.getElementById('label-hourly').innerText = `Hourly Passed (1H) (${window._signalLadderData.filter(d=>d.current_state==='Hourly Passed').length})`;
-  document.getElementById('label-setup').innerText = `Setup Armed (30m) (${window._signalLadderData.filter(d=>d.current_state==='Setup Armed').length})`;
-  document.getElementById('label-entry').innerText = `Entry Ready (15m) (${window._signalLadderData.filter(d=>d.current_state==='Entry Ready').length})`;
-  document.getElementById('label-triggered').innerText = `Triggered (5m) (${window._signalLadderData.filter(d=>d.current_state==='Triggered').length})`;
+  document.getElementById('label-hourly').innerText = `Hourly Passed (1H) (${window._signalLadderData.filter(d=>d.current_state==='HOURLY_APPROVED').length})`;
+  document.getElementById('label-setup').innerText = `Setup Armed (30m) (${window._signalLadderData.filter(d=>d.current_state==='SETUP_ARMED').length})`;
+  document.getElementById('label-entry').innerText = `Entry Ready (15m) (${window._signalLadderData.filter(d=>d.current_state==='ENTRY_READY').length})`;
+  document.getElementById('label-triggered').innerText = `Triggered (5m) (${window._signalLadderData.filter(d=>d.current_state==='BREAKOUT_CONFIRMED').length})`;
   
   if (filtered.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">No signals match filters</td></tr>';
@@ -1020,13 +1020,14 @@ window.renderSignalLadder = function() {
   
   const html = filtered.map(d => {
       let color = 'var(--muted)';
-      if(d.current_state === 'Hourly Passed') color = '#3498db';
-      if(d.current_state === 'Setup Armed') color = '#f39c12';
-      if(d.current_state === 'Entry Ready') color = '#9b59b6';
-      if(d.current_state === 'Triggered') color = '#2ecc71';
+      if(d.current_state === 'HOURLY_APPROVED') color = '#3498db';
+      if(d.current_state === 'SETUP_ARMED') color = '#f39c12';
+      if(d.current_state === 'ENTRY_READY') color = '#9b59b6';
+      if(d.current_state === 'BREAKOUT_CONFIRMED') color = '#2ecc71';
       
-      const cmpStr = d.cmp ? d.cmp.toFixed(2) : '—';
-      const lastUpd = d.last_updated ? d.last_updated.slice(5,16).replace('T',' ') : '—';
+      const cmpStr = d.cmp ? '₹' + Number(d.cmp).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
+      const lastUpd = fmtTs(d.last_updated);
+
       
       return `<tr>
           <td style="font-weight:700;">${d.symbol}</td>
