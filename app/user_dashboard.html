@@ -958,9 +958,10 @@ window.drillKpi = function(kpiId, element) {
   }
 }
 
+window._signalLadderData = [];
 window.fetchSignalLadder = async function() {
   try {
-     const res = await fetch('/api/active_watchlist');
+     const res = await fetch('/api/breakout_watchlist');
      if (!res.ok) {
          const ladderEl = document.getElementById('signalLadderRefresh');
          if (ladderEl && ladderEl.parentElement) {
@@ -968,10 +969,76 @@ window.fetchSignalLadder = async function() {
          }
          return;
      }
+     const json = await res.json();
+     window._signalLadderData = json.data || [];
+     renderSignalLadder();
   } catch(e) {
-      console.warn("fetchSignalLadder not implemented or failed");
+      console.warn("fetchSignalLadder failed: ", e);
   }
-}
+};
+
+window.renderSignalLadder = function() {
+  const tbody = document.getElementById('signal-ladder-body');
+  if (!tbody) return;
+  if (!window._signalLadderData || window._signalLadderData.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">No active signals</td></tr>';
+      return;
+  }
+  
+  const h = document.getElementById('filter-hourly')?.checked;
+  const s = document.getElementById('filter-setup')?.checked;
+  const e = document.getElementById('filter-entry')?.checked;
+  const t = document.getElementById('filter-triggered')?.checked;
+  
+  let filtered = window._signalLadderData.filter(d => {
+      if (d.current_state === 'Hourly Passed' && h) return true;
+      if (d.current_state === 'Setup Armed' && s) return true;
+      if (d.current_state === 'Entry Ready' && e) return true;
+      if (d.current_state === 'Triggered' && t) return true;
+      return false;
+  });
+  
+  const sortDirNum = ladderSortDir;
+  filtered.sort((a,b) => {
+      let va = a[ladderSortCol] || '';
+      let vb = b[ladderSortCol] || '';
+      if (ladderSortCol === 'cmp') { va = parseFloat(va)||0; vb = parseFloat(vb)||0; }
+      if (va < vb) return -1 * sortDirNum;
+      if (va > vb) return 1 * sortDirNum;
+      return 0;
+  });
+  
+  document.getElementById('label-hourly').innerText = `Hourly Passed (1H) (${window._signalLadderData.filter(d=>d.current_state==='Hourly Passed').length})`;
+  document.getElementById('label-setup').innerText = `Setup Armed (30m) (${window._signalLadderData.filter(d=>d.current_state==='Setup Armed').length})`;
+  document.getElementById('label-entry').innerText = `Entry Ready (15m) (${window._signalLadderData.filter(d=>d.current_state==='Entry Ready').length})`;
+  document.getElementById('label-triggered').innerText = `Triggered (5m) (${window._signalLadderData.filter(d=>d.current_state==='Triggered').length})`;
+  
+  if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">No signals match filters</td></tr>';
+      return;
+  }
+  
+  const html = filtered.map(d => {
+      let color = 'var(--muted)';
+      if(d.current_state === 'Hourly Passed') color = '#3498db';
+      if(d.current_state === 'Setup Armed') color = '#f39c12';
+      if(d.current_state === 'Entry Ready') color = '#9b59b6';
+      if(d.current_state === 'Triggered') color = '#2ecc71';
+      
+      const cmpStr = d.cmp ? d.cmp.toFixed(2) : '—';
+      const lastUpd = d.last_updated ? d.last_updated.slice(5,16).replace('T',' ') : '—';
+      
+      return `<tr>
+          <td style="font-weight:700;">${d.symbol}</td>
+          <td><span style="color:${color}; font-weight:600;">${d.current_state}</span></td>
+          <td>${cmpStr}</td>
+          <td style="color:var(--muted); font-size:11px;">${lastUpd}</td>
+          <td style="text-align:right;"><button onclick="openChart('${d.symbol}', ${d.cmp || 0});" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">📈 Chart</button></td>
+      </tr>`;
+  }).join('');
+  
+  tbody.innerHTML = html;
+};
 
 // ── TRADE TABLE
 let expandedIds = new Set();

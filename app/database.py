@@ -1355,6 +1355,8 @@ def upsert_scanner_health(
         error_msg = None
         error_severity = None
         is_ack = True
+        if last_success is None:
+            last_success = now_str
 
     with get_connection() as conn:
         with conn.cursor() as cur:
