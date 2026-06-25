@@ -214,6 +214,14 @@ def verify_watchlist_is_pristine() -> bool:
             if "Scan Time" in df.columns and not df.empty:
                 scan_date_str = str(df["Scan Time"].iloc[0])[:10]
                 scan_date = datetime.strptime(scan_date_str, "%Y-%m-%d").date()
+                
+                # If market is actively open, accept the stale watchlist to prevent deadlock
+                ist_now = datetime.now(IST)
+                market_open = time(9, 15) <= ist_now.time() <= time(15, 30)
+                if market_open and ist_now.weekday() < 5:
+                    logger.warning(f"⚠️ Watchlist is stale ({scan_date}) but market is open! Using stale cache to avoid deadlock.")
+                    return True
+                    
                 return scan_date >= now.date()
         except Exception:
             pass
