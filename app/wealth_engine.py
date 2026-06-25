@@ -100,12 +100,12 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
     for attempt in range(RETRY_ATTEMPTS):
         try:
             # 🔧 CRITICAL FIX: Use pre-fetched historical cache if available
-            if historical_cache and symbol in historical_cache:
-                hist = historical_cache[symbol]
+            if historical_cache is not None:
+                hist = historical_cache.get(symbol)
                 if hist is not None and not hist.empty:
                     logger.debug(f"Using pre-fetched cache for {symbol}")
                 else:
-                    logger.warning(f"Pre-fetched cache for {symbol} is empty, fetching fresh...")
+                    logger.debug(f"Pre-fetched cache missing for {symbol}, relying on fallback data...")
                     hist = None
             else:
                 # Fallback: Fetch single symbol if cache not available
