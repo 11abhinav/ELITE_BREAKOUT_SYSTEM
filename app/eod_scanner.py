@@ -594,16 +594,17 @@ def start():
             status = "DEGRADED"
             error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"
 
-        try:
-            upsert_scanner_health(
-                scanner_name="EOD",
-                status=status,
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total_alerts,
-                error_msg=error_msg
-            )
-        except Exception:
-            logger.exception("❌ Failed to update scanner health for EOD")
+        if not is_test_mode:
+            try:
+                upsert_scanner_health(
+                    scanner_name="EOD",
+                    status=status,
+                    last_success=datetime.now(IST).isoformat(),
+                    today_alerts=total_alerts,
+                    error_msg=error_msg
+                )
+            except Exception:
+                logger.exception("❌ Failed to update scanner health for EOD")
 
         return total_alerts
 

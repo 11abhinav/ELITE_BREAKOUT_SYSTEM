@@ -751,15 +751,16 @@ def _run_scan():
             )
             raise RuntimeError("Alert save verification failed - database connectivity issue")
 
-    try:
-        upsert_scanner_health(
-            scanner_name="REVERSAL",
-            status="OK",
-            last_success=ist_now.isoformat(),
-            today_alerts=total_alerts
-        )
-    except Exception:
-        logger.exception("❌ Failed to update scanner health for REVERSAL")
+    if not is_test_mode:
+        try:
+            upsert_scanner_health(
+                scanner_name="REVERSAL",
+                status="OK",
+                last_success=ist_now.isoformat(),
+                today_alerts=total_alerts
+            )
+        except Exception:
+            logger.exception("❌ Failed to update scanner health for REVERSAL")
     return total_alerts
 
 
