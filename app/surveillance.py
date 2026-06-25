@@ -60,33 +60,46 @@ def get_live_blacklist() -> set[str]:
             session = cffi_requests.Session(impersonate="chrome110")
         except ImportError:
             session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        
-        # Fetch ASM (Additional Surveillance Measure)
-        asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=10)
-        if asm_res.status_code == 200:
-            data = asm_res.json()
-            for key in ["longterm", "shortterm"]:
-                if key in data and "data" in data[key]:
-                    for item in data[key]["data"]:
-                        if "symbol" in item:
-                            blacklist.add(item["symbol"].strip().upper())
-                            
-        # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
-        gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=10)
-        if gsm_res.status_code == 200:
-            data = gsm_res.json()
-            if isinstance(data, list):
-                # Sometimes it's a list, sometimes a dict. Handle safely.
-                for item in data:
-                    if isinstance(item, dict) and "symbol" in item:
-                        blacklist.add(item["symbol"].strip().upper())
-            elif isinstance(data, dict) and "data" in data:
-                for item in data["data"]:
-                    if "symbol" in item:
-                        blacklist.add(item["symbol"].strip().upper())
-                        
-        logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
+            
+        # Try fetching with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.get("https://www.nseindia.com", headers=headers, timeout=15)
+                
+                # Fetch ASM (Additional Surveillance Measure)
+                asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=15)
+                if asm_res.status_code == 200:
+                    data = asm_res.json()
+                    for key in ["longterm", "shortterm"]:
+                        if key in data and "data" in data[key]:
+                            for item in data[key]["data"]:
+                                if "symbol" in item:
+                                    blacklist.add(item["symbol"].strip().upper())
+                                    
+                # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
+                gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=15)
+                if gsm_res.status_code == 200:
+                    data = gsm_res.json()
+                    if isinstance(data, list):
+                        # Sometimes it's a list, sometimes a dict. Handle safely.
+                        for item in data:
+                            if isinstance(item, dict) and "symbol" in item:
+                                blacklist.add(item["symbol"].strip().upper())
+                    elif isinstance(data, dict) and "data" in data:
+                        for item in data["data"]:
+                            if "symbol" in item:
+                                blacklist.add(item["symbol"].strip().upper())
+                                
+                logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
+                break # Success, exit retry loop
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.debug(f"NSE surveillance fetch attempt {attempt+1} failed: {e}. Retrying in 2s...")
+                    time.sleep(2)
+                else:
+                    raise # Re-raise on final failure to hit outer exception handler
         
     except Exception as e:
         logger.error(f"Failed to fetch live NSE surveillance lists: {e}")
