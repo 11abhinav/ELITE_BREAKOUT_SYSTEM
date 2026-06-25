@@ -51,7 +51,7 @@ import pandas as pd
 
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -627,7 +627,8 @@ def get_sector_scores(
             scan_date=today, nifty_return_pct=0.0,
             report="⚠️ Nifty 50 Unavailable", errors=["Nifty 50"]
         )
-        _cache, _cache_time = result, datetime.now(IST)
+        # Cache failure for a very short time (1 minute) to avoid spamming but allow retry
+        _cache, _cache_time = result, datetime.now(IST) - timedelta(minutes=CACHE_TTL_MINUTES - 1)
         return result
 
     nifty_return = _pct_return(nifty_close, rs_lookback)
@@ -638,7 +639,8 @@ def get_sector_scores(
             scan_date=today, nifty_return_pct=0.0,
             report="⚠️ Insufficient Nifty 50 data", errors=["Nifty 50 bars"]
         )
-        _cache, _cache_time = result, datetime.now(IST)
+        # Cache failure for a very short time (1 minute)
+        _cache, _cache_time = result, datetime.now(IST) - timedelta(minutes=CACHE_TTL_MINUTES - 1)
         return result
 
     nifty_base = nifty_return if abs(nifty_return) > 0.001 else 0.001

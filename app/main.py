@@ -159,6 +159,15 @@ def _run(name, fn):
         logger.exception(f"❌ Unhandled exception in {name}")
         threading.current_thread().completed_cleanly = False
         _notify_down(name, str(exc)[:200])
+        try:
+            from database import insert_notification
+            insert_notification(
+                notif_type="scanner_down",
+                title=f"🚨 Scanner Crash: {name}",
+                message=f"Thread crashed due to unhandled exception: {str(exc)[:400]}"
+            )
+        except Exception:
+            pass
 
 def run_intraday_scanner():
     wait_for_window("intraday")
@@ -262,9 +271,17 @@ def verify_watchlist_is_pristine() -> bool:
             from watchlist_cache import get_watchlist
             get_watchlist()
         except Exception as e:
-            logger.error(f"❌ Daily Builder failed: {e}")
-            from database import upsert_scanner_health
-            upsert_scanner_health("FUNDAMENTAL WATCHLIST", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+            logger.exception(f"❌ Daily Builder rebuild FAILED (full traceback above): {e}")
+            from database import upsert_scanner_health, insert_notification
+            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+            try:
+                insert_notification(
+                    notif_type="scanner_down",
+                    title="🚨 Daily Builder FAILED to rebuild",
+                    message=f"Watchlist is stale and rebuild failed: {str(e)[:400]}"
+                )
+            except Exception:
+                pass
             return False
             
         return is_disk_fresh()
@@ -776,6 +793,9 @@ def check_scanner_staleness(now):
         "MULTI_TF":            20,   # runs every 5 min → stale if no heartbeat in 20 min
         "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
         "Wealth Engine":       20,   # runs every 5 min during market hours
+        "DAILY_BUILDER":       "DAILY",
+        "EOD":                 "DAILY",
+        "REVERSAL":            "DAILY"
     }
     
     # Throttle: only run this check every 15 minutes
@@ -806,7 +826,6 @@ def check_scanner_staleness(now):
             # Parse last_success timestamp
             try:
                 if isinstance(last_success, str):
-                    # Handle ISO format with timezone
                     from datetime import datetime as dt
                     ls = dt.fromisoformat(last_success.replace('Z', '+00:00'))
                     if ls.tzinfo is None:
@@ -816,11 +835,25 @@ def check_scanner_staleness(now):
                     if ls.tzinfo is None:
                         ls = ls.replace(tzinfo=IST)
                 
+                cadence = SCANNER_CADENCE[sc]
+                is_stale = False
+                stale_msg = ""
                 gap_minutes = (now - ls).total_seconds() / 60.0
-                max_gap = SCANNER_CADENCE[sc]
                 
-                if gap_minutes > max_gap:
-                    stale_msg = f"Stale: No heartbeat in {int(gap_minutes)} minutes (expected every {max_gap // 3} min)"
+                if cadence == "DAILY":
+                    # Daily scanners must succeed at least once today by 11:30 PM
+                    # (For DAILY_BUILDER, it should succeed by 2 AM, but we can just check if it succeeded today by 11:30 PM)
+                    if now.hour == 23 and now.minute >= 30:
+                        if ls.date() != now.date():
+                            is_stale = True
+                            stale_msg = f"Stale: Did not complete successfully today (last success: {ls.strftime('%Y-%m-%d')})"
+                else:
+                    max_gap = cadence
+                    if gap_minutes > max_gap:
+                        is_stale = True
+                        stale_msg = f"Stale: No heartbeat in {int(gap_minutes)} minutes (expected every {max_gap // 3} min)"
+                
+                if is_stale:
                     logger.warning(f"🕐 STALENESS DETECTED | {sc} | {stale_msg}")
                     
                     upsert_scanner_health(sc, status="DOWN", error_msg=stale_msg)

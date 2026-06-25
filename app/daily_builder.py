@@ -640,13 +640,16 @@ def main():
         
         try:
             from zoneinfo import ZoneInfo
+            _ist = ZoneInfo("Asia/Kolkata")
             upsert_scanner_health(
                 "DAILY_BUILDER", "OK",
-                last_success=ist_now.isoformat(),
-                error_msg=None
+                last_success=datetime.now(_ist).isoformat(),
+                error_msg=None,
+                scheduled_for="01:00 IST"
             )
-        except Exception:
-            logger.warning("⚠️ Could not update Daily Builder success heartbeat")
+            logger.info("✅ Daily Builder health heartbeat updated successfully.")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not update Daily Builder success heartbeat: {e}")
     except Exception as exc:
         logger.exception("❌ CRITICAL ERROR in daily builder")
         try:
@@ -658,24 +661,27 @@ def main():
 CHECKPOINT_FILE = "data/build_state.json"
 
 def load_checkpoint() -> dict:
-    import json, os
-    if os.path.exists(CHECKPOINT_FILE):
-        try:
-            with open(CHECKPOINT_FILE) as f:
-                state = json.load(f)
-                if state.get("date") != str(datetime.now(IST).date()):
-                    return {}
-                return state
-        except Exception:
-            return {}
+    import json
+    try:
+        from database import get_system_state
+        state_str = get_system_state("daily_builder_checkpoint")
+        if state_str:
+            state = json.loads(state_str)
+            if state.get("date") != str(datetime.now(IST).date()):
+                return {}
+            return state
+    except Exception as e:
+        logger.warning(f"Could not load checkpoint from DB: {e}")
     return {}
 
 def save_checkpoint(state: dict):
-    import json, os
-    os.makedirs(os.path.dirname(CHECKPOINT_FILE), exist_ok=True)
-    state["date"] = str(datetime.now(IST).date())
-    with open(CHECKPOINT_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    import json
+    try:
+        from database import save_system_state
+        state["date"] = str(datetime.now(IST).date())
+        save_system_state("daily_builder_checkpoint", json.dumps(state))
+    except Exception as e:
+        logger.warning(f"Could not save checkpoint to DB: {e}")
 
 def _main_impl():
     # ── DB RE-RUN GUARD ──
@@ -815,11 +821,11 @@ def _main_impl():
     
     # Clean up checkpoint on full success
     try:
-        if os.path.exists(CHECKPOINT_FILE):
-            os.remove(CHECKPOINT_FILE)
-            logger.info("✅ Build complete. Checkpoint file removed.")
+        from database import save_system_state
+        save_system_state("daily_builder_checkpoint", "")
+        logger.info("✅ Build complete. Checkpoint removed from DB.")
     except Exception as e:
-        logger.warning(f"Could not remove checkpoint file: {e}")
+        logger.warning(f"Could not remove checkpoint from DB: {e}")
 
 # =====================================================================================
 # ALIAS

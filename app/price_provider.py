@@ -159,7 +159,7 @@ class PriceProvider:
 
             tickers_arg = " ".join(tickers)
             try:
-                df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False)
+                df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=30)
                 # success
                 last_exc = None
                 break
