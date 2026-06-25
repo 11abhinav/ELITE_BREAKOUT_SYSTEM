@@ -199,6 +199,8 @@ def run_performance_tracker():
         
         time.sleep(300)
 
+_watchlist_build_lock = threading.Lock()
+
 def verify_watchlist_is_pristine() -> bool:
     """Check if local disk has today's watchlist. If not, try DB, then trigger daily builder."""
     from config import WATCHLIST_PATH
@@ -219,31 +221,32 @@ def verify_watchlist_is_pristine() -> bool:
             pass
         return False
 
-    if is_disk_fresh():
-        return True
+    with _watchlist_build_lock:
+        if is_disk_fresh():
+            return True
+            
+        logger.warning("⚠️ Local disk missing/stale watchlist. Checking DB for fresh backup...")
+        download_parquet_from_db("daily_builder", WATCHLIST_PATH)
         
-    logger.warning("⚠️ Local disk missing/stale watchlist. Checking DB for fresh backup...")
-    download_parquet_from_db("daily_builder", WATCHLIST_PATH)
-    
-    if is_disk_fresh():
-        logger.info("✅ Watchlist successfully restored from DB to local disk.")
-        from watchlist_cache import get_watchlist
-        get_watchlist()
-        return True
-        
-    logger.warning("⚠️ DB backup is ALSO missing/stale! Triggering full daily builder rebuild.")
-    try:
-        from daily_builder import main as build_watchlist
-        build_watchlist()
-        from watchlist_cache import get_watchlist
-        get_watchlist()
-    except Exception as e:
-        logger.error(f"❌ Daily Builder failed: {e}")
-        from database import upsert_scanner_health
-        upsert_scanner_health("FUNDAMENTAL WATCHLIST", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
-        return False
-        
-    return is_disk_fresh()
+        if is_disk_fresh():
+            logger.info("✅ Watchlist successfully restored from DB to local disk.")
+            from watchlist_cache import get_watchlist
+            get_watchlist()
+            return True
+            
+        logger.warning("⚠️ DB backup is ALSO missing/stale! Triggering full daily builder rebuild.")
+        try:
+            from daily_builder import main as build_watchlist
+            build_watchlist()
+            from watchlist_cache import get_watchlist
+            get_watchlist()
+        except Exception as e:
+            logger.error(f"❌ Daily Builder failed: {e}")
+            from database import upsert_scanner_health
+            upsert_scanner_health("FUNDAMENTAL WATCHLIST", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+            return False
+            
+        return is_disk_fresh()
 
 def block_until_watchlist_ready():
     """Blocks the thread until the watchlist is pristine."""
