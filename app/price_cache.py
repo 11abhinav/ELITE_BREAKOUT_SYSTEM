@@ -25,9 +25,10 @@ _lock = threading.Lock()
 _fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
+from market_utils import is_market_open
+
 def _is_market_hours() -> bool:
-    now = datetime.now(IST)
-    return dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
+    return is_market_open()
 
 def get_dynamic_cadence(interval: str) -> int:
     """Calculates exact seconds until the next NSE candle boundary for any given interval."""

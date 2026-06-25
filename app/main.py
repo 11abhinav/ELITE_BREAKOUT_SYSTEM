@@ -185,13 +185,10 @@ def run_performance_tracker():
     except Exception:
         logger.exception("❌ PERFORMANCE TRACKER | Initial boot refresh failed")
         
+    from market_utils import is_market_open
+    
     while True:
-        now = datetime.now(IST)
-        
-        is_weekday = now.weekday() < 5
-        is_market_hours = is_weekday and (9 <= now.hour <= 15)
-        
-        if is_market_hours:
+        if is_market_open():
             try:
                 build_performance_data()
             except Exception:
@@ -693,8 +690,9 @@ def run_system_scheduler():
             elif now.hour != 8:
                 verify_scans_ran = False
             
+            from market_utils import is_market_open
             # Market hours: Wealth Engine every 5 minutes from 9:15 AM - 3:30 PM
-            if (now.hour == 9 and now.minute >= 15) or (10 <= now.hour <= 14) or (now.hour == 15 and now.minute <= 30):
+            if is_market_open(now):
                 safe_run_wealth_market_hours()
         
         time.sleep(30)  # Check every 30 seconds
@@ -763,8 +761,8 @@ def run_watchdog():
             # Skip during market hours — scanners will run on their own schedule.
             # Running self-test during market hours wastes API calls and can block
             # the watchdog if a scanner has an import/crash error.
-            _now_st = datetime.now(IST)
-            _market_open_st = dt_time(9, 15) <= _now_st.time() <= dt_time(15, 30) and _now_st.weekday() < 5
+            from market_utils import is_market_open
+            _market_open_st = is_market_open()
             if _market_open_st:
                 logger.info("🧪 STARTUP SELF-TEST | SKIPPED — market is open, scanners will run on schedule")
             else:
@@ -824,9 +822,8 @@ def run_startup_self_test(timeout_per_task: int = 120):
         return
 
     # Determine if market is currently open
-    now = datetime.now(IST)
-    from datetime import time as dt_time
-    market_open = dt_time(9, 15) <= now.time() <= dt_time(15, 30) and now.weekday() < 5
+    from market_utils import is_market_open
+    market_open = is_market_open()
     
     orig_flag = getattr(database, "DONT_SAVE_ALERTS", False)
     orig_wealth_flag = getattr(database, "DONT_SAVE_WEALTH", False)

@@ -406,7 +406,8 @@ def start(run_once=False):
             logger.info("=========================================")
             logger.info(f"🚦 MULTI-TF LADDER START | {ist_now.strftime('%H:%M:%S IST')}")
             
-            market_open = dt_time(9, 15) <= current_time <= dt_time(15, 30) and weekday < 5
+            from market_utils import is_market_open
+            market_open = is_market_open(ist_now)
             is_active_window = market_open or run_once
             
             import database

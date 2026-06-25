@@ -69,9 +69,8 @@ def start(run_once=False):
         current_time = ist_now.time()
         weekday      = ist_now.weekday()
 
-        market_open = dt_time(10, 17) <= current_time <= dt_time(15, 35)
-
-        is_active_window = run_once or (weekday < 5 and market_open)
+        from market_utils import is_within_custom_hours
+        is_active_window = run_once or is_within_custom_hours(dt_time(10, 17), dt_time(15, 35), ist_now)
         if not is_active_window:
             logger.info("⏰ Outside 1H window. Scanner pausing until next market session...")
             try:
