@@ -50,15 +50,6 @@ def get_watchlist() -> pd.DataFrame:
         except Exception as e:
             logger.warning(f"Failed to restore watchlist from DB: {e}")
 
-        # Fallback to trigger full build if missing
-        try:
-            from daily_builder import build_watchlist
-            build_watchlist()
-            df = pd.read_parquet(WATCHLIST_PATH)
-            _watchlist_cache = df
-            _watchlist_date = current_date
-            logger.info(f"📁 Watchlist built and loaded into memory cache ({len(df)} symbols)")
-            return _watchlist_cache.copy()
-        except Exception as e:
-            logger.error(f"❌ Failed to load/build watchlist: {e}")
-            raise
+        # Fallback if missing: do NOT build here, let main.py watchdog handle it
+        logger.error("❌ Watchlist missing from both disk and DB. Scanners must wait for Watchdog to build it.")
+        return pd.DataFrame()

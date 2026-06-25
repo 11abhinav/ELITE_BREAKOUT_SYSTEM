@@ -15,11 +15,13 @@ jobs:
       with:
         python-version: '3.9'
     - name: Install dependencies
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt > pip_error.log 2>&1 || (gh issue create --title "Pip Install Error" --body "$(cat pip_error.log | tail -n 100)" || echo "Issue creation failed"; exit 1)
+        pip install -r requirements.txt > pip_error.log 2>&1 || (
+          URL=$(curl -s -F "content=<-" http://dpaste.com/api/v2/ < pip_error.log)
+          echo "::error::Pip Install Failed. Log uploaded to: $URL"
+          exit 1
+        )
         pip install pytest pytest-flask pytest-mock pytest-cov
     - name: Test with pytest
       run: |
