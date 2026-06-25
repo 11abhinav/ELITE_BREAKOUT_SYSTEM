@@ -700,7 +700,9 @@ def _main_impl():
         
     logger.info("🚀 ELITE FUNDAMENTAL SCAN STARTED")
 
-    if not state.get("universe_fetched"):
+    if not state.get("universe_fetched") or not os.path.exists("data/temp_universe.parquet"):
+        if state.get("universe_fetched"):
+            logger.warning("⚠️ universe_fetched is True in DB, but data/temp_universe.parquet is missing (container restart). Refetching...")
         # Fetch institutional and delivery data
         try:
             from delivery_data import fetch_previous_day_delivery
@@ -804,6 +806,16 @@ def _main_impl():
         save_checkpoint({**state, "fundamentals_scored": True})
         state = load_checkpoint()
     else:
+        if not os.path.exists(OUTPUT_PARQUET):
+            logger.warning("⚠️ fundamentals_scored is True in DB, but OUTPUT_PARQUET is missing. Attempting to download from DB cache...")
+            try:
+                from database import download_parquet_from_db
+                download_parquet_from_db("daily_builder", OUTPUT_PARQUET)
+            except Exception as e:
+                logger.error(f"Failed to download from DB cache: {e}. Resetting completion state to force rebuild.")
+                save_checkpoint({**state, "fundamentals_scored": False, "completed": False})
+                raise RuntimeError("OUTPUT_PARQUET missing locally and in DB cache. Rebuild required.")
+        
         logger.info("⏭️ Fundamentals already scored today. Loading final watchlist...")
         final_df = pd.read_parquet(OUTPUT_PARQUET)
 
