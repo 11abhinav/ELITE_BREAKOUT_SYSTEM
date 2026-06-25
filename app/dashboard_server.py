@@ -2038,7 +2038,8 @@ def api_breakout_watchlist():
                     sym_clean = sym.replace(':', '_')
                     # Check the most frequently updated caches first (5m from Intraday, then 15m, then 1d)
                     for interval in ["5m", "15m", "1d"]:
-                        file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
+                        yf_sym = sym.replace('_', '-') + ".NS"
+                        file_path = os.path.join(DATA_DIR, "price_cache", f"price_{interval}____{yf_sym}.parquet")
                         if os.path.exists(file_path):
                             try:
                                 df = pd.read_parquet(file_path)
@@ -2053,7 +2054,7 @@ def api_breakout_watchlist():
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to fetch CMP for watchlist: {e}")
 
-        return jsonify({"status": "success", "data": data})
+        return jsonify({"status": "success", "data": serialize_datetimes(data)})
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
         return jsonify({"status": "error", "message": str(e)}), 500
