@@ -1048,7 +1048,7 @@ def run_startup_self_test(timeout_per_task: int = 120):
         except Exception:
             logger.exception("Startup self-test: eod_scanner failed")
 
-    tasks.append((_t_eod, timeout_per_task))
+    tasks.append((_t_eod, 300)) # EOD needs more time for 2y data pull
 
     def _t_reversal():
         try:
@@ -1058,7 +1058,7 @@ def run_startup_self_test(timeout_per_task: int = 120):
         except Exception:
             logger.exception("Startup self-test: reversal_scanner failed")
 
-    tasks.append((_t_reversal, timeout_per_task))
+    tasks.append((_t_reversal, 300)) # Reversal needs more time for 1y data pull
 
     def _t_perf():
         try:
