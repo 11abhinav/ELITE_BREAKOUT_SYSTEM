@@ -415,8 +415,7 @@ def start(run_once=False):
                 try:
                     upsert_scanner_health(
                         scanner_name="MULTI_TF",
-                        status="IDLE",
-                        last_success=datetime.now(IST).isoformat()
+                        status="IDLE"
                     )
                 except Exception:
                     pass
