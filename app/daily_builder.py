@@ -41,10 +41,6 @@ _classify_lock = threading.Lock()  # Prevent race conditions in classify_stock
 
 logger = logging.getLogger(__name__)
 
-# Globals for accumulation data
-_DELIVERY_DATA = {}
-_INST_BUYS = {}
-
 # =====================================================================================
 # OUTPUT FILES
 # =====================================================================================
@@ -83,6 +79,7 @@ CAT_DESCRIPTIONS = {
     "Fast Growing Financial":   "Explosive recent NII & profit momentum in banking/NBFC.",
     "Top Bank/NBFC":            "High ROE & ROA with strong consistent loan book growth.",
     "Blue Chip Financial":      "Large cap bank/NBFC with highly stable returns.",
+    "Dividend Aristocrat":      "High dividend yield (≥3.0%) with strong ROE from a mega-cap financial.",
     "Financial Recovery":       "Recovering financial with improving asset quality and profitability.",
     "Efficient Lender":         "Top-tier banking quality with exceptional ROA (≥2.0%).",
     "Momentum Quality":         "Decent fundamentals (ROE≥10, OPM≥8) with strong price momentum — Wealth Engine candidate.",
@@ -244,7 +241,9 @@ def _anomaly_check(symbol: str, yoy_rev: float, yoy_profit: float) -> str:
 
 def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     def fv(c): return _fval(row, c)
-    def skip(r): return log_exclusion(symbol, r) or None
+    def skip(r): 
+        log_exclusion(symbol, r)
+        return None
 
     close_price = fv("close")
     avg_volume  = fv("average_volume_30d_calc")
@@ -260,6 +259,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     qoq_sales   = fv("gross_profit_qoq_growth_fq")
     yoy_profit  = fv("earnings_per_share_diluted_yoy_growth_ttm")
     qoq_profit  = fv("earnings_per_share_diluted_qoq_growth_fq")
+    true_yoy_rev= fv("total_revenue_yoy_growth_ttm")
 
     # Long-term specific metrics
     pe          = fv("price_earnings_ttm")
@@ -292,7 +292,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if traded_value < MIN_TRADED_VALUE:
         return skip(f"Low liquidity: ₹{traded_value/1e7:.1f} Cr/day")
 
-    anomaly = _anomaly_check(symbol, yoy_sales, yoy_profit)
+    rev_for_anomaly = true_yoy_rev if true_yoy_rev is not None else yoy_sales
+    anomaly = _anomaly_check(symbol, rev_for_anomaly, yoy_profit)
     if anomaly:
         return skip(anomaly)
 
@@ -303,8 +304,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     sector = str(row.get("sector", ""))
     # High debt: D/E > 1.0 is dangerously leveraged for most businesses.
     # Exception: Utilities naturally carry higher leverage. Banks/NBFCs use PATH B.
+    # Exception: Mega-caps (₹10,000 Cr+) can sustain higher leverage.
     allowed_de = 2.5 if "Utilities" in sector else MAX_DEBT_EQUITY
-    if not debt_missing and debt_equity > allowed_de:
+    if not debt_missing and debt_equity > allowed_de and not is_mega_cap:
         return skip(f"JUNK BLOCKED: D/E={debt_equity:.1f} exceeds max {allowed_de}")
     # Negative operating margins = business is burning cash at the operating level
     if opm < 0:
@@ -378,8 +380,11 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if steady_compounder:  cats.append("Consistent Performer")
     if momentum_quality and not cats:  cats.append("Momentum Quality")
 
-    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround)
-    if inst_accumulation: score += 15
+    if not cats:
+        return skip(f"No categories assigned despite passing initial gates")
+
+    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient)
+    if inst_accumulation: score += 5
 
     return _build_row(
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
@@ -393,7 +398,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
 
 def _classify_fin(row: pd.Series, symbol: str) -> dict:
     def fv(c): return _fval(row, c)
-    def skip(r): return log_exclusion(symbol, r) or None
+    def skip(r): 
+        log_exclusion(symbol, r)
+        return None
 
     close_price = fv("close")
     avg_volume  = fv("average_volume_30d_calc")
@@ -409,11 +416,13 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     qoq_rev    = fv("total_revenue_qoq_growth_fq")
     yoy_profit = fv("net_income_yoy_growth_ttm")
     qoq_profit = fv("net_income_qoq_growth_fq")
+    eps_yoy    = fv("earnings_per_share_diluted_yoy_growth_ttm")
 
     pe          = fv("price_earnings_ttm")
     rev_5y      = fv("total_revenue_5y_growth")
     eps_5y      = fv("earnings_per_share_basic_5y_growth")
     div_yield   = fv("dividend_yield_recent")
+    fcf_margin  = fv("free_cash_flow_margin_ttm")
     _raw_roce   = fv("return_on_invested_capital_fq")
     roce        = _raw_roce if _raw_roce is not None else 0.0
 
@@ -447,12 +456,10 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     # Both revenue AND profits collapsing = structural failure (Yes Bank, DHFL type)
     if yoy_rev < -20 and yoy_profit < -20:
         return skip(f"JUNK BLOCKED (FIN): Structural collapse Rev={yoy_rev:.1f}% Profit={yoy_profit:.1f}%")
-    # ROA below 0.3 for a financial = the lending book is toxic
-    if roa < 0.3:
-        return skip(f"JUNK BLOCKED (FIN): Toxic ROA={roa:.2f}%")
+
     peg = None
-    if pe is not None and pe > 0 and yoy_profit > 0:
-        peg = pe / yoy_profit
+    if pe is not None and pe > 0 and eps_yoy is not None and eps_yoy > 0:
+        peg = pe / eps_yoy
 
     yoy_margin_expanding = (yoy_profit >= yoy_rev)
 
@@ -475,7 +482,8 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 
     diamond_hold = False
     if rev_5y is not None and eps_5y is not None and peg is not None:
-        if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.5:
+        fcf_ok = (fcf_margin is None) or (fcf_margin > 0)
+        if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.5 and fcf_ok:
             diamond_hold = True
 
     if not any([fin_high_growth, fin_compounder, fin_mature_quality, fin_turnaround, diamond_hold, efficient_lender, dividend_aristocrat, inst_accumulation]):
@@ -490,21 +498,23 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if fin_compounder:     cats.append("Top Bank/NBFC")
     if fin_mature_quality: cats.append("Blue Chip Financial")
     if fin_turnaround:     cats.append("Financial Recovery")
+    if not cats:
+        return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder)
-    if inst_accumulation: score += 15
+    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder, dividend_aristocrat)
+    if inst_accumulation: score += 5
 
     return _build_row(
         symbol=symbol, cats=cats, path="Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=None, debt_equity=debt_equity, debt_missing=debt_missing,
-        qoq_rev=qoq_rev, yoy_rev=yoy_rev, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, roa=roa, peg=peg, roce=roce, fcf_margin=None
+        qoq_rev=qoq_rev, yoy_rev=yoy_rev, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, roa=roa, peg=peg, roce=roce, fcf_margin=fcf_margin
     )
 
 # =====================================================================================
 # SCORING
 # =====================================================================================
 
-def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround) -> int:
+def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False) -> int:
     score = 0
     if yoy_sales >= 20: score += 20
     elif yoy_sales >= 10: score += 10
@@ -528,10 +538,13 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     if mature_quality: score += 10
     if elite_compounder: score += 5
     if turnaround: score += 3
+    if debt_free_cash: score += 5
+    if undervalued_growth: score += 5
+    if capital_efficient: score += 5
     return score
 
 
-def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature, fin_compounder) -> int:
+def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature, fin_compounder, dividend_aristocrat=False) -> int:
     score = 0
     if yoy_rev >= 20: score += 20
     elif yoy_rev >= 10: score += 10
@@ -552,6 +565,7 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, f
     if yoy_margin: score += 5
     if fin_mature: score += 10
     if fin_compounder: score += 5
+    if dividend_aristocrat: score += 5
     return score
 
 # =====================================================================================
@@ -597,7 +611,14 @@ SYMBOL_CORRECTIONS = {
 
 def normalize_symbol(symbol: str) -> str:
     """Convert TradingView symbol names to Yahoo Finance compatible format."""
-    return SYMBOL_CORRECTIONS.get(symbol, symbol)
+    # First check explicit corrections
+    if symbol in SYMBOL_CORRECTIONS:
+        return SYMBOL_CORRECTIONS[symbol]
+    
+    # General transformations: replace underscores with hyphens
+    # since Yahoo Finance mostly uses hyphens for dual-share classes or names like M-AND-M.
+    # Note: the yf cache or downloader normally appends '.NS' later.
+    return symbol.replace("_", "-")
 
 # =====================================================================================
 # DISPATCHER
@@ -707,12 +728,13 @@ def _main_impl(force_rebuild: bool = False):
         # Fetch institutional and delivery data
         try:
             from delivery_data import fetch_previous_day_delivery
-            _DELIVERY_DATA = fetch_previous_day_delivery()
-            
             from institutional_data import get_institutional_buys
-            _INST_BUYS = get_institutional_buys()
-            
             from block_deal_detector import run_fii_detector
+            
+            with _classify_lock:
+                _DELIVERY_DATA = fetch_previous_day_delivery()
+                _INST_BUYS = get_institutional_buys()
+            
             run_fii_detector()
         except Exception as e:
             logger.warning(f"⚠️ Could not fetch accumulation/block data: {e}")
@@ -737,10 +759,13 @@ def _main_impl(force_rebuild: bool = False):
         _load_blacklist()
         try:
             from delivery_data import fetch_previous_day_delivery
-            _DELIVERY_DATA = fetch_previous_day_delivery()
             from institutional_data import get_institutional_buys
-            _INST_BUYS = get_institutional_buys()
             from block_deal_detector import run_fii_detector
+            
+            with _classify_lock:
+                _DELIVERY_DATA = fetch_previous_day_delivery()
+                _INST_BUYS = get_institutional_buys()
+            
             run_fii_detector()
         except Exception:
             pass
@@ -814,7 +839,7 @@ def _main_impl(force_rebuild: bool = False):
                 download_parquet_from_db("daily_builder", OUTPUT_PARQUET)
             except Exception as e:
                 logger.error(f"Failed to download from DB cache: {e}. Resetting completion state to force rebuild.")
-                save_checkpoint({**state, "fundamentals_scored": False, "completed": False})
+                save_checkpoint({"date": str(datetime.now(IST).date())})
                 raise RuntimeError("OUTPUT_PARQUET missing locally and in DB cache. Rebuild required.")
         
         logger.info("⏭️ Fundamentals already scored today. Loading final watchlist...")
