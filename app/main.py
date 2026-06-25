@@ -1030,11 +1030,11 @@ def _trigger_multi_tf():
 
 def _trigger_eod():
     import eod_scanner
-    eod_scanner.start()
+    eod_scanner.start(force=True)
 
 def _trigger_reversal():
     import reversal_scanner
-    reversal_scanner.start()
+    reversal_scanner.start(force=True)
 
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan
@@ -1042,11 +1042,11 @@ def _trigger_wealth_engine():
 
 def _trigger_intraday():
     import intraday
-    intraday.start()
+    intraday.start(run_once=True)
 
 def _trigger_live_scanner():
     import live_scanner
-    live_scanner.start()
+    live_scanner.start(run_once=True)
 
 
 # ENTRY POINT

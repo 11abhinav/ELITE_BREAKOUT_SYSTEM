@@ -258,7 +258,7 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 
-def _run_scan():
+def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     init_db()
 
@@ -272,7 +272,10 @@ def _run_scan():
     scan_start = datetime.strptime("18:30", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     import database
-    is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
+    if force:
+        is_test_mode = False
+    else:
+        is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
     if is_test_mode:
         logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
@@ -773,7 +776,7 @@ def _run_scan():
     return total_alerts
 
 
-def start() -> int:
+def start(force: bool = False) -> int:
     """
     Single-shot scan. Called once by main.py at the 18:30 window.
     Returns the number of alerts generated (0 = no setups found).
@@ -790,7 +793,7 @@ def start() -> int:
     force_refresh_blacklist()
 
     try:
-        return _run_scan()
+        return _run_scan(force=force)
     except Exception as e:
         logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
         import database

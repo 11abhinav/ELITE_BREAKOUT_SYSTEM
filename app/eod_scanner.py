@@ -56,7 +56,7 @@ MAX_GAP_FROM_PRIOR_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_GAP_FROM_PRIOR_HIGH_PCT"]
 GAP_LOOKBACK_BARS           = EOD_ADVANCED_CONFIG["GAP_LOOKBACK_BARS"]
 
 
-def start():
+def start(force: bool = False):
     init_db()
     
     from surveillance import force_refresh_blacklist
@@ -76,7 +76,10 @@ def start():
     scan_start = datetime.strptime("18:30", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     import database
-    is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
+    if force:
+        is_test_mode = False
+    else:
+        is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
     if is_test_mode:
         logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
