@@ -19,6 +19,7 @@ import config
 
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
+_last_auth_notif_time = 0
 
 class RateLimiter:
     """Thread-safe rate limiter to space requests and prevent HTTP 429 rate limit errors."""
@@ -213,7 +214,7 @@ class FyersFetcher(DataFetcher):
                 df["Volume"] = df["Volume"].astype(float)
                 
                 if interval == "1d":
-                    df["Date"] = timestamps.dt.date
+                    df["Date"] = pd.to_datetime(timestamps.dt.date)
                     df = df.drop(columns=["Timestamp"], errors="ignore")
                 else:
                     df["Datetime"] = timestamps
@@ -223,6 +224,24 @@ class FyersFetcher(DataFetcher):
                 
             except Exception as e:
                 error_str = str(e)
+                
+                if "Could not authenticate the user" in error_str:
+                    global _last_auth_notif_time
+                    now = time.time()
+                    if now - _last_auth_notif_time > 3600:
+                        _last_auth_notif_time = now
+                        try:
+                            import database
+                            database.insert_notification(
+                                type='system',
+                                title='⚠️ Fyers Authentication Required',
+                                message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
+                                symbol='SYSTEM'
+                            )
+                        except Exception as notif_err:
+                            logger.error(f"Failed to insert auth notification: {notif_err}")
+                    return None
+                    
                 # Do not retry for non-retryable errors like bad symbols
                 if "Invalid symbol provided" in error_str:
                     if ns_symbol.endswith("-EQ"):
@@ -347,6 +366,23 @@ class FyersFetcher(DataFetcher):
                     pass
                 return {}
         except Exception as e:
+            error_str = str(e)
+            if "Could not authenticate the user" in error_str:
+                global _last_auth_notif_time
+                now = time.time()
+                if now - _last_auth_notif_time > 3600:
+                    _last_auth_notif_time = now
+                    try:
+                        import database
+                        database.insert_notification(
+                            type='system',
+                            title='⚠️ Fyers Authentication Required',
+                            message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
+                            symbol='SYSTEM'
+                        )
+                    except Exception:
+                        pass
+
             logger.error(f"Failed to fetch quote for symbol {symbol}: {e}")
             try:
                 from data_fetch_status import mark_failure
