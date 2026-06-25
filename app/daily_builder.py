@@ -797,6 +797,7 @@ def save_checkpoint(state: dict):
         logger.warning(f"Could not save checkpoint to DB: {e}")
 
 def _main_impl(force_rebuild: bool = False):
+    global _DELIVERY_DATA, _INST_BUYS
     # ── DB RE-RUN GUARD ──
     if not force_rebuild:
         try:
@@ -823,7 +824,6 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
-            global _DELIVERY_DATA, _INST_BUYS
             _DELIVERY_DATA = fetch_previous_day_delivery()
             _INST_BUYS = get_institutional_buys()
             
@@ -854,7 +854,6 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
-            global _DELIVERY_DATA, _INST_BUYS
             _DELIVERY_DATA = fetch_previous_day_delivery()
             _INST_BUYS = get_institutional_buys()
             
