@@ -59,6 +59,24 @@ FINANCIAL_SECTORS = {
     "Financial Services",
 }
 
+HIGH_TAILWIND_SECTORS = {
+    "Electronic Technology",
+    "Health Technology",
+    "Health Services",
+    "Producer Manufacturing", 
+    "Industrial Services", 
+    "Process Industries"
+}
+
+MEDIUM_TAILWIND_SECTORS = {
+    "Technology Services", 
+    "Consumer Durables",
+    "Consumer Non-Durables",
+}
+
+_SECTOR_MEDIANS = {}
+
+
 # =====================================================================================
 # CATEGORY DICTIONARY (PLAIN ENGLISH EXPLANATIONS)
 # =====================================================================================
@@ -75,6 +93,9 @@ CAT_DESCRIPTIONS = {
     "Capital Efficient":        "Asset-light business model with exceptional ROE (≥25%).",
     "High Yield Dividend":      "High dividend yield (≥3.0%) with strong ROE and stability.",
     "Inst Accumulation":        "Massive institutional bulk/block buying + high delivery absorption.",
+    "High Reinvestment":        "High ROCE (≥18%) plowing back profits (Retention ≥60%) for compounding.",
+    "Market Share Gainer":      "Growing revenue significantly faster than sector peers with expanding margins.",
+    "Early Stage Compounder":   "High growth small-cap (<₹5000Cr) with compounding DNA.",
     # Financial (PATH B)
     "Fast Growing Financial":   "Explosive recent NII & profit momentum in banking/NBFC.",
     "Top Bank/NBFC":            "High ROE & ROA with strong consistent loan book growth.",
@@ -245,6 +266,17 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         log_exclusion(symbol, r)
         return None
 
+    try:
+        from fundamentals_cache import get_fundamentals
+        fund_data = get_fundamentals(symbol)
+    except Exception:
+        fund_data = {}
+
+    cfo_pat_ratio = fund_data.get("cfo_pat_ratio")
+    retention_ratio = fund_data.get("retention_ratio")
+    insider_hold = fund_data.get("insider_hold")
+    forensic_flags = fund_data.get("forensic_flags", 0)
+
     close_price = fv("close")
     avg_volume  = fv("average_volume_30d_calc")
     market_cap  = fv("market_cap_basic")
@@ -297,6 +329,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if anomaly:
         return skip(anomaly)
 
+    if forensic_flags >= 2:
+        return skip(f"JUNK BLOCKED: Forensic Red Flags ({forensic_flags} detected)")
+
     # ── JUNK-KILL GATE — Non-negotiable hard blocks ──────────────────────────────────
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED: Promoter Blacklist / NSE Surveillance (ASM/GSM)")
@@ -334,6 +369,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     turnaround = (yoy_profit >= TURNAROUND_PROFIT and yoy_margin_expanding and opm >= 12 and yoy_sales >= -10.0 and roe >= 12)
     steady_compounder = (yoy_sales >= STEADY_YOY and yoy_profit >= STEADY_YOY and roe >= 14 and opm >= 10)
 
+    if cfo_pat_ratio is not None and cfo_pat_ratio < 0.5 and not turnaround:
+        return skip(f"JUNK BLOCKED: Earnings quality CFO/PAT = {cfo_pat_ratio:.2f} < 0.5")
+
     # NEW: Safest wealth creators
     debt_free_cash = (debt_equity <= 0.1 and roe >= 20 and market_cap >= 100_000_000_000 and (fcf_margin is None or fcf_margin > 0))
     # NEW: Undervalued growth
@@ -345,6 +383,17 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # NEW: High Yield Dividend
     div_val = div_yield if div_yield is not None else 0.0
     high_yield_dividend = (div_val >= 3.0 and roe >= 15.0 and low_debt and market_cap >= 50_000_000_000)
+
+    # NEW: High Reinvestment
+    high_reinvestment = (roce >= 18.0 and retention_ratio is not None and retention_ratio >= 0.6)
+
+    # NEW: Market Share Gainer
+    sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
+    market_share_gainer = (rev_for_anomaly > (sec_median * 1.2) and qoq_margin_expanding)
+
+    # NEW: Early Stage Compounder
+    MID_CAP_FLOOR = 50_000_000_000
+    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and opm >= 12 and low_debt and rev_5y is not None and rev_5y >= 15.0)
 
     # NEW: Institutional Accumulation
     deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
@@ -363,7 +412,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # SAFETY: Requires low_debt (D/E <= 1.0) to prevent junk from sneaking in.
     momentum_quality = (roe >= 10 and opm >= 8 and yoy_profit > 0 and low_debt and market_cap >= 20_000_000_000)
 
-    if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, momentum_quality]):
+    if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, momentum_quality, high_reinvestment, market_share_gainer, small_cap_compounder]):
         return skip(f"No category — YoY Sales={yoy_sales:.1f}%, YoY Profit={yoy_profit:.1f}%")
 
     cats = []
@@ -373,6 +422,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if debt_free_cash:     cats.append("Debt-Free Cash Generator")
     if undervalued_growth: cats.append("Undervalued Growth")
     if capital_efficient:  cats.append("Capital Efficient")
+    if high_reinvestment:  cats.append("High Reinvestment")
+    if market_share_gainer:cats.append("Market Share Gainer")
+    if small_cap_compounder:cats.append("Early Stage Compounder")
     if high_growth:        cats.append("High Momentum")
     if elite_compounder:   cats.append("Wealth Compounder")
     if mature_quality:     cats.append("Blue Chip Stable")
@@ -383,8 +435,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient)
+    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient, sector)
     if inst_accumulation: score += 5
+    if insider_hold is not None and insider_hold > 0.50: score += 5
 
     return _build_row(
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
@@ -401,6 +454,14 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     def skip(r): 
         log_exclusion(symbol, r)
         return None
+
+    try:
+        from fundamentals_cache import get_fundamentals
+        fund_data = get_fundamentals(symbol)
+    except Exception:
+        fund_data = {}
+
+    insider_hold = fund_data.get("insider_hold")
 
     close_price = fv("close")
     avg_volume  = fv("average_volume_30d_calc")
@@ -486,7 +547,16 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.5 and fcf_ok:
             diamond_hold = True
 
-    if not any([fin_high_growth, fin_compounder, fin_mature_quality, fin_turnaround, diamond_hold, efficient_lender, dividend_aristocrat, inst_accumulation]):
+    # NEW: Market Share Gainer
+    sector = str(row.get("sector", ""))
+    sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
+    market_share_gainer = (yoy_rev > (sec_median * 1.2) and yoy_margin_expanding)
+
+    # NEW: Early Stage Compounder
+    MID_CAP_FLOOR = 50_000_000_000
+    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and roa >= 1.5 and rev_5y is not None and rev_5y >= 15.0)
+
+    if not any([fin_high_growth, fin_compounder, fin_mature_quality, fin_turnaround, diamond_hold, efficient_lender, dividend_aristocrat, inst_accumulation, market_share_gainer, small_cap_compounder]):
         return skip(f"No financial category — YoY NII={yoy_rev:.1f}%, YoY Profit={yoy_profit:.1f}%")
 
     cats = []
@@ -494,6 +564,8 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if dividend_aristocrat:cats.append("Dividend Aristocrat")
     if inst_accumulation:  cats.append("Inst Accumulation")
     if efficient_lender:   cats.append("Efficient Lender")
+    if market_share_gainer:cats.append("Market Share Gainer")
+    if small_cap_compounder:cats.append("Early Stage Compounder")
     if fin_high_growth:    cats.append("Fast Growing Financial")
     if fin_compounder:     cats.append("Top Bank/NBFC")
     if fin_mature_quality: cats.append("Blue Chip Financial")
@@ -501,8 +573,9 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder, dividend_aristocrat)
+    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder, dividend_aristocrat, sector)
     if inst_accumulation: score += 5
+    if insider_hold is not None and insider_hold > 0.50: score += 5
 
     return _build_row(
         symbol=symbol, cats=cats, path="Financial", row=row, close_price=close_price,
@@ -514,7 +587,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 # SCORING
 # =====================================================================================
 
-def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False) -> int:
+def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False, sector="") -> int:
     score = 0
     if yoy_sales >= 20: score += 20
     elif yoy_sales >= 10: score += 10
@@ -535,6 +608,10 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     if debt_equity == 0.0 or debt_equity <= 0.1: score += 10
     elif debt_equity <= 0.5: score += 7
     elif debt_equity <= 1.0: score += 3
+    
+    # Sector Tailwinds
+    if sector in HIGH_TAILWIND_SECTORS: score += 12
+    elif sector in MEDIUM_TAILWIND_SECTORS: score += 6
     if mature_quality: score += 10
     if elite_compounder: score += 5
     if turnaround: score += 3
@@ -777,6 +854,12 @@ def _main_impl(force_rebuild: bool = False):
         state = load_checkpoint()
 
     if not state.get("fundamentals_scored"):
+        # Calculate Sector Medians for Market Share Gainer logic
+        global _SECTOR_MEDIANS
+        _SECTOR_MEDIANS.clear()
+        if "total_revenue_yoy_growth_ttm" in universe_df.columns:
+            _SECTOR_MEDIANS = universe_df.groupby("sector")["total_revenue_yoy_growth_ttm"].median().to_dict()
+
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
         logger.info(f"📊 Classifying {len(universe_df)} stocks... (Path A: {(~fin_mask).sum()} | Path B: {fin_mask.sum()})")
 
