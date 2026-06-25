@@ -34,7 +34,7 @@ data/
 Thumbs.db
 
 # ── Test scratch files ──
-test_*.py
+# test_*.py removed so unit tests can be committed
 
 # ── Stale artifacts ──
 1cd
