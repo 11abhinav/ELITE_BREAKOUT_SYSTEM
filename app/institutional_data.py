@@ -23,12 +23,24 @@ INSTITUTIONAL_KEYWORDS = [
 # Keywords that usually indicate retail or individual names to exclude
 RETAIL_KEYWORDS = ["HUF", "INDIVIDUAL"]
 
-def _get_robust_session() -> requests.Session:
-    session = requests.Session()
-    retry = Retry(total=5, read=5, connect=5, backoff_factor=1.5, status_forcelist=(500, 502, 503, 504))
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+def _get_robust_session():
+    try:
+        from curl_cffi import requests as cffi_requests
+        session = cffi_requests.Session(impersonate="chrome110")
+        return session
+    except ImportError:
+        session = requests.Session()
+        retry = Retry(
+            total=5,
+            read=5,
+            connect=5,
+            backoff_factor=1.5,
+            status_forcelist=(500, 502, 503, 504),
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
         "Referer": "https://www.nseindia.com/",

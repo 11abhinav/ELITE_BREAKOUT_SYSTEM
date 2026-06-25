@@ -1658,8 +1658,12 @@ def api_notices(symbol):
     }
     
     try:
-        import requests
-        s = requests.Session()
+        try:
+            from curl_cffi import requests as cffi_requests
+            s = cffi_requests.Session(impersonate="chrome110")
+        except ImportError:
+            import requests
+            s = requests.Session()
         # Ping homepage to establish cookies
         s.get('https://www.nseindia.com', headers=headers, timeout=5)
         # Fetch the actual data
@@ -1746,8 +1750,12 @@ def fetch_and_analyze_concall(symbol):
     }
     
     try:
-        import requests
-        s = requests.Session()
+        try:
+            from curl_cffi import requests as cffi_requests
+            s = cffi_requests.Session(impersonate="chrome110")
+        except ImportError:
+            import requests
+            s = requests.Session()
         s.get('https://www.nseindia.com', headers=headers, timeout=5)
         r = s.get(url, headers=headers, timeout=5)
         

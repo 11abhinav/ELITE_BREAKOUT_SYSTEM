@@ -26,7 +26,11 @@ def get_nse_bulk_block_deals():
         'Connection': 'keep-alive',
     }
     
-    session = requests.Session()
+    try:
+        from curl_cffi import requests as cffi_requests
+        session = cffi_requests.Session(impersonate="chrome110")
+    except ImportError:
+        session = requests.Session()
     session.headers.update(headers)
     
     # 1. Hit main page to get cookies

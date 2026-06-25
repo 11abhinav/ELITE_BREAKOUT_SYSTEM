@@ -47,7 +47,11 @@ def get_live_blacklist() -> set[str]:
     
     try:
         # Establish session first to get cookies
-        session = requests.Session()
+        try:
+            from curl_cffi import requests as cffi_requests
+            session = cffi_requests.Session(impersonate="chrome110")
+        except ImportError:
+            session = requests.Session()
         session.get("https://www.nseindia.com", headers=headers, timeout=10)
         
         # Fetch ASM (Additional Surveillance Measure)

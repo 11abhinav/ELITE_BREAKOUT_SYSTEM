@@ -18,7 +18,11 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
     }
     
     try:
-        s = requests.Session()
+        try:
+            from curl_cffi import requests as cffi_requests
+            s = cffi_requests.Session(impersonate="chrome110")
+        except ImportError:
+            s = requests.Session()
         s.get('https://www.nseindia.com', headers=headers, timeout=5)
         
         response = s.get(pdf_url, headers=headers, stream=True, timeout=15)
