@@ -276,27 +276,20 @@ def start(run_once=False):
             data_15m_raw = fetch_watchlist_data(watchlist, "10d", "15m", requester="intraday_15m")
             data_5m_raw  = fetch_watchlist_data(watchlist, "5d",  "5m",  requester="intraday_5m")
 
-            # Handle rate limit / partial data gracefully
-            if not data_15m_raw or not data_5m_raw:
-                missing = []
-                if not data_15m_raw:
-                    missing.append("15m")
-                if not data_5m_raw:
-                    missing.append("5m")
-                logger.warning(f"⚠️ YFinance returned 0 data for {','.join(missing)} (likely rate-limited). Continuing with partial data...")
+            fetched_15m = len(data_15m_raw) if data_15m_raw else 0
+            fetched_5m  = len(data_5m_raw) if data_5m_raw else 0
+            threshold = len(watchlist) * 0.5
+
+            if fetched_15m < threshold or fetched_5m < threshold:
+                logger.warning(f"⚠️ YFinance returned partial data (15m: {fetched_15m}, 5m: {fetched_5m} vs {len(watchlist)} symbols). Forcing retry...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: {','.join(missing)} returned 0 symbols")
+                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: 15m={fetched_15m}, 5m={fetched_5m}")
                 except Exception:
                     pass
-                # Ensure we have at least empty dicts instead of None
-                if not data_15m_raw:
-                    data_15m_raw = {}
-                if not data_5m_raw:
-                    data_5m_raw = {}
+                raise Exception(f"Data Provider Error: Only fetched {fetched_15m}/{len(watchlist)} 15m symbols and {fetched_5m}/{len(watchlist)} 5m symbols. Aborting run to trigger 5-minute retry loop.")
             else:
-                logger.info(f"✅ Data downloaded | 15m: {len(data_15m_raw)} | 5m: {len(data_5m_raw)}")
-                # We will update OK at the end of the loop, no need to do it here
+                logger.info(f"✅ Data downloaded | 15m: {fetched_15m} | 5m: {fetched_5m}")
                 pass
 
             
@@ -334,6 +327,10 @@ def start(run_once=False):
             # Collect prices to update open positions with fresh data
             position_prices = {}
 
+            from database import get_recent_alerts_for_scanner
+            from config import ALERT_COOLDOWN_MINUTES
+            cooldown_alerts = get_recent_alerts_for_scanner("INTRADAY", ALERT_COOLDOWN_MINUTES["INTRADAY"])
+
             for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
                 symbol = "UNKNOWN"
                 try:
@@ -366,8 +363,7 @@ def start(run_once=False):
                     today_str  = ist_now.strftime("%Y-%m-%d")
                     dedup_key  = f"{category}|{signal_str}|{symbol}|{today_str}|INTRADAY"
 
-                    from database import check_recent_alert
-                    if check_recent_alert(symbol, "INTRADAY", dedup_key, 90):
+                    if (symbol, dedup_key) in cooldown_alerts:
                         continue
 
                     candle_close = trigger["latest_5m_close"]

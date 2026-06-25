@@ -26,6 +26,7 @@ from watchlist_cache import get_watchlist
 
 from config import (
     MIN_STOCK_PRICE,
+    ALERT_COOLDOWN_MINUTES
 )
 
 
@@ -94,12 +95,9 @@ def start(run_once=False):
                 raise ValueError("Watchlist is missing or empty. Cannot run scan.")
 
             # ── BATCH DOWNLOAD: 1H ONLY ────────────────────────────
-            all_ticker_data = {}
-            
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future_1h = pool.submit(fetch_watchlist_data, watchlist, "60d", "1h")
-                all_ticker_data = future_1h.result()
-
+            all_ticker_data = fetch_watchlist_data(watchlist, "60d", "1h")
+            if all_ticker_data is None:
+                all_ticker_data = {}
             # Handle rate limit / partial data gracefully
             # Continue with whatever data we got; empty data is 0, partial is >0, full is len(watchlist)
             if not all_ticker_data:
@@ -139,19 +137,11 @@ def start(run_once=False):
             nifty_intraday_down = False
             if ENABLE_REGIME_GATE_1H:
                 try:
-                    from price_fetcher import _fetch_history_with_retry
-                    nifty_1d = _fetch_history_with_retry("^NSEI", period="5d", interval="15m")
-                    if nifty_1d is not None and not nifty_1d.empty:
-                        # Get today's open
-                        today_str = datetime.now(IST).strftime('%Y-%m-%d')
-                        today_data = nifty_1d.loc[today_str] if today_str in nifty_1d.index else nifty_1d
-                        if not today_data.empty:
-                            nifty_open = float(today_data['Open'].iloc[0])
-                            nifty_current = float(today_data['Close'].iloc[-1])
-                            intraday_drop = ((nifty_open - nifty_current) / nifty_open) * 100 if nifty_open > 0 else 0.0
-                            if intraday_drop > 1.5:
-                                logger.warning(f"🚨 REGIME GATE ACTIVE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
-                                nifty_intraday_down = True
+                    from macro_utils import get_nifty_intraday_drop
+                    intraday_drop = get_nifty_intraday_drop()
+                    if intraday_drop > 1.5:
+                        logger.warning(f"🚨 REGIME GATE ACTIVE: Nifty is down {intraday_drop:.2f}% today. Suppressing breakouts.")
+                        nifty_intraday_down = True
                 except Exception as e:
                     logger.warning(f"Failed to fetch market regime: {e}")
                     try:
@@ -165,6 +155,9 @@ def start(run_once=False):
             if nifty_intraday_down:
                 time.sleep(300)
                 continue
+
+            from database import get_recent_alerts_for_scanner
+            cooldown_alerts = get_recent_alerts_for_scanner("LIVE", ALERT_COOLDOWN_MINUTES["LIVE"])
 
             for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
                 symbol = "UNKNOWN"
@@ -337,8 +330,7 @@ def start(run_once=False):
                     today_str  = datetime.now(IST).strftime("%Y-%m-%d")
                     dedup_key  = f"{category}|{signal_str}|{symbol}|{today_str}|1H"
 
-                    from database import check_recent_alert
-                    if check_recent_alert(symbol, "LIVE", dedup_key, 240):
+                    if (symbol, dedup_key) in cooldown_alerts:
                         rejection_counts["duplicate"] += 1
                         continue
 

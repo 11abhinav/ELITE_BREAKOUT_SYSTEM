@@ -25,45 +25,25 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     import pandas as pd
     if df is None or df.empty:
         return df
-    
-    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
-    if datetime_col is not None:
-        try:
-            raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
-            if raw_ts.tzinfo is not None:
-                raw_ts = raw_ts.tz_convert("Asia/Kolkata")
-            candle_start = raw_ts.replace(tzinfo=None)
-            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
-            now_naive    = ist_now.replace(tzinfo=None)
-            if now_naive < candle_end:
-                return df.iloc[:-1].copy()
-        except Exception:
-            pass
+    try:
+        raw_ts = pd.Timestamp(df.index[-1])
+        if raw_ts.tzinfo is not None:
+            raw_ts = raw_ts.tz_convert(IST)
+        else:
+            raw_ts = raw_ts.tz_localize(IST)
+            
+        candle_start = raw_ts.replace(tzinfo=None)
+        candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
+        now_naive    = ist_now.replace(tzinfo=None)
+        
+        if now_naive < candle_end:
+            return df.iloc[:-1].copy()
+    except Exception:
+        pass
     return df
 
 
-def get_market_regime():
-    import pandas as pd
-    try:
-        from price_cache import fetch_watchlist_data
-        nifty_batch = fetch_watchlist_data(pd.DataFrame({"Stock": ["^NSEI"]}), interval="1d", period="1mo", requester="multi_tf_scanner")
-        nifty = nifty_batch.get("^NSEI") if nifty_batch else None
-        if nifty is not None and not nifty.empty and len(nifty) >= 20:
-            val_now = nifty["Close"].iloc[-1]
-            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
-            val_ago = nifty["Close"].iloc[-20]
-            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
-            ret = (nifty_now / nifty_ago) - 1
-            if ret < -0.05: return "BEAR"
-            if ret > 0.05: return "BULL"
-    except Exception as e:
-        logger.warning(f"Failed to fetch market regime: {e}")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("MULTI_TF", "DEGRADED", error_msg=f"Market regime fetch failed: {str(e)[:100]}")
-        except:
-            pass
-    return "SIDEWAYS"
+from macro_utils import get_macro_regime
 
 def run_hourly_phase():
     """
@@ -426,7 +406,7 @@ def start(run_once=False):
                 database.DONT_SAVE_ALERTS = False
                 
             # Cache regime once per cycle
-            current_regime = get_market_regime()
+            current_regime = get_macro_regime()
             
             # 1. Sweep old states
             run_sweeper()

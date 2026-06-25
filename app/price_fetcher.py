@@ -45,7 +45,7 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "price_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Fetch history with explicit retry/backoff
-def _fetch_history_with_retry(yf_symbol: str, period: str = "1y", auto_adjust: bool = True) -> pd.DataFrame:
+def _fetch_history_with_retry(yf_symbol: str, period: str = "1y", auto_adjust: bool = True, **kwargs) -> pd.DataFrame:
     """Fetch history with explicit retry/backoff and global limiter awareness.
 
     Uses the yf_rate_limiter backoff schedule on 429s and a simpler exponential
@@ -58,7 +58,7 @@ def _fetch_history_with_retry(yf_symbol: str, period: str = "1y", auto_adjust: b
             yf_acquire()
             try:
                 ticker = yf.Ticker(yf_symbol)
-                hist = ticker.history(period=period, auto_adjust=auto_adjust)
+                hist = ticker.history(period=period, auto_adjust=auto_adjust, **kwargs)
             finally:
                 yf_release()
 

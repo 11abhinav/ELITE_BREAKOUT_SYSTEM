@@ -57,28 +57,14 @@ def fetch_nifty_macro_state() -> Tuple[Optional[float], Optional[float]]:
     """Fetch 6-month return and 52W distance of Nifty 50 for RS and Macro Regime Gate."""
     global _nifty_cache
     try:
-        from price_fetcher import _fetch_history_with_retry
-        hist = _fetch_history_with_retry("^NSEI", period="1y")
-        if hist is None or hist.empty or len(hist) < 2:
-            return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
-        
-        hist_6m = hist.tail(126) # Approx 6 months
-        if len(hist_6m) >= 2:
-            start_price = hist_6m['Close'].iloc[0]
-            end_price = hist_6m['Close'].iloc[-1]
-            ret_6m = ((end_price - start_price) / start_price) * 100.0 if start_price > 0 else 0.0
-        else:
-            ret_6m = _nifty_cache["ret_6m"]
-            
-        high_52w = hist['High'].max()
-        end_price_1y = hist['Close'].iloc[-1]
-        dist_52w = ((high_52w - end_price_1y) / high_52w) * 100.0
-        
-        _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": time.time()}
-        return (ret_6m, dist_52w)
+        from macro_utils import get_nifty_6m_state
+        ret_6m, dist_52w = get_nifty_6m_state()
+        if ret_6m is not None:
+            _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": time.time()}
+            return (ret_6m, dist_52w)
     except Exception as e:
         logger.error(f"Failed to fetch Nifty Macro State: {e}")
-        return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
+    return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
 
 # =====================================================================================
 # PER-STOCK TECHNICAL OVERLAY
@@ -103,15 +89,13 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             if historical_cache is not None:
                 hist = historical_cache.get(symbol)
                 if hist is not None and not hist.empty:
-                    logger.debug(f"Using pre-fetched cache for {symbol}")
+                    pass
                 else:
-                    logger.debug(f"Pre-fetched cache missing for {symbol}, relying on fallback data...")
                     hist = None
             else:
-                # Fallback: Fetch single symbol if cache not available
-                from price_cache import fetch_unified_historical
-                hist_dict = fetch_unified_historical([symbol], period="1y", interval="1d")
-                hist = hist_dict.get(symbol) if hist_dict else None
+                # We enforce bulk fetching in the caller. No 1-by-1 fallback allowed.
+                logger.warning(f"No historical cache provided for {symbol}, skipping technicals to prevent rate limits.")
+                hist = None
             
             if hist is None or hist.empty or len(hist) < 120:
                 return defaults

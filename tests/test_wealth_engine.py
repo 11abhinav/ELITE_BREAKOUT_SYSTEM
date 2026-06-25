@@ -41,6 +41,7 @@ def test_calculate_wealth_technicals_fallback_logic(mock_fetch):
     """
     Test that if historical_cache is provided (even if empty), we DO NOT fallback
     to single-symbol fetches which would cause a rate-limit cascade.
+    Also verifies that historical_cache=None is safely handled without API calls.
     """
     # 1. Provide an empty dict as the batch cache (simulating rate-limited batch fetch)
     res = calculate_wealth_technicals("TCS", 5.0, historical_cache={})
@@ -51,8 +52,10 @@ def test_calculate_wealth_technicals_fallback_logic(mock_fetch):
     mock_fetch.assert_not_called()
     
     # 2. Provide None (meaning no batch fetch was attempted)
-    # The function SHOULD fallback to single fetch
-    mock_fetch.return_value = {"TCS": pd.DataFrame()} # Return empty DF to fast-fail
+    # After the rate-limit protection fix, the function should also skip
+    # single-symbol fetches and return defaults safely.
     res_none = calculate_wealth_technicals("TCS", 5.0, historical_cache=None)
     assert res_none["cmp"] is None
-    mock_fetch.assert_called_once()
+    assert res_none["data_quality"] == "MISSING_PARTIAL"
+    # Should NOT have called the single-symbol fetcher (rate-limit protection)
+    mock_fetch.assert_not_called()

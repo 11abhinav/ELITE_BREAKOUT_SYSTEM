@@ -4,11 +4,14 @@ import time
 import logging
 from config import WATCHLIST_PATH
 
+import threading
+
 logger = logging.getLogger(__name__)
 
 _blacklist_cache = None
 _blacklist_ts = 0
 _BLACKLIST_TTL = 30 * 60  # 30 minutes
+_blacklist_lock = threading.Lock()
 
 def get_live_blacklist() -> set[str]:
     """
@@ -17,11 +20,16 @@ def get_live_blacklist() -> set[str]:
     Note: Since this is an in-memory cache, each worker process will fetch
     its own copy every 30 minutes. This is acceptable given the infrequency.
     """
-    global _blacklist_cache, _blacklist_ts
+    global _blacklist_cache, _blacklist_ts, _blacklist_lock
     
-    # Return cache if valid
+    # Return cache if valid (fast path without lock)
     if _blacklist_cache is not None and (time.monotonic() - _blacklist_ts) < _BLACKLIST_TTL:
         return _blacklist_cache
+        
+    with _blacklist_lock:
+        # Double-check inside lock
+        if _blacklist_cache is not None and (time.monotonic() - _blacklist_ts) < _BLACKLIST_TTL:
+            return _blacklist_cache
         
     blacklist = set()
     
@@ -94,6 +102,7 @@ def get_live_blacklist() -> set[str]:
 
 def force_refresh_blacklist() -> set[str]:
     """Force a fresh download, ignoring the TTL."""
-    global _blacklist_ts
-    _blacklist_ts = 0  # Invalidates cache
+    global _blacklist_ts, _blacklist_lock
+    with _blacklist_lock:
+        _blacklist_ts = 0  # Invalidates cache
     return get_live_blacklist()

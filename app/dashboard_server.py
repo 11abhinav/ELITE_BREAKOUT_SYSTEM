@@ -95,21 +95,34 @@ limiter = Limiter(
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if 'user_id' not in session or 'session_token' not in session:
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect('/login')
-        # Check absolute & idle timeout implicitly handled by Flask if session.permanent is set
+            
+        if not database.check_session_validity(session['user_id'], session['session_token']):
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Session expired or revoked'}), 401
+            return redirect('/login')
+            
         return f(*args, **kwargs)
     return decorated_function
 
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if 'user_id' not in session or 'session_token' not in session:
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect('/login')
+            
+        if not database.check_session_validity(session['user_id'], session['session_token']):
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Session expired or revoked'}), 401
+            return redirect('/login')
+            
         if session.get('role') != 'admin':
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Forbidden'}), 403
@@ -1889,7 +1902,7 @@ def get_wealth_alerts():
 
 
 @app.route("/api/wealth/save-alert", methods=["POST"])
-@login_required
+@admin_required
 def save_wealth_alert():
     """Save a new wealth buy alert."""
     from database import save_wealth_buy_alert
@@ -1903,8 +1916,18 @@ def save_wealth_alert():
         
         if not symbol or alert_price is None:
             return jsonify({"error": "Symbol and alert_price are required"}), 400
+            
+        try:
+            alert_price = float(alert_price)
+            if alert_price <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({"error": "alert_price must be a positive number"}), 400
+            
+        if not breakout_type or not isinstance(breakout_type, str) or not breakout_type.strip():
+            return jsonify({"error": "Valid breakout_type is required"}), 400
         
-        success = save_wealth_buy_alert(symbol, alert_price, breakout_type, fm_score, notes)
+        success = save_wealth_buy_alert(symbol, alert_price, breakout_type.strip(), fm_score, notes)
         if success:
             return jsonify({"success": True, "message": f"Alert saved for {symbol} @ ₹{alert_price}"})
         else:
@@ -1915,7 +1938,7 @@ def save_wealth_alert():
 
 
 @app.route("/api/wealth/update-alert/<int:alert_id>", methods=["POST"])
-@login_required
+@admin_required
 def update_wealth_alert(alert_id):
     """Update status of a wealth buy alert."""
     from database import update_wealth_alert_status
@@ -1966,9 +1989,9 @@ def get_closed_positions_api():
 
 
 @app.route("/api/wealth/close-position", methods=["POST"])
-@login_required
-def close_position_api():
-    """Manually close a position (or auto-close on SELL signal)."""
+@admin_required
+def close_wealth_position():
+    """Close an active wealth position."""
     from database import close_position
     try:
         data = request.get_json() or {}

@@ -15,9 +15,15 @@ def test_get_watchlist_returns_200(client, mocker):
         "app.dashboard_server.database.get_active_breakout_watchlist",
         return_value=[{"symbol": "RELIANCE", "current_state": "TRACKING"}]
     )
+    # Mock session validation (required after auth hardening)
+    mocker.patch(
+        "app.dashboard_server.database.check_session_validity",
+        return_value=True
+    )
     
     with client.session_transaction() as sess:
         sess['user_id'] = 1
+        sess['session_token'] = 'test-token'
     
     response = client.get('/api/breakout_watchlist')
     assert response.status_code == 200
@@ -36,9 +42,15 @@ def test_get_alerts_returns_200(client, mocker):
         "app.dashboard_server.database.get_todays_alerts",
         return_value=[{"symbol": "TCS", "breakout_type": "1h"}]
     )
+    # Mock session validation (required after auth hardening)
+    mocker.patch(
+        "app.dashboard_server.database.check_session_validity",
+        return_value=True
+    )
     
     with client.session_transaction() as sess:
         sess['user_id'] = 1
+        sess['session_token'] = 'test-token'
     
     response = client.get('/api/todays_alerts')
     assert response.status_code == 200

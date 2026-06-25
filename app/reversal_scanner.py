@@ -26,7 +26,14 @@ from technical_indicators import apply_indicators
 from database import init_db, save_alert_if_new, upsert_fetch_error
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
-from config import WATCHLIST_PATH, CLIMAX_VOLUME_LOOKBACK, MIN_CANDLE_RANGE_PCT, MIN_STOCK_PRICE
+from config import (
+    WATCHLIST_PATH, 
+    CLIMAX_VOLUME_LOOKBACK, 
+    MIN_CANDLE_RANGE_PCT, 
+    MIN_STOCK_PRICE,
+    REVERSAL_CONFIG,
+    ALERT_COOLDOWN_MINUTES
+)
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
 
@@ -40,29 +47,29 @@ CHUNK_SIZE = 10
 # [FIX 7] Single clean fixed drop band. Tightened lower bound to 20% (was 18%) to
 #         avoid shallow, low-conviction pullbacks; capped at 45% sweet-spot ceiling
 #         (was 60%) to avoid deep falling knives. Regime-based flex removed (FIX 6).
-MIN_DROP_FROM_52W_HIGH = 20.0
-MAX_DROP_FROM_52W_HIGH = 45.0
+MIN_DROP_FROM_52W_HIGH = REVERSAL_CONFIG["MIN_DROP_FROM_52W_HIGH"]
+MAX_DROP_FROM_52W_HIGH = REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]
 
-RSI_OVERSOLD_THRESHOLD = 35   # must have been genuinely oversold in the recent past
-RSI_CURL_MIN           = 40   # must have curled back up (recovery confirmation)
+RSI_OVERSOLD_THRESHOLD = REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]
+RSI_CURL_MIN           = REVERSAL_CONFIG["RSI_CURL_MIN"]
 
 # [FIX 4] SINGLE SOURCE OF TRUTH for volume. Previously MIN_VOLUME_RATIO=1.5 was
 #         shadowed by a hidden `if vol_ratio < 2.0: continue`. Now exactly one gate.
-MIN_VOLUME_RATIO       = 2.0
+MIN_VOLUME_RATIO       = REVERSAL_CONFIG["MIN_VOLUME_RATIO"]
 
 # ── QUALITY FILTERS (high-quality stocks only) ───────────────────────────────────────
 # MIN_STOCK_PRICE imported from config (₹100)
-MIN_AVG_DAILY_VOLUME   = 300_000  # ~₹3Cr+ liquidity at ₹100 price
-MIN_ROE                = 12.0     # return on equity threshold (%)
-MIN_YOY_REVENUE_GROWTH = 8.0      # min revenue growth % (skip shrinking businesses)
-MAX_DROP_BELOW_SMA200  = 25.0     # don't catch falling knives too far below SMA200
+MIN_AVG_DAILY_VOLUME   = REVERSAL_CONFIG["MIN_AVG_DAILY_VOLUME"]
+MIN_ROE                = REVERSAL_CONFIG["MIN_ROE"]
+MIN_YOY_REVENUE_GROWTH = REVERSAL_CONFIG["MIN_YOY_REVENUE_GROWTH"]
+MAX_DROP_BELOW_SMA200  = REVERSAL_CONFIG["MAX_DROP_BELOW_SMA200"]
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 # [FIX 1] FAILED-REVERSAL COOLDOWN ────────────────────────────────────────────────────
 # Suppress new reversal alerts on a symbol for N trading days after its previous
 # reversal alert stopped out OR failed to follow through. This directly attacks the
 # biggest strategy leak: the same beaten-down stock alerting, failing, and re-alerting.
-REVERSAL_COOLDOWN_TRADING_DAYS = 30   # ~6 calendar weeks
+REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS"]
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 # ── REVERSAL SCORE THRESHOLDS ────────────────────────────────────────────────────────
@@ -283,16 +290,17 @@ def _run_scan():
     # Pulling 1y data to ensure we catch the 52W High correctly
     all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
 
-    if not all_ticker_data:
-        logger.warning("⚠️ YFinance returned 0 data for reversal (likely rate-limited). Continuing with partial data...")
+    fetched_count = len(all_ticker_data) if all_ticker_data else 0
+    if fetched_count < len(watchlist) * 0.5:
+        logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
         try:
             from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
+            upsert_scanner_health("REVERSAL", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
         except Exception:
             pass
-        # Don't return - continue with empty data; loop will just process symbols with None gracefully
+        raise Exception(f"Data Provider Error: Only fetched {fetched_count}/{len(watchlist)} symbols. Aborting run to trigger 5-minute retry loop.")
     else:
-        logger.info(f"✅ Successfully fetched {len(all_ticker_data)} symbols for Reversal scan")
+        logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for Reversal scan")
         try:
             from database import upsert_scanner_health
             upsert_scanner_health("REVERSAL", "OK", error_msg=None)
@@ -302,6 +310,9 @@ def _run_scan():
     alerts_by_category = {}
     total_alerts = 0
     cooldown_skips = 0   # [FIX 1] observability for cooldown suppression
+
+    from database import get_recent_alerts_for_scanner
+    cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
 
     for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
         symbol = "UNKNOWN"
@@ -456,7 +467,11 @@ def _run_scan():
             #         dependent). Only the cross direction matters here.
             macd     = float(latest["MACD"])
             macd_sig = float(latest["MACD_SIGNAL"])
-            if macd < macd_sig:
+            prev_macd = float(ticker["MACD"].iloc[-2]) if len(ticker) >= 2 else macd
+            prev_macd_sig = float(ticker["MACD_SIGNAL"].iloc[-2]) if len(ticker) >= 2 else macd_sig
+            
+            # Requires a fresh bullish crossover (was below, now above)
+            if not (macd > macd_sig and prev_macd <= prev_macd_sig):
                 continue
 
             reversal_signals = [
@@ -472,8 +487,7 @@ def _run_scan():
             today_str  = ist_now.strftime("%Y-%m-%d")
             dedup_key  = f"{category}|{symbol}|{today_str}|REVERSAL"
 
-            from database import check_recent_alert
-            if check_recent_alert(symbol, "REVERSAL", dedup_key, 240):
+            if (symbol, dedup_key) in cooldown_alerts:
                 continue
 
             candle_range   = float(latest["High"]) - float(latest["Low"])

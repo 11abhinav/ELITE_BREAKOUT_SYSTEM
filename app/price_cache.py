@@ -36,12 +36,16 @@ def get_dynamic_cadence(interval: str) -> int:
     market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     
     if not _is_market_hours():
-        # If after 15:30, calculate seconds until 9:15 AM tomorrow
+        # If after 15:30, target tomorrow's open
         if now_dt.time() > dt_time(15, 30):
             next_open = (now_dt + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
         else:
             # It's before 9:15 AM today
             next_open = market_open
+            
+        # Fast-forward through weekends (Saturday=5, Sunday=6)
+        while next_open.weekday() >= 5:
+            next_open += timedelta(days=1)
         
         secs_to_open = (next_open - now_dt).total_seconds()
         return max(3600, int(secs_to_open))  # Cache until market opens

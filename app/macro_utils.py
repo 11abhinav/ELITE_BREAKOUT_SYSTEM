@@ -1,0 +1,145 @@
+import time
+import logging
+import pandas as pd
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from threading import Lock
+
+logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
+
+# TTL Cache settings
+MACRO_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+class MacroCache:
+    def __init__(self):
+        self.lock = Lock()
+        
+        # 1-year daily cache (used for 20d return, 6m return, 52w distance, regime)
+        self.daily_data = None
+        self.daily_last_fetched = 0
+        
+        # 5-day 15m cache (used for intraday drop)
+        self.intraday_data = None
+        self.intraday_last_fetched = 0
+
+_cache = MacroCache()
+
+def _get_daily_nifty() -> pd.DataFrame:
+    """Fetch 1-year daily NIFTY data with 5-minute caching."""
+    now = time.time()
+    with _cache.lock:
+        if _cache.daily_data is not None and (now - _cache.daily_last_fetched) < MACRO_CACHE_TTL_SECONDS:
+            return _cache.daily_data
+            
+    try:
+        from price_fetcher import _fetch_history_with_retry
+        # We need at least 1 year for the 6-month returns and 52W high
+        df = _fetch_history_with_retry("^NSEI", period="1y", interval="1d")
+        if df is not None and not df.empty:
+            with _cache.lock:
+                _cache.daily_data = df
+                _cache.daily_last_fetched = time.time()
+            return df
+    except Exception as e:
+        logger.error(f"Failed to fetch Nifty daily macro data: {e}")
+        
+    return _cache.daily_data
+
+def _get_intraday_nifty() -> pd.DataFrame:
+    """Fetch 5-day 15-minute NIFTY data with 5-minute caching."""
+    now = time.time()
+    with _cache.lock:
+        if _cache.intraday_data is not None and (now - _cache.intraday_last_fetched) < MACRO_CACHE_TTL_SECONDS:
+            return _cache.intraday_data
+            
+    try:
+        from price_fetcher import _fetch_history_with_retry
+        df = _fetch_history_with_retry("^NSEI", period="5d", interval="15m")
+        if df is not None and not df.empty:
+            with _cache.lock:
+                _cache.intraday_data = df
+                _cache.intraday_last_fetched = time.time()
+            return df
+    except Exception as e:
+        logger.error(f"Failed to fetch Nifty intraday macro data: {e}")
+        
+    return _cache.intraday_data
+
+def get_macro_regime() -> str:
+    """Calculate the market regime based on Nifty 20-day returns."""
+    try:
+        df = _get_daily_nifty()
+        if df is not None and not df.empty and len(df) >= 20:
+            val_now = df["Close"].iloc[-1]
+            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
+            val_ago = df["Close"].iloc[-20]
+            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
+            
+            if nifty_ago > 0:
+                ret = (nifty_now / nifty_ago) - 1
+                if ret < -0.05: return "BEAR"
+                if ret > 0.05: return "BULL"
+    except Exception as e:
+        logger.warning(f"Failed to compute macro regime: {e}")
+    return "SIDEWAYS"
+
+def get_nifty_20d_return() -> float:
+    """Returns the 20-day percentage return of Nifty. Defaults to 5.0% if unavailable."""
+    try:
+        df = _get_daily_nifty()
+        if df is not None and not df.empty and len(df) >= 20:
+            val_now = df["Close"].iloc[-1]
+            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
+            val_ago = df["Close"].iloc[-20]
+            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
+            if nifty_ago > 0:
+                return (nifty_now - nifty_ago) / nifty_ago * 100.0
+    except Exception as e:
+        logger.warning(f"Failed to compute Nifty 20d return: {e}")
+    return 5.0  # Fallback assumption
+
+def get_nifty_6m_state() -> tuple[float, float]:
+    """
+    Returns (ret_6m, dist_52w) for Nifty.
+    Returns (None, None) if data is unavailable.
+    """
+    try:
+        df = _get_daily_nifty()
+        if df is not None and not df.empty and len(df) >= 2:
+            hist_6m = df.tail(126) # Approx 6 months
+            if len(hist_6m) >= 2:
+                start_price = float(hist_6m['Close'].iloc[0])
+                end_price = float(hist_6m['Close'].iloc[-1])
+                ret_6m = ((end_price - start_price) / start_price) * 100.0 if start_price > 0 else 0.0
+            else:
+                ret_6m = None
+                
+            high_52w = float(df['High'].max())
+            end_price_1y = float(df['Close'].iloc[-1])
+            dist_52w = ((high_52w - end_price_1y) / high_52w) * 100.0 if high_52w > 0 else 0.0
+            
+            return ret_6m, dist_52w
+    except Exception as e:
+        logger.warning(f"Failed to compute Nifty 6m state: {e}")
+    return None, None
+
+def get_nifty_intraday_drop() -> float:
+    """
+    Returns the percentage drop from today's open to current price.
+    If the market is up or data is unavailable, returns 0.0.
+    """
+    try:
+        df = _get_intraday_nifty()
+        if df is not None and not df.empty:
+            today_str = datetime.now(IST).strftime('%Y-%m-%d')
+            today_data = df.loc[today_str] if today_str in df.index else df
+            if not today_data.empty:
+                nifty_open = float(today_data['Open'].iloc[0])
+                nifty_current = float(today_data['Close'].iloc[-1])
+                if nifty_open > 0:
+                    drop = ((nifty_open - nifty_current) / nifty_open) * 100.0
+                    return drop if drop > 0 else 0.0
+    except Exception as e:
+        logger.warning(f"Failed to compute Nifty intraday drop: {e}")
+    return 0.0

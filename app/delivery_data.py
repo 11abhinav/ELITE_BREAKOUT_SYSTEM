@@ -91,6 +91,13 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
             "Referer": "https://www.nseindia.com/",
         }
         try:
+            # First, hit the base domain to establish the session cookie
+            try:
+                session.get("https://www.nseindia.com/", headers=headers, timeout=FETCH_TIMEOUT)
+                time.sleep(1) # Small delay to mimic human behavior
+            except Exception as e:
+                logger.debug(f"Initial NSE cookie fetch failed: {e}")
+                
             response = session.get(url, headers=headers, timeout=FETCH_TIMEOUT)
             if response.status_code == 404:
                 try:

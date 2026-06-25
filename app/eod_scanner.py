@@ -25,13 +25,13 @@ from config import (
     WATCHLIST_PATH,
     SCORE_THRESHOLDS,
     EOD_CONFIG,
+    EOD_ADVANCED_CONFIG,
+    ALERT_COOLDOWN_MINUTES,
     BATCH_DOWNLOAD_SIZE,
     ADX_MIN_THRESHOLD,
     MAX_PRE_BREAKOUT_RED_CANDLES,
     MIN_STOCK_PRICE,
 )
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,10 @@ MIN_SCORE               = SCORE_THRESHOLDS["1d"]
 
 # MIN_STOCK_PRICE imported from config (₹100)
 RSI_LOOKBACK_BARS           = 5    
-MAX_DISTANCE_FROM_52W_HIGH_PCT = 15.0
-MAX_SINGLE_DAY_MOVE_PCT     = 15.0
-MAX_GAP_FROM_PRIOR_HIGH_PCT = 3.0  
-GAP_LOOKBACK_BARS           = 10   
+MAX_DISTANCE_FROM_52W_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH_PCT"]
+MAX_SINGLE_DAY_MOVE_PCT     = EOD_ADVANCED_CONFIG["MAX_SINGLE_DAY_MOVE_PCT"]
+MAX_GAP_FROM_PRIOR_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_GAP_FROM_PRIOR_HIGH_PCT"]
+GAP_LOOKBACK_BARS           = EOD_ADVANCED_CONFIG["GAP_LOOKBACK_BARS"]
 
 
 def start():
@@ -62,20 +62,8 @@ def start():
     from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
     
-    nifty_ret_20d = 5.0
-    try:
-        from price_cache import fetch_watchlist_data
-        nifty_batch = fetch_watchlist_data(pd.DataFrame({"Stock": ["^NSEI"]}), interval="1d", period="1mo", requester="eod_scanner")
-        nifty = nifty_batch.get("^NSEI") if nifty_batch else None
-        if nifty is not None and not nifty.empty and len(nifty) >= 20:
-            val_now = nifty["Close"].iloc[-1]
-            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
-            val_ago = nifty["Close"].iloc[-20]
-            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
-            if nifty_ago > 0:
-                nifty_ret_20d = (nifty_now - nifty_ago) / nifty_ago * 100
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to fetch NIFTY 20-day return, defaulting to 5%: {e}")
+    from macro_utils import get_nifty_20d_return
+    nifty_ret_20d = get_nifty_20d_return()
 
     
     ist_now = datetime.now(IST)
@@ -121,18 +109,20 @@ def start():
                 else:
                     all_ticker_data = future.result()
 
-        if not all_ticker_data:
-            logger.warning("⚠️ YFinance returned 0 data for prices (likely rate-limited). Continuing with partial data...")
+        # Rate-limit safety net
+        # If we failed to fetch data for more than 50% of the watchlist, we must throw an error 
+        # so that main.py catches it and retries later when rate limits clear.
+        fetched_count = len(all_ticker_data) if all_ticker_data else 0
+        if fetched_count < len(watchlist) * 0.5:
+            logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("EOD", "DEGRADED", error_msg="Rate-limited: 0 symbols fetched")
+                upsert_scanner_health("EOD", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
             except Exception:
                 pass
-            # Don't return - continue with empty data; the scan can use previous day's data as fallback
+            raise Exception(f"Data Provider Error: Only fetched {fetched_count}/{len(watchlist)} symbols. Aborting run to trigger 5-minute retry loop.")
         else:
-            logger.info(f"✅ Successfully fetched {len(all_ticker_data)} symbols for EOD scan")
-            # We will update OK at the end, so no need to do it here
-            pass
+            logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
         # If today's file returned empty, fall back to the most recent available trading day.
@@ -159,6 +149,9 @@ def start():
             "prior_red_candles", "obv_divergence", 
             "no_structural_breakout", "no_atr_expansion", "base_too_wide"
         ]}
+
+        from database import get_recent_alerts_for_scanner
+        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
 
         for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
             symbol = "UNKNOWN"
@@ -431,8 +424,7 @@ def start():
                 today_str  = ist_now.strftime("%Y-%m-%d")
                 dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 
-                from database import check_recent_alert
-                if check_recent_alert(symbol, "EOD", dedup_key, 390):
+                if (symbol, dedup_key) in cooldown_alerts:
                     rejection_counts["duplicate"] += 1
                     continue
 
