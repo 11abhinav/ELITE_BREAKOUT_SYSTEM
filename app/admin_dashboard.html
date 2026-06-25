@@ -2177,7 +2177,7 @@
         let timeStr = '-';
         if (item.last_updated) {
           let dt = new Date(item.last_updated);
-          timeStr = dt.toLocaleTimeString('en-IN');
+          timeStr = dt.toLocaleString('en-IN', {timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit', hour12:true, day:'2-digit', month:'short'});
         }
 
         const cmpStr = item.cmp ? '₹' + parseFloat(item.cmp).toFixed(2) : '—';

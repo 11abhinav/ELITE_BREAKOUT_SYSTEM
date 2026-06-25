@@ -2036,9 +2036,10 @@ def api_breakout_watchlist():
                 prices = {}
                 for sym in symbols:
                     sym_clean = sym.replace(':', '_')
+                    from price_fetcher import _symbol_to_yf
                     # Check the most frequently updated caches first (5m from Intraday, then 15m, then 1d)
                     for interval in ["5m", "15m", "1d"]:
-                        yf_sym = sym.replace('_', '-') + ".NS"
+                        yf_sym = _symbol_to_yf(sym)
                         file_path = os.path.join(DATA_DIR, "price_cache", f"price_{interval}____{yf_sym}.parquet")
                         if os.path.exists(file_path):
                             try:
