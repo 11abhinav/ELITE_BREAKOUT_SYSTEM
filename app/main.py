@@ -219,7 +219,13 @@ def verify_watchlist_is_pristine() -> bool:
                 ist_now = datetime.now(IST)
                 market_open = time(9, 15) <= ist_now.time() <= time(15, 30)
                 if market_open and ist_now.weekday() < 5:
-                    logger.warning(f"⚠️ Watchlist is stale ({scan_date}) but market is open! Using stale cache to avoid deadlock.")
+                    msg = f"Watchlist is stale ({scan_date}) but market is open. Using stale cache to avoid deadlock."
+                    logger.warning(f"⚠️ {msg}")
+                    try:
+                        from database import upsert_scanner_health
+                        upsert_scanner_health("FUNDAMENTAL WATCHLIST", status="WARNING", error_msg=msg, scheduled_for="01:00 IST")
+                    except Exception:
+                        pass
                     return True
                     
                 return scan_date >= now.date()
