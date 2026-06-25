@@ -250,7 +250,7 @@ def start(run_once=False):
             logger.info("📅 Outside market hours. Scanner pausing until next market session...")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("INTRADAY", "IDLE", last_success=datetime.now(IST).isoformat())
+                upsert_scanner_health("INTRADAY", "IDLE", last_success=datetime.now(IST).isoformat(), scheduled_for="Every 15min (9:32 AM - 3:30 PM)")
             except Exception:
                 pass
             sleep_time = seconds_to_next_15m(datetime.now(IST))
@@ -284,7 +284,7 @@ def start(run_once=False):
                 logger.warning(f"⚠️ YFinance returned partial data (15m: {fetched_15m}, 5m: {fetched_5m} vs {len(watchlist)} symbols). Forcing retry...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: 15m={fetched_15m}, 5m={fetched_5m}")
+                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: 15m={fetched_15m}, 5m={fetched_5m}", scheduled_for="Every 15min (9:32 AM - 3:30 PM)")
                 except Exception:
                     pass
                 raise Exception(f"Data Provider Error: Only fetched {fetched_15m}/{len(watchlist)} 15m symbols and {fetched_5m}/{len(watchlist)} 5m symbols. Aborting run to trigger 5-minute retry loop.")
@@ -448,7 +448,8 @@ def start(run_once=False):
                     upsert_scanner_health(
                         scanner_name="INTRADAY",
                         status="DOWN",
-                        error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
+                        error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database",
+                        scheduled_for="Every 15min (9:32 AM - 3:30 PM)"
                     )
                     raise RuntimeError("Alert save verification failed - database connectivity issue")
             
@@ -470,7 +471,8 @@ def start(run_once=False):
                     status=status,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total_alerts if is_active_window else 0,
-                    error_msg=error_msg
+                    error_msg=error_msg,
+                    scheduled_for="Every 15min (9:32 AM - 3:30 PM)"
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for INTRADAY")
@@ -490,7 +492,7 @@ def start(run_once=False):
             logger.exception("❌ CRITICAL SCAN ERROR")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("INTRADAY", "DOWN", error_msg=str(e))
+                upsert_scanner_health("INTRADAY", "DOWN", error_msg=str(e), scheduled_for="Every 15min (9:32 AM - 3:30 PM)")
             except Exception:
                 pass
             

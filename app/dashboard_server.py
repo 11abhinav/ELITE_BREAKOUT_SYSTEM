@@ -2016,13 +2016,44 @@ def close_wealth_position():
 # ── Scanner DOWN helpers — write to Postgres, not just memory ─────────────────────────
 
 def notify_scanner_down(scanner_name: str, error: str) -> None:
-    """Mark a scanner as DOWN in the DB. Called from watchdog on crash."""
+    """Mark a scanner as DOWN in the DB. Called from watchdog on crash.
+    
+    For CRITICAL errors (not rate-limits or missing stock data), also:
+    - Send a Telegram alert to admin
+    - Insert an in-app notification visible on the admin dashboard
+    """
     logger.warning(f"🔴 Scanner DOWN: {scanner_name} | {error}")
     try:
-        from database import upsert_scanner_health
+        from database import upsert_scanner_health, classify_error_severity, insert_notification
         upsert_scanner_health(scanner_name, status="DOWN", error_msg=error[:500])
+        
+        severity = classify_error_severity(error[:500])
+        if severity == 'CRITICAL':
+            # Telegram alert
+            try:
+                from telegram_engine import queue_telegram_message
+                msg = (
+                    f"🚨 <b>SCANNER DOWN</b>\n\n"
+                    f"📛 <b>Scanner:</b> {scanner_name}\n"
+                    f"❌ <b>Error:</b> {error[:300]}\n"
+                    f"🕐 <b>Time:</b> {datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%H:%M:%S IST')}"
+                )
+                queue_telegram_message(msg)
+            except Exception:
+                logger.exception(f"❌ Could not send Telegram alert for {scanner_name}")
+            
+            # In-app notification (visible on admin dashboard notification bell)
+            try:
+                insert_notification(
+                    notif_type="scanner_down",
+                    title=f"🚨 {scanner_name} is DOWN",
+                    message=f"Error: {error[:400]}"
+                )
+            except Exception:
+                logger.exception(f"❌ Could not insert notification for {scanner_name}")
     except Exception:
         logger.exception(f"❌ Could not persist DOWN status for {scanner_name}")
+
 
 
 def clear_scanner_down(scanner_name: str) -> None:

@@ -76,7 +76,7 @@ def start(run_once=False):
             logger.info("⏰ Outside 1H window. Scanner pausing until next market session...")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("1H", "IDLE", last_success=datetime.now(IST).isoformat())
+                upsert_scanner_health("1H", "IDLE", last_success=datetime.now(IST).isoformat(), scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
             except Exception:
                 pass
             time.sleep(300)
@@ -104,7 +104,7 @@ def start(run_once=False):
                 logger.warning("⚠️ YFinance returned 0 data for 1H timeframe (likely rate-limited). Scan will be limited but continuing...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback")
+                    upsert_scanner_health("1H", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                 except Exception:
                     pass
                 # Don't return/abort - continue with empty data; iteration logic will handle None gracefully
@@ -112,7 +112,7 @@ def start(run_once=False):
                 logger.warning(f"⚠️ Only {len(all_ticker_data)}/{len(watchlist)} symbols fetched (80%+ required). Likely rate-limited. Continuing with partial data...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols")
+                    upsert_scanner_health("1H", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                 except Exception:
                     pass
             else:
@@ -146,7 +146,7 @@ def start(run_once=False):
                     logger.warning(f"Failed to fetch market regime: {e}")
                     try:
                         from database import upsert_scanner_health
-                        upsert_scanner_health("1H", "DEGRADED", error_msg=f"Regime fetch failed: {str(e)[:100]}")
+                        upsert_scanner_health("1H", "DEGRADED", error_msg=f"Regime fetch failed: {str(e)[:100]}", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                     except:
                         pass
             else:
@@ -413,7 +413,8 @@ def start(run_once=False):
                     upsert_scanner_health(
                         scanner_name="1H",
                         status="DOWN",
-                        error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
+                        error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database",
+                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                     )
                     raise RuntimeError("Alert save verification failed - database connectivity issue")
             
@@ -435,7 +436,8 @@ def start(run_once=False):
                     status=status,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total_alerts if is_active_window else 0,
-                    error_msg=error_msg
+                    error_msg=error_msg,
+                    scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for 1H")
@@ -450,7 +452,7 @@ def start(run_once=False):
             logger.exception("❌ CRITICAL 1H SCAN ERROR — will retry next cycle")
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("1H", "DOWN", error_msg=str(e))
+                upsert_scanner_health("1H", "DOWN", error_msg=str(e), scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
             except Exception:
                 pass
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()

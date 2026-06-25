@@ -178,12 +178,23 @@ def run_multi_tf_scanner():
 def run_performance_tracker():
     """Refreshes dashboard data every 5 minutes all day on weekdays."""
     from performance_tracker import build_performance_data
+    from database import upsert_scanner_health
     
     # Always run once on boot to ensure fresh dashboard data, even on weekends
     try:
         build_performance_data()
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER", status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Every 5min (all day)"
+        )
     except Exception:
         logger.exception("❌ PERFORMANCE TRACKER | Initial boot refresh failed")
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER", status="DOWN",
+            error_msg="Boot refresh failed",
+            scheduled_for="Every 5min (all day)"
+        )
         
     from market_utils import is_market_open
     
@@ -191,8 +202,21 @@ def run_performance_tracker():
         if is_market_open():
             try:
                 build_performance_data()
-            except Exception:
+                upsert_scanner_health(
+                    "PERFORMANCE_TRACKER", status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Every 5min (all day)"
+                )
+            except Exception as e:
                 logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+                try:
+                    upsert_scanner_health(
+                        "PERFORMANCE_TRACKER", status="DOWN",
+                        error_msg=str(e)[:500],
+                        scheduled_for="Every 5min (all day)"
+                    )
+                except Exception:
+                    pass
         
         time.sleep(300)
 
@@ -360,7 +384,7 @@ def run_eod_scanner():
             )
             logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             
-            from database import upsert_scanner_health
+            from database import upsert_scanner_health, insert_notification
             upsert_scanner_health(
                 "EOD",
                 status="DOWN",
@@ -368,6 +392,27 @@ def run_eod_scanner():
                 retry_count=retry_count,
                 scheduled_for="06:30 IST"
             )
+            
+            # Notify admin on first failure only (avoid spam on retries)
+            if retry_count == 1:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"🚨 <b>EOD SCANNER CRASHED</b>\n\n"
+                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
+                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
+                        f"🔄 Will auto-retry with backoff until midnight."
+                    )
+                except Exception:
+                    pass
+                try:
+                    insert_notification(
+                        notif_type="scanner_down",
+                        title="🚨 EOD Scanner CRASHED",
+                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
+                    )
+                except Exception:
+                    pass
             
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next EOD retry...")
@@ -460,7 +505,7 @@ def run_reversal_scanner():
             )
             logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             
-            from database import upsert_scanner_health
+            from database import upsert_scanner_health, insert_notification
             upsert_scanner_health(
                 "REVERSAL",
                 status="DOWN",
@@ -468,6 +513,27 @@ def run_reversal_scanner():
                 retry_count=retry_count,
                 scheduled_for="06:30 IST"
             )
+            
+            # Notify admin on first failure only
+            if retry_count == 1:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"🚨 <b>REVERSAL SCANNER CRASHED</b>\n\n"
+                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
+                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
+                        f"🔄 Will auto-retry with backoff until midnight."
+                    )
+                except Exception:
+                    pass
+                try:
+                    insert_notification(
+                        notif_type="scanner_down",
+                        title="🚨 REVERSAL Scanner CRASHED",
+                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
+                    )
+                except Exception:
+                    pass
             
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next REVERSAL retry...")
@@ -694,8 +760,99 @@ def run_system_scheduler():
             # Market hours: Wealth Engine every 5 minutes from 9:15 AM - 3:30 PM
             if is_market_open(now):
                 safe_run_wealth_market_hours()
+                check_scanner_staleness(now)
         
         time.sleep(30)  # Check every 30 seconds
+
+
+def check_scanner_staleness(now):
+    """Check if any active scanner has gone stale (no heartbeat in expected cadence × 3).
+    
+    Runs during market hours only. If a scanner's last_success is too old,
+    marks it DOWN and sends a Telegram + in-app notification.
+    """
+    # Expected max gap (in minutes) for each scanner before it's considered stale
+    SCANNER_CADENCE = {
+        "MULTI_TF":            20,   # runs every 5 min → stale if no heartbeat in 20 min
+        "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
+        "Wealth Engine":       20,   # runs every 5 min during market hours
+    }
+    
+    # Throttle: only run this check every 15 minutes
+    if not hasattr(check_scanner_staleness, '_last_check'):
+        check_scanner_staleness._last_check = None
+    
+    if check_scanner_staleness._last_check and (now - check_scanner_staleness._last_check).total_seconds() < 900:
+        return
+    check_scanner_staleness._last_check = now
+    
+    try:
+        from database import get_all_scanner_health, upsert_scanner_health, insert_notification
+        health_rows = get_all_scanner_health()
+        
+        for row in health_rows:
+            sc = row.get("scanner_name")
+            if sc not in SCANNER_CADENCE:
+                continue
+            
+            # Skip if already DOWN (don't spam)
+            if row.get("status") == "DOWN":
+                continue
+                
+            last_success = row.get("last_success")
+            if not last_success:
+                continue
+            
+            # Parse last_success timestamp
+            try:
+                if isinstance(last_success, str):
+                    # Handle ISO format with timezone
+                    from datetime import datetime as dt
+                    ls = dt.fromisoformat(last_success.replace('Z', '+00:00'))
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=IST)
+                else:
+                    ls = last_success
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=IST)
+                
+                gap_minutes = (now - ls).total_seconds() / 60.0
+                max_gap = SCANNER_CADENCE[sc]
+                
+                if gap_minutes > max_gap:
+                    stale_msg = f"Stale: No heartbeat in {int(gap_minutes)} minutes (expected every {max_gap // 3} min)"
+                    logger.warning(f"🕐 STALENESS DETECTED | {sc} | {stale_msg}")
+                    
+                    upsert_scanner_health(sc, status="DOWN", error_msg=stale_msg)
+                    
+                    # Telegram alert
+                    try:
+                        from telegram_engine import queue_telegram_message
+                        msg = (
+                            f"🕐 <b>SCANNER STALE</b>\n\n"
+                            f"📛 <b>Scanner:</b> {sc}\n"
+                            f"⏱ <b>Last heartbeat:</b> {int(gap_minutes)} min ago\n"
+                            f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}"
+                        )
+                        queue_telegram_message(msg)
+                    except Exception:
+                        logger.exception(f"❌ Could not send staleness Telegram for {sc}")
+                    
+                    # In-app notification
+                    try:
+                        insert_notification(
+                            notif_type="scanner_stale",
+                            title=f"🕐 {sc} is STALE",
+                            message=stale_msg
+                        )
+                    except Exception:
+                        pass
+                        
+            except Exception:
+                logger.warning(f"Could not parse last_success for {sc}: {last_success}")
+                
+    except Exception:
+        logger.exception("❌ Staleness check failed")
 
 
 # =====================================================================================
