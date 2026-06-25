@@ -357,6 +357,11 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
 
     yoy_margin_expanding = (yoy_profit >= yoy_sales)
     qoq_margin_expanding = (qoq_profit > 0 and qoq_profit >= qoq_sales)
+    turnaround = (yoy_profit >= TURNAROUND_PROFIT and yoy_margin_expanding and opm >= 12 and yoy_sales >= -10.0 and roe >= 12)
+
+    if cfo_pat_ratio is not None and cfo_pat_ratio < 0.5 and not turnaround:
+        return skip(f"JUNK BLOCKED: Earnings quality CFO/PAT = {cfo_pat_ratio:.2f} < 0.5")
+
     # FIX: When D/E data is missing, don't assume debt-free.
     # Missing D/E → low_debt = False (uncertain, can't confirm low debt).
     # Categories that require low_debt (Wealth Compounder, Blue Chip Stable) won't
@@ -366,11 +371,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     high_growth = (yoy_sales > HIGH_GROWTH_YOY and yoy_profit > HIGH_GROWTH_YOY and yoy_margin_expanding)
     elite_compounder = (yoy_sales > COMPOUNDER_YOY and yoy_profit > COMPOUNDER_YOY and roe >= 15 and opm >= 12 and low_debt)
     mature_quality = (roe >= 15 and low_debt and market_cap >= 50_000_000_000 and (opm >= 15 or is_mega_cap))
-    turnaround = (yoy_profit >= TURNAROUND_PROFIT and yoy_margin_expanding and opm >= 12 and yoy_sales >= -10.0 and roe >= 12)
     steady_compounder = (yoy_sales >= STEADY_YOY and yoy_profit >= STEADY_YOY and roe >= 14 and opm >= 10)
-
-    if cfo_pat_ratio is not None and cfo_pat_ratio < 0.5 and not turnaround:
-        return skip(f"JUNK BLOCKED: Earnings quality CFO/PAT = {cfo_pat_ratio:.2f} < 0.5")
 
     # NEW: Safest wealth creators
     debt_free_cash = (debt_equity <= 0.1 and roe >= 20 and market_cap >= 100_000_000_000 and (fcf_margin is None or fcf_margin > 0))
@@ -389,7 +390,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
 
     # NEW: Market Share Gainer
     sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
-    market_share_gainer = (rev_for_anomaly > (sec_median * 1.2) and qoq_margin_expanding)
+    market_share_gainer = False
+    if _SECTOR_MEDIANS and true_yoy_rev is not None:
+        market_share_gainer = (true_yoy_rev > (sec_median * 1.2) and qoq_margin_expanding)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
@@ -695,6 +698,8 @@ def normalize_symbol(symbol: str) -> str:
     # General transformations: replace underscores with hyphens
     # since Yahoo Finance mostly uses hyphens for dual-share classes or names like M-AND-M.
     # Note: the yf cache or downloader normally appends '.NS' later.
+    if "_" in symbol:
+        logger.debug(f"normalize_symbol: automatically replacing '_' with '-' for {symbol}")
     return symbol.replace("_", "-")
 
 # =====================================================================================
@@ -705,11 +710,12 @@ def classify_stock(row: pd.Series) -> dict:
     symbol = normalize_symbol(str(row.get("name", "UNKNOWN")))
     sector = str(row.get("sector", ""))
     try:
-        with _classify_lock:  # Thread-safe access
-            if _is_financial(sector):
-                return _classify_fin(row, symbol)
-            else:
-                return _classify_nonfin(row, symbol)
+        # NOTE: _classify_lock is not needed here as classification is currently single-threaded.
+        # The lock is preserved elsewhere for when we parallelize this via ThreadPoolExecutor.
+        if _is_financial(sector):
+            return _classify_fin(row, symbol)
+        else:
+            return _classify_nonfin(row, symbol)
     except Exception as e:
         logger.error(f"❌ EXCEPTION [{symbol}]: {e}")
         return None
@@ -858,7 +864,11 @@ def _main_impl(force_rebuild: bool = False):
         global _SECTOR_MEDIANS
         _SECTOR_MEDIANS.clear()
         if "total_revenue_yoy_growth_ttm" in universe_df.columns:
+            # NOTE: For financial sectors, total_revenue_yoy_growth_ttm is NII/fee income,
+            # so computing median against it is architecturally acceptable for market share checks.
             _SECTOR_MEDIANS = universe_df.groupby("sector")["total_revenue_yoy_growth_ttm"].median().to_dict()
+        else:
+            logger.warning("⚠️ _SECTOR_MEDIANS is empty — market_share_gainer will be disabled this run")
 
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
         logger.info(f"📊 Classifying {len(universe_df)} stocks... (Path A: {(~fin_mask).sum()} | Path B: {fin_mask.sum()})")
