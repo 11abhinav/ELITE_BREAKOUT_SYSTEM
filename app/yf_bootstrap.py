@@ -23,30 +23,9 @@ try:
         # Not fatal; avoid raising to callers. The goal is to avoid import-time errors.
         logger.debug("yfinance.set_tz_cache_location failed; proceeding")
         
-    # Apply monkey-patch to yfinance to bypass "Invalid Crumb" and "Unauthorized" blocks
-    import requests
-    
-    # Create a global custom session with a standard browser User-Agent
-    custom_session = requests.Session()
-    custom_session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive'
-    })
-    
-    _orig_download = yf.download
-    def patched_download(*args, **kwargs):
-        if 'session' not in kwargs:
-            kwargs['session'] = custom_session
-        return _orig_download(*args, **kwargs)
-    yf.download = patched_download
-
-    _orig_ticker = yf.Ticker
-    class PatchedTicker(yf.Ticker):
-        def __init__(self, ticker, session=custom_session, *args, **kwargs):
-            super().__init__(ticker, session=session, *args, **kwargs)
-    yf.Ticker = PatchedTicker
+    # Removed monkey-patch: yfinance now uses curl_cffi internally to bypass crumb blocks.
+    # Passing a custom requests.Session() is explicitly rejected by newer versions of yfinance.
+    pass
 
 except Exception as e:
     # Import may fail in rare environments; swallow to avoid crashing importers.
