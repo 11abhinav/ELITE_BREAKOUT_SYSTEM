@@ -1397,6 +1397,21 @@ def api_acknowledge_scanner_health(scanner_name):
         logger.exception(f"❌ /api/scanner_health/acknowledge failed for {scanner_name}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/admin/trigger_scanner/<scanner_name>", methods=["POST"])
+@admin_required
+def api_trigger_scanner(scanner_name):
+    """Admin endpoint to manually trigger any scanner regardless of market hours.
+    Runs the scanner in a background thread and returns immediately.
+    """
+    try:
+        from main import trigger_scanner_manual
+        result = trigger_scanner_manual(scanner_name)
+        status_code = 200 if result["status"] == "ok" else 400
+        return jsonify(result), status_code
+    except Exception as e:
+        logger.exception(f"❌ /api/admin/trigger_scanner failed for {scanner_name}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/wealth")
 @login_required
 def route_wealth():

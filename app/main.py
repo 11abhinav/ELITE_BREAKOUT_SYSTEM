@@ -946,21 +946,6 @@ def run_watchdog():
         if not _logged_ready and _watchlist_ready.is_set():
             logger.info("✅ Watchlist build complete — all scanners can proceed")
             _logged_ready = True
-            
-            # --- POST-DEPLOYMENT INSTANT VERIFICATION ---
-            # Skip during market hours — scanners will run on their own schedule.
-            # Running self-test during market hours wastes API calls and can block
-            # the watchdog if a scanner has an import/crash error.
-            from market_utils import is_market_open
-            _market_open_st = is_market_open()
-            if _market_open_st:
-                logger.info("🧪 STARTUP SELF-TEST | SKIPPED — market is open, scanners will run on schedule")
-            else:
-                try:
-                    run_startup_self_test()
-                except Exception:
-                    logger.exception("Startup self-test failed")
-            # --------------------------------------------
 
         for name, thread in list(active_threads.items()):
             if not thread.is_alive():
@@ -986,99 +971,82 @@ def run_watchdog():
 
 
 # =====================================================================================
-# STARTUP SELF-TEST (DRY-RUN)
+# ADMIN MANUAL SCANNER TRIGGER  (bypasses market-hour checks)
+# =====================================================================================
 
-def _run_with_timeout(fn, timeout: int = 120):
-    """Run a blocking function in a thread and wait up to `timeout` seconds.
-    If the function doesn't finish, the thread is left running but we continue.
-    """
-    import threading as _th
-    thread = _th.Thread(target=fn)
-    thread.daemon = True
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        logger.warning(f"Startup self-test task timed out after {timeout}s: {fn.__name__}")
-
-
-def run_startup_self_test(timeout_per_task: int = 120):
-    """Run each core scanner once in dry-run mode (no DB writes).
-    Uses database.DONT_SAVE_ALERTS to prevent persistence.
-    """
-    try:
-        import database
-    except Exception:
-        logger.warning("database module not importable for self-test")
-        return
-
-    # Determine if market is currently open
-    from market_utils import is_market_open
-    market_open = is_market_open()
+def trigger_scanner_manual(scanner_key: str) -> dict:
+    """Run a scanner once in a background thread, bypassing all market-hour checks.
     
-    orig_flag = getattr(database, "DONT_SAVE_ALERTS", False)
-    orig_wealth_flag = getattr(database, "DONT_SAVE_WEALTH", False)
+    Returns a dict with 'status' and 'message'.
+    Called from the admin dashboard API endpoint.
+    """
+    from database import upsert_scanner_health
     
-    if market_open:
-        database.DONT_SAVE_ALERTS = False
-        database.DONT_SAVE_WEALTH = False
-        logger.info("🧪 STARTUP SELF-TEST | Market is OPEN! Scanners WILL save alerts during self-test.")
-    else:
-        database.DONT_SAVE_ALERTS = True
-        database.DONT_SAVE_WEALTH = True
-        logger.info("🧪 STARTUP SELF-TEST | DONT_SAVE_ALERTS and DONT_SAVE_WEALTH enabled — running scanners in dry-run")
-
-    tasks = []
-
-    def _t_multi_tf():
+    TRIGGER_MAP = {
+        "DAILY_BUILDER": _trigger_daily_builder,
+        "MULTI_TF":      _trigger_multi_tf,
+        "EOD":           _trigger_eod,
+        "REVERSAL":      _trigger_reversal,
+        "Wealth Engine": _trigger_wealth_engine,
+        "INTRADAY":      _trigger_intraday,
+        "1H":            _trigger_live_scanner,
+    }
+    
+    fn = TRIGGER_MAP.get(scanner_key)
+    if fn is None:
+        return {"status": "error", "message": f"Unknown scanner: {scanner_key}"}
+    
+    # Mark as running
+    upsert_scanner_health(scanner_key, status="OK", error_msg="⏳ Manual trigger in progress...")
+    
+    # Run in background thread so the API returns immediately
+    def _run():
         try:
-            database.DONT_SAVE_ALERTS = not market_open
-            import multi_tf_scanner
-            multi_tf_scanner.start(run_once=True)
-        except Exception:
-            logger.exception("Startup self-test: multi_tf_scanner failed")
+            logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
+            fn()
+            now_str = datetime.now(IST).isoformat()
+            upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
+                                  error_msg=None)
+            logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
+        except Exception as e:
+            logger.exception(f"❌ ADMIN MANUAL TRIGGER | {scanner_key} FAILED")
+            upsert_scanner_health(scanner_key, status="DOWN",
+                                  error_msg=f"Manual trigger failed: {str(e)[:400]}")
+    
+    t = threading.Thread(target=_run, name=f"ManualTrigger-{scanner_key}", daemon=True)
+    t.start()
+    return {"status": "ok", "message": f"{scanner_key} triggered — running in background"}
 
-    tasks.append((_t_multi_tf, timeout_per_task))
 
-    def _t_eod():
-        try:
-            # EOD is meant for 18:30+, so it should dry-run during market hours
-            database.DONT_SAVE_ALERTS = True
-            import eod_scanner
-            eod_scanner.start()
-        except Exception:
-            logger.exception("Startup self-test: eod_scanner failed")
+def _trigger_daily_builder():
+    from daily_builder import main as build_watchlist
+    build_watchlist(force_rebuild=True)
+    from watchlist_cache import get_watchlist
+    get_watchlist()
 
-    tasks.append((_t_eod, 300)) # EOD needs more time for 2y data pull
+def _trigger_multi_tf():
+    import multi_tf_scanner
+    multi_tf_scanner.start(run_once=True)
 
-    def _t_reversal():
-        try:
-            database.DONT_SAVE_ALERTS = True
-            import reversal_scanner
-            reversal_scanner.start()
-        except Exception:
-            logger.exception("Startup self-test: reversal_scanner failed")
+def _trigger_eod():
+    import eod_scanner
+    eod_scanner.start()
 
-    tasks.append((_t_reversal, 300)) # Reversal needs more time for 1y data pull
+def _trigger_reversal():
+    import reversal_scanner
+    reversal_scanner.start()
 
-    def _t_perf():
-        try:
-            from performance_tracker import build_performance_data
-            build_performance_data()
-        except Exception:
-            logger.exception("Startup self-test: performance_tracker failed")
+def _trigger_wealth_engine():
+    from wealth_engine import run_wealth_scan
+    run_wealth_scan()
 
-    tasks.append((_t_perf, timeout_per_task))
+def _trigger_intraday():
+    import intraday
+    intraday.start()
 
-    # Execute tasks sequentially with timeouts
-    for fn, to in tasks:
-        logger.info(f"🧪 Running self-test task: {fn.__name__}")
-        _run_with_timeout(fn, timeout=to)
-        time.sleep(2)
-
-    # Restore flags
-    database.DONT_SAVE_ALERTS = orig_flag
-    database.DONT_SAVE_WEALTH = orig_wealth_flag
-    logger.info("🧪 STARTUP SELF-TEST | Completed — DONT_SAVE_ALERTS and DONT_SAVE_WEALTH restored")
+def _trigger_live_scanner():
+    import live_scanner
+    live_scanner.start()
 
 
 # ENTRY POINT
