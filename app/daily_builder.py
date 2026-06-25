@@ -620,7 +620,7 @@ def classify_stock(row: pd.Series) -> dict:
 # MAIN
 # =====================================================================================
 
-def main():
+def main(force_rebuild: bool = False):
     from datetime import datetime, time as dt_time
     from zoneinfo import ZoneInfo
     from config import WATCHLIST_PATH, MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST
@@ -636,7 +636,7 @@ def main():
         logger.warning("⚠️ Could not mark Daily Builder as OK")
 
     try:
-        _main_impl()
+        _main_impl(force_rebuild=force_rebuild)
         
         try:
             from zoneinfo import ZoneInfo
@@ -683,15 +683,16 @@ def save_checkpoint(state: dict):
     except Exception as e:
         logger.warning(f"Could not save checkpoint to DB: {e}")
 
-def _main_impl():
+def _main_impl(force_rebuild: bool = False):
     # ── DB RE-RUN GUARD ──
-    try:
-        from database import check_data_exists_for_today
-        if check_data_exists_for_today():
-            logger.info("⏭️ [DAILY BUILDER] Watchlist data already exists in PostgreSQL 'included' table for today's date. Skipping daily builder execution (re-run guard).")
-            return
-    except Exception as e:
-        logger.warning(f"⚠️ DB re-run guard check failed: {e}. Proceeding with daily builder scan.")
+    if not force_rebuild:
+        try:
+            from database import check_data_exists_for_today
+            if check_data_exists_for_today():
+                logger.info("⏭️ [DAILY BUILDER] Watchlist data already exists in PostgreSQL 'included' table for today's date. Skipping daily builder execution (re-run guard).")
+                return
+        except Exception as e:
+            logger.warning(f"⚠️ DB re-run guard check failed: {e}. Proceeding with daily builder scan.")
 
     state = load_checkpoint()
 

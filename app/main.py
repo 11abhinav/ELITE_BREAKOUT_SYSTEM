@@ -267,7 +267,7 @@ def verify_watchlist_is_pristine() -> bool:
         logger.warning("⚠️ DB backup is ALSO missing/stale! Triggering full daily builder rebuild.")
         try:
             from daily_builder import main as build_watchlist
-            build_watchlist()
+            build_watchlist(force_rebuild=True)
             from watchlist_cache import get_watchlist
             get_watchlist()
         except Exception as e:
