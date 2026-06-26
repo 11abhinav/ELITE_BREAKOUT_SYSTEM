@@ -231,9 +231,12 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         return
         
     def process(sym):
+        import time
+        time.sleep(0.1) # Yield CPU to Flask for health checks
         return sym, fetch_single_piotroski(sym)
         
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    import gc
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(process, sym) for sym in to_fetch]
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             sym, result = future.result()
@@ -241,6 +244,7 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
             if idx > 0 and idx % 10 == 0:
                 logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
                 save_cache(cache, upload_to_db=True)
+                gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
                 
     save_cache(cache, upload_to_db=True)
     logger.info("✅ Fundamental fetch complete.")

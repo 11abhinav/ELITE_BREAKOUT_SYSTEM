@@ -151,10 +151,10 @@ def _build_watchlist_background():
     try:
         from watchlist_cache import get_watchlist
         get_watchlist()
+        if os.path.exists(WATCHLIST_PATH):
+            _watchlist_ready.set()
     except Exception:
         logger.exception("❌ Daily builder failed — scanners will rebuild at first scan cycle")
-    finally:
-        _watchlist_ready.set()
 
 _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
 
