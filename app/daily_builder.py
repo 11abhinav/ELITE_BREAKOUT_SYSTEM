@@ -934,7 +934,12 @@ def _main_impl(force_rebuild: bool = False):
             logger.info("\n" + "=" * 80)
             logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (EMPTY) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
             logger.info("=" * 80 + "\n")
-            return
+            try:
+                from telegram_engine import queue_telegram_message
+                queue_telegram_message("🚨 *DAILY BUILDER ALERT*\n\nThe Daily Builder finished scanning all stocks but produced an *EMPTY* watchlist! This usually indicates an API failure (like a yfinance rate limit). The scanner is marked as DOWN.")
+            except Exception:
+                pass
+            raise RuntimeError("Daily Builder generated an empty watchlist. Failing to alert admin and scheduler.")
 
         final_df = (
             pd.DataFrame(winners)

@@ -76,31 +76,57 @@ def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
 
 
 def fetch_single_piotroski(symbol: str) -> dict:
-    try:
-        yf_sym = f"{symbol.replace('_', '-')}.NS"
+    import time
+    import random
+    
+    yf_sym = f"{symbol.replace('_', '-')}.NS"
+    max_retries = 3
+    
+    for attempt in range(max_retries):
         try:
-            yf_acquire()
+            # Jitter to avoid instant spikes
+            time.sleep(random.uniform(0.5, 2.0))
+            
             try:
-                t = yf.Ticker(yf_sym)
-                info = t.info
-                # Combine financials and balance sheet to have all required rows
-                fin = t.financials
-                bs = t.balance_sheet
-            finally:
-                yf_release()
-        except CircuitOpenError as ce:
-            logger.error(f"YFinance circuit open; abort fundamentals fetch for {yf_sym}: {ce}")
-            return {"score": -1, "date": str(datetime.now(IST).date())}
+                yf_acquire()
+                try:
+                    t = yf.Ticker(yf_sym)
+                    info = t.info
+                    # Combine financials and balance sheet to have all required rows
+                    fin = t.financials
+                    bs = t.balance_sheet
+                finally:
+                    yf_release()
+            except CircuitOpenError as ce:
+                logger.error(f"YFinance circuit open; abort fundamentals fetch for {yf_sym}: {ce}")
+                return {"score": -1, "date": str(datetime.now(IST).date())}
+            except Exception as inner_e:
+                # Catch yfinance fetch errors
+                msg = str(inner_e).lower()
+                if 'too many requests' in msg or 'rate limit' in msg:
+                    record_rate_limit()
+                raise inner_e  # Bubble up to trigger retry
+
+            if fin.empty and bs.empty:
+                logger.warning(f"⚠️ {yf_sym}: Financials and Balance Sheet are both empty.")
+                return {"score": -1, "date": str(datetime.now(IST).date())}
+                
+            combined = pd.concat([fin, bs])
+            score = compute_piotroski(info, combined)
+            break  # Success, exit retry loop
+            
         except Exception as e:
             msg = str(e).lower()
             if 'too many requests' in msg or 'rate limit' in msg:
                 record_rate_limit()
-            return {"score": -1, "date": str(datetime.now(IST).date())}
-        if fin.empty and bs.empty:
-            return {"score": -1, "date": str(datetime.now(IST).date())}
-            
-        combined = pd.concat([fin, bs])
-        score = compute_piotroski(info, combined)
+                
+            if attempt < max_retries - 1:
+                backoff = 5 * (2 ** attempt) + random.uniform(0, 2)
+                logger.warning(f"⚠️ {yf_sym}: Fetch failed on attempt {attempt+1}/{max_retries} due to {e}. Retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+            else:
+                logger.error(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error: {e}")
+                return {"score": -1, "date": str(datetime.now(IST).date())}
         
         # Multi-bagger enhancements extraction
         ocf = info.get("operatingCashflow")
@@ -151,8 +177,6 @@ def fetch_single_piotroski(symbol: str) -> dict:
             "insider_hold": insider_hold,
             "forensic_flags": forensic_flags
         }
-    except Exception as e:
-        return {"score": -1, "date": str(datetime.now(IST).date())}
 
 
 def get_tier(market_cap_cr: float) -> str:
@@ -193,7 +217,7 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     def process(sym):
         return sym, fetch_single_piotroski(sym)
         
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = [executor.submit(process, sym) for sym in to_fetch]
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             sym, result = future.result()
