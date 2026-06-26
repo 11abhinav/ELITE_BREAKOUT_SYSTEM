@@ -101,7 +101,7 @@ CAT_DESCRIPTIONS = {
     "Dividend Aristocrat":      "High dividend yield (≥3.0%) with strong ROE from a mega-cap financial.",
     "Financial Recovery":       "Recovering financial with improving asset quality and profitability.",
     "Efficient Lender":         "Top-tier banking quality with exceptional ROA (≥2.0%).",
-    "Momentum Quality":         "Decent fundamentals (ROE≥10, OPM≥8) with strong price momentum — Wealth Engine candidate.",
+    "Speculative Momentum":     "Decent fundamentals (ROE≥10, OPM≥8) with strong price momentum — Wealth Engine candidate.",
 }
 
 # =====================================================================================
@@ -285,7 +285,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     debt_equity = _raw_de if _raw_de is not None else 0.0
     debt_missing = _raw_de is None
 
-    yoy_sales   = fv("gross_profit_yoy_growth_ttm")
+    yoy_sales   = fv("total_revenue_yoy_growth_ttm")
     qoq_sales   = fv("gross_profit_qoq_growth_fq")
     yoy_profit  = fv("earnings_per_share_diluted_yoy_growth_ttm")
     qoq_profit  = fv("earnings_per_share_diluted_qoq_growth_fq")
@@ -313,8 +313,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if missing:
         return skip(f"Missing data: {', '.join(missing)}")
 
-    MEGA_CAP_BYPASS = 100_000_000_000   
-    is_mega_cap = (market_cap is not None and market_cap >= MEGA_CAP_BYPASS)
+    MEGA_CAP_THRESHOLD = 100_000_000_000   # ₹10,000 Cr
+    is_mega_cap = (market_cap is not None and market_cap >= MEGA_CAP_THRESHOLD)
     if opm < MIN_OPM_NONFIN and not is_mega_cap:
         return skip(f"OPM too low: {opm:.1f}% (min {MIN_OPM_NONFIN}%)")
 
@@ -411,9 +411,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # MOMENTUM-QUALITY catch-all: allows stocks with decent fundamentals + strong momentum
     # to reach the Wealth Engine even if they don't fit any classic category.
     # SAFETY: Requires low_debt (D/E <= 1.0) to prevent junk from sneaking in.
-    momentum_quality = (roe >= 10 and opm >= 8 and yoy_profit > 0 and low_debt and market_cap >= 20_000_000_000)
+    speculative_momentum = (roe >= 10 and opm >= 8 and yoy_profit > 0 and low_debt and market_cap >= 20_000_000_000)
 
-    if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, momentum_quality, high_reinvestment, market_share_gainer, small_cap_compounder]):
+    if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, speculative_momentum, high_reinvestment, market_share_gainer, small_cap_compounder]):
         return skip(f"No category — YoY Sales={yoy_sales:.1f}%, YoY Profit={yoy_profit:.1f}%")
 
     cats = []
@@ -431,12 +431,12 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if mature_quality:     cats.append("Blue Chip Stable")
     if turnaround:         cats.append("Recovery Play")
     if steady_compounder:  cats.append("Consistent Performer")
-    if momentum_quality and not cats:  cats.append("Momentum Quality")
+    if speculative_momentum and not cats:  cats.append("Speculative Momentum")
 
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient, sector)
+    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient, sector, debt_missing=debt_missing)
     if inst_accumulation: score += 5
     if insider_hold is not None and insider_hold > 0.50: score += 5
 
@@ -580,7 +580,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature_quality, fin_compounder, dividend_aristocrat, sector)
+    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder, dividend_aristocrat, sector)
     if inst_accumulation: score += 5
     if insider_hold is not None and insider_hold > 0.50: score += 5
 
@@ -594,7 +594,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 # SCORING
 # =====================================================================================
 
-def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False, sector="") -> int:
+def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False, sector="", debt_missing=False) -> int:
     score = 0
     if yoy_sales >= 20: score += 20
     elif yoy_sales >= 10: score += 10
@@ -612,9 +612,10 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     elif opm >= 10: score += 3
     if yoy_margin: score += 5
     if qoq_margin: score += 3
-    if debt_equity == 0.0 or debt_equity <= 0.1: score += 10
-    elif debt_equity <= 0.5: score += 7
-    elif debt_equity <= 1.0: score += 3
+    if not debt_missing:
+        if debt_equity == 0.0 or debt_equity <= 0.1: score += 10
+        elif debt_equity <= 0.5: score += 7
+        elif debt_equity <= 1.0: score += 3
     
     # Sector Tailwinds
     if sector in HIGH_TAILWIND_SECTORS: score += 12
@@ -720,6 +721,8 @@ def classify_stock(row: pd.Series) -> dict:
     sector = str(row.get("sector", ""))
     try:
         # NOTE: _classify_lock is not needed here as classification is currently single-threaded.
+        # TODO: Wrap classify_stock body with _classify_lock when parallelizing
+        # _DELIVERY_DATA and _INST_BUYS reads are NOT thread-safe currently
         # The lock is preserved elsewhere for when we parallelize this via ThreadPoolExecutor.
         if _is_financial(sector):
             return _classify_fin(row, symbol)
