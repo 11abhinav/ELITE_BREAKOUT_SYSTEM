@@ -270,13 +270,13 @@ def _run_scan(force: bool = False):
 
     # Check if we are outside the valid REVERSAL window (18:30 - 23:59:59)
     now_time = ist_now.time()
-    scan_start = datetime.strptime("18:30", "%H:%M").time()
-    scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
+    scheduled_start = datetime.strptime("18:30", "%H:%M").time()
+    scheduled_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     import database
     if force:
         is_test_mode = False
     else:
-        is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
+        is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scheduled_start <= now_time <= scheduled_end)
     if is_test_mode:
         logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
