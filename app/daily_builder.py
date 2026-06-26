@@ -286,10 +286,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     debt_missing = _raw_de is None
 
     yoy_sales   = fv("total_revenue_yoy_growth_ttm")
-    qoq_sales   = fv("gross_profit_qoq_growth_fq")
+    qoq_sales   = fv("total_revenue_qoq_growth_fq")
     yoy_profit  = fv("earnings_per_share_diluted_yoy_growth_ttm")
     qoq_profit  = fv("earnings_per_share_diluted_qoq_growth_fq")
-    true_yoy_rev= fv("total_revenue_yoy_growth_ttm")
 
     # Long-term specific metrics
     pe          = fv("price_earnings_ttm")
@@ -322,7 +321,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if traded_value < MIN_TRADED_VALUE:
         return skip(f"Low liquidity: ₹{traded_value/1e7:.1f} Cr/day")
 
-    rev_for_anomaly = true_yoy_rev if true_yoy_rev is not None else yoy_sales
+    rev_for_anomaly = yoy_sales
     anomaly = _anomaly_check(symbol, rev_for_anomaly, yoy_profit)
     if anomaly:
         return skip(anomaly)
@@ -389,8 +388,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # NEW: Market Share Gainer
     sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
     market_share_gainer = False
-    if _SECTOR_MEDIANS and true_yoy_rev is not None:
-        market_share_gainer = (true_yoy_rev > (sec_median * 1.2) and qoq_margin_expanding)
+    if _SECTOR_MEDIANS and yoy_sales is not None:
+        market_share_gainer = (yoy_sales > (sec_median * 1.2) and qoq_margin_expanding)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
@@ -443,7 +442,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     return _build_row(
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=opm, debt_equity=debt_equity, debt_missing=debt_missing,
-        qoq_rev=qoq_sales, yoy_rev=(true_yoy_rev if true_yoy_rev is not None else yoy_sales), qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin
+        qoq_rev=qoq_sales, yoy_rev=yoy_sales, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin
     )
 
 # =====================================================================================
