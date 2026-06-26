@@ -28,6 +28,14 @@ FUNDAMENTAL_REFRESH_SCHEDULE = {
 }
 
 def load_cache() -> dict:
+    if not os.path.exists(CACHE_FILE):
+        try:
+            from database import download_parquet_from_db
+            if download_parquet_from_db("fundamentals_cache", CACHE_FILE):
+                logger.info("☁️ [CACHE] Restored fundamentals_cache from Postgres DB")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to restore fundamentals cache from DB: {e}")
+            
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE) as f:
@@ -36,10 +44,18 @@ def load_cache() -> dict:
             pass
     return {}
 
-def save_cache(cache_data: dict):
+def save_cache(cache_data: dict, upload_to_db=False):
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     with open(CACHE_FILE, "w") as f:
         json.dump(cache_data, f, indent=2)
+        
+    if upload_to_db:
+        try:
+            from database import upload_parquet_to_db
+            upload_parquet_to_db("fundamentals_cache", CACHE_FILE)
+            logger.info("☁️ [CACHE] Uploaded fundamentals_cache to Postgres DB")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to backup fundamentals cache to DB: {e}")
 
 def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
     try:
@@ -222,11 +238,11 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             sym, result = future.result()
             cache[sym] = result
-            if idx % 50 == 0:
+            if idx > 0 and idx % 50 == 0:
                 logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
-                save_cache(cache)
+                save_cache(cache, upload_to_db=True)
                 
-    save_cache(cache)
+    save_cache(cache, upload_to_db=True)
     logger.info("✅ Fundamental fetch complete.")
 
 def get_piotroski_score(symbol: str) -> int:
