@@ -40,6 +40,21 @@ install_db_logger()
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STARTUP DIAGNOSTICS — Verify all required functions are available (2026-06-26)
+# This catches version mismatches between local/container code early
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    from diagnostics import run_startup_diagnostics
+    if not run_startup_diagnostics():
+        logger.critical("🚨 CRITICAL: Startup diagnostics FAILED. Aborting boot.")
+        sys.exit(1)
+except ImportError:
+    logger.warning("⚠️ diagnostics module not found (new deployment). Continuing without diagnostics.")
+except Exception as e:
+    logger.warning(f"⚠️ Diagnostics check failed: {e}. Continuing anyway.")
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
     "IntradayScanner":    "INTRADAY",

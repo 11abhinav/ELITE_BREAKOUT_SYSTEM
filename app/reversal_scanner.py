@@ -263,8 +263,9 @@ def _run_scan(force: bool = False):
     init_db()
 
     ist_now = datetime.now(IST)
+    scan_start = datetime.now(IST)
     logger.info("\n" + "=" * 80)
-    logger.info(f"🚀🚀🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
+    logger.info(f"🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀")
     logger.info("=" * 80 + "\n")
 
     # Check if we are outside the valid REVERSAL window (18:30 - 23:59:59)
@@ -742,7 +743,8 @@ def _run_scan(force: bool = False):
         pass  # Telegram notifications removed (2026-06-17)
 
     # [FIX 1] log cooldown suppression count for tuning visibility
-    logger.info(f"✅ REVERSAL SCAN DONE | Found {total_alerts} bottoming stocks. "
+    elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+    logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks. "
                 f"(Cooldown-suppressed: {cooldown_skips})")
 
     # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)

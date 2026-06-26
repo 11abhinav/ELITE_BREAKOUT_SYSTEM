@@ -383,9 +383,10 @@ def start(run_once=False):
             current_time = ist_now.time()
             weekday = ist_now.weekday()
             
+            scan_start = datetime.now(IST)
             logger.info("=========================================")
-            logger.info(f"🚦 MULTI-TF LADDER START | {ist_now.strftime('%H:%M:%S IST')}")
-            
+            logger.info(f"🚀 [START] MULTI-TF LADDER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
+
             from market_utils import is_market_open
             market_open = is_market_open(ist_now)
             is_active_window = market_open or run_once
@@ -419,8 +420,11 @@ def start(run_once=False):
             # 3. Lower TF updater
             metrics_b = run_lower_tf_phase(current_regime)
             
-            logger.info("🚦 MULTI-TF LADDER COMPLETE.")
-            
+            elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+            logger.info("=========================================")
+            logger.info(f"✅ [COMPLETE] MULTI-TF LADDER DONE | {elapsed_time:.2f}s | Status=OK")
+            logger.info("=========================================")
+
             status = "OK" if market_open else "IDLE"
             error_msg = None
             

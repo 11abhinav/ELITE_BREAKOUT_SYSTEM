@@ -580,7 +580,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin_expanding, fin_mature_quality, fin_compounder, dividend_aristocrat, sector)
+    score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, yoy_margin, fin_mature_quality, fin_compounder, dividend_aristocrat, sector)
     if inst_accumulation: score += 5
     if insider_hold is not None and insider_hold > 0.50: score += 5
 
@@ -813,7 +813,7 @@ def _main_impl(force_rebuild: bool = False):
     with _exclusion_lock:
         EXCLUSION_LOG.clear()  
         
-    logger.info("🚀 ELITE FUNDAMENTAL SCAN STARTED")
+    logger.info(f"🚀 ELITE FUNDAMENTAL SCAN STARTED | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
 
     if not state.get("universe_fetched") or not os.path.exists("data/temp_universe.parquet"):
         if state.get("universe_fetched"):
@@ -824,10 +824,25 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
+            logger.info("🔍 [FETCH] Fetching previous-day delivery data...")
             _DELIVERY_DATA = fetch_previous_day_delivery()
+            try:
+                delivery_count = len(_DELIVERY_DATA) if _DELIVERY_DATA is not None else 0
+            except Exception:
+                delivery_count = 1 if _DELIVERY_DATA else 0
+            logger.info(f"✅ [FETCH] Previous-day delivery data fetched: {delivery_count} symbols")
+
+            logger.info("🔍 [FETCH] Fetching institutional buys...")
             _INST_BUYS = get_institutional_buys()
-            
+            try:
+                inst_count = len(_INST_BUYS) if _INST_BUYS is not None else 0
+            except Exception:
+                inst_count = 1 if _INST_BUYS else 0
+            logger.info(f"✅ [FETCH] Institutional buys fetched: {inst_count} symbols")
+
+            logger.info("🔍 [FETCH] Running FII / block-deal detector...")
             run_fii_detector()
+            logger.info("✅ [FETCH] FII / block-deal detection completed.")
         except Exception as e:
             logger.warning(f"⚠️ Could not fetch accumulation/block data: {e}")
 
@@ -836,12 +851,18 @@ def _main_impl(force_rebuild: bool = False):
 
         os.makedirs(os.path.dirname(OUTPUT_PARQUET), exist_ok=True)
 
+        logger.info("🔍 [FETCH] Fetching TradingView universe (symbol list + fundamentals)...")
         universe_df = fetch_universe()
 
         if universe_df.empty:
             logger.error("❌ No stocks returned from TradingView")
             return
             
+        try:
+            logger.info(f"✅ [FETCH] Universe fetched successfully: {len(universe_df)} symbols from TradingView")
+        except Exception:
+            logger.info("✅ [FETCH] Universe fetched successfully from TradingView")
+
         universe_df.to_parquet("data/temp_universe.parquet")
         save_checkpoint({**state, "universe_fetched": True})
         state = load_checkpoint()
@@ -854,16 +875,19 @@ def _main_impl(force_rebuild: bool = False):
             from institutional_data import get_institutional_buys
             from block_deal_detector import run_fii_detector
             
+            logger.info("🔍 [FETCH] Refreshing accumulation data from cache...")
             _DELIVERY_DATA = fetch_previous_day_delivery()
             _INST_BUYS = get_institutional_buys()
-            
             run_fii_detector()
+            logger.info("✅ [FETCH] Accumulation data refreshed.")
         except Exception:
             pass
 
     if not state.get("fundamentals_refreshed"):
         from fundamentals_cache import refresh_fundamentals_tiered
+        logger.info("🔍 [REFRESH] Refreshing fundamentals cache (tiered) for fetched universe...")
         refresh_fundamentals_tiered(universe_df)
+        logger.info("✅ [REFRESH] Fundamentals refresh completed.")
         save_checkpoint({**state, "fundamentals_refreshed": True})
         state = load_checkpoint()
 
@@ -880,10 +904,12 @@ def _main_impl(force_rebuild: bool = False):
             logger.warning("⚠️ _SECTOR_MEDIANS is empty — market_share_gainer will be disabled this run")
 
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
-        logger.info(f"📊 Classifying {len(universe_df)} stocks... (Path A: {(~fin_mask).sum()} | Path B: {fin_mask.sum()})")
+        logger.info(f"📊 [CLASSIFY] Classifying {len(universe_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")
+        logger.info("🔍 [CLASSIFY] Starting classification of each universe row (this may take some time)...")
 
         results = [classify_stock(row) for _, row in universe_df.iterrows()]
         winners = [r for r in results if r is not None]
+        logger.info(f"✅ [CLASSIFY] Classification complete. Winners found: {len(winners)}")
 
         if EXCLUSION_LOG:
             with _exclusion_lock:
@@ -897,6 +923,7 @@ def _main_impl(force_rebuild: bool = False):
                 
                 save_df_to_table("daily_excluded_watchlist", pd.DataFrame(exclusion_snapshot))
                 logger.info("☁️ [DAILY BUILDER] Saved exclusion log to the 'daily_excluded_watchlist' database table.")
+
             except Exception as e:
                 logger.warning(f"⚠️ Failed to upload exclusion log to Postgres: {e}")
 
@@ -919,10 +946,12 @@ def _main_impl(force_rebuild: bool = False):
 
         final_df.to_csv(OUTPUT_CSV, index=False)
         final_df.to_parquet(OUTPUT_PARQUET, index=False)
-        
+        logger.info(f"💾 [SAVE] Final watchlist saved to CSV ({OUTPUT_CSV}) and Parquet ({OUTPUT_PARQUET})")
+
         # Backup to Database to survive server restarts
         try:
             from database import upload_parquet_to_db, save_df_to_table
+            logger.info("☁️ [DB] Uploading watchlist to Postgres cache...")
             upload_parquet_to_db("daily_builder", OUTPUT_PARQUET)
             logger.info("☁️ [DAILY BUILDER] Backed up fundamental watchlist to Postgres cache.")
             
@@ -947,7 +976,7 @@ def _main_impl(force_rebuild: bool = False):
         logger.info("⏭️ Fundamentals already scored today. Loading final watchlist...")
         final_df = pd.read_parquet(OUTPUT_PARQUET)
 
-    logger.info(f"✅ FINAL WATCHLIST SAVED: {len(final_df)} stocks")
+    logger.info(f"✅ [COMPLETE] FINAL WATCHLIST SAVED: {len(final_df)} stocks")
 
     print("\n── Top 10 ──────────────────────────────────────\n")
     print(final_df.head(10).to_string(index=False))

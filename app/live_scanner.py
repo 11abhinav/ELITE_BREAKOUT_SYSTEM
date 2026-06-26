@@ -85,7 +85,7 @@ def start(run_once=False):
         total_alerts       = 0
 
         logger.info("=" * 80)
-        logger.info(f"⚡ 1H SCAN START | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"🚀 [START] 1H SCAN INIT | {scan_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 80)
 
         sleep_time = 300  
@@ -403,8 +403,8 @@ def start(run_once=False):
             if total_alerts == 0:
                 logger.info("📭 No 1H alerts this cycle")
             logger.info("=" * 80)
-            logger.info(f"✅ 1H SCAN COMPLETE | {elapsed:.2f}s | Alerts={total_alerts}/{len(watchlist)}")
-            
+            logger.info(f"✅ [COMPLETE] 1H SCAN DONE | {elapsed:.2f}s | Alerts={total_alerts}/{len(watchlist)} | Status=OK")
+            logger.info("=" * 80)
             # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
             from database import upsert_scanner_health, verify_alerts_saved_today
             if total_alerts > 0 and is_active_window:
