@@ -178,10 +178,11 @@ def run_hourly_phase():
 
 def run_lower_tf_phase(current_regime="BULL"):
     """
-    Phase B & C: Sub-hourly updater.
-    Iterates active watchlist items and advances them through the signal ladder.
+    Phase B, C & D: Sub-hourly updater.
+    Iterates active watchlist items and advances them through the 4-phase signal ladder:
+      HOURLY_APPROVED → (30m) SETUP_ARMED → (15m) ENTRY_READY → (5m) TRADE_ACTIVE
     """
-    logger.info("⚡ Starting Phase B/C (Sub-hourly Ladder Updater)...")
+    logger.info("⚡ Starting Phase B/C/D (Sub-hourly Ladder Updater)...")
     
     active_items = get_active_breakout_watchlist()
     if not active_items:
@@ -189,13 +190,21 @@ def run_lower_tf_phase(current_regime="BULL"):
         return {"fetched": 0, "total": 0, "stale": 0}
 
     # Bucket symbols by required timeframe to minimize downloads
-    needs_30m = [i["symbol"] for i in active_items if i["current_state"] == "HOURLY_APPROVED"]
-    needs_5m  = [i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")]
+    # SETUP_ARMED and ENTRY_READY also need 30m data for the 3% decay safety check
+    needs_30m = list(set(
+        i["symbol"] for i in active_items
+        if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")
+    ))
+    needs_15m = [i["symbol"] for i in active_items if i["current_state"] == "SETUP_ARMED"]
+    needs_5m  = [i["symbol"] for i in active_items if i["current_state"] == "ENTRY_READY"]
     
     import pandas as pd
     data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
     if data_30m is None:
         data_30m = {}
+    data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="5d", interval="15m") if needs_15m else {}
+    if data_15m is None:
+        data_15m = {}
     data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
     if data_5m is None:
         data_5m = {}
@@ -203,6 +212,11 @@ def run_lower_tf_phase(current_regime="BULL"):
     stale_count = 0
 
     ist_now = datetime.now(IST)
+    
+    # Funnel stats for Phase B/C/D
+    lower_funnel = {"armed_candidates": 0, "bb_pass": 0, "armed": 0,
+                    "entry_candidates": 0, "ema15_pass": 0, "entry_ready": 0,
+                    "trigger_candidates": 0, "triggered": 0}
 
     for item in active_items:
         symbol = item["symbol"]
@@ -213,8 +227,8 @@ def run_lower_tf_phase(current_regime="BULL"):
         if breakout_level <= 0:
             continue
 
-        # Failed state check for SETUP_ARMED
-        if state == "SETUP_ARMED":
+        # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──
+        if state in ("SETUP_ARMED", "ENTRY_READY"):
             state_change_str = None
             
             # Try to get it from context_json first
@@ -236,10 +250,11 @@ def run_lower_tf_phase(current_regime="BULL"):
                     if (ist_now - state_change_ts).total_seconds() > 3600 * 4: # 4 hours expiry
                         upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
                         state = "HOURLY_APPROVED"
-                        logger.info(f"⏳ {symbol} SETUP_ARMED expired (stale). Downgraded to HOURLY_APPROVED.")
+                        logger.info(f"⏳ {symbol} {item['current_state']} expired (stale). Downgraded to HOURLY_APPROVED.")
                 except Exception:
                     pass
 
+            # Decay check: if stock drifts >3% from resistance, reset to HOURLY_APPROVED
             df = data_30m.get(symbol)
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
@@ -250,14 +265,14 @@ def run_lower_tf_phase(current_regime="BULL"):
                 df = strip_forming_candle(df, 30, ist_now)
                 if df is not None and len(df) >= 2:
                     close = float(df["Close"].iloc[-1])
-                    # If we fall >3% away from resistance, drop back to HOURLY_APPROVED
                     if (breakout_level - close) / breakout_level > 0.03:
                         upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
                         state = "HOURLY_APPROVED"
                         logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
 
-        # ── 30-Min: SETUP_ARMED ───────────────────────────────────────────
+        # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
         if state == "HOURLY_APPROVED":
+            lower_funnel["armed_candidates"] += 1
             df = data_30m.get(symbol)
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
@@ -279,6 +294,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                 
                 # Consolidation formed (tight BB) AND near breakout level
                 if bb_pctile < 0.30 and (0.003 <= dist_to_breakout <= 0.02):
+                    lower_funnel["bb_pass"] += 1
                     swing_low = float(latest.get("SWING_LOW", close))
                     ema20 = float(latest.get("EMA20", close))
                     
@@ -293,10 +309,59 @@ def run_lower_tf_phase(current_regime="BULL"):
                         armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
                         context_json=ctx_json
                     )
+                    lower_funnel["armed"] += 1
+                    state = "SETUP_ARMED"
                     logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
-        # ── 5-Min: FINAL TRIGGER EXECUTION ──────────────────────────────
-        elif state == "SETUP_ARMED" or state == "ENTRY_READY":
+        # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
+        if state == "SETUP_ARMED":
+            lower_funnel["entry_candidates"] += 1
+            df = data_15m.get(symbol)
+            if df is not None:
+                if getattr(df, 'attrs', {}).get('is_stale') == True:
+                    logger.debug(f"⏭️ Skipping {symbol} (15m entry check) due to stale data.")
+                    stale_count += 1
+                    continue
+
+                df = strip_forming_candle(df, 15, ist_now)
+                if df is None or df.empty or len(df) < 2:
+                    continue
+                df = apply_indicators(df, timeframe="15m")
+                if df.empty:
+                    continue
+
+                latest = df.iloc[-1]
+                e9_15 = float(latest.get("EMA9", 0) or 0)
+                e20_15 = float(latest.get("EMA20", 0) or 0)
+                close = float(latest["Close"])
+
+                if e9_15 <= 0 or e20_15 <= 0:
+                    continue
+
+                dist_to_breakout = (breakout_level - close) / breakout_level
+
+                # 15m must show micro-alignment: EMA9 > EMA20, price still near level
+                if e9_15 > e20_15 and (0.002 <= dist_to_breakout <= 0.015):
+                    lower_funnel["ema15_pass"] += 1
+                    ctx_json = json.dumps({
+                        "last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S'),
+                        "15m_e9": round(e9_15, 2),
+                        "15m_e20": round(e20_15, 2)
+                    })
+                    upsert_breakout_watchlist(
+                        symbol=symbol, category=cat, current_state="ENTRY_READY",
+                        m15_status="PASSED",
+                        context_json=ctx_json
+                    )
+                    lower_funnel["entry_ready"] += 1
+                    state = "ENTRY_READY"
+                    logger.info(f"🟡 {symbol} promoted to ENTRY_READY "
+                                f"(15m e9={e9_15:.2f} > e20={e20_15:.2f}, "
+                                f"dist={dist_to_breakout*100:.2f}%)")
+
+        # ── Phase D (5m): ENTRY_READY → TRADE_ACTIVE (Final Trigger) ─────
+        if state == "ENTRY_READY":
+            lower_funnel["trigger_candidates"] += 1
             df = data_5m.get(symbol)
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
@@ -397,7 +462,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                             entry_price=close,
                             stop_loss=final_sl,
                             target_price=calc_target,
-                            signals=f"Multi-TF Ladder (1h->30m->5m) | {trigger_type}",
+                            signals=f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
                             score=min(100, int(80 + (vol_ratio * 5))), # Dynamic conviction
                             rsi=float(latest.get("RSI", 0)),
                             volume_ratio=vol_ratio,
@@ -405,12 +470,20 @@ def run_lower_tf_phase(current_regime="BULL"):
                             bayesian_regime=current_regime
                         )
                         upsert_breakout_watchlist(
-                            symbol=symbol, category=cat, current_state="TRADE_ACTIVE"
+                            symbol=symbol, category=cat, current_state="TRADE_ACTIVE",
+                            m5_status="PASSED"
                         )
                         mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
+                        lower_funnel["triggered"] += 1
                         logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
 
-    return {"fetched": max(len(data_30m), len(data_5m)), "total": len(active_items), "stale": stale_count}
+    # ── Log the funnel so we can see exactly where stocks drop off ────────
+    logger.info(f"📊 Phase B/C/D Funnel: "
+                f"30m_candidates={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "
+                f"15m_candidates={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
+                f"5m_candidates={lower_funnel['trigger_candidates']} → triggered={lower_funnel['triggered']}")
+
+    return {"fetched": max(len(data_30m), len(data_15m), len(data_5m)), "total": len(active_items), "stale": stale_count}
 
 def run_sweeper():
     sweep_stale_breakout_watchlist()
