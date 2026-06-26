@@ -2306,9 +2306,9 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
 
             # 3. If there is old date data, delete it first
             if date_col:
-                cur.execute(f"DELETE FROM {table_name} WHERE {date_col} < %s", (today_str,))
+                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" < %s', (today_str,))
                 # Also delete today's data just to be safe from duplicates on retry
-                cur.execute(f"DELETE FROM {table_name} WHERE {date_col} = %s", (today_str,))
+                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" = %s', (today_str,))
             else:
                 cur.execute(f"TRUNCATE TABLE {table_name}")
                 
