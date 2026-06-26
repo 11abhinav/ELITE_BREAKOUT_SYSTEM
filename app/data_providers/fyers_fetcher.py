@@ -40,18 +40,56 @@ class RateLimiter:
 # Fyers limit is often ~200/minute. We use 2.5 to stay around 150/min.
 _fyers_rate_limiter = RateLimiter(max_per_second=2.5)
 
+# Circuit breaker for Fyers API to auto-fallback on repeated failures
+class FyersCircuitBreaker:
+    def __init__(self, failure_threshold: int = 10, reset_after_seconds: int = 300):
+        self.failure_count = 0
+        self.failure_threshold = failure_threshold
+        self.reset_after_seconds = reset_after_seconds
+        self.last_failure_time = 0
+        self.is_open = False
+        self.lock = Lock()
+
+    def record_failure(self):
+        with self.lock:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            if self.failure_count >= self.failure_threshold:
+                self.is_open = True
+                logger.warning(f"⚠️ Fyers API circuit breaker OPENED after {self.failure_count} failures. Falling back to YFinance.")
+
+    def is_available(self) -> bool:
+        with self.lock:
+            if not self.is_open:
+                return True
+            # Check if enough time has passed to attempt recovery
+            if time.time() - self.last_failure_time > self.reset_after_seconds:
+                self.is_open = False
+                self.failure_count = 0
+                logger.info("✅ Fyers API circuit breaker CLOSED. Attempting recovery.")
+                return True
+            return False
+
+    def reset(self):
+        with self.lock:
+            self.failure_count = 0
+            self.is_open = False
+
+_fyers_circuit_breaker = FyersCircuitBreaker(failure_threshold=15, reset_after_seconds=600)
+
 
 class FyersFetcher(DataFetcher):
     def __init__(self):
         self.rate_limiter = _fyers_rate_limiter
         
         # Map standard intervals to Fyers resolution parameters
+        # Note: Fyers uses numeric strings for intraday and "D" for daily
         self.INTERVAL_MAP = {
             "5m": "5",
             "15m": "15",
             "30m": "30",
             "1h": "60",
-            "1d": "1D"
+            "1d": "1"  # Daily candles in Fyers is "1", not "1D"
         }
 
     def _normalize_symbol(self, symbol: str) -> str:
@@ -130,6 +168,11 @@ class FyersFetcher(DataFetcher):
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         """Fetch OHLCV data for a single symbol from Fyers."""
+        
+        # Check if Fyers circuit breaker is open (too many failures)
+        if not _fyers_circuit_breaker.is_available():
+            return None
+        
         ns_symbol = self._normalize_symbol(symbol)
         
         # Determine if this is an incremental fetch
@@ -145,8 +188,7 @@ class FyersFetcher(DataFetcher):
         if not res:
             logger.error(f"Unsupported interval for FyersFetcher: {interval}")
             return None
-        # Ensure resolution is uppercase (Fyers can be strict about case)
-        res = str(res).upper()
+        # Fyers resolution is already correctly formatted from INTERVAL_MAP as string
 
         # Compute date range and then enforce strict 365-day cap for daily resolution
         range_from, range_to = calc_range_from, calc_range_to
@@ -160,7 +202,7 @@ class FyersFetcher(DataFetcher):
             range_from = start_date.strftime("%Y-%m-%d")
             range_to = end_date.strftime("%Y-%m-%d")
 
-        if res in ("1D", "D"):
+        if res in ("1", "D"):
             span_days = (end_date - start_date).days
             if span_days > 365:
                 # Cap span to 365 days to avoid Fyers 'Invalid input'
@@ -175,10 +217,10 @@ class FyersFetcher(DataFetcher):
         data = {
             "symbol": ns_symbol,
             "resolution": res,
-            "date_format": "1",  # YYYY-MM-DD string format
+            "date_format": "1",
             "range_from": range_from,
             "range_to": range_to,
-            "cont_flag": "1"
+            "cont_flag": 1
         }
         
         for attempt in range(retries):
@@ -191,6 +233,8 @@ class FyersFetcher(DataFetcher):
                     
                 if response.get("s") != "ok":
                     error_msg = response.get("message", "Unknown error")
+                    code = response.get("code", "NO_CODE")
+                    logger.error(f"Fyers API error for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
                     raise ValueError(f"Fyers history API error: {error_msg}")
                     
                 candles = response.get("candles", [])
@@ -225,6 +269,10 @@ class FyersFetcher(DataFetcher):
             except Exception as e:
                 error_str = str(e)
                 
+                # Record failure for circuit breaker
+                if "Bad request" in error_str or "error" in error_str.lower():
+                    _fyers_circuit_breaker.record_failure()
+
                 if "Could not authenticate the user" in error_str:
                     global _last_auth_notif_time
                     now = time.time()
@@ -262,9 +310,10 @@ class FyersFetcher(DataFetcher):
                 if "request limit reached" in error_str:
                     logger.info(f"⏳ Rate limited by Fyers for {ns_symbol}. Backing off... (Attempt {attempt+1}/{retries})")
                 else:
-                    # Log the failed payload to help debug "Invalid input" cases
+                    # Log the failed payload and full error response to help debug "Bad request" cases
                     try:
                         logger.error(f"Failed Payload for {ns_symbol}: {data}")
+                        logger.error(f"Fyers API response for {ns_symbol}: {str(e)}")
                     except Exception:
                         pass
                     logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
@@ -282,6 +331,11 @@ class FyersFetcher(DataFetcher):
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
+
+        # Check if Fyers circuit breaker is open (too many failures)
+        if not _fyers_circuit_breaker.is_available():
+            return {}
+
         if range_from and range_to:
             logger.info(f"📥 Fetching incremental batch OHLCV for {len(symbols)} symbols ({interval}, {range_from} to {range_to}) via Fyers API...")
         else:
@@ -322,6 +376,11 @@ class FyersFetcher(DataFetcher):
 
     def get_quote(self, symbol: str) -> dict:
         """Fetch current market quote for a single symbol from Fyers."""
+
+        # Check if Fyers circuit breaker is open (too many failures)
+        if not _fyers_circuit_breaker.is_available():
+            return {}
+
         ns_symbol = self._normalize_symbol(symbol)
         logger.info(f"📥 Fetching quote for {symbol} via Fyers API...")
         client = fyers_auth.get_fyers_client()
@@ -359,6 +418,7 @@ class FyersFetcher(DataFetcher):
             else:
                 error_msg = response.get("message", "Unknown error") if response else "Empty response"
                 logger.error(f"Fyers quotes API returned error for {ns_symbol}: {error_msg}")
+                _fyers_circuit_breaker.record_failure()
                 try:
                     from data_fetch_status import mark_failure
                     mark_failure('fyers', f"Quote API error for {symbol}: {error_msg}")
@@ -367,6 +427,10 @@ class FyersFetcher(DataFetcher):
                 return {}
         except Exception as e:
             error_str = str(e)
+            # Record failure for circuit breaker
+            if "error" in error_str.lower() or "request" in error_str.lower():
+                _fyers_circuit_breaker.record_failure()
+
             if "Could not authenticate the user" in error_str:
                 global _last_auth_notif_time
                 now = time.time()
