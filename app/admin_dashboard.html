@@ -2253,8 +2253,8 @@
           const meta = SCANNER_META[sc] || { label: sc, desc: '' };
           const isAck = data.is_acknowledged !== false;
 
-          // NEW LOGIC: Only show RED if status=DOWN AND error_severity=CRITICAL AND not acknowledged
-          const isCriticalError = data.status === 'DOWN' && data.error_severity === 'CRITICAL' && !isAck;
+          // NEW LOGIC: Show RED if status=DOWN and not acknowledged. (All DOWNs are crashes).
+          const isCriticalError = data.status === 'DOWN' && !isAck;
           const isDown = isCriticalError;
           const isIdle = !data.last_success;
           const statusClass = isDown ? 'status-down' : isIdle ? 'status-idle' : 'status-ok';
