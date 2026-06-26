@@ -44,26 +44,36 @@ MAX_SECTOR_PCT  = 0.25   # Max 25% of portfolio from one sector
 # Using centralized config for liquidity
 MAX_PROMOTER_PLEDGE = 20     # >20% pledge introduces margin call liquidation risk
 
-MAX_SECTOR_PCT = 0.25        # Max 25% of any portfolio bucket can be in one sector
-
 # =====================================================================================
 # NIFTY BENCHMARK
 # =====================================================================================
 
-import time
 _nifty_cache = {"ret_6m": None, "dist_52w": None, "ts": None}
+_NIFTY_CACHE_TTL = 3600  # 1 hour max staleness
 
 def fetch_nifty_macro_state() -> Tuple[Optional[float], Optional[float]]:
     """Fetch 6-month return and 52W distance of Nifty 50 for RS and Macro Regime Gate."""
     global _nifty_cache
+    now = time.time()
+    # Serve cache only if fresh
+    if (
+        _nifty_cache["ts"] is not None
+        and (now - _nifty_cache["ts"]) < _NIFTY_CACHE_TTL
+        and _nifty_cache["ret_6m"] is not None
+    ):
+        return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
+
     try:
         from macro_utils import get_nifty_6m_state
         ret_6m, dist_52w = get_nifty_6m_state()
         if ret_6m is not None:
-            _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": time.time()}
+            _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": now}
             return (ret_6m, dist_52w)
     except Exception as e:
         logger.error(f"Failed to fetch Nifty Macro State: {e}")
+
+    # Return stale cache rather than None if fetch fails
+    logger.warning("Nifty fetch failed — serving stale cache if available")
     return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
 
 # =====================================================================================
@@ -287,7 +297,7 @@ def calculate_100_point_score(r) -> int:
     if rs_rating is not None:
         # Only the RS_Rating bonus requires the absolute momentum gate
         if rs_rating > 90 and sma_200 is not None and cmp_price > sma_200 and sma_200 > 0: 
-            score += 8   # Reduced from 12
+            score += 10  # Full 10pts — brings momentum max to 20 as designed
         elif rs_rating > 80: score += 5  # Reduced from 8
         elif rs_rating > 60: score += 2  # Reduced from 4
 
@@ -402,17 +412,22 @@ def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_st
     import math
     sector_limit = max(1, math.ceil(max_stocks * MAX_SECTOR_PCT))
     sector_counts = defaultdict(int)
+    industry_counts = defaultdict(int)
     selected = []
 
     for _, row in bucket_df.iterrows():
         sector = row.get("Sector", "Unknown")
-        
+        industry = row.get("Industry", row.get("Sector", "Unknown"))
+
         if sector_counts[sector] >= sector_limit:
             continue
-            
+        if industry_counts[industry] >= 2:
+            continue
+
         sector_counts[sector] += 1
+        industry_counts[industry] += 1
         selected.append(row)
-        
+
         if len(selected) >= max_stocks:
             break
 
@@ -588,6 +603,7 @@ def run_wealth_scan():
 
         clear_price_cache()
         rejection_counts = {}
+        _rejection_lock = threading.Lock()
 
         # 🔧 CRITICAL FIX: Fetch ALL watchlist symbols in one batch BEFORE threading
         # This prevents cache pollution where subsequent threads get incomplete cache hits
@@ -634,12 +650,14 @@ def run_wealth_scan():
                     tech["data_quality"] = DataQuality.CACHED_PREV_DAY.value
                     tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now(IST).isoformat())
                     
-                    rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
+                    with _rejection_lock:
+                        rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                 elif tech.get("is_stale"):
                     tech["used_fallback_data"] = True
                     tech["data_quality"] = "STALE_INTRADAY"
                     tech["fallback_timestamp"] = datetime.now(IST).isoformat()
-                    rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
+                    with _rejection_lock:
+                        rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                     try:
                         from database import upsert_fetch_error
                         upsert_fetch_error('yfinance', 'WEALTH', sym, '1d', 'stale_data', 'using_yesterdays_cache')
@@ -647,7 +665,8 @@ def run_wealth_scan():
                         pass
                     logger.warning(f"⚠️ YFinance failed for {sym}, using cached technicals from yesterday.")
                 elif tech.get("cmp") is None:
-                    rejection_counts["no_data"] = rejection_counts.get("no_data", 0) + 1
+                    with _rejection_lock:
+                        rejection_counts["no_data"] = rejection_counts.get("no_data", 0) + 1
                     try:
                         from database import upsert_fetch_error
                         upsert_fetch_error('yfinance', 'WEALTH', sym, '1d', 'no_data', 'missing_data_no_fallback')
@@ -684,7 +703,8 @@ def run_wealth_scan():
                 except Exception as e:
                     logger.exception(f"Failed to process {row['Stock']}: {e}")
                 
-                rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
+                with _rejection_lock:
+                    rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": row.get("Stock", "UNKNOWN")}
 
         technicals = []
@@ -702,7 +722,7 @@ def run_wealth_scan():
                     logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(df)} stocks processed...")
 
         tech_df = pd.DataFrame(technicals)
-        if not tech_df.empty and (tech_df.get("cmp") is None or tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
+        if not tech_df.empty and "cmp" in tech_df.columns and (tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
             logger.error("❌ YFinance returned 0 prices. API might be down or rate-limited. Aborting this scan cycle.")
             import database
             if not getattr(database, "DONT_SAVE_WEALTH", False):
@@ -938,14 +958,13 @@ def run_wealth_scan():
                                     yf_acquire()
                                     try:
                                         ticker = yf.Ticker(yf_sym)
-                                        info = ticker.info
+                                        current_price = ticker.fast_info.last_price
                                     finally:
                                         yf_release()
                                 except CircuitOpenError as ce:
                                     logger.error(f"YFinance circuit open; abort realtime fetch for {yf_sym}: {ce}")
                                     break
 
-                                current_price = info.get("currentPrice") or info.get("regularMarketPrice")
                                 if current_price:
                                     break
                             except Exception as e:
