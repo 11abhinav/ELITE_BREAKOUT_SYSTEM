@@ -232,14 +232,20 @@ def run_performance_tracker():
 _watchlist_build_lock = threading.Lock()
 
 def verify_watchlist_is_pristine() -> bool:
-    """Check if local disk has today's watchlist. If not, try DB, then trigger daily builder."""
+    """
+    Check if local disk has today's watchlist.
+    Logic: Cache → DB (today) → Delete stale from DB → Fresh rebuild → Save to DB → Start scanner
+    """
     from config import WATCHLIST_PATH
     import pandas as pd
-    from database import download_parquet_from_db
+    from database import download_parquet_from_db_today, delete_stale_parquet_from_db
     import os
     
     now = datetime.now(IST)
+    today_str = now.strftime("%Y-%m-%d")
+    
     def is_disk_fresh():
+        """Returns True if local disk has watchlist from today."""
         if not os.path.exists(WATCHLIST_PATH): return False
         try:
             df = pd.read_parquet(WATCHLIST_PATH)
@@ -252,19 +258,26 @@ def verify_watchlist_is_pristine() -> bool:
         return False
 
     with _watchlist_build_lock:
+        # STEP 1: Check local disk cache
         if is_disk_fresh():
+            logger.info(f"✅ [CACHE] Watchlist from today ({today_str}) found on local disk.")
             return True
-            
-        logger.warning("⚠️ Local disk missing/stale watchlist. Checking DB for fresh backup...")
-        download_parquet_from_db("daily_builder", WATCHLIST_PATH)
         
-        if is_disk_fresh():
-            logger.info("✅ Watchlist successfully restored from DB to local disk.")
-            from watchlist_cache import get_watchlist
-            get_watchlist()
-            return True
-            
-        logger.warning("⚠️ DB backup is ALSO missing/stale! Triggering full daily builder rebuild.")
+        logger.warning(f"⚠️ [CACHE] Local disk missing/stale watchlist. Checking DB for today's data ({today_str})...")
+        
+        # STEP 2: Try to restore from DB (TODAY ONLY)
+        if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH):
+            if is_disk_fresh():
+                logger.info(f"✅ [DB] Watchlist from today successfully restored from DB to local disk.")
+                from watchlist_cache import get_watchlist
+                get_watchlist()
+                return True
+        
+        # STEP 3: DB has old/stale data. Delete it and trigger rebuild.
+        logger.warning(f"⚠️ [DB] No today's data in cache or DB! Deleting stale entries from DB...")
+        delete_stale_parquet_from_db("daily_builder")
+        
+        logger.warning(f"⚠️ [REBUILD] Triggering fresh Daily Builder rebuild for {today_str}...")
         try:
             from daily_builder import main as build_watchlist
             build_watchlist(force_rebuild=True)
@@ -283,8 +296,14 @@ def verify_watchlist_is_pristine() -> bool:
             except Exception:
                 pass
             return False
-            
-        return is_disk_fresh()
+        
+        # STEP 4: Verify fresh data was created
+        if is_disk_fresh():
+            logger.info(f"✅ [NEW] Fresh watchlist created for {today_str}. Ready to scan.")
+            return True
+        else:
+            logger.error(f"❌ [NEW] Fresh watchlist created but failed freshness check!")
+            return False
 
 def block_until_watchlist_ready():
     """Blocks the thread until the watchlist is pristine."""
@@ -698,43 +717,52 @@ def run_system_scheduler():
 
     def verify_scans():
         """Verify file readiness at 8:30 AM."""
-        logger.info("🕒 SCHEDULER | [8:30 AM] Verifying file readiness")
+        logger.info("🕒 SCHEDULER | [8:30 AM] Verifying file readiness for today's scan")
         now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
 
-        # 1. Verify Watchlist
+        # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
+        logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
         block_until_watchlist_ready()
 
         # 2. Verify Wealth Engine
         try:
             if not os.path.exists(WEALTH_PATH):
+                logger.warning(f"⚠️ Wealth system missing from disk. Attempting DB restore for {today_str}...")
                 try:
-                    from database import download_parquet_from_db
-                    restored = download_parquet_from_db("wealth_engine", WEALTH_PATH)
+                    from database import download_parquet_from_db_today
+                    restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
                     if restored and os.path.exists(WEALTH_PATH):
-                        logger.info("✅ Wealth system restored from DB.")
+                        logger.info("✅ Wealth system restored from DB (today's data).")
                     else:
-                        logger.warning("⚠️ Wealth system missing! Forcing run.")
+                        logger.warning("⚠️ Wealth system missing from DB too! Forcing fresh run.")
                         safe_run_wealth_scan_initial()
-                except Exception:
-                    logger.exception("Failed to restore wealth from DB; forcing run.")
+                except Exception as e:
+                    logger.exception(f"Failed to restore wealth from DB; forcing run: {e}")
                     safe_run_wealth_scan_initial()
             else:
                 mtime_ts = os.path.getmtime(WEALTH_PATH)
                 mtime = datetime.fromtimestamp(mtime_ts, IST)
                 if mtime.date() < now.date():
+                    logger.warning(f"⚠️ Wealth system is from {mtime.date()}, not today ({today_str}). Attempting DB restore...")
                     try:
-                        from database import download_parquet_from_db
-                        restored = download_parquet_from_db("wealth_engine", WEALTH_PATH)
+                        from database import download_parquet_from_db_today, delete_stale_parquet_from_db
+                        restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
                         if restored and os.path.exists(WEALTH_PATH):
-                            logger.info("✅ Wealth system restored from DB.")
+                            logger.info("✅ Wealth system restored from DB (today's data).")
                         else:
-                            logger.warning("⚠️ Wealth system stale! Forcing run.")
+                            logger.warning("⚠️ Wealth system not in today's DB data. Deleting old entries and forcing run.")
+                            delete_stale_parquet_from_db("wealth_engine")
                             safe_run_wealth_scan_initial()
-                    except Exception:
-                        logger.exception("Failed to restore wealth; forcing run.")
+                    except Exception as e:
+                        logger.exception(f"Failed to restore wealth; forcing run: {e}")
                         safe_run_wealth_scan_initial()
-        except Exception:
-            logger.exception("Failed to verify wealth system.")
+                else:
+                    logger.info(f"✅ Wealth system from today ({mtime.date()}) is fresh.")
+        except Exception as e:
+            logger.exception(f"Failed to verify wealth system: {e}")
+
+        logger.info("✅ SCHEDULER | [8:30 AM] File readiness verification complete")
 
     logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
     
