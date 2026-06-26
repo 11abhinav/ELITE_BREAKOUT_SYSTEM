@@ -813,7 +813,9 @@ def _main_impl(force_rebuild: bool = False):
     with _exclusion_lock:
         EXCLUSION_LOG.clear()  
         
-    logger.info(f"🚀 ELITE FUNDAMENTAL SCAN STARTED | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("\n" + "=" * 80)
+    logger.info(f"🚀🚀🚀 [START] DAILY BUILDER INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
+    logger.info("=" * 80 + "\n")
 
     if not state.get("universe_fetched") or not os.path.exists("data/temp_universe.parquet"):
         if state.get("universe_fetched"):
@@ -929,6 +931,9 @@ def _main_impl(force_rebuild: bool = False):
 
         if not winners:
             logger.warning("❌ No qualifying stocks after classification")
+            logger.info("\n" + "=" * 80)
+            logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (EMPTY) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
+            logger.info("=" * 80 + "\n")
             return
 
         final_df = (
@@ -961,6 +966,11 @@ def _main_impl(force_rebuild: bool = False):
             logger.warning(f"⚠️ Failed to upload watchlist to Postgres: {e}")
         
         save_checkpoint({**state, "fundamentals_scored": True})
+        
+        logger.info("\n" + "=" * 80)
+        logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (SUCCESS) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
+        logger.info("=" * 80 + "\n")
+        
         state = load_checkpoint()
     else:
         if not os.path.exists(OUTPUT_PARQUET):
