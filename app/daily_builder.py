@@ -935,8 +935,12 @@ def _main_impl(force_rebuild: bool = False):
             logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (EMPTY) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
             logger.info("=" * 80 + "\n")
             try:
-                from telegram_engine import queue_telegram_message
-                queue_telegram_message("🚨 *DAILY BUILDER ALERT*\n\nThe Daily Builder finished scanning all stocks but produced an *EMPTY* watchlist! This usually indicates an API failure (like a yfinance rate limit). The scanner is marked as DOWN.")
+                from database import insert_notification
+                insert_notification(
+                    notif_type="scanner_down",
+                    title="🚨 DAILY BUILDER CRITICAL ALERT",
+                    message="The Daily Builder finished scanning but produced an EMPTY watchlist! This usually indicates a yfinance rate limit or API failure."
+                )
             except Exception:
                 pass
             raise RuntimeError("Daily Builder generated an empty watchlist. Failing to alert admin and scheduler.")
