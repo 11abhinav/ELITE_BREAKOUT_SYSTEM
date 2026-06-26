@@ -238,7 +238,7 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             sym, result = future.result()
             cache[sym] = result
-            if idx > 0 and idx % 50 == 0:
+            if idx > 0 and idx % 10 == 0:
                 logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
                 save_cache(cache, upload_to_db=True)
                 
