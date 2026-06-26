@@ -132,8 +132,6 @@ def _score_reversal(
         score += 25   # full recovery structure: above both 50 & 200 SMA
     elif above_sma50:
         score += 18   # reclaimed SMA50 (mandatory gate, baseline recovery)
-    elif above_sma200 and (delivery_pct is not None and delivery_pct >= 40.0):
-        score += 12   # above SMA200 with strong delivery conviction
     # else: no trend-structure points (should be rare — SMA50 is a hard gate)
 
     # ── SMA200 proximity (15 pts) — closer = safer entry ──
@@ -144,7 +142,7 @@ def _score_reversal(
         elif pct_below_sma200 <= 20.0: score += 3
         # > 20% below SMA200: no bonus (falling knife territory)
     else:
-        score += 7  # no SMA200 data — partial benefit of doubt
+        score += 0  # no SMA200 data — neutral
 
     # ── Volume confirmation (15 pts) ──
     # [FIX 5] REDUCED from 25 → 15. Volume now confirms, it does not drive.
@@ -185,19 +183,12 @@ def _score_reversal(
     #   40-45%  => +3
     #   45-60%  => -5 (penalty but still acceptable)
     #   >60%    => rejected earlier
-    try:
-        if 25.0 <= drop_pct <= 40.0:
-            score += 5
-        elif 20.0 <= drop_pct < 25.0:
-            score += 3
-        elif 40.0 < drop_pct <= 45.0:
-            score += 3
-        elif 45.0 < drop_pct <= 60.0:
-            score -= 5
-    except Exception:
-        # If drop_pct is malformed, ignore this bucket
-        pass
-
+    if 25.0 <= drop_pct <= 40.0:
+        score += 5
+    elif 20.0 <= drop_pct < 25.0:
+        score += 3
+    elif 40.0 < drop_pct <= 45.0:
+        score += 3
     # ── R:R quality (5 pts) ──
     if rr_ratio is not None:
         if rr_ratio >= 3.5:   score += 5
@@ -232,7 +223,7 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
     try:
         from database import is_symbol_in_failed_reversal_cooldown
         return bool(is_symbol_in_failed_reversal_cooldown(symbol, cooldown_days))
-    except ImportError:
+    except (ImportError, AttributeError, ModuleNotFoundError):
         pass
     except Exception:
         logger.exception(f"cooldown check (outcome-aware) failed for {symbol}")
@@ -249,7 +240,7 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
         if status in ("STOPPED_OUT", "FAILED", "SL_HIT") and days_since < cooldown_days:
             return True
         return False
-    except ImportError:
+    except (ImportError, AttributeError, ModuleNotFoundError):
         # No outcome tracking available at all — do not block (avoid false suppression).
         return False
     except Exception:
@@ -310,7 +301,7 @@ def _run_scan(force: bool = False):
         if not is_test_mode:
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("REVERSAL", "OK", error_msg=None)
+                upsert_scanner_health("REVERSAL", "RUNNING", error_msg=None)
             except Exception:
                 pass
 
@@ -357,7 +348,7 @@ def _run_scan(force: bool = False):
                 continue
 
             latest   = ticker.iloc[-1]
-            required = ["Close", "High", "Low", "Open", "Volume", "RSI", "EMA20", "MACD", "MACD_SIGNAL", "HIGH_52W"]
+            required = ["Close", "High", "Low", "Open", "Volume", "RSI", "EMA20", "EMA50", "SMA50", "SMA200", "MACD", "MACD_SIGNAL", "MACD_HIST", "HIGH_52W", "ATR", "ATR_PCT", "SWING_LOW", "SWING_HIGH"]
             if not all(col in ticker.columns for col in required):
                 continue
             if pd.isna(latest["RSI"]) or pd.isna(latest["MACD"]):
@@ -371,7 +362,7 @@ def _run_scan(force: bool = False):
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
             # [FIX 7] Single clean fixed drop band (20–45%). Allow deeper 45–60% with penalty; reject >60%.
-            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > 60.0:
+            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > 45.0:
                 # reject very deep drawdowns > 60%
                 continue
 
@@ -411,7 +402,10 @@ def _run_scan(force: bool = False):
 
             # ── RSI curl: was oversold recently, now recovering ─────────────────────
             current_rsi = float(latest["RSI"])
-            past_10_rsi = ticker["RSI"].iloc[-11:-1].min()
+            recent_rsi = ticker["RSI"].dropna().iloc[-11:-1]
+            if len(recent_rsi) < 5:
+                continue
+            past_10_rsi = recent_rsi.min()
 
             if current_rsi < RSI_CURL_MIN or past_10_rsi > RSI_OVERSOLD_THRESHOLD:
                 continue
