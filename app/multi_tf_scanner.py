@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import time
@@ -72,10 +73,15 @@ def run_hourly_phase():
         logger.info(f"✅ Successfully fetched {len(ticker_data)} symbols for 1H hourly phase")
         
     stale_count = 0
+
+    # ── FUNNEL STATS: measure how many stocks pass each gate ──────────────
+    funnel = {"total": 0, "data_ok": 0, "indicators_ok": 0, "price_ok": 0,
+              "ema_pass": 0, "adx_pass": 0, "dist_pass": 0, "approved": 0}
     
     for idx, row in watchlist.iterrows():
         symbol = row["Stock"]
         category = row["Category"]
+        funnel["total"] += 1
         
         df = ticker_data.get(symbol)
         if df is None or df.empty or len(df) < 200:
@@ -99,39 +105,74 @@ def run_hourly_phase():
             logger.warning(f"⚠️ {symbol} missing required indicators. Skipping.")
             continue
 
+        funnel["data_ok"] += 1
         latest = df.iloc[-1]
         
         close = float(latest["Close"])
         if close < MIN_STOCK_PRICE:
             continue
             
-        # Extract indicators safely
-        e9 = float(latest.get("EMA9", 0) or 0)
-        e20 = float(latest.get("EMA20", 0) or 0)
-        s50 = float(latest.get("SMA50", 0) or 0)
-        s200 = float(latest.get("SMA200", 0) or 0)
-        adx = float(latest.get("ADX", 0) or 0)
-        prior_high = float(latest.get("PRIOR_20D_HIGH", 0) or 0)
+        # Extract indicators safely — NaN = indicator not ready, hard skip
+        def _safe_val(series_val):
+            """Return float or None if value is missing/NaN."""
+            if series_val is None:
+                return None
+            v = float(series_val)
+            if math.isnan(v) or v == 0.0:
+                return None
+            return v
+        
+        e9 = _safe_val(latest.get("EMA9"))
+        e20 = _safe_val(latest.get("EMA20"))
+        s50 = _safe_val(latest.get("SMA50"))
+        s200 = _safe_val(latest.get("SMA200"))
+        adx_val = _safe_val(latest.get("ADX"))
+        prior_high = _safe_val(latest.get("PRIOR_20D_HIGH"))
+        
+        # Any uncomputed indicator = hard skip (not silently pass)
+        if any(v is None for v in (e9, e20, s50, s200, adx_val, prior_high)):
+            logger.debug(f"⏭️ {symbol} skipped — indicator NaN/missing "
+                         f"(e9={e9}, e20={e20}, s50={s50}, s200={s200}, adx={adx_val}, prior_high={prior_high})")
+            continue
+        
+        funnel["indicators_ok"] += 1
         
         if prior_high <= 0:
             continue
+
+        funnel["price_ok"] += 1
             
         dist_to_breakout = (prior_high - close) / prior_high
         
         # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
         # AND price must be within 0.5% to 3.0% of the breakout level
-        if e9 > e20 and e20 > s50 and close > s200 and adx > 20:
-            if 0.005 <= dist_to_breakout <= 0.03:
-                # We have an hourly approved setup!
-                upsert_breakout_watchlist(
-                    symbol=symbol,
-                    category=category,
-                    current_state="HOURLY_APPROVED",
-                    h1_status="PASSED",
-                    breakout_level=prior_high,
-                    trigger_level=prior_high
-                )
-                logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+        ema_ok = e9 > e20 and e20 > s50 and close > s200
+        adx_ok = adx_val > 20
+        dist_ok = 0.005 <= dist_to_breakout <= 0.03
+        
+        if ema_ok:
+            funnel["ema_pass"] += 1
+        if ema_ok and adx_ok:
+            funnel["adx_pass"] += 1
+        if ema_ok and adx_ok and dist_ok:
+            funnel["dist_pass"] += 1
+            # We have an hourly approved setup!
+            upsert_breakout_watchlist(
+                symbol=symbol,
+                category=category,
+                current_state="HOURLY_APPROVED",
+                h1_status="PASSED",
+                breakout_level=prior_high,
+                trigger_level=prior_high
+            )
+            funnel["approved"] += 1
+            logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+
+    # ── Log the funnel so we can see exactly where stocks drop off ────────
+    logger.info(f"📊 Phase A Funnel: total={funnel['total']} → data_ok={funnel['data_ok']} → "
+                f"indicators_ok={funnel['indicators_ok']} → price_ok={funnel['price_ok']} → "
+                f"ema_pass={funnel['ema_pass']} → adx_pass={funnel['adx_pass']} → "
+                f"dist_pass={funnel['dist_pass']} → approved={funnel['approved']}")
             
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
 
