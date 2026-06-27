@@ -41,7 +41,6 @@ from delivery_data import fetch_previous_day_delivery
 logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
-CHUNK_SIZE = 10
 
 # ── REVERSAL PARAMETERS ──────────────────────────────────────────────────────────────
 # [FIX 7] Single clean fixed drop band. Tightened lower bound to 20% (was 18%) to
@@ -305,7 +304,6 @@ def _run_scan(force: bool = False):
             except Exception:
                 pass
 
-    alerts_by_category = {}
     total_alerts = 0
     cooldown_skips = 0   # [FIX 1] observability for cooldown suppression
 
@@ -371,8 +369,8 @@ def _run_scan(force: bool = False):
                 continue
 
             # ── QUALITY FILTER 2: minimum liquidity ─────────────────────────────────
-            avg_vol = float(ticker["Volume"].iloc[-21:-1].mean())
-            if avg_vol < MIN_AVG_DAILY_VOLUME:
+            avg_vol_20d = float(ticker["Volume"].iloc[-21:-1].mean())
+            if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
                 continue
 
             # ── QUALITY FILTER 3: not a falling knife — must be within x% of SMA200 ─
@@ -455,11 +453,10 @@ def _run_scan(force: bool = False):
 
             # ── Volume confirmation — single threshold (FIX 4) ──────────────────────
             vol_now = float(latest["Volume"])
-            vol_avg = float(ticker["Volume"].iloc[-21:-1].mean())
-            if vol_avg <= 0:
+            if avg_vol_20d <= 0:
                 continue
 
-            vol_ratio = vol_now / vol_avg
+            vol_ratio = vol_now / avg_vol_20d
             if vol_ratio < MIN_VOLUME_RATIO:   # [FIX 4] the ONLY volume gate now
                 continue
 
@@ -671,7 +668,7 @@ def _run_scan(force: bool = False):
                     "trend_score", "rsi", "macd", "result_5d", "result_10d", "result_20d",
                     "max_runup", "max_drawdown"
                 ]
-                row = {
+                export_row = {
                     "symbol": symbol,
                     "date": today_str,
                     "score": reversal_score,
@@ -692,7 +689,7 @@ def _run_scan(force: bool = False):
                     writer = csv.DictWriter(f, fieldnames=header)
                     if write_header:
                         writer.writeheader()
-                    writer.writerow(row)
+                    writer.writerow(export_row)
             except Exception:
                 logger.exception(f"Failed to export reversal alert for {symbol}")
 
