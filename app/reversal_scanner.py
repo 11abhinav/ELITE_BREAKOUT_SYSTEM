@@ -686,37 +686,6 @@ def _run_scan(force: bool = False):
             except Exception:
                 logger.exception(f"Failed to export reversal alert for {symbol}")
 
-            alerts_by_category.setdefault(category, []).append({
-                "symbol":           symbol,
-                "category":         category,
-                "breakout_signals": reversal_signals,
-                "price":            round(close_price, 2),
-                "open":             round(float(latest["Open"]), 2),
-                "day_high":         round(float(latest["High"]), 2),
-                "day_low":          round(float(latest["Low"]), 2),
-                "rsi":              round(current_rsi, 1),
-                "volume_ratio":     round(vol_ratio, 2),
-                "body_ratio":       round(abs(close_price - float(latest["Open"])) / candle_range * 100)
-                if candle_range > 0 else 0,
-                "score":            reversal_score,
-                "above_ema20":      True,
-                "above_sma50":      above_sma50,        # FIX 2
-                "above_sma200":     above_sma200,       # FIX 2
-                "atr_stop":         suggested_stop,
-                "target_price":     target_price,
-                "target_2":         sl_result.get("target_2"),
-                "target_3":         sl_result.get("target_3"),
-                "sl_method":        sl_result.get("sl_method"),
-                "t_method":         sl_result.get("t_method"),
-                "rr_ratio":         sl_result.get("rr_ratio"),
-                "trail_note":       sl_result.get("trail_note"),
-                "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                "yoy_rev":          row.get("YOY Revenue %"),
-                "yoy_profit":       row.get("YOY Profit %"),
-                "roe":              row.get("ROE %"),
-                "capital_allocated": cap_alloc,
-                "shares_bought":     shares
-            })
             total_alerts += 1
 
         except Exception as e:
