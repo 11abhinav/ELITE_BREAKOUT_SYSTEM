@@ -3936,9 +3936,13 @@ def search_users(query: str) -> list:
                 cur.execute("""
                     SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
                     FROM users 
-                    WHERE username ILIKE %s OR email ILIKE %s OR mobile ILIKE %s
+                    WHERE username ILIKE %s 
+                       OR email ILIKE %s 
+                       OR mobile ILIKE %s
+                       OR first_name ILIKE %s
+                       OR last_name ILIKE %s
                     ORDER BY created_at DESC LIMIT 50
-                """, (search_term, search_term, search_term))
+                """, (search_term, search_term, search_term, search_term, search_term))
                 rows = cur.fetchall()
                 # Format dates
                 for r in rows:
