@@ -4893,6 +4893,7 @@ async function approveUser(id) {
         if(res.ok) {
             loadPendingUsers();
             fetchNotifications();
+            if (typeof searchUsers === 'function') searchUsers();
         } else {
             const data = await res.json();
             alert('Error: ' + data.error);
@@ -4910,6 +4911,7 @@ async function rejectUser(id) {
         if(res.ok) {
             loadPendingUsers();
             fetchNotifications();
+            if (typeof searchUsers === 'function') searchUsers();
         } else {
             const data = await res.json();
             alert('Error: ' + data.error);
