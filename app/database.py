@@ -3933,6 +3933,7 @@ def search_users(query: str) -> list:
             from psycopg2.extras import RealDictCursor
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 search_term = f"%{query}%"
+                limit_val = 50 if query else 5
                 cur.execute("""
                     SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
                     FROM users 
@@ -3941,15 +3942,17 @@ def search_users(query: str) -> list:
                        OR mobile ILIKE %s
                        OR first_name ILIKE %s
                        OR last_name ILIKE %s
-                    ORDER BY created_at DESC LIMIT 50
-                """, (search_term, search_term, search_term, search_term, search_term))
+                    ORDER BY created_at DESC LIMIT %s
+                """, (search_term, search_term, search_term, search_term, search_term, limit_val))
                 rows = cur.fetchall()
                 # Format dates
                 for r in rows:
-                    if r.get('created_at'):
-                        r['created_at'] = r['created_at'].strftime('%Y-%m-%d %H:%M')
-                    if r.get('last_login'):
-                        r['last_login'] = r['last_login'].strftime('%Y-%m-%d %H:%M')
+                    for field in ['created_at', 'last_login']:
+                        if r.get(field):
+                            if hasattr(r[field], 'strftime'):
+                                r[field] = r[field].strftime('%Y-%m-%d %H:%M')
+                            else:
+                                r[field] = str(r[field])
                 return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"Failed to search users: {e}")
