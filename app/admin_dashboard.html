@@ -3589,6 +3589,9 @@
       const btn = document.getElementById('refreshBtn');
       btn.classList.add('spinning');
       const data = await loadData();
+      
+      // Also refresh user management
+      searchUsers();
 
       // Alert Diffing Logic
       if (isAuto && data.trades && ALL_TRADES.length > 0) {
@@ -4968,6 +4971,7 @@ async function searchUsers() {
             <td>${u.role}</td>
             <td>${u.is_active ? '<span class="badge badge-win">Active</span>' : '<span class="badge badge-loss">Inactive</span>'}</td>
             <td>
+              ${!u.is_active ? `<button onclick="approveUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#000; margin-right:4px;">✅ Approve</button>` : ''}
               <button onclick="openResetPasswordModal(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px;">🔑 Reset Pwd</button>
             </td>
           </tr>
