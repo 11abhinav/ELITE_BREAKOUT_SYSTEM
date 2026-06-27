@@ -359,9 +359,9 @@ def _run_scan(force: bool = False):
                 continue
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
-            # [FIX 7] Single clean fixed drop band (20–45%). Allow deeper 45–60% with penalty; reject >60%.
+            # [FIX 7] Single clean fixed drop band (20–45%). Reject >45%.
             if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > 45.0:
-                # reject very deep drawdowns > 60%
+                # reject drawdowns > 45%
                 continue
 
             # ── QUALITY FILTER 1: minimum price ─────────────────────────────────────
@@ -587,13 +587,7 @@ def _run_scan(force: bool = False):
                 continue
 
             # Compute trend_score for export/analysis (same logic as scorer's trend block)
-            trend_score = 0
-            if above_sma50 and above_sma200:
-                trend_score = 25
-            elif above_sma50:
-                trend_score = 18
-            elif above_sma200 and (delivery_pct is not None and delivery_pct >= 40.0):
-                trend_score = 12
+            trend_score = 25 if (above_sma50 and above_sma200) else 18
 
             # ─────────────────────────────────────────────────────────────────────
 
