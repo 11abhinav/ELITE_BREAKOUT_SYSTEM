@@ -2186,7 +2186,7 @@ def get_pending_users():
     try:
         with database.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT user_id, username, email, first_name, last_name, mobile, created_at FROM users WHERE is_active = FALSE")
+                cur.execute("SELECT user_id, username, email, first_name, last_name, mobile, created_at FROM users WHERE is_active = FALSE AND (account_status = 'pending' OR account_status IS NULL)")
                 rows = cur.fetchall()
                 users = []
                 for r in rows:
@@ -2209,7 +2209,7 @@ def approve_user(user_id):
     try:
         with database.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE users SET is_active = TRUE WHERE user_id = %s", (user_id,))
+                cur.execute("UPDATE users SET is_active = TRUE, account_status = 'approved' WHERE user_id = %s", (user_id,))
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -2222,7 +2222,7 @@ def reject_user(user_id):
     try:
         with database.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+                cur.execute("UPDATE users SET is_active = FALSE, account_status = 'rejected', session_token = NULL WHERE user_id = %s", (user_id,))
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -2235,7 +2235,7 @@ def deactivate_user(user_id):
     try:
         with database.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE users SET is_active = FALSE, session_token = NULL WHERE user_id = %s", (user_id,))
+                cur.execute("UPDATE users SET is_active = FALSE, account_status = 'rejected', session_token = NULL WHERE user_id = %s", (user_id,))
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:

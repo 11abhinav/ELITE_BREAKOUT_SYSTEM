@@ -727,9 +727,14 @@ def init_db():
                         ALTER TABLE users ADD COLUMN locked_until TIMESTAMP WITH TIME ZONE;
                         ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE;
                         ALTER TABLE users ADD COLUMN session_token UUID;
+                        ALTER TABLE users ADD COLUMN account_status VARCHAR(20) DEFAULT 'pending';
                     END IF;
                 END $$;
                 """)
+                # Handle edge cases for users who might already exist
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'pending'")
+                cur.execute("UPDATE users SET account_status = 'approved' WHERE is_active = TRUE AND (account_status = 'pending' OR account_status IS NULL)")
+                cur.execute("UPDATE users SET account_status = 'rejected' WHERE is_active = FALSE AND (account_status IS NULL)")
                 
                 # Clean up existing rows
                 cur.execute("UPDATE users SET email = username || '@elitebreakout.temp' WHERE email IS NULL")
