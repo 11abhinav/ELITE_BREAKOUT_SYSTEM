@@ -29,7 +29,7 @@ def get_mean_reversion_signal(r: pd.Series) -> tuple[str, str]:
     
     # Only for fundamentally Elite stocks
     if score < 85:
-        return ""
+        return "", ""
         
     opp = calculate_mean_reversion_opportunity(cmp, sma, rsi)
     if opp["is_reversion"]:
