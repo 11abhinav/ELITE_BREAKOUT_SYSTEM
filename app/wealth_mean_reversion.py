@@ -18,7 +18,7 @@ def calculate_mean_reversion_opportunity(cmp: float, sma_200: float, rsi_14: flo
         
     return {"is_reversion": False, "discount_pct": discount}
 
-def get_mean_reversion_signal(r: pd.Series) -> str:
+def get_mean_reversion_signal(r: pd.Series) -> tuple[str, str]:
     """
     Evaluates if the stock triggers a mean reversion BUY.
     """
@@ -33,6 +33,6 @@ def get_mean_reversion_signal(r: pd.Series) -> str:
         
     opp = calculate_mean_reversion_opportunity(cmp, sma, rsi)
     if opp["is_reversion"]:
-        return f"BUY (Mean Reversion — {opp['discount_pct']:.1f}% Discount)"
+        return "BUY", f"Mean Reversion — {opp['discount_pct']:.1f}% Discount"
         
-    return ""
+    return "", ""

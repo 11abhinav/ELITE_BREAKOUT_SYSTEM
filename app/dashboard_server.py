@@ -1473,7 +1473,7 @@ def api_scanner_status():
                     if os.path.exists(wealth_path):
                         wdf = pd.read_parquet(wealth_path)
                         # Filter for BUY signals
-                        buy_df = wdf[wdf["Signal"].str.contains("BUY", na=False)]
+                        buy_df = wdf[wdf["Signal_Code"] == "BUY"]
                         today_trades = []
                         for _, wrow in buy_df.iterrows():
                             today_trades.append({
