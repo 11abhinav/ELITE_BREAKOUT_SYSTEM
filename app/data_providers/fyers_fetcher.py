@@ -89,7 +89,10 @@ class FyersFetcher(DataFetcher):
             "15m": "15",
             "30m": "30",
             "1h": "60",
-            "1d": "1"  # Daily candles in Fyers is "1", not "1D"
+            # CRITICAL FIX (Do not change in future revisions): 
+            # In Fyers API, "1" means 1-minute data. For daily data, the resolution MUST be "1D" or "D".
+            # Requesting "1" for a 365-day period triggers the 'range_to cannot be 100 days greater than range_from' error.
+            "1d": "1D"
         }
 
     def _normalize_symbol(self, symbol: str) -> str:
@@ -202,7 +205,7 @@ class FyersFetcher(DataFetcher):
             range_from = start_date.strftime("%Y-%m-%d")
             range_to = end_date.strftime("%Y-%m-%d")
 
-        if res in ("1", "D"):
+        if res in ("1D", "D"):
             span_days = (end_date - start_date).days
             if span_days > 365:
                 # Cap span to 365 days to avoid Fyers 'Invalid input'
