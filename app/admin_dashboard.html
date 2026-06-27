@@ -4947,9 +4947,9 @@ async function rejectUser(id) {
 
 <!-- DEACTIVATE USER MODAL -->
 <div id="deactivateUserModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
-  <div class="card" style="width:350px; padding:20px; border: 1px solid var(--danger);">
+  <div class="card" style="width:350px; padding:20px; border: 1px solid var(--warn);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <div style="font-weight:600; color:var(--danger);">Deactivate User</div>
+      <div style="font-weight:600; color:var(--warn);">Deactivate User</div>
       <button onclick="document.getElementById('deactivateUserModal').style.display='none'" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">&times;</button>
     </div>
     <input type="hidden" id="deactivateUserId">
@@ -4963,7 +4963,7 @@ async function rejectUser(id) {
       <input type="text" id="deactivateUsernameInput" style="width:100%; padding:8px; background:var(--card2); border:1px solid var(--border); color:var(--text); border-radius:6px; margin-top:4px;" onkeyup="checkDeactivateMatch()">
     </div>
     
-    <button id="deactivateConfirmBtn" class="refresh-btn" onclick="submitDeactivateUser()" style="width:100%; background:var(--danger); color:#fff; border:none; justify-content:center;" disabled>Confirm Deactivation</button>
+    <button id="deactivateConfirmBtn" class="refresh-btn" onclick="submitDeactivateUser()" style="width:100%; background:var(--warn); color:#fff; border:none; justify-content:center;" disabled>Confirm Deactivation</button>
   </div>
 </div>
 
@@ -4996,8 +4996,8 @@ async function searchUsers() {
             <td>${u.is_active ? '<span class="badge badge-win">Active</span>' : '<span class="badge badge-loss">Inactive</span>'}</td>
             <td>
               ${!u.is_active 
-                ? `<button onclick="approveUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#000; margin-right:4px;">✅ Approve</button>` 
-                : `<button onclick="openDeactivateModal(${u.user_id}, '${u.username.replace(/'/g, "\\'")}')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--danger); color:#fff; border-color:var(--danger); margin-right:4px;">❌ Deactivate</button>`}
+                ? `<button onclick="approveUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#fff; margin-right:4px; border:none;">✅ Approve</button>` 
+                : `<button onclick="openDeactivateModal(${u.user_id}, '${u.username.replace(/'/g, "\\'")}')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--warn); color:#fff; border:none; margin-right:4px;">❌ Deactivate</button>`}
               <button onclick="openResetPasswordModal(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px;">🔑 Reset Pwd</button>
             </td>
           </tr>
