@@ -46,6 +46,14 @@ class YFinanceFetcher(DataFetcher):
         logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         for attempt in range(retries):
             try:
+                # Add night buffer to avoid rate limits at 1 AM
+                from zoneinfo import ZoneInfo
+                from datetime import datetime
+                IST = ZoneInfo("Asia/Kolkata")
+                now = datetime.now(IST)
+                if 0 <= now.hour <= 6:
+                    time.sleep(1.5)
+
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
                 yf_acquire()
                 try:
@@ -94,6 +102,14 @@ class YFinanceFetcher(DataFetcher):
         ns_symbols = list(normalized_map.keys())
 
         try:
+            # Add night buffer to avoid rate limits at 1 AM
+            from zoneinfo import ZoneInfo
+            from datetime import datetime
+            IST = ZoneInfo("Asia/Kolkata")
+            now = datetime.now(IST)
+            if 0 <= now.hour <= 6:
+                time.sleep(1.5)
+
             fetched = provider.fetch_batch(ns_symbols, period=period, interval=interval)
         except Exception as e:
             logger.warning(f"Batch provider fetch failed: {e}")
@@ -165,9 +181,49 @@ class AutoSwitchingFetcher(DataFetcher):
         try:
             import fyers_auth
             import config
+            import os
             if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
                 return False
             token = fyers_auth.get_access_token()
+            
+            if not token:
+                # Debounce logic for Telegram ping (once per day)
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                IST = ZoneInfo("Asia/Kolkata")
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                ping_file = os.path.join(config.DATA_DIR, "fyers_ping.lock")
+                
+                last_ping = ""
+                if os.path.exists(ping_file):
+                    with open(ping_file, "r") as f:
+                        last_ping = f.read().strip()
+                        
+                if last_ping != today_str:
+                    from telegram_engine import send_telegram_message
+                    msg = (
+                        "🚨 <b>Fyers Authentication Failed</b>\n\n"
+                        "The daily Fyers token is missing or expired. "
+                        "The system is currently falling back to Yahoo Finance.\n\n"
+                        "🔗 <b>Action Required:</b>\n"
+                        "Please login to authorize: <a href='https://elitebreakoutsystem-production.up.railway.app/fyers/login'>Authorize Fyers</a>"
+                    )
+                    send_telegram_message(msg)
+                    
+                    try:
+                        from database import insert_notification
+                        insert_notification(
+                            notif_type="error",
+                            title="Fyers Auth Failed",
+                            message="Token expired. System fell back to Yahoo. Click here to <a href='/fyers/login' style='text-decoration:underline'>Authorize</a>.",
+                            symbol="SYSTEM"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to insert dashboard notification: {e}")
+                        
+                    with open(ping_file, "w") as f:
+                        f.write(today_str)
+                        
             return token is not None
         except Exception:
             return False
@@ -218,8 +274,8 @@ def get_fetcher() -> DataFetcher:
         from data_providers.kite_fetcher import KiteFetcher
         return KiteFetcher()
     elif DATA_PROVIDER == "fyers":
-        from data_providers.fyers_fetcher import FyersFetcher
-        return FyersFetcher()
+        # Force AutoSwitchingFetcher so it gracefully falls back to YFinance if Fyers auth is missing
+        return AutoSwitchingFetcher()
     elif DATA_PROVIDER == "yfinance":
         return YFinanceFetcher()
     
