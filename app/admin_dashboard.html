@@ -1572,7 +1572,7 @@
       <div class="section-label">User Management</div>
       <div class="card" style="margin-bottom:28px">
         <div class="filter-bar">
-          <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:250px" onkeydown="if(event.key === 'Enter') searchUsers()">
+          <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:250px" oninput="debounceSearchUsers()">
           <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:600;">🔍 Search</button>
         </div>
         <div class="tbl-wrap" style="margin-top: 16px;">
@@ -4941,6 +4941,14 @@ async function rejectUser(id) {
 </div>
 
 <script>
+let userSearchTimeout = null;
+function debounceSearchUsers() {
+  clearTimeout(userSearchTimeout);
+  userSearchTimeout = setTimeout(() => {
+    searchUsers();
+  }, 300);
+}
+
 async function searchUsers() {
   const query = document.getElementById('userSearchInput').value;
   const tbody = document.getElementById('userSearchResults');
