@@ -213,7 +213,7 @@ def login():
         path = get_html_path("login.html")
         return send_file(path) if path and os.path.exists(path) else "login.html missing"
         
-    identifier = request.form.get("username")
+    identifier = request.form.get("username", "").strip()
     password = request.form.get("password")
     
     if not identifier or not password:
@@ -605,6 +605,43 @@ def admin_index():
         "⚠️ admin_dashboard.html not found.</h2>",
         mimetype="text/html",
     )
+
+
+@app.route("/api/admin/users/search", methods=["GET"])
+@admin_required
+def api_admin_users_search():
+    query = request.args.get("q", "").strip()
+    try:
+        from database import search_users
+        users = search_users(query)
+        return jsonify({"users": users})
+    except Exception as e:
+        logger.error(f"Error searching users: {e}")
+        return jsonify({"error": "Failed to search users"}), 500
+
+
+@app.route("/api/admin/users/reset_password", methods=["POST"])
+@admin_required
+@csrf.exempt
+def api_admin_reset_password():
+    data = request.json or {}
+    user_id = data.get("user_id")
+    new_password = data.get("new_password")
+    force_change = data.get("force_change", False)
+    if not user_id or not new_password:
+        return jsonify({"error": "Missing user_id or new_password"}), 400
+        
+    try:
+        from database import admin_reset_password
+        success = admin_reset_password(user_id, new_password, force_change)
+        if success:
+            msg = "Password reset successfully. User must change it on next login." if force_change else "Password reset successfully."
+            return jsonify({"success": True, "message": msg})
+        else:
+            return jsonify({"error": "Failed to reset password."}), 400
+    except Exception as e:
+        logger.error(f"Error resetting password: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route("/data/performance_data.json")

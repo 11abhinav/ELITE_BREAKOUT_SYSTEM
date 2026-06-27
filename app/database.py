@@ -3927,6 +3927,46 @@ def verify_user(identifier, password):
         logger.error(f"Failed to verify user: {e}")
         return None
 
+def search_users(query: str) -> list:
+    try:
+        with get_connection() as conn:
+            from psycopg2.extras import RealDictCursor
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                search_term = f"%{query}%"
+                cur.execute("""
+                    SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
+                    FROM users 
+                    WHERE username ILIKE %s OR email ILIKE %s OR mobile ILIKE %s
+                    ORDER BY created_at DESC LIMIT 50
+                """, (search_term, search_term, search_term))
+                rows = cur.fetchall()
+                # Format dates
+                for r in rows:
+                    if r.get('created_at'):
+                        r['created_at'] = r['created_at'].strftime('%Y-%m-%d %H:%M')
+                    if r.get('last_login'):
+                        r['last_login'] = r['last_login'].strftime('%Y-%m-%d %H:%M')
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to search users: {e}")
+        return []
+
+def admin_reset_password(user_id: int, new_password: str, force_change: bool = False) -> bool:
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                p_hash = generate_password_hash(new_password, method='scrypt')
+                cur.execute("""
+                    UPDATE users 
+                    SET password_hash = %s, failed_login_attempts = 0, must_change_password = %s
+                    WHERE user_id = %s
+                """, (p_hash, force_change, user_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reset password for user {user_id}: {e}")
+        return False
+
 def check_session_validity(user_id: int, session_token: str) -> bool:
     """Check if the user is active and their session token matches the DB."""
     if not user_id or not session_token:
