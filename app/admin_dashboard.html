@@ -4975,7 +4975,7 @@ async function searchUsers() {
             <td>
               ${!u.is_active 
                 ? `<button onclick="approveUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#000; margin-right:4px;">✅ Approve</button>` 
-                : `<button onclick="deactivateUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--danger); color:#fff; border-color:var(--danger); margin-right:4px;">❌ Deactivate</button>`}
+                : `<button onclick="deactivateUser(${u.user_id}, '${u.username.replace(/'/g, "\\'")}')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--danger); color:#fff; border-color:var(--danger); margin-right:4px;">❌ Deactivate</button>`}
               <button onclick="openResetPasswordModal(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px;">🔑 Reset Pwd</button>
             </td>
           </tr>
@@ -4996,8 +4996,13 @@ function openResetPasswordModal(userId) {
   document.getElementById('resetPasswordModal').style.display = 'flex';
 }
 
-async function deactivateUser(id) {
-  if (!confirm("Are you sure you want to deactivate this user? They will be logged out immediately and cannot log back in.")) return;
+async function deactivateUser(id, username) {
+  const input = prompt(`WARNING: Deactivating this user will log them out immediately and they cannot log back in.\n\nType the username "${username}" to confirm deactivation:`);
+  if (input !== username) {
+    if (input !== null) alert("Username did not match. Deactivation cancelled.");
+    return;
+  }
+  
   try {
     const res = await fetch('/admin/deactivate_user/' + id, { method: 'POST' });
     if (res.ok) {
