@@ -1351,7 +1351,7 @@ def upsert_scanner_health(
     # Normalize and sanitize status values to match DB CHECK constraint
     if status is not None:
         status = str(status).upper()
-    allowed_statuses = {'OK', 'DOWN', 'IDLE'}
+    allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING'}
     if status is not None and status not in allowed_statuses:
         logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
         status = 'IDLE'

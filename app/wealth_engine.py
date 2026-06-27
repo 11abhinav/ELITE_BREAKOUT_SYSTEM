@@ -835,7 +835,7 @@ def run_wealth_scan():
         elif breadth_pct is not None and breadth_pct < 30:
             GLOBAL_BUY_SUPPRESSED = True
             suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
-        elif fresh_ratio < 0.70:
+        elif fresh_ratio < 0.70 and degraded >= 3:
             GLOBAL_BUY_SUPPRESSED = True
             suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
             
