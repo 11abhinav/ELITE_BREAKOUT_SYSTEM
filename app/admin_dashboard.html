@@ -1572,6 +1572,11 @@
       <div class="section-label">User Management</div>
       <div class="card" style="margin-bottom:28px">
         <div class="filter-bar">
+          <select id="userStatusFilter" onchange="searchUsers()" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
+            <option value="all">All Users</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
           <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:250px" oninput="debounceSearchUsers()">
           <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:600;">🔍 Search</button>
         </div>
@@ -4978,10 +4983,11 @@ function debounceSearchUsers() {
 
 async function searchUsers() {
   const query = document.getElementById('userSearchInput').value;
+  const status = document.getElementById('userStatusFilter').value;
   const tbody = document.getElementById('userSearchResults');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Loading...</td></tr>';
   try {
-    const res = await fetch(`/api/admin/users/search?q=${encodeURIComponent(query)}`);
+    const res = await fetch(`/api/admin/users/search?q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`);
     const data = await res.json();
     if (data.users && data.users.length > 0) {
       let html = '';

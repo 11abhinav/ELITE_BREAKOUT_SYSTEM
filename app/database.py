@@ -3927,23 +3927,31 @@ def verify_user(identifier, password):
         logger.error(f"Failed to verify user: {e}")
         return None
 
-def search_users(query: str) -> list:
+def search_users(query: str, status_filter: str = "all") -> list:
     try:
         with get_connection() as conn:
             from psycopg2.extras import RealDictCursor
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 search_term = f"%{query}%"
-                limit_val = 50 if query else 5
-                cur.execute("""
+                limit_val = 50 if query or status_filter != "all" else 5
+                
+                status_condition = ""
+                if status_filter == "active":
+                    status_condition = "AND is_active = TRUE"
+                elif status_filter == "inactive":
+                    status_condition = "AND is_active = FALSE"
+
+                cur.execute(f"""
                     SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
                     FROM users 
-                    WHERE username ILIKE %s 
+                    WHERE (username ILIKE %s 
                        OR email ILIKE %s 
                        OR mobile ILIKE %s
                        OR first_name ILIKE %s
-                       OR last_name ILIKE %s
+                       OR last_name ILIKE %s)
+                    {{status_condition}}
                     ORDER BY created_at DESC LIMIT %s
-                """, (search_term, search_term, search_term, search_term, search_term, limit_val))
+                """.format(status_condition=status_condition), (search_term, search_term, search_term, search_term, search_term, limit_val))
                 rows = cur.fetchall()
                 # Format dates
                 for r in rows:

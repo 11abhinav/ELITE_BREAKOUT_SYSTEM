@@ -611,9 +611,10 @@ def admin_index():
 @admin_required
 def api_admin_users_search():
     query = request.args.get("q", "").strip()
+    status_filter = request.args.get("status", "all").strip().lower()
     try:
         from database import search_users
-        users = search_users(query)
+        users = search_users(query, status_filter)
         return jsonify({"users": users})
     except Exception as e:
         logger.error(f"Error searching users: {e}")
