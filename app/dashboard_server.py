@@ -2227,3 +2227,16 @@ def reject_user(user_id):
     except Exception as e:
         logger.error(f"Failed to reject user: {e}")
         return jsonify({"error": "Failed to reject user"}), 500
+
+@app.route("/admin/deactivate_user/<int:user_id>", methods=["POST"])
+@admin_required
+def deactivate_user(user_id):
+    try:
+        with database.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET is_active = FALSE, session_token = NULL WHERE user_id = %s", (user_id,))
+            conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Failed to deactivate user: {e}")
+        return jsonify({"error": "Failed to deactivate user"}), 500
