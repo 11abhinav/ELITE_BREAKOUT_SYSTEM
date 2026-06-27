@@ -357,7 +357,7 @@
     formData.append('csrf_token', csrfToken);
     
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch('/signup', {
         method: 'POST',
         body: formData,
         headers: {
