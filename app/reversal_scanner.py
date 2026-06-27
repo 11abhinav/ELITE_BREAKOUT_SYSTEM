@@ -27,7 +27,6 @@ from database import init_db, save_alert_if_new, upsert_fetch_error
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 from config import (
-    WATCHLIST_PATH, 
     CLIMAX_VOLUME_LOOKBACK, 
     MIN_CANDLE_RANGE_PCT, 
     MIN_STOCK_PRICE,
