@@ -1569,34 +1569,49 @@
       </div>
 
       <!-- USER MANAGEMENT -->
-      <div class="section-label">User Management</div>
-      <div class="card" style="margin-bottom:28px">
-        <div class="filter-bar">
-          <select id="userStatusFilter" onchange="searchUsers()" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
-            <option value="all">All Users</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:250px" oninput="debounceSearchUsers()">
-          <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:600;">🔍 Search</button>
+      <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
+        <div id="user-management-header"
+          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
+          onclick="toggleUserManagement()">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-weight: 600; color: var(--text); font-size:16px;">👥 User Management</span>
+          </div>
+          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span id="user-management-status">Click to expand</span>
+            <svg id="user-management-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" style="transition: transform 0.2s; transform: rotate(0deg);">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
         </div>
-        <div class="tbl-wrap" style="margin-top: 16px;">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Username</th>
-                <th>Email</th>
-                <th>Mobile</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="userSearchResults">
-              <tr><td colspan="7" style="text-align:center;color:var(--muted)">Search for users above.</td></tr>
-            </tbody>
-          </table>
+        <div id="user-management-body" style="display: none; padding: 20px; background: var(--bg);">
+          <div class="filter-bar" style="margin-top:0;">
+            <select id="userStatusFilter" onchange="searchUsers()" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
+              <option value="all">All Users</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:250px" oninput="debounceSearchUsers()">
+            <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:600;">🔍 Search</button>
+          </div>
+          <div class="tbl-wrap" style="margin-top: 16px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Mobile</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="userSearchResults">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted)">Search for users above.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1977,6 +1992,26 @@
         by_scanner: {}, by_category: {}, equity_curve: [], monthly: [],
       };
 
+    }
+
+    function toggleUserManagement() {
+      const body = document.getElementById('user-management-body');
+      const icon = document.getElementById('user-management-icon');
+      const status = document.getElementById('user-management-status');
+      
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+        status.textContent = 'Click to collapse';
+        // Auto search if not loaded yet
+        if(document.getElementById('userSearchResults').innerHTML.includes("Search for users above.")) {
+           searchUsers();
+        }
+      } else {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        status.textContent = 'Click to expand';
+      }
     }
 
     // ── DIAGNOSTICS LAZY LOADING
