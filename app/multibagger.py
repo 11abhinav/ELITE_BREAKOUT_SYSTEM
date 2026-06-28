@@ -880,10 +880,10 @@ def run_standalone_exit_monitor():
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT symbol, current_price, entry_price 
-                    FROM stockupdates.wealth_buy_alert 
+                    SELECT symbol, current_price, alert_price as entry_price 
+                    FROM wealth_buy_alert 
                     WHERE status = 'ACTIVE' 
-                    AND source = 'MULTIBAGGER'
+                    AND breakout_type = 'MULTIBAGGER'
                 """)
                 open_positions = cur.fetchall()
                 
