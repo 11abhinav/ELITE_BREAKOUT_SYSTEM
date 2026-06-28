@@ -57,7 +57,17 @@ class YFinanceFetcher(DataFetcher):
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
                 yf_acquire()
                 try:
-                    df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False)
+                    if range_from and range_to:
+                        from datetime import datetime, timedelta
+                        try:
+                            start_date = range_from
+                            end_dt = datetime.strptime(range_to, "%Y-%m-%d") + timedelta(days=1)
+                            end_date = end_dt.strftime("%Y-%m-%d")
+                            df = yf.download(ns_sym, interval=interval, start=start_date, end=end_date, progress=False, auto_adjust=True, threads=False)
+                        except Exception as e:
+                            df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False)
+                    else:
+                        df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False)
                 finally:
                     yf_release()
 
@@ -110,7 +120,19 @@ class YFinanceFetcher(DataFetcher):
             if 0 <= now.hour <= 6:
                 time.sleep(1.5)
 
-            fetched = provider.fetch_batch(ns_symbols, period=period, interval=interval)
+            start_date = None
+            end_date = None
+            if range_from and range_to:
+                from datetime import datetime, timedelta
+                try:
+                    start_date = range_from
+                    end_dt = datetime.strptime(range_to, "%Y-%m-%d") + timedelta(days=1)
+                    end_date = end_dt.strftime("%Y-%m-%d")
+                except Exception as e:
+                    logger.warning(f"Error parsing range dates: {e}")
+                    start_date, end_date = None, None
+
+            fetched = provider.fetch_batch(ns_symbols, period=period, interval=interval, start=start_date, end=end_date)
         except Exception as e:
             logger.warning(f"Batch provider fetch failed: {e}")
             fetched = {}

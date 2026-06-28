@@ -139,7 +139,7 @@ class PriceProvider:
         with self.cache_lock:
             self.cache[key] = (time.time() + ttl, value)
 
-    def _download_batch(self, tickers: List[str], period: str, interval: str):
+    def _download_batch(self, tickers: List[str], period: str, interval: str, start: str = None, end: str = None):
         """Download a batch of tickers via yfinance and return mapping ticker->DataFrame."""
         if not tickers:
             return {}
@@ -159,7 +159,10 @@ class PriceProvider:
 
             tickers_arg = " ".join(tickers)
             try:
-                df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=30)
+                if start and end:
+                    df = yf.download(tickers=tickers_arg, start=start, end=end, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60)
+                else:
+                    df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60)
                 # success
                 last_exc = None
                 break
@@ -218,7 +221,7 @@ class PriceProvider:
 
         return result
 
-    def fetch_batch(self, tickers: List[str], period: str = "5d", interval: str = "5m") -> Dict[str, object]:
+    def fetch_batch(self, tickers: List[str], period: str = "5d", interval: str = "5m", start: str = None, end: str = None) -> Dict[str, object]:
         """Fetch OHLCV data for tickers in batches. Returns ticker->DataFrame mapping.
 
         This function will batch the tickers into groups of `batch_size`, consult cache per-batch
@@ -240,7 +243,7 @@ class PriceProvider:
 
         # First consult per-symbol cache. If stale exists, keep it in stale_map and schedule for refresh.
         for t in tickers:
-            key = (t, period, interval)
+            key = (t, period, interval, start, end)
             val, is_stale = self._cache_get(key, allow_stale=True)
             if val is not None and not is_stale:
                 outputs[t] = val
@@ -270,7 +273,7 @@ class PriceProvider:
         batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
         if batches:
             with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
-                futures = {ex.submit(self._download_batch, batch, period, interval): idx for idx, batch in enumerate(batches)}
+                futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
                 for fut in as_completed(futures):
                     idx = futures[fut]
                     batch = batches[idx]
@@ -292,7 +295,7 @@ class PriceProvider:
                                     outputs[t] = None
                                 # don't overwrite cache in this case
                             else:
-                                self._cache_set((t, period, interval), frame)
+                                self._cache_set((t, period, interval, start, end), frame)
                                 outputs[t] = frame
                     except Exception as e:
                         # On failure (possibly rate limit), return stale values for this batch where available
