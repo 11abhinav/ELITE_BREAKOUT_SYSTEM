@@ -17,6 +17,7 @@ from psycopg2.extras import execute_values
 
 from database import get_connection, save_wealth_buy_alert, close_position
 from telegram_engine import queue_telegram_message
+from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 
 logger = logging.getLogger("multibagger")
 IST = ZoneInfo("Asia/Kolkata")
@@ -1030,12 +1031,21 @@ def start(debug_limit: int = None):
             logger.info(f"🌟 Alert Triggered for {sym}! FV={fair_val:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
             scaled_score = int(total * 5.0)
             
+            # Compute position sizing (total_score 0-20 → momentum 0-100)
+            momentum_for_sizing = min(100, int(total * 5.0))
+            sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
+            pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
+            
             save_wealth_buy_alert(
                 symbol=sym,
                 alert_price=price_data.price,
                 breakout_type="MULTIBAGGER",
                 fm_score=scaled_score,
                 notes=notes,
+                position_pct=round(sizing["Position_Pct"] * 100, 2),
+                position_amount=sizing["Position_Amount"],
+                position_shares=pos_shares,
+                portfolio_bucket="MULTIBAGGER",
                 valuation_score=pas,
                 momentum_score=int(cqs),
                 momentum_confidence="HIGH" if cqs >= 7.0 else "MEDIUM"

@@ -1933,6 +1933,51 @@ def api_concall_ai(symbol):
         return jsonify(res), 500 if "extract text" in res.get("error", "") else 404
     return jsonify(res)
 
+# ── Multibagger Watchlist API ───────────────────────────────────────────────────────────
+
+@app.route("/api/multibagger/watchlist", methods=["GET"])
+@login_required
+def get_multibagger_watchlist():
+    """Returns all stockupdates.watchlist entries for the Multibagger Watchlist tab."""
+    from database import get_connection
+    from psycopg2.extras import RealDictCursor
+    try:
+        status_filter = request.args.get("status")
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if status_filter:
+                    cur.execute("""
+                        SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
+                               growth_score, value_score, trend_score, total_score,
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
+                        FROM stockupdates.watchlist
+                        WHERE status = %s
+                        ORDER BY total_score DESC NULLS LAST
+                    """, (status_filter,))
+                else:
+                    cur.execute("""
+                        SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
+                               growth_score, value_score, trend_score, total_score,
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
+                        FROM stockupdates.watchlist
+                        ORDER BY total_score DESC NULLS LAST
+                    """)
+                rows = cur.fetchall()
+        # Convert Decimal/datetime to JSON-safe types
+        import decimal, datetime as _dt
+        def safe(row):
+            d = dict(row)
+            for k, v in d.items():
+                if isinstance(v, decimal.Decimal):
+                    d[k] = float(v)
+                elif isinstance(v, (_dt.datetime, _dt.date)):
+                    d[k] = v.isoformat()
+            return d
+        return jsonify([safe(r) for r in rows])
+    except Exception as e:
+        logger.error(f"Failed to fetch multibagger watchlist: {e}")
+        return jsonify([])
+
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
 
 @app.route("/api/wealth/alerts", methods=["GET"])
