@@ -13,8 +13,9 @@ from zoneinfo import ZoneInfo
 from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
+from psycopg2.extras import execute_values
 
-from database import get_connection, save_wealth_buy_alert
+from database import get_connection, save_wealth_buy_alert, close_position
 from telegram_engine import queue_telegram_message
 
 logger = logging.getLogger("multibagger")
@@ -44,6 +45,16 @@ class StockPriceData:
     low_52w: float
     high_52w: float
     turnover_20d: float
+    sma_20: float
+    sma_50: float
+    sma_200: float
+    high_20d: float
+    high_60d: float
+    mom_3m: float
+    latest_volume: float
+    volume_sma20: float
+    close_yesterday: float
+    sma_200_yesterday: float
 
 @dataclass
 class StockFundamentals:
@@ -59,6 +70,8 @@ class StockFundamentals:
     pb: float
     div_yield: float
     sector: str
+    eps: float
+    bvps: float
 
 @dataclass
 class ScreenerResult:
@@ -66,7 +79,13 @@ class ScreenerResult:
     price: float
     cqs: float
     pas: float
-    label: str
+    trend_score: float
+    total_score: float
+    fair_value: float
+    buy_zone_low: float
+    buy_zone_high: float
+    bucket: str
+    status: str
     notes: str
 
 class YFinanceRateLimitGuard:
@@ -119,7 +138,20 @@ def init_db_schema():
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stockupdates.watchlist (
                         symbol VARCHAR(50) PRIMARY KEY,
-                        bse_code VARCHAR(20),
+                        fair_value NUMERIC(10, 2),
+                        buy_zone_low NUMERIC(10, 2),
+                        buy_zone_high NUMERIC(10, 2),
+                        latest_price NUMERIC(10, 2),
+                        growth_score NUMERIC(4, 1),
+                        value_score NUMERIC(4, 1),
+                        trend_score NUMERIC(4, 1),
+                        total_score NUMERIC(4, 1),
+                        bucket VARCHAR(50),
+                        status VARCHAR(50),
+                        notes TEXT,
+                        last_alert_price NUMERIC(10, 2),
+                        last_alert_at TIMESTAMP,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
@@ -191,12 +223,12 @@ def fetch_constituents() -> list:
     return sorted(normalized)
 
 def batch_download_market_data(symbols: list) -> dict:
-    """Download historical price/volume data in bulk for all tickers."""
+    """Download historical price/volume data in bulk for all tickers using explicit auto_adjust=False."""
     ticker_names = [f"{sym}.NS" for sym in symbols]
     logger.info(f"📥 Batch downloading 1y history for {len(ticker_names)} tickers...")
     
     try:
-        df = yf.download(ticker_names, period="1y", interval="1d", group_by="ticker", progress=False)
+        df = yf.download(ticker_names, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False)
         
         results = {}
         for sym in symbols:
@@ -205,27 +237,52 @@ def batch_download_market_data(symbols: list) -> dict:
                 if ticker_name not in df.columns.levels[0]:
                     continue
                 ticker_df = df[ticker_name].dropna(subset=["Close"])
-                if ticker_df.empty:
+                if len(ticker_df) < 50: # Ensure we have enough data points for SMAs
                     continue
                 
-                close_price = float(ticker_df.iloc[-1]["Close"])
+                close_series = ticker_df["Close"]
+                vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
+                
+                close_price = float(close_series.iloc[-1])
+                close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else close_price
                 
                 # 1-day change percent
-                if len(ticker_df) >= 2:
-                    prev_close = float(ticker_df.iloc[-2]["Close"])
+                if len(close_series) >= 2:
+                    prev_close = float(close_series.iloc[-2])
                     change_pct = ((close_price - prev_close) / prev_close) * 100.0
                 else:
                     change_pct = 0.0
                 
-                low_52w = float(ticker_df["Close"].min())
-                high_52w = float(ticker_df["Close"].max())
+                low_52w = float(close_series.min())
+                high_52w = float(close_series.max())
                 
-                # 20-day median trading turnover (average daily turnover)
+                # Compute 20-day average liquidity (Volume * Close)
                 recent_20 = ticker_df.tail(20)
                 if not recent_20.empty and "Volume" in recent_20.columns:
                     avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
                 else:
                     avg_turnover = 0.0
+                
+                # Calculate rolling averages & windows using pandas
+                sma_20 = float(close_series.rolling(20).mean().iloc[-1])
+                sma_50 = float(close_series.rolling(50).mean().iloc[-1])
+                
+                # Safe 200-day rolling handle (falls back to max available window if data < 200 days)
+                window_200 = min(200, len(close_series))
+                sma_200_series = close_series.rolling(window_200).mean()
+                sma_200 = float(sma_200_series.iloc[-1])
+                sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
+                
+                high_20d = float(close_series.rolling(20).max().iloc[-1])
+                high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
+                
+                # 3-month momentum (60 trading days)
+                hist_idx = min(60, len(close_series) - 1)
+                close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
+                mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
+                
+                latest_volume = float(vol_series.iloc[-1])
+                volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
                 
                 results[sym] = StockPriceData(
                     symbol=sym,
@@ -233,7 +290,17 @@ def batch_download_market_data(symbols: list) -> dict:
                     change_pct=change_pct,
                     low_52w=low_52w,
                     high_52w=high_52w,
-                    turnover_20d=avg_turnover
+                    turnover_20d=avg_turnover,
+                    sma_20=sma_20,
+                    sma_50=sma_50,
+                    sma_200=sma_200,
+                    high_20d=high_20d,
+                    high_60d=high_60d,
+                    mom_3m=mom_3m,
+                    latest_volume=latest_volume,
+                    volume_sma20=volume_sma20,
+                    close_yesterday=close_yesterday,
+                    sma_200_yesterday=sma_200_yesterday
                 )
             except Exception as e:
                 logger.debug(f"Error parsing downloaded data for {sym}: {e}")
@@ -243,6 +310,13 @@ def batch_download_market_data(symbols: list) -> dict:
     except Exception as e:
         logger.error(f"❌ Batch price download failed: {e}")
         return {}
+
+def is_financial_sector(sector: str) -> bool:
+    """Identify if the sector represents a bank, NBFC, or financial services firm."""
+    if not sector:
+        return False
+    sec_lower = str(sector).lower()
+    return any(keyword in sec_lower for keyword in ["financial", "bank", "nbfc", "insurance", "holding"])
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
     """Fetch fundamentals from cache if it is < 7 days old."""
@@ -265,7 +339,9 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
                 pe=entry["pe"],
                 pb=entry["pb"],
                 div_yield=entry["div_yield"],
-                sector=entry["sector"]
+                sector=entry["sector"],
+                eps=entry.get("eps"),
+                bvps=entry.get("bvps")
             )
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -294,7 +370,9 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
                     pe=info.get("trailingPE"),
                     pb=info.get("priceToBook"),
                     div_yield=info.get("dividendYield"),
-                    sector=info.get("sector", "Unknown")
+                    sector=info.get("sector", "Unknown"),
+                    eps=info.get("trailingEps"),
+                    bvps=info.get("bookValue")
                 )
             time.sleep(1.0 + (2 ** attempt))
         except Exception as e:
@@ -320,17 +398,18 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     return None
 
 def passes_kill_gates(f: StockFundamentals) -> bool:
-    """Instant rejection checks: Mcap < 500Cr, D/E > 1.5, or Operating Cash Flow < 0."""
+    """Instant rejection checks: Mcap < 500Cr, D/E > 1.5 (non-financials only), or Operating Cash Flow < 0."""
     if f.market_cap is None or float(f.market_cap) < 5000000000: # ₹500 Cr
         return False
         
-    # Debt/Equity check (Strict: reject if > 1.5)
-    if f.debt_equity is not None:
-        de_val = float(f.debt_equity)
-        de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-        if de_ratio > 1.5:
-            return False
-            
+    # Debt/Equity check (Strict: reject if > 1.5, except for Banks / NBFC / Financial sectors)
+    if not is_financial_sector(f.sector):
+        if f.debt_equity is not None:
+            de_val = float(f.debt_equity)
+            de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
+            if de_ratio > 1.5:
+                return False
+                
     # Operating Cash Flow check (Strict: reject if negative)
     if f.operating_cash_flow is not None and float(f.operating_cash_flow) < 0:
         return False
@@ -338,7 +417,7 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
     return True
 
 def calculate_cqs(f: StockFundamentals) -> float:
-    """Calculate Company Quality Score (CQS) out of 10 points (0 pts if missing)."""
+    """Calculate Company Quality / Growth Score out of 10 points (0 pts if missing)."""
     score = 0.0
     
     # 1. ROE (Max 3 pts: >=20% = 3, >=12% = 1)
@@ -349,15 +428,18 @@ def calculate_cqs(f: StockFundamentals) -> float:
         elif roe_val >= 0.12:
             score += 1.0
             
-    # 2. Debt/Equity (Max 2 pts: <=0.3 = 2, <=0.7 = 1)
-    # Strict: missing D/E scores 0 points
-    if f.debt_equity is not None:
-        de_val = float(f.debt_equity)
-        de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-        if de_ratio <= 0.3:
-            score += 2.0
-        elif de_ratio <= 0.7:
-            score += 1.0
+    # 2. Debt/Equity (Max 2 pts: <=0.3 = 2, <=0.7 = 1) - Only scored for Non-Financials
+    # Financials skip this logic and receive a flat +2 quality adjustment (rescaled for leverage)
+    if is_financial_sector(f.sector):
+        score += 2.0
+    else:
+        if f.debt_equity is not None:
+            de_val = float(f.debt_equity)
+            de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
+            if de_ratio <= 0.3:
+                score += 2.0
+            elif de_ratio <= 0.7:
+                score += 1.0
             
     # 3. Revenue Growth (Max 2 pts: >=15% = 2)
     if f.revenue_growth is not None and float(f.revenue_growth) >= 0.15:
@@ -374,9 +456,10 @@ def calculate_cqs(f: StockFundamentals) -> float:
     return round(score, 1)
 
 def compute_sector_medians(fundamentals_list: list) -> dict:
-    """Compute median P/E and P/B per sector across shortlist universe."""
+    """Compute median P/E, P/B, and ROE per sector across shortlist universe."""
     pe_groups = {}
     pb_groups = {}
+    roe_groups = {}
     
     for f in fundamentals_list:
         if not f or not f.sector or f.sector == "Unknown":
@@ -385,65 +468,168 @@ def compute_sector_medians(fundamentals_list: list) -> dict:
             pe_groups.setdefault(f.sector, []).append(f.pe)
         if f.pb is not None and f.pb > 0:
             pb_groups.setdefault(f.sector, []).append(f.pb)
+        if f.roe is not None and f.roe > 0:
+            roe_groups.setdefault(f.sector, []).append(f.roe)
             
     medians = {}
-    all_sectors = set(pe_groups.keys()).union(pb_groups.keys())
+    all_sectors = set(pe_groups.keys()).union(pb_groups.keys()).union(roe_groups.keys())
     
     for sector in all_sectors:
         pes = pe_groups.get(sector, [])
         pbs = pb_groups.get(sector, [])
+        roes = roe_groups.get(sector, [])
         medians[sector] = {
             "median_pe": float(np.median(pes)) if len(pes) >= 3 else None,
-            "median_pb": float(np.median(pbs)) if len(pbs) >= 3 else None
+            "median_pb": float(np.median(pbs)) if len(pbs) >= 3 else None,
+            "median_roe": float(np.median(roes)) if len(roes) >= 3 else None
         }
         
     return medians
 
-def calculate_sector_aware_pas(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> float:
-    """Calculate Sector-Aware Price Attractiveness Score (PAS) out of 10 points."""
+def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
+    """Calculate Value Score (PAS) out of 10 points (0 pts if missing). Use sector medians."""
     score = 0.0
     
-    # 1. P/E vs Sector (Max 4 pts: <= sector median = 4, <= 1.2 * sector median = 2)
-    if f.pe is not None and f.pe > 0:
-        sector_med = medians.get(f.sector, {}).get("median_pe") if f.sector else None
-        if sector_med is not None:
-            if f.pe <= sector_med:
-                score += 4.0
-            elif f.pe <= sector_med * 1.2:
-                score += 2.0
-        else:
-            # Fallback to absolute
-            if f.pe <= 20.0:
-                score += 4.0
-            elif f.pe <= 35.0:
-                score += 2.0
-                
-    # 2. P/B vs Sector (Max 3 pts: <= sector median = 3, <= 1.2 * sector median = 1)
-    if f.pb is not None and f.pb > 0:
-        sector_med = medians.get(f.sector, {}).get("median_pb") if f.sector else None
-        if sector_med is not None:
-            if f.pb <= sector_med:
-                score += 3.0
-            elif f.pb <= sector_med * 1.2:
-                score += 1.0
-        else:
-            # Fallback to absolute
-            if f.pb <= 2.5:
-                score += 3.0
-            elif f.pb <= 4.5:
-                score += 1.0
-                
-    # 3. Dividend Yield (Max 1 pt: >=0.5% = 1)
-    if f.div_yield is not None and float(f.div_yield) >= 0.005:
-        score += 1.0
+    # Financial Sector valuation (rely on P/B and ROE compared to sector peer bands instead of P/E)
+    if is_financial_sector(f.sector):
+        # 1. P/B vs Sector (Max 5 pts: <= sector median = 5, <= 1.2 * sector median = 3)
+        if f.pb is not None and f.pb > 0:
+            sector_pb = medians.get(f.sector, {}).get("median_pb") if f.sector else None
+            if sector_pb is not None:
+                if f.pb <= sector_pb:
+                    score += 5.0
+                elif f.pb <= sector_pb * 1.2:
+                    score += 3.0
+            else:
+                # Fallback to absolute
+                if f.pb <= 2.0:
+                    score += 5.0
+                elif f.pb <= 3.5:
+                    score += 3.0
+                    
+        # 2. ROE Profitability vs Sector (Max 5 pts: >= sector median = 5, >= 0.8 * sector median = 3)
+        if f.roe is not None:
+            sector_roe = medians.get(f.sector, {}).get("median_roe") if f.sector else None
+            if sector_roe is not None:
+                if f.roe >= sector_roe:
+                    score += 5.0
+                elif f.roe >= sector_roe * 0.8:
+                    score += 3.0
+            else:
+                # Fallback to absolute
+                if f.roe >= 0.16:
+                    score += 5.0
+                elif f.roe >= 0.12:
+                    score += 3.0
+    else:
+        # Non-Financials: standard P/E (Max 4) & P/B (Max 3) vs Sector, Div Yield (Max 1), and Low 52W (evaluated at alert step, now rescaled)
+        # Note: 2 points for 52W low distance is evaluated globally in should_trigger_alert.
+        # This function returns a fundamental-only value score out of 8 points.
         
-    # 4. Near 52W Low (Max 2 pts: within 20% = 2)
-    if price_data.price > 0 and price_data.low_52w > 0:
-        if price_data.price <= price_data.low_52w * 1.20:
-            score += 2.0
+        # 1. P/E vs Sector (Max 5 pts: <= median = 5, <= 1.2 * median = 3)
+        if f.pe is not None and f.pe > 0:
+            sector_pe = medians.get(f.sector, {}).get("median_pe") if f.sector else None
+            if sector_pe is not None:
+                if f.pe <= sector_pe:
+                    score += 5.0
+                elif f.pe <= sector_pe * 1.2:
+                    score += 3.0
+            else:
+                if f.pe <= 20.0:
+                    score += 5.0
+                elif f.pe <= 35.0:
+                    score += 3.0
+                    
+        # 2. P/B vs Sector (Max 4 pts: <= median = 4, <= 1.2 * median = 2)
+        if f.pb is not None and f.pb > 0:
+            sector_pb = medians.get(f.sector, {}).get("median_pb") if f.sector else None
+            if sector_pb is not None:
+                if f.pb <= sector_pb:
+                    score += 4.0
+                elif f.pb <= sector_pb * 1.2:
+                    score += 2.0
+            else:
+                if f.pb <= 2.5:
+                    score += 4.0
+                elif f.pb <= 4.5:
+                    score += 2.0
+                    
+        # 3. Dividend Yield (Max 1 pt)
+        if f.div_yield is not None and float(f.div_yield) >= 0.005:
+            score += 1.0
             
     return round(score, 1)
 
+def calculate_trend_score(price_data: StockPriceData) -> float:
+    """Calculate Trend Score out of 10 points based on broad accumulation and breakout triggers."""
+    score = 0.0
+    
+    # 1. Broad Accumulation (Max 6 pts)
+    # Price above 50-DMA (+3)
+    if price_data.price > price_data.sma_50:
+        score += 3.0
+    # Price above 200-DMA (+3)
+    if price_data.price > price_data.sma_200:
+        score += 3.0
+        
+    # 2. Breakout day/strength signal (Max 4 pts)
+    # Volume spike: latest volume > 1.5x average 20-day volume (+2)
+    if price_data.latest_volume > (1.5 * price_data.volume_sma20):
+        score += 2.0
+    # Price breakout: close price matches or exceeds 20-day high (+2)
+    if price_data.price >= price_data.high_20d:
+        score += 2.0
+        
+    return round(score, 1)
+
+def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> float:
+    """Calculate Company Fair Value. Uses sector median valuation overrides."""
+    try:
+        if is_financial_sector(f.sector):
+            # Fair Value for financials = (Sector Median P/B) * BVPS
+            sector_pb = medians.get(f.sector, {}).get("median_pb")
+            bvps = f.bvps
+            if sector_pb and bvps and float(bvps) > 0:
+                return float(sector_pb * float(bvps))
+        else:
+            # Fair Value for non-financials = (Sector Median P/E) * EPS
+            sector_pe = medians.get(f.sector, {}).get("median_pe")
+            eps = f.eps
+            if sector_pe and eps and float(eps) > 0:
+                return float(sector_pe * float(eps))
+    except Exception as e:
+        logger.debug(f"Fair value derivation exception for {f.symbol}: {e}")
+        
+    # Fallback default: 90% of current close price
+    return price_data.price * 0.90
+
+def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: float, value_score: float, trend_score: float) -> tuple:
+    """
+    Evaluates whether a candidate triggers an active BUY alert.
+    Returns: (should_alert: bool, reason: str)
+    """
+    price = price_data.price
+    buy_zone_low = fair_value * 0.90
+    buy_zone_high = fair_value * 1.05
+    
+    # 1. Normal Value Breakout: Undervalued, trend confirmed (above 50DMA), inside buy zone
+    in_buy_zone = (price >= buy_zone_low and price <= buy_zone_high)
+    trend_ok = (trend_score >= 5.0 and price > price_data.sma_50)
+    
+    if in_buy_zone and trend_ok:
+        return True, "Value Breakout: inside buy zone with confirmed trend."
+        
+    # 2. GARP (Growth at a Reasonable Price) Override:
+    # High growth outruns valuation: premium entry up to 115% of fair value allowed
+    is_high_growth = (cqs >= 8.0)
+    strong_trend = (trend_score >= 7.0)
+    below_premium_cap = (price <= fair_value * 1.15)
+    
+    if is_high_growth and strong_trend and below_premium_cap:
+        return True, f"GARP Rerating: Growth override active (CQS={cqs}) with strong trend."
+        
+    return False, "Watchlist waiting: price is outside correct buy zone."
+        
 def get_label(cqs: float, pas: float) -> str:
     """Return the output label category based on CQS and PAS."""
     if cqs >= 7.0 and pas >= 7.0:
@@ -458,80 +644,221 @@ def get_label(cqs: float, pas: float) -> str:
         return "🟡 WATCHLIST CANDIDATE"
     return None
 
-def save_results_to_db(results: list):
-    """Save scanned scores and watchlist items to DB in a secure block transaction."""
+def save_watchlist_to_db(results: list):
+    """Save watchlist candidates in bulk using psycopg2 execute_values."""
     if not results:
         return
+    
+    # Map ScreenerResult attributes to list of tuples for execute_values
+    data = []
+    for r in results:
+        # Determine last alert fields (only write when alert is triggered)
+        if r.status == "ALERT_TRIGGERED":
+            last_price = r.price
+            last_at = datetime.now()
+        else:
+            last_price = None
+            last_at = None
+            
+        data.append((
+            r.symbol.upper(), r.fair_value, r.buy_zone_low, r.buy_zone_high, r.price,
+            r.cqs, r.pas, r.trend_score, r.total_score, r.bucket, r.status, r.notes,
+            last_price, last_at
+        ))
+        
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                for r in results:
-                    # Update stockupdates.prices
-                    legacy_score = int((r.cqs + r.pas) * 2.5)
-                    cur.execute("""
-                        INSERT INTO stockupdates.prices (symbol, latest_price, fundamental_score, quality_score, value_score, last_fetched)
-                        VALUES (%s, %s, NULL, %s, %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (symbol) DO UPDATE SET
-                            latest_price = EXCLUDED.latest_price,
-                            fundamental_score = EXCLUDED.fundamental_score,
-                            quality_score = EXCLUDED.quality_score,
-                            value_score = EXCLUDED.value_score,
-                            last_fetched = CURRENT_TIMESTAMP;
-                    """, (r.symbol.upper(), r.price, r.cqs, r.pas))
-                    
-                    # Auto-inject watchlist
-                    if r.cqs >= 6.0 and (r.cqs + r.pas) >= 11.0:
-                        cur.execute("""
-                            INSERT INTO stockupdates.watchlist (symbol)
-                            VALUES (%s)
-                            ON CONFLICT (symbol) DO NOTHING;
-                        """, (r.symbol.upper(),))
+                # Upsert query using execute_values
+                execute_values(cur, """
+                    INSERT INTO stockupdates.watchlist 
+                    (symbol, fair_value, buy_zone_low, buy_zone_high, latest_price, 
+                     growth_score, value_score, trend_score, total_score, bucket, status, notes,
+                     last_alert_price, last_alert_at)
+                    VALUES %s
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        fair_value = EXCLUDED.fair_value,
+                        buy_zone_low = EXCLUDED.buy_zone_low,
+                        buy_zone_high = EXCLUDED.buy_zone_high,
+                        latest_price = EXCLUDED.latest_price,
+                        growth_score = EXCLUDED.growth_score,
+                        value_score = EXCLUDED.value_score,
+                        trend_score = EXCLUDED.trend_score,
+                        total_score = EXCLUDED.total_score,
+                        bucket = EXCLUDED.bucket,
+                        status = EXCLUDED.status,
+                        notes = EXCLUDED.notes,
+                        last_alert_price = COALESCE(EXCLUDED.last_alert_price, stockupdates.watchlist.last_alert_price),
+                        last_alert_at = COALESCE(EXCLUDED.last_alert_at, stockupdates.watchlist.last_alert_at),
+                        last_updated = CURRENT_TIMESTAMP;
+                """, data)
             conn.commit()
-        logger.info(f"✅ Successfully persisted {len(results)} stock scores and qualifiers to DB.")
+        logger.info(f"✅ Stored {len(results)} candidates in stockupdates.watchlist (execute_values).")
     except Exception as e:
-        logger.error(f"❌ Failed to save results to database: {e}")
+        logger.error(f"❌ Failed to bulk write to stockupdates.watchlist: {e}")
+
+def save_scores_to_db(results: list):
+    """Save scanned scores in bulk using psycopg2 execute_values."""
+    if not results:
+        return
+    
+    data = []
+    for r in results:
+        legacy_score = int(r.total_score * 2.5) # scaled out of 50
+        data.append((r.symbol.upper(), r.price, legacy_score, r.cqs, r.pas))
+        
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                execute_values(cur, """
+                    INSERT INTO stockupdates.prices (symbol, latest_price, fundamental_score, quality_score, value_score)
+                    VALUES %s
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        latest_price = EXCLUDED.latest_price,
+                        fundamental_score = EXCLUDED.fundamental_score,
+                        quality_score = EXCLUDED.quality_score,
+                        value_score = EXCLUDED.value_score,
+                        last_fetched = CURRENT_TIMESTAMP;
+                """, data)
+            conn.commit()
+        logger.info(f"✅ Stored {len(results)} stock scores in stockupdates.prices (execute_values).")
+    except Exception as e:
+        logger.error(f"❌ Failed to bulk write to stockupdates.prices: {e}")
 
 def format_telegram_message(categorized_stocks: dict) -> list:
     """Format categorized stocks into chunked Telegram messages (HTML)."""
     messages = []
-    current_msg = "<b>🚀 SUNDAY MULTIBAGGER SCREENER SUMMARY</b>\n"
+    current_msg = "<b>🚀 SUNDAY MULTIBAGGER WATCHLIST SUMMARY</b>\n"
     current_msg += f"<i>Time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M IST')}</i>\n"
     current_msg += "========================================\n\n"
     
     has_results = False
-    
     for label, stocks in categorized_stocks.items():
         if not stocks:
             continue
         has_results = True
         
         section_text = f"<b>{label}</b> ({len(stocks)} stocks):\n"
-        for item in sorted(stocks, key=lambda x: x['cqs'] + x['pas'], reverse=True):
+        for item in sorted(stocks, key=lambda x: x['total'], reverse=True):
             sym = item['symbol']
             cqs = item['cqs']
             pas = item['pas']
             price = item['price']
-            total = cqs + pas
+            total = item['total']
+            status = item['status']
             
-            injected_marker = " *Auto-Injected*" if (cqs >= 6.0 and total >= 11.0) else ""
-            line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: <b>{cqs:.1f}</b> | PAS: <b>{pas:.1f}</b> | Total: <b>{total:.1f}/20</b>{injected_marker}\n"
+            alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else " ⏳ WAITING"
+            line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/20</b>{alert_marker}\n"
             
             if len(current_msg) + len(section_text) + len(line) > 3900:
                 messages.append(current_msg)
-                current_msg = "<b>🚀 MULTIBAGGER SCREENER SUMMARY (Cont.)</b>\n\n"
+                current_msg = "<b>🚀 MULTIBAGGER WATCHLIST SUMMARY (Cont.)</b>\n\n"
                 
             section_text += line
-            
-        current_msg += section_text + "\n"
+            current_msg += section_text + "\n"
 
     if not has_results:
         current_msg += "ℹ️ No stocks qualified for multibagger categorization this week.\n"
         messages.append(current_msg)
     else:
-        current_msg += "<i>Injection Rule: CQS &gt;= 6 AND (CQS + PAS) &gt;= 11.</i>"
         messages.append(current_msg)
         
     return messages
+
+def run_exit_monitor(price_data_map: dict, cache: dict):
+    """
+    Evaluates open MULTIBAGGER positions in the database for exit signals.
+    Excludes other buy alerts generated by other scanners.
+    """
+    logger.info("🔍 Running Exit Monitor for open MULTIBAGGER positions...")
+    try:
+        from psycopg2.extras import RealDictCursor
+        open_positions = []
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Query only open alerts with breakout_type = 'MULTIBAGGER'
+                cur.execute("""
+                    SELECT id, symbol, alert_price 
+                    FROM wealth_buy_alert 
+                    WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER';
+                """)
+                open_positions = [dict(row) for row in cur.fetchall()]
+                
+        if not open_positions:
+            logger.info("ℹ️ No open MULTIBAGGER positions found. Skipping exits.")
+            return
+            
+        logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
+        
+        for pos in open_positions:
+            symbol = pos["symbol"]
+            entry_price = float(pos["alert_price"])
+            alert_id = pos["id"]
+            
+            price_data = price_data_map.get(symbol)
+            if not price_data:
+                continue
+                
+            current_price = price_data.price
+            
+            # Fetch latest fundamentals (using cache first)
+            fund = get_cached_fundamentals(symbol, cache)
+            if not fund:
+                fund = fetch_ticker_fundamentals(symbol)
+                
+            cqs = calculate_cqs(fund) if fund else 5.0 # fallback if no fundamentals
+            
+            exit_triggered = False
+            exit_reason = ""
+            
+            # Rule 1: Catastrophic Stop (Drawdown > 20% from entry price)
+            drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
+            if drawdown_pct >= 20.0:
+                exit_triggered = True
+                exit_reason = f"Catastrophic Stop: Drawdown >20% ({drawdown_pct:.1f}% loss)"
+                
+            # Rule 2: Anti-Whipsaw 200-DMA exit
+            # Checks:
+            # - Price falls below 97% of 200-DMA today OR
+            # - Price closes below 200-DMA for two consecutive days (today & yesterday)
+            if not exit_triggered and price_data.sma_200 > 0:
+                below_97 = (current_price < 0.97 * price_data.sma_200)
+                consecutive_below = (current_price < price_data.sma_200 and price_data.close_yesterday < price_data.sma_200_yesterday)
+                
+                if below_97:
+                    exit_triggered = True
+                    exit_reason = f"Decisive breakdown: price closed below 97% of 200-DMA (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
+                elif consecutive_below:
+                    exit_triggered = True
+                    exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
+                    
+            # Rule 3: Fundamental Deterioration (CQS < 5.0 or fails Kill Gates)
+            if not exit_triggered and fund:
+                if cqs < 5.0:
+                    exit_triggered = True
+                    exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 5.0 (CQS: {cqs:.1f})"
+                elif not passes_kill_gates(fund):
+                    exit_triggered = True
+                    exit_reason = "Fundamental failure: fails Layer 1 Kill Gates"
+                    
+            # Handle triggered exit
+            if exit_triggered:
+                logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
+                close_success = close_position(symbol, current_price, exit_reason)
+                if close_success:
+                    # Queue Telegram notification
+                    sell_msg = (
+                        f"🚨 <b>MULTIBAGGER SELL ALERT | {symbol}</b>\n"
+                        f"----------------------------------------\n"
+                        f"• Entry: ₹{entry_price:.1f}\n"
+                        f"• Exit: ₹{current_price:.1f}\n"
+                        f"• Return: {((current_price - entry_price) / entry_price * 100.0):.1f}%\n"
+                        f"• Reason: <i>{exit_reason}</i>\n"
+                    )
+                    queue_telegram_message(sell_msg, symbol=symbol, alert_id=alert_id)
+                    
+    except Exception as e:
+        logger.error(f"❌ Failed to complete exit monitoring: {e}")
 
 def start(debug_limit: int = None):
     """Main scanning wrapper."""
@@ -551,12 +878,15 @@ def start(debug_limit: int = None):
         logger.info(f"🧪 [DEBUG MODE] Limiting scan universe to {debug_limit} symbols.")
         symbols = symbols[:debug_limit]
         
-    # 2. Phase 1: Batch Download Price & Volume Metrics
+    # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
     price_data_map = batch_download_market_data(symbols)
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         return
         
+    # Run exit monitor first on open positions using downloaded price metrics
+    run_exit_monitor(price_data_map, cache)
+    
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs = 1,000,000 Rupees)
     shortlist_candidates = []
@@ -567,21 +897,18 @@ def start(debug_limit: int = None):
             continue
         shortlist_candidates.append(price_data)
         
-    # Sort by turnover descending and take a shortlist of top 120 most liquid
+    # Sort by turnover descending and shortlist top 120 most liquid
     shortlist_candidates = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
     shortlist = shortlist_candidates[:120]
     logger.info(f"📋 Shortlisted {len(shortlist)}/{len(price_data_map)} liquid stocks for fundamental screening.")
     
-    # 3. Phase 2: Fetch Fundamentals (using cache if available, or yfinance query)
+    # 3. Phase 2: Fetch Fundamentals
     fundamentals_list = []
-    shortlist_symbols = [p.symbol for p in shortlist]
     
-    # Single-threaded or multi-threaded loop to fetch details safely
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {}
         for p in shortlist:
             sym = p.symbol
-            # Check cache first
             cached = get_cached_fundamentals(sym, cache)
             if cached:
                 logger.debug(f"💾 Cache hit for fundamentals of {sym}")
@@ -608,7 +935,9 @@ def start(debug_limit: int = None):
                         "pe": fund.pe,
                         "pb": fund.pb,
                         "div_yield": fund.div_yield,
-                        "sector": fund.sector
+                        "sector": fund.sector,
+                        "eps": fund.eps,
+                        "bvps": fund.bvps
                     }
             except Exception as e:
                 logger.error(f"Error fetching fundamentals for {sym}: {e}")
@@ -616,11 +945,11 @@ def start(debug_limit: int = None):
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
     
-    # Filter fundamentals matching Kill Gates
+    # Filter fundamentals matching Kill Gates for sector median calculations
     valid_fundamentals = [f for f in fundamentals_list if passes_kill_gates(f)]
     logger.info(f"🛡️ {len(valid_fundamentals)}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
     
-    # 4. Phase 3: Sector-aware PAS scoring & DB update
+    # 4. Phase 3: Sector-aware scoring & buy zone assessment
     sector_medians = compute_sector_medians(valid_fundamentals)
     
     results = []
@@ -632,48 +961,73 @@ def start(debug_limit: int = None):
         "🟡 WATCHLIST CANDIDATE": []
     }
     
-    for f in valid_fundamentals:
+    for f in fundamentals_list:
         sym = f.symbol
         price_data = price_data_map[sym]
         
-        # Calculate CQS & PAS
+        # Calculate scores
         cqs = calculate_cqs(f)
-        pas = calculate_sector_aware_pas(f, price_data, sector_medians)
+        pas = calculate_value_score(f, sector_medians)
+        trend = calculate_trend_score(price_data)
         total = cqs + pas
         
-        label = get_label(cqs, pas)
+        fair_val = calculate_fair_value(f, price_data, sector_medians)
+        buy_low = fair_val * 0.90
+        buy_high = fair_val * 1.05
         
-        # Build detailed notes string
-        de_ratio = (f.debt_equity / 100.0) if f.debt_equity and f.debt_equity > 10.0 else (f.debt_equity or 0.0)
-        roe_val = (f.roe or 0.0)
-        rev_g = (f.revenue_growth or 0.0)
-        earn_g = (f.earnings_growth or 0.0)
-        op_m = (f.operating_margin or 0.0)
-        pe = (f.pe or 0.0)
-        pb = (f.pb or 0.0)
-        dy = (f.div_yield or 0.0)
-        
-        low_dist_pct = ((price_data.price - price_data.low_52w) / price_data.low_52w * 100.0) if price_data.low_52w > 0 else 0.0
-        
-        notes = (
-            f"Multibagger Scanner Qualifier details:\n"
-            f"• CQS: {cqs}/10 (ROE: {roe_val*100:.1f}%, D/E: {de_ratio:.2f}, RevG: {rev_g*100:.1f}%, EarnG: {earn_g*100:.1f}%, OPM: {op_m*100:.1f}%)\n"
-            f"• PAS: {pas}/10 (P/E: {pe:.1f}, P/B: {pb:.1f}, DivY: {dy*100:.1f}%, 52W Low: +{low_dist_pct:.1f}%)\n"
-            f"• Sector: {f.sector}"
-        )
-        
-        results.append(ScreenerResult(
+        # Enforce Kill Gates to flag INVALIDATED
+        if not passes_kill_gates(f):
+            status = "INVALIDATED"
+            bucket = "Invalidated"
+            alert_triggered = False
+            alert_reason = "Fails Layer 1 Kill Gates (Market Cap / Debt / Cash Flow)"
+            notes = f"Watchlist Item Invalidated: {alert_reason}"
+            cqs = 0.0
+            pas = 0.0
+            total = 0.0
+        else:
+            # Check alerts
+            alert_triggered, alert_reason = should_trigger_alert(price_data, fair_val, cqs, pas, trend)
+            
+            # Determine buckets
+            if alert_triggered:
+                status = "ALERT_TRIGGERED"
+                if "GARP" in alert_reason:
+                    bucket = "GARP Rerating"
+                else:
+                    bucket = "Value Breakout"
+            else:
+                status = "WAITING_BUY_ZONE"
+                bucket = "Watchlist Waiting"
+                
+            notes = (
+                f"Multi-Layer Analysis Summary:\n"
+                f"• CQS (Growth): {cqs:.1f}/10\n"
+                f"• PAS (Value): {pas:.1f}/10\n"
+                f"• Trend: {trend:.1f}/10\n"
+                f"• Fair Value: ₹{fair_val:.1f} (Buy zone: ₹{buy_low:.1f} to ₹{buy_high:.1f})\n"
+                f"• Decision: {alert_reason}"
+            )
+            
+        res = ScreenerResult(
             symbol=sym,
             price=price_data.price,
             cqs=cqs,
             pas=pas,
-            label=label,
+            trend_score=trend,
+            total_score=total,
+            fair_value=fair_val,
+            buy_zone_low=buy_low,
+            buy_zone_high=buy_high,
+            bucket=bucket,
+            status=status,
             notes=notes
-        ))
+        )
+        results.append(res)
         
-        # Trigger buy alert for qualifiers (CQS >= 6 AND CQS + PAS >= 11)
-        if cqs >= 6.0 and total >= 11.0:
-            logger.info(f"🌟 Stock {sym} QUALIFIES! CQS={cqs:.1f}, PAS={pas:.1f}, Total={total:.1f}/20")
+        # Trigger buy alert for ready positions
+        if alert_triggered:
+            logger.info(f"🌟 Alert Triggered for {sym}! FV={fair_val:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
             scaled_score = int(total * 5.0)
             
             save_wealth_buy_alert(
@@ -687,19 +1041,25 @@ def start(debug_limit: int = None):
                 momentum_confidence="HIGH" if cqs >= 7.0 else "MEDIUM"
             )
             
-        if label:
-            categorized_stocks[label].append({
-                'symbol': sym,
-                'price': price_data.price,
-                'cqs': cqs,
-                'pas': pas
-            })
+        # Group only non-invalidated stocks for Telegram
+        if status != "INVALIDATED":
+            label = get_label(cqs, pas)
+            if label:
+                categorized_stocks[label].append({
+                    'symbol': sym,
+                    'price': price_data.price,
+                    'cqs': cqs,
+                    'pas': pas,
+                    'total': total,
+                    'status': status
+                })
             
-    # Persist in bulk
-    save_results_to_db(results)
+    # 5. Bulk database persistence
+    save_watchlist_to_db(results)
+    save_scores_to_db(results)
     
-    # 5. Format and queue Telegram updates
-    logger.info(f"📢 Formatting Telegram messages for {len(results)} qualifiers...")
+    # 6. Format and queue Telegram updates
+    logger.info(f"📢 Formatting Telegram messages for {len(results)} watchlist items...")
     telegram_msgs = format_telegram_message(categorized_stocks)
     for msg in telegram_msgs:
         queue_telegram_message(msg)
