@@ -1048,7 +1048,7 @@ def start(debug_limit: int = None):
             bucket = "Invalidated"
             alert_triggered = False
             alert_reason = "Fails Layer 1 Kill Gates (Market Cap / Debt / Cash Flow)"
-            notes = f"Watchlist Item Invalidated: {alert_reason}"
+            notes = f"Invalidated: {alert_reason}"
             cqs = 0.0
             pas = 0.0
             total = 0.0
@@ -1067,14 +1067,7 @@ def start(debug_limit: int = None):
                 status = "WAITING_BUY_ZONE"
                 bucket = "Watchlist Waiting"
                 
-            notes = (
-                f"Multi-Layer Analysis Summary:\n"
-                f"• CQS (Growth): {cqs:.1f}/10\n"
-                f"• PAS (Value): {pas:.1f}/10\n"
-                f"• Trend: {trend:.1f}/10\n"
-                f"• Fair Value: ₹{fair_val:.1f} (Buy zone: ₹{buy_low:.1f} to ₹{buy_high:.1f})\n"
-                f"• Decision: {alert_reason}"
-            )
+            notes = alert_reason
             
             if is_fv_fallback:
                 notes += "\n⚠️ (Estimated Fallback: Yahoo data missing for precise valuation)"
