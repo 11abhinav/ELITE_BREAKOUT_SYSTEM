@@ -2951,8 +2951,12 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                              momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score)
                             VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
-                            DO UPDATE SET fm_score = EXCLUDED.fm_score, updated_at = NOW()
-                        """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, ist_time,
+                            DO UPDATE SET 
+                                fm_score = EXCLUDED.fm_score, 
+                                current_price = COALESCE(wealth_buy_alert.current_price, EXCLUDED.current_price),
+                                current_score = COALESCE(wealth_buy_alert.current_score, EXCLUDED.current_score),
+                                updated_at = NOW()
+                        """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S.%f%z'),
                               position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
                               momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score))
                         
