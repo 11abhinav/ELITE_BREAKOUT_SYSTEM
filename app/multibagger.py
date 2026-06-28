@@ -638,7 +638,10 @@ def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: flo
     if is_high_growth and strong_trend and below_premium_cap:
         return True, f"GARP Rerating: Growth override active (CQS={cqs}) with strong trend."
         
-    return False, "Watchlist waiting: price is outside correct buy zone."
+    if in_buy_zone and not trend_ok:
+        return False, f"Waiting for Trend Reversal: In buy zone, but Trend Score ({trend_score:.1f}) < 5.0 or Price < 50-DMA."
+        
+    return False, "Watchlist waiting: Price is outside correct buy zone."
         
 def get_label(cqs: float, pas: float) -> str:
     """Return the output label category based on CQS and PAS."""
