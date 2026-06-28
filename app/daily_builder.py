@@ -181,8 +181,8 @@ def fetch_universe() -> pd.DataFrame:
         "earnings_per_share_diluted_yoy_growth_ttm", "earnings_per_share_diluted_qoq_growth_fq",
         "total_revenue_yoy_growth_ttm", "total_revenue_qoq_growth_fq",
         "net_income_yoy_growth_ttm", "net_income_qoq_growth_fq",
-        # NEW LONG-TERM METRICS
         "price_earnings_ttm", 
+        "price_book_ratio",
         "total_revenue_5y_growth",
         "earnings_per_share_basic_5y_growth",
         "free_cash_flow_margin_ttm",

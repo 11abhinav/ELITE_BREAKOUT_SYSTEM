@@ -228,10 +228,10 @@ def calculate_valuation_score(r, sector_stats: dict = None) -> int:
             score += 3  # Good: growth roughly justified
         # else: 0 pts (overvalued relative to growth)
     
-    # P/E vs sector scoring (4 pts max)
+    # P/E vs peer group scoring (4 pts max)
     if pe is not None and sector_stats:
-        sector = str(r.get("Sector", "Unknown"))
-        sector_median_pe = sector_stats.get(sector, {}).get("median_pe", None)
+        symbol = str(r.get("Stock", "Unknown"))
+        sector_median_pe = sector_stats.get(symbol, {}).get("median_pe", None)
         
         if sector_median_pe is not None and sector_median_pe > 0:
             pe_discount = (sector_median_pe - pe) / sector_median_pe
@@ -789,13 +789,10 @@ def run_wealth_scan():
 
         wealth_df = pd.merge(df, tech_df, on="Stock", how="left")
 
-        # ── SECTOR VALUATION PRECOMPUTE (Requires N >= 3) ──
-        sector_stats = {}
-        if "Sector" in wealth_df.columns and "P/E Ratio" in wealth_df.columns:
-            for sector, group in wealth_df.groupby("Sector"):
-                valid_pes = group["P/E Ratio"].dropna()
-                if len(valid_pes) >= 3:
-                    sector_stats[sector] = {"median_pe": float(valid_pes.median())}
+        # ── PEER VALUATION PRECOMPUTE ──
+        from valuation_utils import compute_peer_medians
+        symbols_to_val = wealth_df["Stock"].tolist() if not wealth_df.empty else []
+        sector_stats = compute_peer_medians(symbols_to_val)
 
         if "rs_6m" in wealth_df.columns:
             wealth_df["RS_Rating"] = wealth_df["rs_6m"].rank(pct=True, ascending=True) * 100

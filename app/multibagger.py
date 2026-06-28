@@ -461,50 +461,21 @@ def calculate_cqs(f: StockFundamentals) -> float:
         
     return round(score, 1)
 
-def compute_sector_medians(fundamentals_list: list) -> dict:
-    """Compute median P/E, P/B, and ROE per sector across shortlist universe."""
-    pe_groups = {}
-    pb_groups = {}
-    roe_groups = {}
-    
-    for f in fundamentals_list:
-        if not f or not f.sector or f.sector == "Unknown":
-            continue
-        if f.pe is not None and f.pe > 0:
-            pe_groups.setdefault(f.sector, []).append(f.pe)
-        if f.pb is not None and f.pb > 0:
-            pb_groups.setdefault(f.sector, []).append(f.pb)
-        if f.roe is not None and f.roe > 0:
-            roe_groups.setdefault(f.sector, []).append(f.roe)
-            
-    medians = {}
-    all_sectors = set(pe_groups.keys()).union(pb_groups.keys()).union(roe_groups.keys())
-    
-    for sector in all_sectors:
-        pes = pe_groups.get(sector, [])
-        pbs = pb_groups.get(sector, [])
-        roes = roe_groups.get(sector, [])
-        medians[sector] = {
-            "median_pe": float(np.median(pes)) if len(pes) >= 3 else None,
-            "median_pb": float(np.median(pbs)) if len(pbs) >= 3 else None,
-            "median_roe": float(np.median(roes)) if len(roes) >= 3 else None
-        }
-        
-    return medians
+# The compute_peer_medians function has been moved to valuation_utils.py
 
 def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
-    """Calculate Value Score (PAS) out of 10 points (0 pts if missing). Use sector medians."""
+    """Calculate Value Score (PAS) out of 10 points (0 pts if missing). Use peer medians."""
     score = 0.0
     
     # Financial Sector valuation (rely on P/B and ROE compared to sector peer bands instead of P/E)
     if is_financial_sector(f.sector):
         # 1. P/B vs Sector (Max 5 pts: <= sector median = 5, <= 1.2 * sector median = 3)
         if f.pb is not None and f.pb > 0:
-            sector_pb = medians.get(f.sector, {}).get("median_pb") if f.sector else None
-            if sector_pb is not None:
-                if f.pb <= sector_pb:
+            peer_pb = medians.get(f.symbol, {}).get("median_pb") if f.symbol else None
+            if peer_pb is not None:
+                if f.pb <= peer_pb:
                     score += 5.0
-                elif f.pb <= sector_pb * 1.2:
+                elif f.pb <= peer_pb * 1.2:
                     score += 3.0
             else:
                 # Fallback to absolute
@@ -515,11 +486,11 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
                     
         # 2. ROE Profitability vs Sector (Max 5 pts: >= sector median = 5, >= 0.8 * sector median = 3)
         if f.roe is not None:
-            sector_roe = medians.get(f.sector, {}).get("median_roe") if f.sector else None
-            if sector_roe is not None:
-                if f.roe >= sector_roe:
+            peer_roe = medians.get(f.symbol, {}).get("median_roe") if f.symbol else None
+            if peer_roe is not None:
+                if f.roe >= peer_roe:
                     score += 5.0
-                elif f.roe >= sector_roe * 0.8:
+                elif f.roe >= peer_roe * 0.8:
                     score += 3.0
             else:
                 # Fallback to absolute
@@ -534,11 +505,11 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
         
         # 1. P/E vs Sector (Max 5 pts: <= median = 5, <= 1.2 * median = 3)
         if f.pe is not None and f.pe > 0:
-            sector_pe = medians.get(f.sector, {}).get("median_pe") if f.sector else None
-            if sector_pe is not None:
-                if f.pe <= sector_pe:
+            peer_pe = medians.get(f.symbol, {}).get("median_pe") if f.symbol else None
+            if peer_pe is not None:
+                if f.pe <= peer_pe:
                     score += 5.0
-                elif f.pe <= sector_pe * 1.2:
+                elif f.pe <= peer_pe * 1.2:
                     score += 3.0
             else:
                 if f.pe <= 20.0:
@@ -548,11 +519,11 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
                     
         # 2. P/B vs Sector (Max 4 pts: <= median = 4, <= 1.2 * median = 2)
         if f.pb is not None and f.pb > 0:
-            sector_pb = medians.get(f.sector, {}).get("median_pb") if f.sector else None
-            if sector_pb is not None:
-                if f.pb <= sector_pb:
+            peer_pb = medians.get(f.symbol, {}).get("median_pb") if f.symbol else None
+            if peer_pb is not None:
+                if f.pb <= peer_pb:
                     score += 4.0
-                elif f.pb <= sector_pb * 1.2:
+                elif f.pb <= peer_pb * 1.2:
                     score += 2.0
             else:
                 if f.pb <= 2.5:
@@ -589,20 +560,20 @@ def calculate_trend_score(price_data: StockPriceData) -> float:
     return round(score, 1)
 
 def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> tuple[float, bool]:
-    """Calculate Company Fair Value. Uses sector median valuation overrides. Returns (fair_value, is_fallback)"""
+    """Calculate Company Fair Value. Uses peer valuation overrides. Returns (fair_value, is_fallback)"""
     try:
         if is_financial_sector(f.sector):
             # Fair Value for financials = (Sector Median P/B) * BVPS
-            sector_pb = medians.get(f.sector, {}).get("median_pb")
+            peer_pb = medians.get(f.symbol, {}).get("median_pb")
             bvps = f.bvps
-            if sector_pb and bvps and float(bvps) > 0:
-                return float(sector_pb * float(bvps)), False
+            if peer_pb and bvps and float(bvps) > 0:
+                return float(peer_pb * float(bvps)), False
         else:
             # Fair Value for non-financials = (Sector Median P/E) * EPS
-            sector_pe = medians.get(f.sector, {}).get("median_pe")
+            peer_pe = medians.get(f.symbol, {}).get("median_pe")
             eps = f.eps
-            if sector_pe and eps and float(eps) > 0:
-                return float(sector_pe * float(eps)), False
+            if peer_pe and eps and float(eps) > 0:
+                return float(peer_pe * float(eps)), False
     except Exception as e:
         logger.debug(f"Fair value derivation exception for {f.symbol}: {e}")
         
@@ -1012,8 +983,10 @@ def start(debug_limit: int = None):
     valid_fundamentals = [f for f in fundamentals_list if passes_kill_gates(f)]
     logger.info(f"🛡️ {len(valid_fundamentals)}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
     
-    # 4. Phase 3: Sector-aware scoring & buy zone assessment
-    sector_medians = compute_sector_medians(valid_fundamentals)
+    # 4. Phase 3: Peer-aware scoring & buy zone assessment
+    from valuation_utils import compute_peer_medians
+    symbols_for_valuation = [f.symbol for f in valid_fundamentals]
+    peer_medians = compute_peer_medians(symbols_for_valuation)
     
     results = []
     categorized_stocks = {
@@ -1030,11 +1003,11 @@ def start(debug_limit: int = None):
         
         # Calculate scores
         cqs = calculate_cqs(f)
-        pas = calculate_value_score(f, sector_medians)
+        pas = calculate_value_score(f, peer_medians)
         trend = calculate_trend_score(price_data)
         total = cqs + pas
         
-        fair_val, is_fv_fallback = calculate_fair_value(f, price_data, sector_medians)
+        fair_val, is_fv_fallback = calculate_fair_value(f, price_data, peer_medians)
         buy_high = fair_val * 1.05
         buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
         
