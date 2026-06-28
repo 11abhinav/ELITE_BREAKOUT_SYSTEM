@@ -3083,8 +3083,12 @@ def get_closed_positions(days_back: int = 30) -> list:
         return []
 
 
-def close_position(symbol: str, exit_price: float, exit_signal: str = None) -> bool:
-    """Auto-close an open position when SELL signal detected."""
+def close_position(symbol: str, exit_price: float, exit_signal: str = None, force_close: bool = False) -> bool:
+    """Auto-close an open position when SELL signal detected.
+    
+    MULTIBAGGER positions are protected from score-based sells.
+    Only the multibagger exit monitor (which sets force_close=True) can close them.
+    """
     with _DB_WRITE_LOCK:
         try:
             with get_connection() as conn:
@@ -3093,7 +3097,7 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None) -> b
                     with conn.cursor() as cur:
                         # Get the most recent OPEN position for this symbol
                         cur.execute("""
-                            SELECT id, alert_price FROM wealth_buy_alert 
+                            SELECT id, alert_price, breakout_type FROM wealth_buy_alert 
                             WHERE symbol = %s AND is_closed = FALSE
                             ORDER BY alert_date DESC, alert_time DESC
                             LIMIT 1
@@ -3104,7 +3108,12 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None) -> b
                             logger.warning(f"⚠️  No open position found for {symbol}")
                             return False
                         
-                        position_id, entry_price = result[0], result[1]
+                        position_id, entry_price, breakout_type = result[0], result[1], result[2]
+                        
+                        # Guard: MULTIBAGGER positions can only be closed by the exit monitor
+                        if breakout_type == 'MULTIBAGGER' and not force_close:
+                            logger.info(f"🛡️ Skipping score-based SELL for {symbol}: MULTIBAGGER positions use 200-DMA exit logic only")
+                            return False
                         
                         # Calculate P&L
                         pnl_rs = exit_price - entry_price

@@ -845,7 +845,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
             # Handle triggered exit
             if exit_triggered:
                 logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
-                close_success = close_position(symbol, current_price, exit_reason)
+                close_success = close_position(symbol, current_price, exit_reason, force_close=True)
                 if close_success:
                     # Queue Telegram notification
                     sell_msg = (
