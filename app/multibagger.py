@@ -588,26 +588,26 @@ def calculate_trend_score(price_data: StockPriceData) -> float:
         
     return round(score, 1)
 
-def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> float:
-    """Calculate Company Fair Value. Uses sector median valuation overrides."""
+def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> tuple[float, bool]:
+    """Calculate Company Fair Value. Uses sector median valuation overrides. Returns (fair_value, is_fallback)"""
     try:
         if is_financial_sector(f.sector):
             # Fair Value for financials = (Sector Median P/B) * BVPS
             sector_pb = medians.get(f.sector, {}).get("median_pb")
             bvps = f.bvps
             if sector_pb and bvps and float(bvps) > 0:
-                return float(sector_pb * float(bvps))
+                return float(sector_pb * float(bvps)), False
         else:
             # Fair Value for non-financials = (Sector Median P/E) * EPS
             sector_pe = medians.get(f.sector, {}).get("median_pe")
             eps = f.eps
             if sector_pe and eps and float(eps) > 0:
-                return float(sector_pe * float(eps))
+                return float(sector_pe * float(eps)), False
     except Exception as e:
         logger.debug(f"Fair value derivation exception for {f.symbol}: {e}")
         
     # Fallback default: 90% of current close price
-    return price_data.price * 0.90
+    return price_data.price * 0.90, True
 
 def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: float, value_score: float, trend_score: float) -> tuple:
     """
@@ -1034,7 +1034,7 @@ def start(debug_limit: int = None):
         trend = calculate_trend_score(price_data)
         total = cqs + pas
         
-        fair_val = calculate_fair_value(f, price_data, sector_medians)
+        fair_val, is_fv_fallback = calculate_fair_value(f, price_data, sector_medians)
         buy_high = fair_val * 1.05
         buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
         
@@ -1075,6 +1075,9 @@ def start(debug_limit: int = None):
                 f"• Fair Value: ₹{fair_val:.1f} (Buy zone: ₹{buy_low:.1f} to ₹{buy_high:.1f})\n"
                 f"• Decision: {alert_reason}"
             )
+            
+            if is_fv_fallback:
+                notes += "\n⚠️ (Estimated Fallback: Yahoo data missing for precise valuation)"
             
         res = ScreenerResult(
             symbol=sym,
