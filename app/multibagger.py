@@ -3,7 +3,6 @@ import os
 import time
 import json
 import logging
-import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -23,42 +22,12 @@ class FairValueResult:
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
-def calculate_fair_value_v2(fundamentals: dict, peer_pe: float = None) -> FairValueResult:
-    """Calculates fair value based on multiple growth and valuation metrics."""
-    eps = fundamentals.get("eps", 0)
-    growth = fundamentals.get("earnings_growth", 0) / 100
-    roe = fundamentals.get("roe", 0) / 100
-    
-    # Base valuation: PEG model with earnings
-    pe_target = (15 + (growth * 100)) if growth > 0 else 10
-    if peer_pe and peer_pe > 0:
-        pe_target = (pe_target + peer_pe) / 2
-        
-    fair_val = eps * pe_target
-    bear_val = eps * (pe_target * 0.7)
-    bull_val = eps * (pe_target * 1.3)
-    
-    return FairValueResult(
-        fair_value=round(fair_val, 2),
-        bear_value=round(bear_val, 2),
-        bull_value=round(bull_val, 2),
-        valuation_method="PEG_PEER_HYBRID",
-        valuation_confidence="MEDIUM",
-        peer_count=1 if peer_pe else 0,
-        target_multiple=round(pe_target, 2),
-        current_multiple=round(fundamentals.get("pe", 0), 2),
-        peer_multiple=round(peer_pe, 2) if peer_pe else None,
-        is_fallback=False
-    )
-
 import requests
 import threading
 import pandas as pd
-import numpy as np
 import yfinance as yf
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
@@ -106,6 +75,16 @@ class StockPriceData:
     sma_200_yesterday: float
 
 @dataclass
+class ExitPriceData:
+    symbol: str
+    price: float
+    sma_50: float
+    sma_200: float
+    high_20d: float
+    close_yesterday: float
+    sma_200_yesterday: float
+
+@dataclass
 class StockFundamentals:
     symbol: str
     market_cap: float
@@ -136,6 +115,7 @@ class ScreenerResult:
     bucket: str
     status: str
     notes: str
+    change_pct: float = 0.0
     bear_value: float = None
     bull_value: float = None
     valuation_method: str = None
@@ -568,7 +548,7 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
     else:
         # Non-Financials: standard P/E (Max 4) & P/B (Max 3) vs Sector, Div Yield (Max 1), and Low 52W (evaluated at alert step, now rescaled)
         # Note: 2 points for 52W low distance is evaluated globally in should_trigger_alert.
-        # This function returns a fundamental-only value score out of 8 points.
+        # This function returns a fundamental-only value score out of 10 points.
         
         # 1. P/E vs Sector (Max 5 pts: <= median = 5, <= 1.2 * median = 3)
         if f.pe is not None and f.pe > 0:
@@ -871,16 +851,17 @@ def save_scores_to_db(results: list):
     data = []
     for r in results:
         legacy_score = int(r.total_score * 2.5) # scaled out of 50
-        data.append((r.symbol.upper(), r.price, legacy_score, r.cqs, r.pas))
+        data.append((r.symbol.upper(), r.price, r.change_pct, legacy_score, r.cqs, r.pas))
         
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 execute_values(cur, """
-                    INSERT INTO stockupdates.prices (symbol, latest_price, fundamental_score, quality_score, value_score)
+                    INSERT INTO stockupdates.prices (symbol, latest_price, change_pct, fundamental_score, quality_score, value_score)
                     VALUES %s
                     ON CONFLICT (symbol) DO UPDATE SET
                         latest_price = EXCLUDED.latest_price,
+                        change_pct = EXCLUDED.change_pct,
                         fundamental_score = EXCLUDED.fundamental_score,
                         quality_score = EXCLUDED.quality_score,
                         value_score = EXCLUDED.value_score,
@@ -905,6 +886,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         has_results = True
         
         section_text = f"<b>{label}</b> ({len(stocks)} stocks):\n"
+        current_msg += section_text
         for item in sorted(stocks, key=lambda x: x['total'], reverse=True):
             sym = item['symbol']
             cqs = item['cqs']
@@ -916,12 +898,13 @@ def format_telegram_message(categorized_stocks: dict) -> list:
             alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else " ⏳ WAITING"
             line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/20</b>{alert_marker}\n"
             
-            if len(current_msg) + len(section_text) + len(line) > 3900:
+            if len(current_msg) + len(line) > 3900:
                 messages.append(current_msg)
                 current_msg = "<b>🚀 MULTIBAGGER WATCHLIST SUMMARY (Cont.)</b>\n\n"
                 
-            section_text += line
-            current_msg += section_text + "\n"
+            current_msg += line
+
+        current_msg += "\n"
 
     if not has_results:
         current_msg += "ℹ️ No stocks qualified for multibagger categorization this week.\n"
@@ -1038,7 +1021,7 @@ def run_standalone_exit_monitor():
                 cur.execute("""
                     SELECT symbol, current_price, alert_price as entry_price 
                     FROM wealth_buy_alert 
-                    WHERE status = 'ACTIVE' 
+                    WHERE is_closed = FALSE 
                     AND breakout_type = 'MULTIBAGGER'
                 """)
                 open_positions = cur.fetchall()
@@ -1058,12 +1041,14 @@ def run_standalone_exit_monitor():
         for _, row in prices_df.iterrows():
             sym = row.get("Stock")
             if sym and row.get("cmp"):
-                price_data_map[sym] = StockPriceData(
-                    price=row.get("cmp"),
+                price_data_map[sym] = ExitPriceData(
+                    symbol=sym,
+                    price=row.get("cmp", 0.0),
                     sma_50=row.get("sma_50", 0),
                     sma_200=row.get("sma_200", 0),
                     high_20d=row.get("high_20d", 0),
-                    close_yesterday=row.get("close_yesterday", 0)
+                    close_yesterday=row.get("close_yesterday", 0),
+                    sma_200_yesterday=row.get("sma_200_yesterday", row.get("sma_200", 0))
                 )
                 
         # 3. Use cache for fundamentals
@@ -1171,6 +1156,13 @@ def start(debug_limit: int = None):
     known_sectors = {f.symbol: f.sector for f in valid_fundamentals}
     peer_medians = compute_peer_medians(symbols_for_valuation, known_sectors=known_sectors)
     
+    # Explicit schema verification on the returned peer medians object
+    if peer_medians and isinstance(peer_medians, dict):
+        sample_val = next(iter(peer_medians.values()), None)
+        if sample_val and not all(k in sample_val for k in ["median_pe", "median_pb", "median_roe", "peer_count"]):
+            logger.error("❌ peer_medians schema invalid. Expected keys missing.")
+            peer_medians = {}
+            
     results = []
     categorized_stocks = {
         "🚀 PRIME MULTIBAGGER CANDIDATE": [],
@@ -1182,43 +1174,69 @@ def start(debug_limit: int = None):
     
     for f in fundamentals_list:
         sym = f.symbol
-        price_data = price_data_map[sym]
+        price_data = price_data_map.get(sym)
+        if not price_data:
+            continue
+            
+        alert_triggered = False
+        alert_reason = ""
         
-        # Calculate scores
-        cqs = calculate_cqs(f)
-        pas = calculate_value_score(f, peer_medians)
-        trend = calculate_trend_score(price_data)
-        total = cqs + pas
-        
-        fair_val_result = calculate_fair_value(f, price_data, peer_medians)
-        base_fv = fair_val_result.fair_value
-        bear_fv = fair_val_result.bear_value
-        bull_fv = fair_val_result.bull_value
-        
-        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (base_fv * 0.5)
-        
-        if fair_val_result.valuation_confidence == "HIGH":
-            buy_high = base_fv * 1.03
-        elif fair_val_result.valuation_confidence == "MEDIUM":
-            buy_high = base_fv * 1.00
-        else:
-            buy_high = min(base_fv, price_data.price * 1.08)
-        
-        # Enforce invariant: buy zone low must be strictly less than buy zone high
-        if buy_low >= buy_high:
-            buy_low = base_fv * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
-        
-        # Enforce Kill Gates to flag INVALIDATED
+        # Enforce Kill Gates to flag INVALIDATED early
         if not passes_kill_gates(f):
             status = "INVALIDATED"
             bucket = "Invalidated"
-            alert_triggered = False
-            alert_reason = "Fails Layer 1 Kill Gates (Market Cap / Debt / Cash Flow)"
-            notes = f"Invalidated: {alert_reason}"
+            notes = "Invalidated: Fails Layer 1 Kill Gates (Market Cap / Debt / Cash Flow)"
             cqs = 0.0
             pas = 0.0
+            trend = 0.0
             total = 0.0
+            
+            base_fv = price_data.price * 0.95
+            buy_low = base_fv * 0.5
+            buy_high = min(base_fv, price_data.price * 1.08)
+            bear_fv = base_fv * 0.92
+            bull_fv = base_fv * 1.08
+            
+            fair_val_result = FairValueResult(
+                fair_value=round(base_fv, 2),
+                bear_value=round(bear_fv, 2),
+                bull_value=round(bull_fv, 2),
+                valuation_method="INVALIDATED",
+                valuation_confidence="LOW",
+                peer_count=None,
+                target_multiple=None,
+                current_multiple=None,
+                peer_multiple=None,
+                is_fallback=True
+            )
         else:
+            # Calculate scores for valid stocks
+            cqs = calculate_cqs(f)
+            pas = calculate_value_score(f, peer_medians)
+            trend = calculate_trend_score(price_data)
+            total = cqs + pas
+            
+            fair_val_result = calculate_fair_value(f, price_data, peer_medians)
+            base_fv = fair_val_result.fair_value
+            bear_fv = fair_val_result.bear_value
+            bull_fv = fair_val_result.bull_value
+            
+            buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (base_fv * 0.5)
+            
+            if fair_val_result.valuation_confidence == "HIGH":
+                buy_high = base_fv * 1.03
+            elif fair_val_result.valuation_confidence == "MEDIUM":
+                buy_high = base_fv * 1.00
+            else:
+                buy_high = min(base_fv, price_data.price * 1.08)
+            
+            # Enforce invariant: buy zone low must be strictly less than buy zone high
+            if buy_low >= buy_high:
+                buy_low = base_fv * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
+                notes_prefix = "(Buy Zone Synthetically Repaired) "
+            else:
+                notes_prefix = ""
+            
             # Check alerts
             alert_triggered, alert_reason = should_trigger_alert(price_data, fair_val_result, cqs, pas, trend)
             
@@ -1233,7 +1251,7 @@ def start(debug_limit: int = None):
                 status = "WAITING_BUY_ZONE"
                 bucket = "Watchlist Waiting"
                 
-            notes = alert_reason
+            notes = notes_prefix + alert_reason
             
             if fair_val_result.is_fallback:
                 notes += "\n⚠️ (Estimated Fallback: Valuation metrics missing)"
@@ -1257,6 +1275,7 @@ def start(debug_limit: int = None):
             bucket=bucket,
             status=status,
             notes=notes,
+            change_pct=price_data.change_pct,
             bear_value=bear_fv,
             bull_value=bull_fv,
             valuation_method=fair_val_result.valuation_method,
@@ -1270,7 +1289,7 @@ def start(debug_limit: int = None):
         
         # Trigger buy alert for ready positions
         if alert_triggered:
-            logger.info(f"🌟 Alert Triggered for {sym}! FV={fair_val:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
+            logger.info(f"🌟 Alert Triggered for {sym}! FV={base_fv:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
             scaled_score = int(total * 5.0)
             
             # Compute position sizing (total_score 0-20 → momentum 0-100)
@@ -1289,7 +1308,7 @@ def start(debug_limit: int = None):
                 position_shares=pos_shares,
                 portfolio_bucket="MULTIBAGGER",
                 valuation_score=pas,
-                momentum_score=int(cqs),
+                momentum_score=int(trend),
                 momentum_confidence="HIGH" if cqs >= 7.0 else "MEDIUM"
             )
             
