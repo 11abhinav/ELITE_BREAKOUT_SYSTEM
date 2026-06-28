@@ -928,7 +928,6 @@ def api_wealth():
             return jsonify([])
         df = pd.read_parquet(WEALTH_PATH)
         import json
-        import os
         from datetime import datetime
         records = json.loads(df.to_json(orient="records"))
         mtime = os.path.getmtime(WEALTH_PATH)
