@@ -986,7 +986,8 @@ def start(debug_limit: int = None):
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     from valuation_utils import compute_peer_medians
     symbols_for_valuation = [f.symbol for f in valid_fundamentals]
-    peer_medians = compute_peer_medians(symbols_for_valuation)
+    known_sectors = {f.symbol: f.sector for f in valid_fundamentals}
+    peer_medians = compute_peer_medians(symbols_for_valuation, known_sectors=known_sectors)
     
     results = []
     categorized_stocks = {

@@ -4,17 +4,32 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-def compute_peer_medians(symbols: list) -> dict:
+def fetch_full_universe_for_valuation() -> pd.DataFrame:
+    from tradingview_screener import Query, col
+    fields = [
+        "name", "sector", "market_cap_basic", 
+        "return_on_equity_fy", "total_revenue_yoy_growth_ttm",
+        "price_earnings_ttm", "price_book_ratio"
+    ]
+    q = (
+        Query()
+        .set_markets("india")
+        .select(*fields)
+        .where(col("exchange") == "NSE")
+        .limit(5000)
+    )
+    total, df = q.get_scanner_data()
+    return df
+
+def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     Compute median P/E, P/B, and ROE per stock dynamically using a peer subset from the overall market universe.
     Returns {symbol: {"median_pe": ..., "median_pb": ..., "median_roe": ...}}
     """
     try:
-        from daily_builder import fetch_universe
-        # Fetch the entire active market universe from TradingView
-        universe_df = fetch_universe()
+        universe_df = fetch_full_universe_for_valuation()
     except Exception as e:
-        logger.error(f"Failed to fetch market universe: {e}")
+        logger.error(f"Failed to fetch full market universe: {e}")
         universe_df = None
 
     medians_map = {}
@@ -28,16 +43,23 @@ def compute_peer_medians(symbols: list) -> dict:
         if stock_row.empty:
             stock_row = universe_df[universe_df["name"] == symbol.replace("-", "_")]
             
-        if stock_row.empty:
-            continue
-            
-        stock = stock_row.iloc[0]
-        sector = stock.get("sector")
-        mcap = stock.get("market_cap_basic")
-        roe = stock.get("return_on_equity_fy")
-        growth = stock.get("total_revenue_yoy_growth_ttm")
+        sector = None
+        mcap = None
+        roe = None
+        growth = None
         
-        if pd.isna(sector):
+        if not stock_row.empty:
+            stock = stock_row.iloc[0]
+            sector = stock.get("sector")
+            mcap = stock.get("market_cap_basic")
+            roe = stock.get("return_on_equity_fy")
+            growth = stock.get("total_revenue_yoy_growth_ttm")
+            
+        if pd.isna(sector) or not sector:
+            if known_sectors and symbol in known_sectors:
+                sector = known_sectors[symbol]
+                
+        if not sector or pd.isna(sector):
             continue
             
         peers = universe_df[universe_df["sector"] == sector].copy()
