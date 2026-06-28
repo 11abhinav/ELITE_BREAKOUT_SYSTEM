@@ -942,6 +942,54 @@ def check_scanner_staleness(now):
 # from ai_worker import run_worker_loop
 # from pledge_worker import worker_loop as run_pledge_loop
 
+def run_multibagger_scanner():
+    """
+    Multibagger Scanner:
+    - Runs on Sundays at 3:00 PM IST (15:00 IST).
+    - Scans dynamically fetched index constituents.
+    - Updates watchlist and buy alerts.
+    """
+    multibagger_ran = False
+    while True:
+        try:
+            now = datetime.now(IST)
+            # Sunday only, 3:00 PM IST
+            if now.weekday() == 6 and now.hour == 15 and now.minute >= 0 and not multibagger_ran:
+                logger.info(f"🚀 MULTIBAGGER SCAN | Starting Sunday scan at {now.strftime('%H:%M:%S IST')}...")
+                import multibagger
+                multibagger.start()
+                multibagger_ran = True
+                
+                # Mark success in health table
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    "MULTIBAGGER",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Sunday 15:00 IST"
+                )
+                logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
+            
+            # Reset flag outside Sunday 3 PM window
+            if now.weekday() != 6 or now.hour != 15:
+                multibagger_ran = False
+                
+        except Exception as e:
+            logger.exception("❌ MULTIBAGGER SCAN | Failed")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    "MULTIBAGGER",
+                    status="DOWN",
+                    error_msg=str(e)[:500],
+                    scheduled_for="Sunday 15:00 IST"
+                )
+            except Exception:
+                pass
+                
+        time.sleep(30)
+
+
 RESTARTABLE_THREADS = {
     # Intraday and Live scanners disabled per ops request to reduce API load during market hours.
     # "IntradayScanner":    run_intraday_scanner,
@@ -954,6 +1002,7 @@ RESTARTABLE_THREADS = {
     "SystemScheduler":    run_system_scheduler,
     "EODScanner":         run_eod_scanner,
     "ReversalScanner":    run_reversal_scanner,
+    "MultibaggerScanner": run_multibagger_scanner,
 }
 
 # EOD and Reversal are now restartable since they run continuously
@@ -975,6 +1024,15 @@ def run_watchdog():
     _missing_env = [v for v in ("BOT_TOKEN", "CHAT_ID") if not os.getenv(v)]
     if _missing_env:
         logger.error(f"❌ FATAL: Missing env vars: {_missing_env}")
+
+    # Start Telegram Queue Flusher background thread
+    try:
+        from telegram_engine import flush_telegram_queue
+        flusher_thread = threading.Thread(target=flush_telegram_queue, name="TelegramQueueFlusher", daemon=True)
+        flusher_thread.start()
+        logger.info("📨 Background Telegram queue flusher thread started.")
+    except Exception as e:
+        logger.error(f"❌ Failed to start Telegram queue flusher: {e}")
 
     for name, target in ALL_THREADS.items():
         start_thread(name, target)
@@ -1033,6 +1091,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Wealth Engine": _trigger_wealth_engine,
         "INTRADAY":      _trigger_intraday,
         "1H":            _trigger_live_scanner,
+        "MULTIBAGGER":    _trigger_multibagger,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -1090,6 +1149,10 @@ def _trigger_intraday():
 def _trigger_live_scanner():
     import live_scanner
     live_scanner.start(run_once=True)
+
+def _trigger_multibagger():
+    import multibagger
+    multibagger.start()
 
 
 # ENTRY POINT
