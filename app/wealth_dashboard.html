@@ -772,18 +772,18 @@
     <div class="table-container">
       <table id="tbl-mb-watchlist">
         <thead><tr>
-          <th>Stock</th>
-          <th>CMP</th>
-          <th>Sector Relative FV</th>
+          <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
+          <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
+          <th onclick="sortMbWatchlist('fair_value')" style="cursor:pointer" title="Sort by Fair Value">Sector Relative FV ↕</th>
           <th>Buy Zone</th>
-          <th>Dist. to Buy</th>
-          <th>CQS</th>
-          <th>PAS</th>
-          <th>Trend</th>
-          <th>Total</th>
-          <th>Bucket</th>
+          <th onclick="sortMbWatchlist('dist_to_buy')" style="cursor:pointer" title="Sort by Distance to Buy Zone">Dist. to Buy ↕</th>
+          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by CQS">CQS ↕</th>
+          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by PAS">PAS ↕</th>
+          <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
+          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Total Score">Total ↕</th>
+          <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
           <th>Value Add</th>
-          <th>Status</th>
+          <th onclick="sortMbWatchlist('status')" style="cursor:pointer" title="Sort by Status">Status ↕</th>
           <th>Act</th>
         </tr></thead>
         <tbody id="mb-watchlist-body"></tbody>
@@ -1361,7 +1361,17 @@
         const fmScore = alert.fm_score ? alert.fm_score.toFixed(1) : '-';
         const currentScore = alert.current_score ? alert.current_score.toFixed(1) : '-';
         const alertDate = alert.alert_date || '-';
-        const alertTime = alert.alert_time ? (alert.alert_time.includes('T') ? alert.alert_time.split('T')[1].substring(0, 5) : alert.alert_time.substring(0, 5)) : '';
+        const alertTimeStr = alert.alert_time || '';
+        let alertTime = '';
+        if (alertTimeStr) {
+          if (alertTimeStr.includes('T')) {
+            alertTime = alertTimeStr.split('T')[1].substring(0, 5);
+          } else if (alertTimeStr.includes(' ')) {
+            alertTime = alertTimeStr.split(' ')[1].substring(0, 5);
+          } else {
+            alertTime = alertTimeStr.substring(0, 5);
+          }
+        }
         
         const posPct = alert.position_pct ? alert.position_pct + '%' : '-';
         const posAmt = parseFloat(alert.position_amount) || 0;
@@ -1762,6 +1772,47 @@ async function loadMultibaggerWatchlist() {
   }
 }
 
+let currentMbSortCol = '';
+let currentMbSortAsc = true;
+
+function sortMbWatchlist(col) {
+  if (!allMbWatchlistItems || allMbWatchlistItems.length === 0) return;
+  
+  if (currentMbSortCol === col) {
+    currentMbSortAsc = !currentMbSortAsc;
+  } else {
+    currentMbSortCol = col;
+    currentMbSortAsc = true;
+  }
+  
+  allMbWatchlistItems.sort((a, b) => {
+    let valA = a[col];
+    let valB = b[col];
+    
+    if (col === 'dist_to_buy') {
+      const fvA = parseFloat(a.fair_value) || 0;
+      const cmpA = parseFloat(a.latest_price) || 0;
+      valA = fvA > 0 ? (cmpA - fvA) / fvA : 999;
+      
+      const fvB = parseFloat(b.fair_value) || 0;
+      const cmpB = parseFloat(b.latest_price) || 0;
+      valB = fvB > 0 ? (cmpB - fvB) / fvB : 999;
+    }
+    
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+    
+    if (valA === undefined || valA === null) valA = '';
+    if (valB === undefined || valB === null) valB = '';
+    
+    if (valA < valB) return currentMbSortAsc ? -1 : 1;
+    if (valA > valB) return currentMbSortAsc ? 1 : -1;
+    return 0;
+  });
+  
+  renderMultibaggerWatchlist();
+}
+
 function renderMultibaggerWatchlist() {
   const tbody = document.getElementById('mb-watchlist-body');
   const empty = document.getElementById('mb-watchlist-empty');
@@ -1846,7 +1897,7 @@ function renderMultibaggerWatchlist() {
         <td class="mono">${trend.toFixed(1)}</td>
         <td class="mono" style="color:${scoreColor}; font-weight:700;">${total.toFixed(1)}</td>
         <td style="font-size:11px;">${bucket}</td>
-        <td style="font-size:11px; color:var(--text); max-width:200px; white-space:normal; line-height:1.2;">${notes}</td>
+        <td style="font-size:11px; color:var(--text);"><div style="max-width:200px; white-space:normal; line-height:1.2;">${notes}</div></td>
         <td><span class="badge badge-${statusClass}">${status.replace('_', ' ')}</span></td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
