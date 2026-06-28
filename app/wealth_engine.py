@@ -1142,7 +1142,8 @@ def run_wealth_scan():
             logger.info("🧪 DONT_SAVE_WEALTH enabled — skipping parquet save and DB upload")
 
         if "used_fallback_data" in wealth_df.columns:
-            valid_buys = wealth_df[(wealth_df["Signal_Code"] == "BUY") & ~wealth_df["used_fallback_data"]]
+            fallback_mask = wealth_df["used_fallback_data"].fillna(False).astype(bool)
+            valid_buys = wealth_df[(wealth_df["Signal_Code"] == "BUY") & ~fallback_mask]
         else:
             valid_buys = wealth_df[wealth_df["Signal_Code"] == "BUY"]
         buy_count = len(valid_buys)
