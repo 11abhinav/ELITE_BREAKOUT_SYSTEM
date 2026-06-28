@@ -935,7 +935,6 @@
           return;
         }
 
-        const data = await res.json();
         const stocks = Array.isArray(data) ? data : (data.data || []);
         window.DATA_GENERATED_AT = data.generated_at;
         
