@@ -1441,6 +1441,14 @@ def api_trigger_scanner(scanner_name):
     Runs the scanner in a background thread and returns immediately.
     """
     try:
+        force_refresh = request.args.get('force_refresh', 'false') == 'true'
+        if scanner_name == 'Multibagger Engine' and force_refresh:
+            import os
+            cache_path = "data/multibagger_fundamentals_cache.json"
+            if os.path.exists(cache_path):
+                os.remove(cache_path)
+                logger.info("🗑️ Cleared Multibagger fundamentals cache before manual trigger.")
+                
         from main import trigger_scanner_manual
         result = trigger_scanner_manual(scanner_name)
         status_code = 200 if result["status"] == "ok" else 400
