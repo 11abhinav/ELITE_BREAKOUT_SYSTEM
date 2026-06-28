@@ -1035,8 +1035,12 @@ def start(debug_limit: int = None):
         total = cqs + pas
         
         fair_val = calculate_fair_value(f, price_data, sector_medians)
-        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
         buy_high = fair_val * 1.05
+        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
+        
+        # Enforce invariant: buy zone low must be strictly less than buy zone high
+        if buy_low >= buy_high:
+            buy_low = fair_val * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
         
         # Enforce Kill Gates to flag INVALIDATED
         if not passes_kill_gates(f):

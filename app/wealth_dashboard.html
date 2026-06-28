@@ -1804,22 +1804,23 @@ function renderMultibaggerWatchlist() {
     const notes = item.notes || '-';
     const status = item.status || '-';
 
-    // Distance to buy zone: positive = above buy zone (needs to drop), negative = inside/below
+    // Distance to fair value: percentage difference from fair value
     let distPct = 0;
     let distLabel = '-';
     let distColor = 'var(--muted)';
-    if (bzHigh > 0 && cmp > 0) {
+    if (fv > 0 && cmp > 0) {
       if (cmp <= bzHigh && cmp >= bzLow) {
         distLabel = '✅ IN ZONE';
         distColor = 'var(--green)';
-      } else if (cmp < bzLow) {
-        distPct = ((bzLow - cmp) / cmp * 100).toFixed(1);
-        distLabel = `↓ ${distPct}% below`;
-        distColor = 'var(--green)';
       } else {
-        distPct = ((cmp - bzHigh) / bzHigh * 100).toFixed(1);
-        distLabel = `↑ ${distPct}% above`;
-        distColor = distPct > 20 ? 'var(--red)' : 'var(--amber)';
+        distPct = ((cmp - fv) / fv * 100);
+        if (distPct < 0) {
+          distLabel = `↓ ${Math.abs(distPct).toFixed(1)}% below FV`;
+          distColor = 'var(--green)';
+        } else {
+          distLabel = `↑ ${distPct.toFixed(1)}% above FV`;
+          distColor = distPct > 20 ? 'var(--red)' : 'var(--amber)';
+        }
       }
     }
 
