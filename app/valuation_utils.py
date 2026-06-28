@@ -34,7 +34,7 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
 
     medians_map = {}
     for symbol in symbols:
-        medians_map[symbol] = {"median_pe": None, "median_pb": None, "median_roe": None}
+        medians_map[symbol] = {"median_pe": None, "median_pb": None, "median_roe": None, "peer_count": 0}
         
         if universe_df is None or universe_df.empty:
             continue
@@ -75,7 +75,8 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
                 medians_map[symbol] = {
                     "median_pe": float(raw_pe) if not pd.isna(raw_pe) else None,
                     "median_pb": float(raw_pb) if not pd.isna(raw_pb) else None,
-                    "median_roe": float(raw_roe) if not pd.isna(raw_roe) else None
+                    "median_roe": float(raw_roe) if not pd.isna(raw_roe) else None,
+                    "peer_count": len(peers) if not peers.empty else 0
                 }
                 continue
                 
