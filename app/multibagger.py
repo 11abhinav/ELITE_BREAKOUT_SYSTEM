@@ -408,12 +408,12 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
     if f.market_cap is None or float(f.market_cap) < 5000000000: # ₹500 Cr
         return False
         
-    # Debt/Equity check (Strict: reject if > 1.5, except for Banks / NBFC / Financial sectors)
+    # Debt/Equity check (Strict: reject if > 1.0, except for Banks / NBFC / Financial sectors)
     if not is_financial_sector(f.sector):
         if f.debt_equity is not None:
             de_val = float(f.debt_equity)
             de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-            if de_ratio > 1.5:
+            if de_ratio > 1.0:
                 return False
                 
     # Operating Cash Flow check (Strict: reject if negative)
@@ -426,12 +426,12 @@ def calculate_cqs(f: StockFundamentals) -> float:
     """Calculate Company Quality / Growth Score out of 10 points (0 pts if missing)."""
     score = 0.0
     
-    # 1. ROE (Max 3 pts: >=20% = 3, >=12% = 1)
+    # 1. ROE (Max 3 pts: >=20% = 3, >=15% = 1)
     if f.roe is not None:
         roe_val = float(f.roe)
         if roe_val >= 0.20:
             score += 3.0
-        elif roe_val >= 0.12:
+        elif roe_val >= 0.15:
             score += 1.0
             
     # 2. Debt/Equity (Max 2 pts: <=0.3 = 2, <=0.7 = 1) - Only scored for Non-Financials
