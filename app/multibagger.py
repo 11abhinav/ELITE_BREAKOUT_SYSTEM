@@ -613,7 +613,7 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
     peer_pe = info.get("median_pe")
     peer_pb = info.get("median_pb")
 
-    min_peer_count = 8
+    min_peer_count = 5
 
     try:
         if is_financial_sector(f.sector):
@@ -717,7 +717,7 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
             )
 
     except Exception as e:
-        logger.debug(f"Fair value derivation exception for {f.symbol}: {e}")
+        logger.exception(f"Fair value derivation exception for {f.symbol}")
 
     fallback_fv = price_data.price * 0.95
     return FairValueResult(
