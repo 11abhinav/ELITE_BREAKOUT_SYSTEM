@@ -112,7 +112,8 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         medians_map[symbol] = {
             "median_pe": float(val_pe) if not pd.isna(val_pe) else None,
             "median_pb": float(val_pb) if not pd.isna(val_pb) else None,
-            "median_roe": float(val_roe) if not pd.isna(val_roe) else None
+            "median_roe": float(val_roe) if not pd.isna(val_roe) else None,
+            "peer_count": len(final_peers) if not final_peers.empty else 0
         }
         
     return medians_map

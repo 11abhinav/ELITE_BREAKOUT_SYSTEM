@@ -3,6 +3,54 @@ import os
 import time
 import json
 import logging
+import warnings
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class FairValueResult:
+    fair_value: float
+    bear_value: float
+    bull_value: float
+    valuation_method: str
+    valuation_confidence: str
+    peer_count: Optional[int]
+    target_multiple: Optional[float]
+    current_multiple: Optional[float]
+    peer_multiple: Optional[float]
+    is_fallback: bool
+
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+def calculate_fair_value_v2(fundamentals: dict, peer_pe: float = None) -> FairValueResult:
+    """Calculates fair value based on multiple growth and valuation metrics."""
+    eps = fundamentals.get("eps", 0)
+    growth = fundamentals.get("earnings_growth", 0) / 100
+    roe = fundamentals.get("roe", 0) / 100
+    
+    # Base valuation: PEG model with earnings
+    pe_target = (15 + (growth * 100)) if growth > 0 else 10
+    if peer_pe and peer_pe > 0:
+        pe_target = (pe_target + peer_pe) / 2
+        
+    fair_val = eps * pe_target
+    bear_val = eps * (pe_target * 0.7)
+    bull_val = eps * (pe_target * 1.3)
+    
+    return FairValueResult(
+        fair_value=round(fair_val, 2),
+        bear_value=round(bear_val, 2),
+        bull_value=round(bull_val, 2),
+        valuation_method="PEG_PEER_HYBRID",
+        valuation_confidence="MEDIUM",
+        peer_count=1 if peer_pe else 0,
+        target_multiple=round(pe_target, 2),
+        current_multiple=round(fundamentals.get("pe", 0), 2),
+        peer_multiple=round(peer_pe, 2) if peer_pe else None,
+        is_fallback=False
+    )
+
 import requests
 import threading
 import pandas as pd
@@ -88,6 +136,14 @@ class ScreenerResult:
     bucket: str
     status: str
     notes: str
+    bear_value: float = None
+    bull_value: float = None
+    valuation_method: str = None
+    valuation_confidence: str = None
+    peer_count: int = None
+    target_multiple: float = None
+    current_multiple: float = None
+    peer_multiple: float = None
 
 class YFinanceRateLimitGuard:
     """Manages rate limit state and backoff lock-freely (sleep outside lock)."""
@@ -137,10 +193,6 @@ def init_db_schema():
             with conn.cursor() as cur:
                 cur.execute("CREATE SCHEMA IF NOT EXISTS stockupdates;")
                 
-                # Drop tables so they can be recreated with the latest schema
-                cur.execute("DROP TABLE IF EXISTS stockupdates.watchlist CASCADE;")
-                cur.execute("DROP TABLE IF EXISTS stockupdates.prices CASCADE;")
-                
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stockupdates.watchlist (
                         symbol VARCHAR(50) PRIMARY KEY,
@@ -172,6 +224,21 @@ def init_db_schema():
                         last_fetched TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
+                
+                # Add new valuation and confidence columns if they don't exist
+                columns_to_add = [
+                    ("bear_value", "NUMERIC(10, 2)"),
+                    ("bull_value", "NUMERIC(10, 2)"),
+                    ("valuation_method", "VARCHAR(50)"),
+                    ("valuation_confidence", "VARCHAR(20)"),
+                    ("peer_count", "INTEGER"),
+                    ("target_multiple", "NUMERIC(10, 2)"),
+                    ("current_multiple", "NUMERIC(10, 2)"),
+                    ("peer_multiple", "NUMERIC(10, 2)")
+                ]
+                for col_name, col_type in columns_to_add:
+                    cur.execute(f"ALTER TABLE stockupdates.watchlist ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
+                    
                 conn.commit()
         logger.info("✅ Database tables validated successfully.")
     except Exception as e:
@@ -559,60 +626,164 @@ def calculate_trend_score(price_data: StockPriceData) -> float:
         
     return round(score, 1)
 
-def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> tuple[float, bool]:
-    """Calculate Company Fair Value. Uses peer valuation overrides. Returns (fair_value, is_fallback)"""
+def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> FairValueResult:
+    info = medians.get(f.symbol, {}) if medians else {}
+
+    peer_count = info.get("peer_count")
+    peer_pe = info.get("median_pe")
+    peer_pb = info.get("median_pb")
+
+    min_peer_count = 8
+
     try:
         if is_financial_sector(f.sector):
-            # Fair Value for financials = (Sector Median P/B) * BVPS
-            peer_pb = medians.get(f.symbol, {}).get("median_pb")
-            bvps = f.bvps
-            if peer_pb and bvps and float(bvps) > 0:
-                return float(peer_pb * float(bvps)), False
-        else:
-            # Fair Value for non-financials = (Sector Median P/E) * EPS
-            peer_pe = medians.get(f.symbol, {}).get("median_pe")
-            eps = f.eps
-            if peer_pe and eps and float(eps) > 0:
-                return float(peer_pe * float(eps)), False
+            current_pb = float(f.pb) if f.pb and f.pb > 0 else None
+            bvps = float(f.bvps) if f.bvps and f.bvps > 0 else None
+
+            if bvps and peer_pb and peer_count and peer_count >= min_peer_count:
+                raw_target_pb = (0.65 * float(peer_pb)) + (0.35 * current_pb if current_pb else 0.0)
+                target_pb = clamp(raw_target_pb, 0.8, 1.5 * float(peer_pb))
+                fair_value = target_pb * bvps
+                bear_value = max(bvps * max(0.85 * target_pb, 0.8), price_data.price * 0.85)
+                bull_value = bvps * min(target_pb * 1.15, 1.75 * float(peer_pb))
+
+                confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
+                return FairValueResult(
+                    fair_value=round(fair_value, 2),
+                    bear_value=round(bear_value, 2),
+                    bull_value=round(bull_value, 2),
+                    valuation_method="BLENDED_SECTOR_PB",
+                    valuation_confidence=confidence,
+                    peer_count=peer_count,
+                    target_multiple=round(target_pb, 2),
+                    current_multiple=round(current_pb, 2) if current_pb else None,
+                    peer_multiple=round(float(peer_pb), 2),
+                    is_fallback=False
+                )
+
+            fallback_fv = price_data.price * 0.95
+            return FairValueResult(
+                fair_value=round(fallback_fv, 2),
+                bear_value=round(fallback_fv * 0.92, 2),
+                bull_value=round(fallback_fv * 1.08, 2),
+                valuation_method="FALLBACK_PRICE_ANCHORED_PB",
+                valuation_confidence="LOW",
+                peer_count=peer_count,
+                target_multiple=None,
+                current_multiple=current_pb,
+                peer_multiple=float(peer_pb) if peer_pb else None,
+                is_fallback=True
+            )
+
+        current_pe = float(f.pe) if f.pe and f.pe > 0 else None
+        eps = float(f.eps) if f.eps and f.eps > 0 else None
+
+        if eps and peer_pe and peer_count and peer_count >= min_peer_count:
+            peer_pe = float(peer_pe)
+
+            if current_pe:
+                raw_target_pe = (0.60 * peer_pe) + (0.40 * current_pe)
+            else:
+                raw_target_pe = peer_pe
+
+            sector_cap = 1.35 * peer_pe
+            absolute_cap = 25.0 if (f.revenue_growth or 0) < 0.15 else 35.0
+            target_pe = clamp(raw_target_pe, 6.0, min(sector_cap, absolute_cap))
+
+            fair_value = target_pe * eps
+            bear_pe = max(0.85 * target_pe, 0.85 * current_pe if current_pe else 6.0)
+            bull_pe = min(1.15 * target_pe, sector_cap, absolute_cap)
+
+            bear_value = bear_pe * eps
+            bull_value = bull_pe * eps
+
+            if current_pe and peer_pe > current_pe * 1.75:
+                confidence = "MEDIUM"
+            else:
+                confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
+
+            if current_pe and fair_value > price_data.price * 1.50 and (f.revenue_growth or 0) < 0.15:
+                fair_value = price_data.price * 1.50
+                bull_value = min(bull_value, price_data.price * 1.65)
+                confidence = "MEDIUM"
+
+            return FairValueResult(
+                fair_value=round(fair_value, 2),
+                bear_value=round(bear_value, 2),
+                bull_value=round(bull_value, 2),
+                valuation_method="BLENDED_SECTOR_PE",
+                valuation_confidence=confidence,
+                peer_count=peer_count,
+                target_multiple=round(target_pe, 2),
+                current_multiple=round(current_pe, 2) if current_pe else None,
+                peer_multiple=round(peer_pe, 2),
+                is_fallback=False
+            )
+
+        if current_pe and eps:
+            target_pe = clamp(current_pe, 6.0, 20.0)
+            fair_value = target_pe * eps
+            return FairValueResult(
+                fair_value=round(fair_value, 2),
+                bear_value=round(fair_value * 0.90, 2),
+                bull_value=round(fair_value * 1.10, 2),
+                valuation_method="CURRENT_PE_FALLBACK",
+                valuation_confidence="LOW",
+                peer_count=peer_count,
+                target_multiple=round(target_pe, 2),
+                current_multiple=round(current_pe, 2),
+                peer_multiple=float(peer_pe) if peer_pe else None,
+                is_fallback=True
+            )
+
     except Exception as e:
         logger.debug(f"Fair value derivation exception for {f.symbol}: {e}")
-        
-    # Fallback default: 90% of current close price
-    return price_data.price * 0.90, True
 
-def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: float, value_score: float, trend_score: float) -> tuple:
-    """
-    Evaluates whether a candidate triggers an active BUY alert.
-    Returns: (should_alert: bool, reason: str)
-    """
+    fallback_fv = price_data.price * 0.95
+    return FairValueResult(
+        fair_value=round(fallback_fv, 2),
+        bear_value=round(fallback_fv * 0.92, 2),
+        bull_value=round(fallback_fv * 1.08, 2),
+        valuation_method="PRICE_FALLBACK",
+        valuation_confidence="LOW",
+        peer_count=peer_count,
+        target_multiple=None,
+        current_multiple=float(f.pe) if f.pe else None,
+        peer_multiple=float(peer_pe) if peer_pe else None,
+        is_fallback=True
+    )
+
+def should_trigger_alert(price_data: StockPriceData, fv: FairValueResult, cqs: float, value_score: float, trend_score: float) -> tuple:
     price = price_data.price
     buy_zone_low = price_data.sma_200
-    buy_zone_high = fair_value * 1.05
-    
-    # 0. Base Quality & Trend Guards (Must pass Exit rules)
+
+    if fv.valuation_confidence == "HIGH":
+        buy_zone_high = fv.fair_value * 1.03
+    elif fv.valuation_confidence == "MEDIUM":
+        buy_zone_high = fv.fair_value * 1.00
+    else:
+        buy_zone_high = min(fv.fair_value, price * 1.08)
+
     if cqs < 5.0 or price < price_data.sma_200:
-        return False, f"Fails base entry guards: CQS ({cqs:.1f}) < 5.0 or Price (₹{price:.1f}) < 200-DMA."
-    
-    # 1. Normal Value Breakout: Undervalued, trend confirmed (above 50DMA), inside buy zone
+        return False, f"Fails base entry guards: CQS ({cqs:.1f}) < 5.0 or Price < 200-DMA."
+
     in_buy_zone = (price >= buy_zone_low and price <= buy_zone_high)
     trend_ok = (trend_score >= 5.0 and price > price_data.sma_50)
-    
+
     if in_buy_zone and trend_ok:
-        return True, "Value Breakout: inside buy zone with confirmed trend."
-        
-    # 2. GARP (Growth at a Reasonable Price) Override:
-    # High growth outruns valuation: premium entry up to 115% of fair value allowed
+        return True, f"Value Breakout: inside buy zone, FV={fv.fair_value:.1f}, confidence={fv.valuation_confidence}"
+
     is_high_growth = (cqs >= 8.0)
     strong_trend = (trend_score >= 7.0)
-    below_premium_cap = (price <= fair_value * 1.15)
-    
-    if is_high_growth and strong_trend and below_premium_cap:
-        return True, f"GARP Rerating: Growth override active (CQS={cqs}) with strong trend."
-        
+    premium_cap = fv.bull_value if fv.valuation_confidence != "LOW" else fv.fair_value * 1.08
+
+    if is_high_growth and strong_trend and price <= premium_cap:
+        return True, f"GARP Rerating: using bull case cap, confidence={fv.valuation_confidence}"
+
     if in_buy_zone and not trend_ok:
-        return False, f"Waiting for Trend Reversal: In buy zone, but Trend Score ({trend_score:.1f}) < 5.0 or Price < 50-DMA."
-        
-    return False, "Watchlist waiting: Price is outside correct buy zone."
+        return False, f"Waiting for trend confirmation: Trend Score ({trend_score:.1f}) < 5.0."
+
+    return False, "Watchlist waiting: price outside buy zone."
         
 def get_label(cqs: float, pas: float) -> str:
     """Return the output label category based on CQS and PAS."""
@@ -647,7 +818,9 @@ def save_watchlist_to_db(results: list):
         data.append((
             r.symbol.upper(), r.fair_value, r.buy_zone_low, r.buy_zone_high, r.price,
             r.cqs, r.pas, r.trend_score, r.total_score, r.bucket, r.status, r.notes,
-            last_price, last_at
+            last_price, last_at,
+            r.bear_value, r.bull_value, r.valuation_method, r.valuation_confidence,
+            r.peer_count, r.target_multiple, r.current_multiple, r.peer_multiple
         ))
         
     try:
@@ -658,7 +831,8 @@ def save_watchlist_to_db(results: list):
                     INSERT INTO stockupdates.watchlist 
                     (symbol, fair_value, buy_zone_low, buy_zone_high, latest_price, 
                      growth_score, value_score, trend_score, total_score, bucket, status, notes,
-                     last_alert_price, last_alert_at)
+                     last_alert_price, last_alert_at, bear_value, bull_value, valuation_method,
+                     valuation_confidence, peer_count, target_multiple, current_multiple, peer_multiple)
                     VALUES %s
                     ON CONFLICT (symbol) DO UPDATE SET
                         fair_value = EXCLUDED.fair_value,
@@ -674,6 +848,14 @@ def save_watchlist_to_db(results: list):
                         notes = EXCLUDED.notes,
                         last_alert_price = COALESCE(EXCLUDED.last_alert_price, stockupdates.watchlist.last_alert_price),
                         last_alert_at = COALESCE(EXCLUDED.last_alert_at, stockupdates.watchlist.last_alert_at),
+                        bear_value = EXCLUDED.bear_value,
+                        bull_value = EXCLUDED.bull_value,
+                        valuation_method = EXCLUDED.valuation_method,
+                        valuation_confidence = EXCLUDED.valuation_confidence,
+                        peer_count = EXCLUDED.peer_count,
+                        target_multiple = EXCLUDED.target_multiple,
+                        current_multiple = EXCLUDED.current_multiple,
+                        peer_multiple = EXCLUDED.peer_multiple,
                         last_updated = CURRENT_TIMESTAMP;
                 """, data)
             conn.commit()
@@ -1008,13 +1190,23 @@ def start(debug_limit: int = None):
         trend = calculate_trend_score(price_data)
         total = cqs + pas
         
-        fair_val, is_fv_fallback = calculate_fair_value(f, price_data, peer_medians)
-        buy_high = fair_val * 1.05
-        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
+        fair_val_result = calculate_fair_value(f, price_data, peer_medians)
+        base_fv = fair_val_result.fair_value
+        bear_fv = fair_val_result.bear_value
+        bull_fv = fair_val_result.bull_value
+        
+        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (base_fv * 0.5)
+        
+        if fair_val_result.valuation_confidence == "HIGH":
+            buy_high = base_fv * 1.03
+        elif fair_val_result.valuation_confidence == "MEDIUM":
+            buy_high = base_fv * 1.00
+        else:
+            buy_high = min(base_fv, price_data.price * 1.08)
         
         # Enforce invariant: buy zone low must be strictly less than buy zone high
         if buy_low >= buy_high:
-            buy_low = fair_val * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
+            buy_low = base_fv * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
         
         # Enforce Kill Gates to flag INVALIDATED
         if not passes_kill_gates(f):
@@ -1028,7 +1220,7 @@ def start(debug_limit: int = None):
             total = 0.0
         else:
             # Check alerts
-            alert_triggered, alert_reason = should_trigger_alert(price_data, fair_val, cqs, pas, trend)
+            alert_triggered, alert_reason = should_trigger_alert(price_data, fair_val_result, cqs, pas, trend)
             
             # Determine buckets
             if alert_triggered:
@@ -1043,8 +1235,8 @@ def start(debug_limit: int = None):
                 
             notes = alert_reason
             
-            if is_fv_fallback:
-                notes += "\n⚠️ (Estimated Fallback: Yahoo data missing for precise valuation)"
+            if fair_val_result.is_fallback:
+                notes += "\n⚠️ (Estimated Fallback: Valuation metrics missing)"
                 logger.warning(f"⚠️ Yahoo data missing for {sym} valuation (Estimated Fallback used)")
                 try:
                     from database import upsert_fetch_error
@@ -1059,12 +1251,20 @@ def start(debug_limit: int = None):
             pas=pas,
             trend_score=trend,
             total_score=total,
-            fair_value=fair_val,
+            fair_value=base_fv,
             buy_zone_low=buy_low,
             buy_zone_high=buy_high,
             bucket=bucket,
             status=status,
-            notes=notes
+            notes=notes,
+            bear_value=bear_fv,
+            bull_value=bull_fv,
+            valuation_method=fair_val_result.valuation_method,
+            valuation_confidence=fair_val_result.valuation_confidence,
+            peer_count=fair_val_result.peer_count,
+            target_multiple=fair_val_result.target_multiple,
+            current_multiple=fair_val_result.current_multiple,
+            peer_multiple=fair_val_result.peer_multiple
         )
         results.append(res)
         
