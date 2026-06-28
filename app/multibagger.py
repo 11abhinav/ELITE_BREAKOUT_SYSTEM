@@ -445,8 +445,8 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
             category='fetch_failed',
             error_msg="Failed to fetch info after 3 retries"
         )
-    except Exception:
-        pass
+    except Exception as db_err:
+        logger.warning(f"Failed to record fetch error in DB for {symbol}: {db_err}")
         
     return None
 
@@ -1254,8 +1254,9 @@ def start(debug_limit: int = None):
             notes = notes_prefix + alert_reason
             
             if fair_val_result.is_fallback:
-                notes += "\n⚠️ (Estimated Fallback: Valuation metrics missing)"
-                logger.warning(f"⚠️ Yahoo data missing for {sym} valuation (Estimated Fallback used)")
+                missing_details = f"eps={f.eps}, pe={f.pe}, peer_pe={fair_val_result.peer_multiple}, peer_count={fair_val_result.peer_count}"
+                notes += f"\n⚠️ (Estimated Fallback: Valuation metrics missing. {missing_details})"
+                logger.warning(f"⚠️ Yahoo/Peer data missing for {sym} valuation (Estimated Fallback used). Details: {missing_details}")
             
         res = ScreenerResult(
             symbol=sym,

@@ -1,8 +1,12 @@
 import logging
 import pandas as pd
 import numpy as np
+import time
+import os
 
 logger = logging.getLogger(__name__)
+
+UNIVERSE_CACHE_PATH = "data/tradingview_universe_cache.pkl"
 
 def fetch_full_universe_for_valuation() -> pd.DataFrame:
     from tradingview_screener import Query, col
@@ -11,15 +15,36 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
         "return_on_equity_fy", "total_revenue_yoy_growth_ttm",
         "price_earnings_ttm", "price_book_ratio"
     ]
-    q = (
-        Query()
-        .set_markets("india")
-        .select(*fields)
-        .where(col("exchange") == "NSE")
-        .limit(5000)
-    )
-    total, df = q.get_scanner_data()
-    return df
+    
+    for attempt in range(3):
+        try:
+            q = (
+                Query()
+                .set_markets("india")
+                .select(*fields)
+                .where(col("exchange") == "NSE")
+                .limit(5000)
+            )
+            total, df = q.get_scanner_data()
+            if df is not None and not df.empty:
+                # Save to cache
+                os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
+                df.to_pickle(UNIVERSE_CACHE_PATH)
+                return df
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1}: Failed to fetch market universe: {e}")
+            time.sleep(2 ** attempt)
+            
+    # If fetch fails, try loading from cache
+    if os.path.exists(UNIVERSE_CACHE_PATH):
+        logger.info("Loading market universe from local cache due to fetch failure.")
+        try:
+            df = pd.read_pickle(UNIVERSE_CACHE_PATH)
+            return df
+        except Exception as e:
+            logger.error(f"Failed to load universe cache: {e}")
+            
+    return pd.DataFrame()
 
 def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
