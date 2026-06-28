@@ -2948,13 +2948,13 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                             INSERT INTO wealth_buy_alert 
                             (symbol, alert_price, breakout_type, fm_score, status, notes, alert_date, alert_time,
                              position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                             momentum_score, momentum_confidence, data_quality, fallback_timestamp)
-                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                             momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score)
+                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
                             DO UPDATE SET fm_score = EXCLUDED.fm_score, updated_at = NOW()
                         """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, ist_time,
                               position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                              momentum_score, momentum_confidence, data_quality, fallback_timestamp))
+                              momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score))
                         
                         if cur.rowcount == 0:
                             logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")
@@ -3000,8 +3000,13 @@ def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
                         WHERE alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
                         ORDER BY alert_date DESC, alert_time DESC
                     """, (days_back,))
-                
-                return [dict(row) for row in cur.fetchall()]
+                rows = [dict(row) for row in cur.fetchall()]
+                for row in rows:
+                    if row.get('current_price') is None:
+                        row['current_price'] = row.get('alert_price')
+                    if row.get('current_score') is None:
+                        row['current_score'] = row.get('fm_score')
+                return rows
     except Exception as e:
         logger.error(f"❌ Failed to fetch wealth buy alerts: {e}")
         return []
@@ -3039,7 +3044,13 @@ def get_today_wealth_alerts() -> list:
                     WHERE alert_date = %s
                     ORDER BY alert_time DESC
                 """, (ist_today,))
-                return [dict(row) for row in cur.fetchall()]
+                rows = [dict(row) for row in cur.fetchall()]
+                for row in rows:
+                    if row.get('current_price') is None:
+                        row['current_price'] = row.get('alert_price')
+                    if row.get('current_score') is None:
+                        row['current_score'] = row.get('fm_score')
+                return rows
     except Exception as e:
         logger.error(f"❌ Failed to fetch today's wealth alerts: {e}")
         return []
@@ -3060,7 +3071,13 @@ def get_open_positions() -> list:
                     WHERE is_closed = FALSE
                     ORDER BY alert_date DESC, alert_time DESC
                 """)
-                return [dict(row) for row in cur.fetchall()]
+                rows = [dict(row) for row in cur.fetchall()]
+                for row in rows:
+                    if row.get('current_price') is None:
+                        row['current_price'] = row.get('alert_price')
+                    if row.get('current_score') is None:
+                        row['current_score'] = row.get('fm_score')
+                return rows
     except Exception as e:
         logger.error(f"❌ Failed to fetch open positions: {e}")
         return []

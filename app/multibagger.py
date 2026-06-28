@@ -136,6 +136,11 @@ def init_db_schema():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("CREATE SCHEMA IF NOT EXISTS stockupdates;")
+                
+                # Drop tables so they can be recreated with the latest schema
+                cur.execute("DROP TABLE IF EXISTS stockupdates.watchlist CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS stockupdates.prices CASCADE;")
+                
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stockupdates.watchlist (
                         symbol VARCHAR(50) PRIMARY KEY,
@@ -612,6 +617,10 @@ def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: flo
     price = price_data.price
     buy_zone_low = fair_value * 0.90
     buy_zone_high = fair_value * 1.05
+    
+    # 0. Base Quality & Trend Guards (Must pass Exit rules)
+    if cqs < 5.0 or price < price_data.sma_200:
+        return False, f"Fails base entry guards: CQS ({cqs:.1f}) < 5.0 or Price (₹{price:.1f}) < 200-DMA."
     
     # 1. Normal Value Breakout: Undervalued, trend confirmed (above 50DMA), inside buy zone
     in_buy_zone = (price >= buy_zone_low and price <= buy_zone_high)
