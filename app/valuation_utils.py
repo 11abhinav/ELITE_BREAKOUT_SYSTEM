@@ -42,48 +42,51 @@ def compute_peer_medians(symbols: list) -> dict:
             
         peers = universe_df[universe_df["sector"] == sector].copy()
         
-        raw_pe = peers["price_earnings_ttm"].median()
-        raw_pb = peers["price_book_ratio"].median()
-        raw_roe = peers["return_on_equity_fy"].median()
-        
-        if pd.isna(mcap) or pd.isna(roe) or pd.isna(growth):
-            medians_map[symbol] = {
-                "median_pe": float(raw_pe) if not pd.isna(raw_pe) else None,
-                "median_pb": float(raw_pb) if not pd.isna(raw_pb) else None,
-                "median_roe": float(raw_roe) if not pd.isna(raw_roe) else None
-            }
-            continue
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            raw_pe = peers["price_earnings_ttm"].median()
+            raw_pb = peers["price_book_ratio"].median()
+            raw_roe = peers["return_on_equity_fy"].median()
             
-        # Refine 1: Sector + Size (0.2x to 5.0x) + Profitability (+/- 10) + Growth (+/- 15)
-        p1 = peers[
-            (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0)) &
-            (peers["return_on_equity_fy"].between(roe - 10, roe + 10)) &
-            (peers["total_revenue_yoy_growth_ttm"].between(growth - 15, growth + 15))
-        ]
-        
-        # Refine 2: Sector + Size + Profitability
-        p2 = peers[
-            (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0)) &
-            (peers["return_on_equity_fy"].between(roe - 10, roe + 10))
-        ]
-        
-        # Refine 3: Sector + Size
-        p3 = peers[
-            (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0))
-        ]
-        
-        final_peers = peers
-        if len(p1) >= 5:
-            final_peers = p1
-        elif len(p2) >= 5:
-            final_peers = p2
-        elif len(p3) >= 5:
-            final_peers = p3
+            if pd.isna(mcap) or pd.isna(roe) or pd.isna(growth):
+                medians_map[symbol] = {
+                    "median_pe": float(raw_pe) if not pd.isna(raw_pe) else None,
+                    "median_pb": float(raw_pb) if not pd.isna(raw_pb) else None,
+                    "median_roe": float(raw_roe) if not pd.isna(raw_roe) else None
+                }
+                continue
+                
+            # Refine 1: Sector + Size (0.2x to 5.0x) + Profitability (+/- 10) + Growth (+/- 15)
+            p1 = peers[
+                (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0)) &
+                (peers["return_on_equity_fy"].between(roe - 10, roe + 10)) &
+                (peers["total_revenue_yoy_growth_ttm"].between(growth - 15, growth + 15))
+            ]
             
-        val_pe = final_peers["price_earnings_ttm"].median()
-        val_pb = final_peers["price_book_ratio"].median()
-        val_roe = final_peers["return_on_equity_fy"].median()
-        
+            # Refine 2: Sector + Size + Profitability
+            p2 = peers[
+                (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0)) &
+                (peers["return_on_equity_fy"].between(roe - 10, roe + 10))
+            ]
+            
+            # Refine 3: Sector + Size
+            p3 = peers[
+                (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0))
+            ]
+            
+            final_peers = peers
+            if len(p1) >= 5:
+                final_peers = p1
+            elif len(p2) >= 5:
+                final_peers = p2
+            elif len(p3) >= 5:
+                final_peers = p3
+                
+            val_pe = final_peers["price_earnings_ttm"].median()
+            val_pb = final_peers["price_book_ratio"].median()
+            val_roe = final_peers["return_on_equity_fy"].median()
+            
         medians_map[symbol] = {
             "median_pe": float(val_pe) if not pd.isna(val_pe) else None,
             "median_pb": float(val_pb) if not pd.isna(val_pb) else None,

@@ -1044,6 +1044,7 @@ def start(debug_limit: int = None):
             
             if is_fv_fallback:
                 notes += "\n⚠️ (Estimated Fallback: Yahoo data missing for precise valuation)"
+                logger.warning(f"⚠️ Yahoo data missing for {sym} valuation (Estimated Fallback used)")
                 try:
                     from database import upsert_fetch_error
                     upsert_fetch_error('yfinance', 'MULTIBAGGER', sym, '1d', 'missing_valuation_data', 'Yahoo data missing for precise valuation')
