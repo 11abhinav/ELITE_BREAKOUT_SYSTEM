@@ -322,7 +322,7 @@ def is_financial_sector(sector: str) -> bool:
     if not sector:
         return False
     sec_lower = str(sector).lower()
-    return any(keyword in sec_lower for keyword in ["financial", "bank", "nbfc", "insurance", "holding"])
+    return any(keyword in sec_lower for keyword in ["financial", "bank", "nbfc", "insurance"])
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
     """Fetch fundamentals from cache if it is < 7 days old."""
