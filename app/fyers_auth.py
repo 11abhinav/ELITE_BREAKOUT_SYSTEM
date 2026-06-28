@@ -1,9 +1,14 @@
 import os
 import logging
+from datetime import datetime
 from fyers_apiv3 import fyersModel
 import config
 
 logger = logging.getLogger(__name__)
+
+# Cache for the current day
+_cached_token = None
+_token_date = None
 
 def get_session_model() -> fyersModel.SessionModel:
     """Helper to initialize SessionModel using client credentials."""
@@ -58,35 +63,149 @@ def save_access_token(auth_code: str) -> str:
         logger.error(f"Error saving Fyers access token: {e}")
         raise
 
+def auto_login() -> str:
+    """Attempts headless login using TOTP and PIN."""
+    try:
+        client_id = config.FYERS_CLIENT_ID
+        secret_key = config.FYERS_SECRET_KEY
+        totp_secret = os.environ.get("FYERS_TOTP_SECRET")
+        pin = os.environ.get("FYERS_PIN")
+        user_id = os.environ.get("FYERS_USER_ID")
+        redirect_uri = config.FYERS_REDIRECT_URL
+        
+        if not all([client_id, secret_key, totp_secret, pin, user_id]):
+            logger.debug("Skipping headless Fyers login due to missing credentials (TOTP/PIN/USER_ID).")
+            return None
+            
+        import pyotp
+        import base64
+        import requests
+        import urllib.parse
+        
+        logger.info("Fyers login Step 1: Sending login OTP request...")
+        session = requests.Session()
+        payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
+        res = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload).json()
+        
+        if 'request_key' not in res:
+            logger.error(f"Fyers Step 1 failed: {res}")
+            return None
+        request_key = res["request_key"]
+        
+        logger.info("Fyers login Step 2: Verifying TOTP...")
+        totp = pyotp.TOTP(totp_secret).now()
+        payload2 = {"request_key": request_key, "otp": totp}
+        res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
+        
+        if 'request_key' not in res2:
+            logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
+            return None
+        request_key = res2["request_key"]
+        
+        logger.info("Fyers login Step 3: Verifying PIN...")
+        payload3 = {"request_key": request_key, "identity_type": "pin", "identifier": base64.b64encode(f"{pin}".encode()).decode()}
+        res3 = session.post("https://api-t2.fyers.in/vagator/v2/verify_pin_v2", json=payload3).json()
+        
+        if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
+            logger.error(f"Fyers Step 3 PIN verification failed: {res3}")
+            return None
+        auth_token = res3["data"]["access_token"]
+        
+        logger.info("Fyers login Step 4: Getting auth code...")
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        payload4 = {
+            "fyers_id": user_id,
+            "app_id": client_id[:-4],
+            "redirect_uri": redirect_uri,
+            "appType": "100",
+            "code_challenge": "",
+            "state": "abcdefg",
+            "scope": "",
+            "nonce": "",
+            "response_type": "code",
+            "create_cookie": True
+        }
+        res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
+        
+        if 'Url' not in res4:
+            logger.error(f"Fyers Step 4 auth code failed: {res4}")
+            return None
+            
+        parsed = urllib.parse.urlparse(res4['Url'])
+        auth_code = urllib.parse.parse_qs(parsed.query)['auth_code'][0]
+        
+        logger.info("Fyers login Step 5: Generating access token...")
+        return save_access_token(auth_code)
+        
+    except Exception as e:
+        logger.error(f"Fyers headless login failed: {e}")
+        return None
+
+
 def get_access_token() -> str:
-    """Retrieves the access token from the database or local cache file."""
-    # 1. Try reading from the database first (survives restarts)
+    """Retrieves the access token from the database, local cache file, or via auto-login."""
+    global _cached_token, _token_date
+    now_date = datetime.now().date()
+    
+    if _cached_token and _token_date == now_date:
+        return _cached_token
+
+    token = None
+    token_path = config.FYERS_TOKEN_PATH
+    
+    # 1. Check if local file exists and was modified today
+    if os.path.exists(token_path) and os.path.getsize(token_path) > 0:
+        mtime = os.path.getmtime(token_path)
+        file_date = datetime.fromtimestamp(mtime).date()
+        if file_date == now_date:
+            try:
+                with open(token_path, "r") as f:
+                    token = f.read().strip()
+                if token:
+                    _cached_token = token
+                    _token_date = now_date
+                    return token
+            except Exception as e:
+                logger.error(f"Error reading Fyers access token file: {e}")
+
+    # 2. Try auto_login if no valid token for today
+    logger.info("No valid token for today found locally. Attempting auto-login...")
+    token = auto_login()
+    if token:
+        _cached_token = token
+        _token_date = now_date
+        return token
+
+    # 3. Try reading from the database first (survives restarts)
     try:
         from database import get_system_state
         db_token = get_system_state("fyers_access_token")
         if db_token:
             # Sync to local file cache if missing or empty
-            token_path = config.FYERS_TOKEN_PATH
             if not os.path.exists(token_path) or os.path.getsize(token_path) == 0:
                 os.makedirs(os.path.dirname(token_path), exist_ok=True)
                 with open(token_path, "w") as f:
                     f.write(db_token)
+            
+            _cached_token = db_token
+            _token_date = now_date
             return db_token
     except Exception as db_err:
         logger.warning(f"Failed to load Fyers token from database: {db_err}")
 
-    # 2. Fallback to local file cache
-    token_path = config.FYERS_TOKEN_PATH
-    if not os.path.exists(token_path):
-        return None
-        
-    try:
-        with open(token_path, "r") as f:
-            token = f.read().strip()
-        return token if token else None
-    except Exception as e:
-        logger.error(f"Error reading Fyers access token file: {e}")
-        return None
+    # 4. Fallback to local file cache
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, "r") as f:
+                token = f.read().strip()
+            if token:
+                _cached_token = token
+                _token_date = now_date
+                return token
+        except Exception as e:
+            logger.error(f"Error reading Fyers access token file: {e}")
+            
+    return None
 
 
 def get_fyers_client() -> fyersModel.FyersModel:
