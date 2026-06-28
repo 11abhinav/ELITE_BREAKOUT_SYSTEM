@@ -736,7 +736,7 @@
     <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
       <div style="flex: 1; min-width: 200px;">
         <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
-        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;">
+        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
           <option value="">All Candidates</option>
           <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
           <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
@@ -1743,16 +1743,14 @@ fetchNotifications();
 // ── Multibagger Watchlist Tab ─────────────────────────────────────────────────
 let mbWatchlistLoaded = false;
 
+let allMbWatchlistItems = [];
+
 async function loadMultibaggerWatchlist() {
   try {
-    const statusFilter = document.getElementById('filter-mb-status').value;
-    const url = statusFilter
-      ? `/api/multibagger/watchlist?status=${encodeURIComponent(statusFilter)}`
-      : '/api/multibagger/watchlist';
-    const res = await fetch(url);
+    const res = await fetch('/api/multibagger/watchlist');
     if (!res.ok) throw new Error('Failed to fetch watchlist');
-    const items = await res.json();
-    renderMultibaggerWatchlist(items);
+    allMbWatchlistItems = await res.json();
+    renderMultibaggerWatchlist();
     mbWatchlistLoaded = true;
   } catch (e) {
     console.error('Failed to load multibagger watchlist:', e);
@@ -1761,11 +1759,11 @@ async function loadMultibaggerWatchlist() {
   }
 }
 
-function renderMultibaggerWatchlist(items) {
+function renderMultibaggerWatchlist() {
   const tbody = document.getElementById('mb-watchlist-body');
   const empty = document.getElementById('mb-watchlist-empty');
 
-  if (!items || items.length === 0) {
+  if (!allMbWatchlistItems || allMbWatchlistItems.length === 0) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
     // Reset KPIs
@@ -1777,16 +1775,20 @@ function renderMultibaggerWatchlist(items) {
 
   empty.style.display = 'none';
 
-  // Update KPI counters (count from unfiltered perspective if we have data)
-  const waiting = items.filter(i => i.status === 'WAITING_BUY_ZONE').length;
-  const triggered = items.filter(i => i.status === 'ALERT_TRIGGERED').length;
-  const invalid = items.filter(i => i.status === 'INVALIDATED').length;
-  document.getElementById('mb-total-count').textContent = items.length;
+  // Update KPI counters based on ALL items
+  const waiting = allMbWatchlistItems.filter(i => i.status === 'WAITING_BUY_ZONE').length;
+  const triggered = allMbWatchlistItems.filter(i => i.status === 'ALERT_TRIGGERED').length;
+  const invalid = allMbWatchlistItems.filter(i => i.status === 'INVALIDATED').length;
+  document.getElementById('mb-total-count').textContent = allMbWatchlistItems.length;
   document.getElementById('mb-waiting-count').textContent = waiting;
   document.getElementById('mb-triggered-count').textContent = triggered;
   document.getElementById('mb-invalid-count').textContent = invalid;
 
-  tbody.innerHTML = items.map(item => {
+  // Filter items for the table
+  const statusFilter = document.getElementById('filter-mb-status').value;
+  const itemsToRender = statusFilter ? allMbWatchlistItems.filter(i => i.status === statusFilter) : allMbWatchlistItems;
+
+  tbody.innerHTML = itemsToRender.map(item => {
     const sym = item.symbol || '';
     const cmp = parseFloat(item.latest_price) || 0;
     const fv = parseFloat(item.fair_value) || 0;
