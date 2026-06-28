@@ -709,6 +709,10 @@ def run_system_scheduler():
             logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
             run_wealth_scan()
             
+            logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
+            from multibagger import run_standalone_exit_monitor
+            run_standalone_exit_monitor()
+            
             last_wealth_market_run = now
             # Mark success
             now_str = now.isoformat()

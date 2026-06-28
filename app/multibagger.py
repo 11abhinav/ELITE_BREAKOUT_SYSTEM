@@ -615,7 +615,7 @@ def should_trigger_alert(price_data: StockPriceData, fair_value: float, cqs: flo
     Returns: (should_alert: bool, reason: str)
     """
     price = price_data.price
-    buy_zone_low = fair_value * 0.90
+    buy_zone_low = price_data.sma_200
     buy_zone_high = fair_value * 1.05
     
     # 0. Base Quality & Trend Guards (Must pass Exit rules)
@@ -870,6 +870,56 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
     except Exception as e:
         logger.error(f"❌ Failed to complete exit monitoring: {e}")
 
+def run_standalone_exit_monitor():
+    """Entry point for the 5-minute scheduler to check exits only"""
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+        
+        # 1. Fetch only ACTIVE open positions from DB
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT symbol, current_price, entry_price 
+                    FROM stockupdates.wealth_buy_alert 
+                    WHERE status = 'ACTIVE' 
+                    AND source = 'MULTIBAGGER'
+                """)
+                open_positions = cur.fetchall()
+                
+        if not open_positions:
+            return
+            
+        # 2. Fetch latest prices for just these symbols
+        symbols = [p['symbol'] for p in open_positions]
+        if not symbols:
+            return
+            
+        from price_provider import get_prices
+        prices_df = get_prices(symbols)
+        
+        price_data_map = {}
+        for _, row in prices_df.iterrows():
+            sym = row.get("Stock")
+            if sym and row.get("cmp"):
+                price_data_map[sym] = StockPriceData(
+                    price=row.get("cmp"),
+                    sma_50=row.get("sma_50", 0),
+                    sma_200=row.get("sma_200", 0),
+                    high_20d=row.get("high_20d", 0),
+                    close_yesterday=row.get("close_yesterday", 0)
+                )
+                
+        # 3. Use cache for fundamentals
+        from fundamentals_cache import load_fundamentals_cache
+        cache = load_fundamentals_cache()
+        
+        # 4. Run the core exit logic
+        run_exit_monitor(price_data_map, cache)
+        
+    except Exception as e:
+        logger.error(f"Failed to run standalone exit monitor: {e}")
+
 def start(debug_limit: int = None):
     """Main scanning wrapper."""
     logger.info("🚀 Multibagger Scanner execution started...")
@@ -982,7 +1032,7 @@ def start(debug_limit: int = None):
         total = cqs + pas
         
         fair_val = calculate_fair_value(f, price_data, sector_medians)
-        buy_low = fair_val * 0.90
+        buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (fair_val * 0.5)
         buy_high = fair_val * 1.05
         
         # Enforce Kill Gates to flag INVALIDATED
