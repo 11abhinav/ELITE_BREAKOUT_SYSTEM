@@ -1967,20 +1967,19 @@ def get_multibagger_watchlist():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if status_filter:
                     cur.execute("""
-                        SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
+                        SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated,
-                               bear_value, bull_value, valuation_confidence
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
+
                         FROM stockupdates.watchlist
                         WHERE status = %s
                         ORDER BY total_score DESC NULLS LAST
                     """, (status_filter,))
                 else:
                     cur.execute("""
-                        SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
+                        SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated,
-                               bear_value, bull_value, valuation_confidence
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
                         FROM stockupdates.watchlist
                         ORDER BY total_score DESC NULLS LAST
                     """)

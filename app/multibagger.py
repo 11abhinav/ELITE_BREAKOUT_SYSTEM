@@ -115,21 +115,12 @@ class ScreenerResult:
     pas: float
     trend_score: float
     total_score: float
-    fair_value: float
     buy_zone_low: float
     buy_zone_high: float
     bucket: str
     status: str
     notes: str
     change_pct: float = 0.0
-    bear_value: Optional[float] = None
-    bull_value: Optional[float] = None
-    valuation_method: Optional[str] = None
-    valuation_confidence: Optional[str] = None
-    peer_count: Optional[int] = None
-    target_multiple: Optional[float] = None
-    current_multiple: Optional[float] = None
-    peer_multiple: Optional[float] = None
 
 class YFinanceRateLimitGuard:
     """Manages rate limit state and backoff lock-freely (sleep outside lock)."""
@@ -560,11 +551,9 @@ def save_watchlist_to_db(results: list):
             last_at = None
             
         data.append((
-            r.symbol.upper(), r.fair_value, r.buy_zone_low, r.buy_zone_high, r.price,
+            r.symbol.upper(), r.buy_zone_low, r.buy_zone_high, r.price,
             r.cqs, r.pas, r.trend_score, r.total_score, r.bucket, r.status, r.notes,
-            last_price, last_at,
-            r.bear_value, r.bull_value, r.valuation_method, r.valuation_confidence,
-            r.peer_count, r.target_multiple, r.current_multiple, r.peer_multiple
+            last_price, last_at
         ))
         
     try:
@@ -573,13 +562,11 @@ def save_watchlist_to_db(results: list):
                 # Upsert query using execute_values
                 execute_values(cur, """
                     INSERT INTO stockupdates.watchlist 
-                    (symbol, fair_value, buy_zone_low, buy_zone_high, latest_price, 
+                    (symbol, buy_zone_low, buy_zone_high, latest_price, 
                      growth_score, value_score, trend_score, total_score, bucket, status, notes,
-                     last_alert_price, last_alert_at, bear_value, bull_value, valuation_method,
-                     valuation_confidence, peer_count, target_multiple, current_multiple, peer_multiple)
+                     last_alert_price, last_alert_at)
                     VALUES %s
                     ON CONFLICT (symbol) DO UPDATE SET
-                        fair_value = EXCLUDED.fair_value,
                         buy_zone_low = EXCLUDED.buy_zone_low,
                         buy_zone_high = EXCLUDED.buy_zone_high,
                         latest_price = EXCLUDED.latest_price,
@@ -592,14 +579,6 @@ def save_watchlist_to_db(results: list):
                         notes = EXCLUDED.notes,
                         last_alert_price = COALESCE(EXCLUDED.last_alert_price, stockupdates.watchlist.last_alert_price),
                         last_alert_at = COALESCE(EXCLUDED.last_alert_at, stockupdates.watchlist.last_alert_at),
-                        bear_value = EXCLUDED.bear_value,
-                        bull_value = EXCLUDED.bull_value,
-                        valuation_method = EXCLUDED.valuation_method,
-                        valuation_confidence = EXCLUDED.valuation_confidence,
-                        peer_count = EXCLUDED.peer_count,
-                        target_multiple = EXCLUDED.target_multiple,
-                        current_multiple = EXCLUDED.current_multiple,
-                        peer_multiple = EXCLUDED.peer_multiple,
                         last_updated = CURRENT_TIMESTAMP;
                 """, data)
             conn.commit()
@@ -1061,19 +1040,14 @@ def start(debug_limit: int = None):
             trend = scores.market_structure_score
             total = scores.composite_investment_score # 0 to 100 scale natively
             
-            base_fv = scores.base_fair_value
-            bear_fv = scores.bear_fair_value
-            bull_fv = scores.bull_fair_value
-            
-            buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (base_fv * 0.5)
-            buy_high = base_fv * 0.90 if scores.reliability_score < 16 else base_fv
+            buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (price_data.price * 0.5)
+            buy_high = price_data.sma_50 if price_data.sma_50 > 0 else (buy_low * 1.1)
             
             # Enforce invariant
+            notes_prefix = ""
             if buy_low >= buy_high:
-                buy_low = base_fv * 0.8
-                notes_prefix = "(Buy Zone Synthetically Repaired) "
-            else:
-                notes_prefix = ""
+                buy_low = buy_high * 0.9
+                notes_prefix = "(Technical Zone Repaired) "
             
             alert_triggered, alert_reason = should_trigger_alert(price_data, scores)
             
@@ -1097,27 +1071,18 @@ def start(debug_limit: int = None):
             pas=pas,
             trend_score=trend,
             total_score=total,
-            fair_value=base_fv,
             buy_zone_low=buy_low,
             buy_zone_high=buy_high,
             bucket=bucket,
             status=status,
             notes=notes,
-            change_pct=price_data.change_pct,
-            bear_value=bear_fv,
-            bull_value=bull_fv,
-            valuation_method="UNIFIED_BAND",
-            valuation_confidence=f"{getattr(fair_val_result, 'reliability_score', 0)}/20",
-            peer_count=cp.peer_count if cp and not is_fallback else None,
-            target_multiple=getattr(fair_val_result, 'target_multiple', None),
-            current_multiple=f.pb if getattr(fair_val_result, 'valuation_anchor', '') == 'P/B' else (f.pe if f else None),
-            peer_multiple=cp.median_pb if cp and getattr(fair_val_result, 'valuation_anchor', '') == 'P/B' else (cp.median_pe if cp else None)
+            change_pct=price_data.change_pct
         )
         results.append(res)
         
         # Trigger buy alert for ready positions
         if alert_triggered:
-            logger.info(f"🌟 Alert Triggered for {sym}! FV={base_fv:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
+            logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: {alert_reason}")
             scaled_score = int(total)
             
             # Compute position sizing (total is 0-100 natively)

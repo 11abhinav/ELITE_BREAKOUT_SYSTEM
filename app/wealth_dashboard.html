@@ -774,7 +774,6 @@
         <thead><tr>
           <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
           <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-          <th onclick="sortMbWatchlist('fair_value')" style="cursor:pointer" title="Sort by Fair Value">Sector FV ↕</th>
           <th>Buy Zone</th>
           <th onclick="sortMbWatchlist('dist_to_buy')" style="cursor:pointer" title="Sort by Distance to Buy Zone">Dist. to Buy ↕</th>
           <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by BQS">BQS ↕</th>
@@ -782,7 +781,6 @@
           <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
           <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by CIS">CIS ↕</th>
           <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
-          <th>Value Band</th>
           <th>Reason</th>
           <th>Act</th>
         </tr></thead>
@@ -1790,13 +1788,13 @@ function sortMbWatchlist(col) {
     let valB = b[col];
     
     if (col === 'dist_to_buy') {
-      const fvA = parseFloat(a.fair_value) || 0;
+      const bzhA = parseFloat(a.buy_zone_high) || 0;
       const cmpA = parseFloat(a.latest_price) || 0;
-      valA = fvA > 0 ? (cmpA - fvA) / fvA : 999;
+      valA = bzhA > 0 ? (cmpA - bzhA) / bzhA : 999;
       
-      const fvB = parseFloat(b.fair_value) || 0;
+      const bzhB = parseFloat(b.buy_zone_high) || 0;
       const cmpB = parseFloat(b.latest_price) || 0;
-      valB = fvB > 0 ? (cmpB - fvB) / fvB : 999;
+      valB = bzhB > 0 ? (cmpB - bzhB) / bzhB : 999;
     }
     
     if (typeof valA === 'string') valA = valA.toLowerCase();
@@ -1845,35 +1843,29 @@ function renderMultibaggerWatchlist() {
   tbody.innerHTML = itemsToRender.map(item => {
     const sym = item.symbol || '';
     const cmp = parseFloat(item.latest_price) || 0;
-    const fv = parseFloat(item.fair_value) || 0;
     const bzLow = parseFloat(item.buy_zone_low) || 0;
     const bzHigh = parseFloat(item.buy_zone_high) || 0;
     const bqs = parseFloat(item.growth_score) || 0;
     const rvs = parseFloat(item.value_score) || 0;
     const trend = parseFloat(item.trend_score) || 0;
     const cis = parseFloat(item.total_score) || 0;
-    const bear_value = parseFloat(item.bear_value) || 0;
-    const bull_value = parseFloat(item.bull_value) || 0;
-    const valConf = parseInt(item.valuation_confidence) || 0;
     const bucket = item.bucket || '-';
     const notes = item.notes || '-';
     const status = item.status || '-';
 
-    // Distance to fair value: percentage difference from fair value
-    let distPct = 0;
     let distLabel = '-';
     let distColor = 'var(--muted)';
-    if (fv > 0 && cmp > 0) {
+    if (bzHigh > 0 && cmp > 0) {
       if (cmp <= bzHigh && cmp >= bzLow) {
         distLabel = '✅ IN ZONE';
         distColor = 'var(--green)';
       } else {
-        distPct = ((cmp - fv) / fv * 100);
+        const distPct = ((cmp - bzHigh) / bzHigh * 100);
         if (distPct < 0) {
-          distLabel = `↓ ${Math.abs(distPct).toFixed(1)}% below FV`;
+          distLabel = `↓ ${Math.abs(distPct).toFixed(1)}% below zone`;
           distColor = 'var(--green)';
         } else {
-          distLabel = `↑ ${distPct.toFixed(1)}% above FV`;
+          distLabel = `↑ ${distPct.toFixed(1)}% above zone`;
           distColor = distPct > 20 ? 'var(--red)' : 'var(--amber)';
         }
       }
@@ -1888,13 +1880,10 @@ function renderMultibaggerWatchlist() {
     // Score color gradient
     const cisColor = cis >= 85 ? 'var(--green)' : cis >= 70 ? 'var(--amber)' : cis >= 50 ? 'var(--text)' : 'var(--muted)';
 
-    const bandHtml = bear_value > 0 ? `<div style="font-size:11px; white-space:nowrap;">₹${bear_value.toLocaleString('en-IN')} - ₹${bull_value.toLocaleString('en-IN')}</div><div style="font-size:9px; color:var(--muted); margin-top:2px;">Reliability: ${item.valuation_confidence}</div>` : '-';
-
     return `
       <tr>
         <td class="sym"><strong>${sym}</strong></td>
         <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
-        <td class="mono" style="color:var(--accent);">₹${fv > 0 ? fv.toFixed(2) : '-'}</td>
         <td class="mono" style="font-size:11px;">₹${bzLow.toFixed(0)} – ₹${bzHigh.toFixed(0)}</td>
         <td class="mono" style="color:${distColor}; font-weight:600;">${distLabel}</td>
         <td class="mono">${bqs.toFixed(1)}</td>
@@ -1902,7 +1891,6 @@ function renderMultibaggerWatchlist() {
         <td class="mono">${trend.toFixed(1)}</td>
         <td class="mono" style="color:${cisColor}; font-weight:700;">${cis.toFixed(1)}</td>
         <td style="font-size:11px;">${bucket}</td>
-        <td class="mono">${bandHtml}</td>
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
