@@ -85,7 +85,12 @@ def auto_login() -> str:
         logger.info("Fyers login Step 1: Sending login OTP request...")
         session = requests.Session()
         payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
-        res = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload).json()
+        res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
+        try:
+            res = res_obj.json()
+        except ValueError:
+            logger.error(f"Fyers Step 1 failed, invalid JSON response: {res_obj.text}")
+            return None
         
         if 'request_key' not in res:
             logger.error(f"Fyers Step 1 failed: {res}")
@@ -207,7 +212,25 @@ def get_access_token() -> str:
             
     return None
 
-
+def clear_token():
+    """Clears the cached and database Fyers token to force a re-login."""
+    global _cached_token, _token_date
+    _cached_token = None
+    _token_date = None
+    
+    token_path = config.FYERS_TOKEN_PATH
+    if os.path.exists(token_path):
+        try:
+            os.remove(token_path)
+        except Exception:
+            pass
+            
+    try:
+        from database import save_system_state
+        save_system_state("fyers_access_token", "")
+    except Exception as e:
+        logger.error(f"Failed to clear token from DB: {e}")
+        
 def get_fyers_client() -> fyersModel.FyersModel:
     """Initializes and returns an authenticated FyersModel client."""
     token = get_access_token()
