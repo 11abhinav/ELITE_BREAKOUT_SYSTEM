@@ -113,9 +113,6 @@ def fetch_single_piotroski(symbol: str) -> dict:
                     bs = t.balance_sheet
                 finally:
                     yf_release()
-            except CircuitOpenError as ce:
-                logger.error(f"YFinance circuit open; aborting fundamentals fetch for {yf_sym}: {ce}")
-                return None
             except Exception as inner_e:
                 # Catch yfinance fetch errors
                 msg = str(inner_e).lower()

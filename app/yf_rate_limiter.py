@@ -48,16 +48,26 @@ def _now() -> float:
 
 
 def acquire(timeout: Optional[float] = None) -> bool:
-    """Acquire permission to call Yahoo. Raises CircuitOpenError if circuit is tripped."""
+    """Acquire permission to call Yahoo. Blocks if circuit is tripped."""
     global _last_call_ts
-    now = _now()
-    with _lock:
-        if _circuit_tripped_until and now < _circuit_tripped_until:
-            raise CircuitOpenError(f"Yahoo circuit open until {_circuit_tripped_until - now:.0f}s")
-        # Enforce minimal interval
-        since = now - _last_call_ts
-        if since < _MIN_INTERVAL_S:
-            sleep_for = _MIN_INTERVAL_S - since
+    while True:
+        now = _now()
+        sleep_time = 0
+        with _lock:
+            if _circuit_tripped_until and now < _circuit_tripped_until:
+                sleep_time = _circuit_tripped_until - now
+                
+        if sleep_time > 0:
+            logger.warning(f"Yahoo circuit open. Sleeping for {sleep_time:.0f}s...")
+            time.sleep(sleep_time)
+            continue # Try again after sleeping
+            
+        with _lock:
+            now = _now()
+            # Enforce minimal interval
+            since = now - _last_call_ts
+            if since < _MIN_INTERVAL_S:
+                sleep_for = _MIN_INTERVAL_S - since
             time.sleep(sleep_for)
         # Acquire semaphore (may block)
     ok = _semaphore.acquire(timeout=timeout)
