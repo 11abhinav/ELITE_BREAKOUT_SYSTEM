@@ -115,32 +115,39 @@ def score_business_quality(f: CoreFundamentals) -> float:
         if de < 1.5:
             score += min(6.0, 6.0 * (1.5 - de) / (1.5 - 0.3))
             
-    # 3. Growth Durability (6 pts)
+    # 3. Growth Durability (10 pts)
     growth_score = 0.0
     rev_cagr = first_valid(f.revenue_growth_5y, f.revenue_growth_3y, f.revenue_growth_1y)
     eps_cagr = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y)
     
+    # Base growth up to 15% gets up to 5 points
     if rev_cagr is not None and rev_cagr > 0.05:
-        growth_score += min(3.0, 3.0 * (rev_cagr - 0.05) / (0.15 - 0.05))
+        growth_score += min(2.5, 2.5 * (rev_cagr - 0.05) / (0.15 - 0.05))
     if eps_cagr is not None and eps_cagr > 0.05:
-        growth_score += min(3.0, 3.0 * (eps_cagr - 0.05) / (0.15 - 0.05))
+        growth_score += min(2.5, 2.5 * (eps_cagr - 0.05) / (0.15 - 0.05))
+        
+    # Hyper growth bonus (15% to 35%) gets another 5 points
+    if rev_cagr is not None and rev_cagr > 0.15:
+        growth_score += min(2.5, 2.5 * (rev_cagr - 0.15) / (0.35 - 0.15))
+    if eps_cagr is not None and eps_cagr > 0.15:
+        growth_score += min(2.5, 2.5 * (eps_cagr - 0.15) / (0.35 - 0.15))
         
     has_long_term = pd.notna(f.revenue_growth_3y) or pd.notna(f.revenue_growth_5y)
     if not has_long_term and (rev_cagr is not None or eps_cagr is not None):
         growth_score *= 0.70 # 30% penalty applied after raw score
         
-    score += clamp(growth_score, 0.0, 6.0)
+    score += clamp(growth_score, 0.0, 10.0)
 
-    # 4. Cash Conversion (6 pts)
+    # 4. Cash Conversion (4 pts)
     cash_score = 0.0
     fcf_margin = safe_float(f.fcf_margin, None)
     if fcf_margin is not None:
         if fcf_margin > 0:
             target_fcf = opm * 0.5
             if target_fcf > 0:
-                cash_score += min(4.0, 4.0 * min(fcf_margin / target_fcf, 1.0))
+                cash_score += min(2.0, 2.0 * min(fcf_margin / target_fcf, 1.0))
             else:
-                cash_score += 4.0
+                cash_score += 2.0
     
     cfo_pat = safe_float(f.cfo_pat_ratio, None)
     if cfo_pat is not None and cfo_pat > 0.5:
@@ -150,17 +157,17 @@ def score_business_quality(f: CoreFundamentals) -> float:
     if not f.is_financial and ocf is not None and ocf < 0:
         cash_score -= min(3.0, 3.0 * (abs(ocf) / (abs(ocf) + 1000000)))
         
-    score += clamp(cash_score, 0.0, 6.0) # Clamp component block
+    score += clamp(cash_score, 0.0, 4.0)
 
-    # 5. Consistency (4 pts)
+    # 5. Consistency (2 pts)
     cons_score = 0.0
     yoy_profit = first_valid(f.yoy_profit_growth)
     if yoy_profit is not None and yoy_profit > 0:
-        cons_score += 2.0
+        cons_score += 1.0
     if not f.net_losses_3y:
-        cons_score += 2.0
+        cons_score += 1.0
         
-    score += clamp(cons_score, 0.0, 4.0)
+    score += clamp(cons_score, 0.0, 2.0)
         
     return clamp(score, 0.0, 30.0)
 
