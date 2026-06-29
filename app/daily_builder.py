@@ -787,6 +787,15 @@ def _main_wrapper(force_rebuild: bool = False):
                 scheduled_for="01:00 IST"
             )
             logger.info("✅ Daily Builder health heartbeat updated successfully.")
+            
+            try:
+                from database import insert_notification
+                if tot and proc:
+                    insert_notification("info", f"✅ Daily Builder Completed", f"Successfully built {proc} final stocks from {tot} initial universe.")
+                else:
+                    insert_notification("info", f"✅ Daily Builder Completed", "Watchlist generation successful.")
+            except Exception:
+                pass
         except Exception as e:
             logger.warning(f"⚠️ Could not update Daily Builder success heartbeat: {e}")
     except Exception as exc:
