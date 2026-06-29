@@ -1,7 +1,6 @@
 import logging
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Tuple, List
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Optional, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
 import yaml
@@ -29,480 +28,300 @@ class CoreFundamentals:
     symbol: str
     sector: str
     canonical_industry: str
-    # Old compatibility fields (some might be unused by the new engine)
-    yoy_profit_growth: Optional[float] = None
-    net_losses_3y: bool = False
-    
-    # Raw Data
-    pe: Optional[float] = None
-    pb: Optional[float] = None
-    ev_ebitda: Optional[float] = None
-    roe: Optional[float] = None
-    roce: Optional[float] = None
-    debt_equity: Optional[float] = None
-    operating_margin: Optional[float] = None
-    gross_margin: Optional[float] = None
-    fcf_margin: Optional[float] = None
-    
-    # Growth
-    revenue_growth_1y: Optional[float] = None
-    revenue_growth_3y: Optional[float] = None
-    revenue_growth_5y: Optional[float] = None
-    eps_growth_1y: Optional[float] = None
-    eps_growth_3y: Optional[float] = None
-    eps_growth_5y: Optional[float] = None
-    fcf_growth_1y: Optional[float] = None
-    fcf_growth_3y: Optional[float] = None
-    fcf_growth_5y: Optional[float] = None
-    
-    # Cash & Efficiency
-    cfo_pat_ratio: Optional[float] = None
-    operating_cash_flow: Optional[float] = None
-    asset_turnover: Optional[float] = None
-    cash_conversion_cycle: Optional[float] = None
-    interest_coverage: Optional[float] = None
-    
-    # Capital Allocation & Stability
-    div_yield: Optional[float] = None
-    reinvestment_rate: Optional[float] = None
-    buyback_yield: Optional[float] = None
-    promoter_holding_change: Optional[float] = None
-    gross_margin_stability: Optional[float] = None
-    roic_stability: Optional[float] = None
-    
-    # Risk & Quality
-    altman_z: Optional[float] = None
-    promoter_pledge: Optional[float] = None
-    auditor_flags: bool = False
-    
-    # Intrinsic & EPS
-    eps: Optional[float] = None
-    market_cap: Optional[float] = None
-    bvps: Optional[float] = None
-    fcf_yield: Optional[float] = None
-    owner_earnings_yield: Optional[float] = None
-    
-    roa: Optional[float] = None
-    is_financial: bool = False
-    data_freshness: str = "UNKNOWN" # LIVE, <90 days, <180 days, STALE
+    pe: Optional[float]
+    pb: Optional[float]
+    roe: Optional[float]
+    roce: Optional[float]
+    debt_equity: Optional[float]
+    operating_margin: Optional[float]
+    revenue_growth_3y: Optional[float]
+    revenue_growth_5y: Optional[float]
+    eps_growth_3y: Optional[float]
+    eps_growth_5y: Optional[float]
+    revenue_growth_1y: Optional[float]
+    eps_growth_1y: Optional[float]
+    fcf_margin: Optional[float]
+    cfo_pat_ratio: Optional[float]
+    operating_cash_flow: Optional[float]
+    yoy_profit_growth: Optional[float]
+    net_losses_3y: bool
+    div_yield: Optional[float]
+    eps: Optional[float]
+    bvps: Optional[float]
+    roa: Optional[float]
+    is_financial: bool
 
 @dataclass(frozen=True)
 class PeerMetrics:
-    median_pe: Optional[float] = None
-    median_pb: Optional[float] = None
+    median_pe: Optional[float]
+    median_pb: Optional[float]
+    median_roe: Optional[float]
+    peer_count: int
     median_ev_ebitda: Optional[float] = None
-    median_roe: Optional[float] = None
-    median_asset_turnover: Optional[float] = None
-    median_debt_equity: Optional[float] = None
-    median_capital_intensity: Optional[float] = None
-    peer_count: int = 0
-    
-    # For percentile rankings within industry
-    percentiles: Dict[str, float] = field(default_factory=dict)
-    
+    median_div_yield: Optional[float] = None
+    median_peg: Optional[float] = None
+    dispersion_iqr_median: Optional[float] = None
     source_type: str = "FALLBACK"
     is_complete: bool = False
     missing_critical: bool = True
     missing_minor: bool = False
-    dispersion_iqr_median: Optional[float] = None
 
 @dataclass(frozen=True)
 class CorePriceData:
-    price: Optional[float] = None
-    sma_50: Optional[float] = None
-    sma_200: Optional[float] = None
-    high_52w: Optional[float] = None
-    high_20d: Optional[float] = None
-    latest_volume: Optional[float] = None
-    volume_sma20: Optional[float] = None
-    rs_nifty: Optional[float] = None
-    rs_sector: Optional[float] = None
-    eps_revision_score: Optional[float] = None 
+    price: Optional[float]
+    sma_50: Optional[float]
+    sma_200: Optional[float]
+    high_20d: Optional[float]
+    latest_volume: Optional[float]
+    volume_sma20: Optional[float]
 
-@dataclass
-class PillarResult:
-    score: float # 0 to 1.0
-    coverage: float # 0.0 to 1.0
-    confidence: str # HIGH, MEDIUM, LOW, UNKNOWN
-    freshness: str
-    explanations: List[str]
-
-@dataclass
-class ValuationResult:
-    fair_value: Optional[float]
-    bear_value: Optional[float]
-    bull_value: Optional[float]
-    method: str
-
-@dataclass
-class CoreScoreResult:
-    overall_score: float
-    institutional_rating: str
+@dataclass(frozen=True)
+class CoreScores:
+    business_quality_score: float
+    financial_quality_score: float
+    relative_valuation_score: float
+    market_structure_score: float
+    improvement_score: float
+    bayesian_confidence_score: float # 0.0 to 100.0 (Probability)
+    composite_investment_score: float
+    rejection_stage: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    is_buy: bool = False
     
-    quality: PillarResult
-    growth: PillarResult
-    value: PillarResult
-    risk: PillarResult
-    capital_allocation: PillarResult
-    momentum: PillarResult
-    
-    warnings: List[str]
-    valuation: ValuationResult
-    version: str
-    data_version: str
-    generated_at: str
-
-    # Legacy attributes mapping for backward compatibility
-    @property
-    def business_quality_score(self) -> float:
-        return self.quality.score * 20.0 # Map to 20 pts scale
-
-    @property
-    def financial_quality_score(self) -> float:
-        return self.capital_allocation.score * 15.0
-
-    @property
-    def relative_valuation_score(self) -> float:
-        return self.value.score * 30.0
-
-    @property
-    def market_structure_score(self) -> float:
-        return self.momentum.score * 15.0
-
-    @property
-    def improvement_score(self) -> float:
-        return self.growth.score * 10.0
-
-    @property
-    def bayesian_confidence_score(self) -> float:
-        return self.quality.coverage * 100.0
-
-    @property
-    def composite_investment_score(self) -> float:
-        return self.overall_score
-        
-    @property
-    def rejection_stage(self) -> Optional[str]:
-        return "KILL_GATE" if self.warnings else None
-
-    @property
-    def rejection_reason(self) -> Optional[str]:
-        return self.warnings[0] if self.warnings else None
-
-    @property
-    def is_buy(self) -> bool:
-        return self.overall_score >= 60.0 and len(self.warnings) == 0
-
 # --- Utility Functions ---
 
 def clamp(val, min_val, max_val):
     if val is None or pd.isna(val): return min_val
     return max(min_val, min(float(val), max_val))
 
-def safe_float(val, default=None):
+def safe_float(val, default=0.0):
     if val is None or pd.isna(val): return default
     try:
         return float(val)
     except:
         return default
 
-class MetricState:
-    GOOD = "GOOD"
-    AVERAGE = "AVERAGE"
-    BAD = "BAD"
-    MISSING = "MISSING"
+def first_valid(*vals):
+    for v in vals:
+        if v is not None and not pd.isna(v):
+            return float(v)
+    return None
 
-def score_percentile(percentile: Optional[float]) -> Tuple[float, str]:
-    if percentile is None:
-        return 0.5, "Missing (Neutral)"
-    if percentile >= 0.90:
-        return 1.0, "Top 10%"
-    elif percentile >= 0.75:
-        return 0.8, "Top 25%"
-    elif percentile >= 0.25:
-        return 0.5, "Median"
-    else:
-        return 0.2, "Bottom 25%"
+# --- Split Quality Scoring ---
 
-def evaluate_metric(val: Optional[float], thresholds: Tuple[float, float, float], higher_is_better: bool = True) -> Tuple[float, str]:
-    if val is None:
-        return 0.5, "Missing (Neutral)"
-    exc, med, poor = thresholds
-    if higher_is_better:
-        if val >= exc: return 1.0, f">= {exc}"
-        elif val >= med: return 0.75, f">= {med}"
-        elif val >= poor: return 0.5, f">= {poor}"
-        else: return 0.2, f"< {poor}"
-    else:
-        if val <= exc: return 1.0, f"<= {exc}"
-        elif val <= med: return 0.75, f"<= {med}"
-        elif val <= poor: return 0.5, f"<= {poor}"
-        else: return 0.2, f"> {poor}"
-
-def calculate_pillar(metrics: List[Tuple[float, float, str]], freshness: str) -> PillarResult:
-    total_weight = 0.0
-    achieved = 0.0
-    valid_count = 0
-    total_count = len(metrics)
-    explanations = []
+def score_business_quality(f: CoreFundamentals) -> float:
+    """Scores ROCE, Margins, Market Position, Growth Durability (Max 20 pts)"""
+    score = 0.0
     
-    for score, weight, desc in metrics:
-        total_weight += weight
-        achieved += (score * weight)
-        if "Missing" not in desc:
-            valid_count += 1
-            explanations.append(f"{desc}: +{score * weight:.2f} pts")
-        else:
-            explanations.append(f"{desc}: +{score * weight:.2f} pts")
-            
-    final_score = achieved / total_weight if total_weight > 0 else 0.0
-    coverage = valid_count / total_count if total_count > 0 else 0.0
-    
-    confidence = "HIGH" if coverage >= 0.8 else "MEDIUM" if coverage >= 0.5 else "LOW"
-    if coverage == 0: confidence = "UNKNOWN"
-    
-    return PillarResult(
-        score=final_score,
-        coverage=coverage,
-        confidence=confidence,
-        freshness=freshness,
-        explanations=explanations
-    )
-
-# --- Pillars ---
-
-def score_quality(f: CoreFundamentals, p: PeerMetrics) -> PillarResult:
-    metrics = []
-    
-    if 'roic' in p.percentiles:
-        s, exp = score_percentile(p.percentiles['roic'])
-        metrics.append((s, 3.0, f"ROIC ({exp})"))
-    else:
-        roce = safe_float(f.roce)
-        s, exp = evaluate_metric(roce, (0.20, 0.12, 0.08))
-        metrics.append((s, 3.0, f"ROCE ({exp})"))
+    # 1. Profitability (Max 10)
+    roe = safe_float(f.roe)
+    if roe > 0.05: score += min(5.0, 5.0 * (roe - 0.05) / (0.20 - 0.05))
         
-    fcf_m = safe_float(f.fcf_margin)
-    s, exp = evaluate_metric(fcf_m, (0.15, 0.08, 0.0))
-    metrics.append((s, 2.0, f"FCF Margin ({exp})"))
-    
-    if 'asset_turnover' in p.percentiles:
-        s, exp = score_percentile(p.percentiles['asset_turnover'])
-        metrics.append((s, 2.0, f"Asset Turnover ({exp})"))
-    else:
-        ato = safe_float(f.asset_turnover)
-        s, exp = evaluate_metric(ato, (1.2, 0.8, 0.5))
-        metrics.append((s, 2.0, f"Asset Turnover ({exp})"))
+    roce = safe_float(f.roce)
+    if roce > 0.08: score += min(3.0, 3.0 * (roce - 0.08) / (0.25 - 0.08))
         
-    cfo_pat = safe_float(f.cfo_pat_ratio)
-    s, exp = evaluate_metric(cfo_pat, (1.2, 0.8, 0.5))
-    metrics.append((s, 2.0, f"Cash Conversion ({exp})"))
-    
-    gm_stab = safe_float(f.gross_margin_stability)
-    s, exp = evaluate_metric(gm_stab, (0.02, 0.05, 0.10), higher_is_better=False)
-    metrics.append((s, 1.0, f"Margin Stability ({exp})"))
-    
-    return calculate_pillar(metrics, f.data_freshness)
+    opm = safe_float(f.operating_margin)
+    if opm > 0.05: score += min(2.0, 2.0 * (opm - 0.05) / (0.20 - 0.05))
 
-def score_growth(f: CoreFundamentals) -> PillarResult:
-    metrics = []
-    
-    rev_cagr = safe_float(f.revenue_growth_5y)
-    s, exp = evaluate_metric(rev_cagr, (0.20, 0.10, 0.05))
-    metrics.append((s, 2.0, f"5Y Rev CAGR ({exp})"))
-    
-    eps_cagr = safe_float(f.eps_growth_5y)
-    s, exp = evaluate_metric(eps_cagr, (0.20, 0.10, 0.05))
-    metrics.append((s, 2.0, f"5Y EPS CAGR ({exp})"))
-    
-    fcf_cagr = safe_float(f.fcf_growth_5y)
-    s, exp = evaluate_metric(fcf_cagr, (0.15, 0.08, 0.0))
-    metrics.append((s, 1.0, f"5Y FCF CAGR ({exp})"))
-    
-    rev_accel = None
-    if f.revenue_growth_1y is not None and f.revenue_growth_5y is not None:
-        rev_accel = f.revenue_growth_1y - f.revenue_growth_5y
-    s, exp = evaluate_metric(rev_accel, (0.05, 0.0, -0.05))
-    metrics.append((s, 2.0, f"Sales Accel ({exp})"))
-    
-    # Margin Expansion proxy (1y opm vs 3y opm if available, using placeholder)
-    metrics.append((0.5, 2.0, "Margin Expansion (Missing)"))
-    
-    return calculate_pillar(metrics, f.data_freshness)
+    # 2. Growth Durability (Max 10)
+    rev_cagr = first_valid(f.revenue_growth_5y, f.revenue_growth_3y, f.revenue_growth_1y)
+    eps_cagr = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y)
+    if rev_cagr is not None and rev_cagr > 0.05:
+        score += min(5.0, 5.0 * (rev_cagr - 0.05) / (0.25 - 0.05))
+    if eps_cagr is not None and eps_cagr > 0.05:
+        score += min(5.0, 5.0 * (eps_cagr - 0.05) / (0.25 - 0.05))
 
-def score_value(f: CoreFundamentals, p: PeerMetrics) -> PillarResult:
-    metrics = []
-    
-    pe = safe_float(f.pe)
-    med_pe = safe_float(p.median_pe)
-    if pe and med_pe and med_pe > 0:
-        ratio = pe / med_pe
-        s, exp = evaluate_metric(ratio, (0.7, 1.0, 1.3), higher_is_better=False)
-        metrics.append((s, 2.0, f"Relative PE ({exp})"))
-    else:
-        metrics.append((0.5, 2.0, "Relative PE (Missing)"))
-        
-    fcf_y = safe_float(f.fcf_yield)
-    s, exp = evaluate_metric(fcf_y, (0.06, 0.03, 0.0))
-    metrics.append((s, 2.0, f"FCF Yield ({exp})"))
-    
-    metrics.append((0.5, 2.0, "Intrinsic Value Discount (Missing)"))
-    
-    return calculate_pillar(metrics, f.data_freshness)
+    return clamp(score, 0.0, 20.0)
 
-def score_risk(f: CoreFundamentals, p: PeerMetrics) -> Tuple[PillarResult, List[str]]:
-    warnings = []
-    metrics = []
+def score_financial_quality(f: CoreFundamentals) -> float:
+    """Scores Cash Conversion, Debt, Balance Sheet (Max 15 pts)"""
+    score = 0.0
     
-    altman = safe_float(f.altman_z)
-    if altman is not None and altman < 1.8 and not f.is_financial:
-        warnings.append("⚠️ KILL-GATE: Altman Z < 1.8 (Financial Distress)")
-        metrics.append((0.0, 3.0, "Altman Z (< 1.8)"))
+    if f.is_financial:
+        roa = safe_float(f.roa)
+        if roa > 0.005: score += min(15.0, 15.0 * (roa - 0.005) / (0.02 - 0.005))
     else:
-        s, exp = evaluate_metric(altman, (3.0, 2.6, 1.8))
-        metrics.append((s, 3.0, f"Altman Z ({exp})"))
-        
-    pledge = safe_float(f.promoter_pledge)
-    if pledge is not None and pledge > 0.5:
-        warnings.append("⚠️ KILL-GATE: Promoter Pledge > 50%")
-        metrics.append((0.0, 3.0, "Pledge (> 50%)"))
-    else:
-        s, exp = evaluate_metric(pledge, (0.0, 0.1, 0.25), higher_is_better=False)
-        metrics.append((s, 3.0, f"Pledge ({exp})"))
-        
-    if getattr(f, 'auditor_flags', False):
-        warnings.append("⚠️ KILL-GATE: Auditor Issues")
-        metrics.append((0.0, 4.0, "Auditor Issues"))
-    else:
-        metrics.append((1.0, 4.0, "No Auditor Issues"))
-        
-    if 'debt_percentile' in p.percentiles:
-        s, exp = score_percentile(p.percentiles['debt_percentile'])
-        metrics.append((s, 2.0, f"Debt Percentile ({exp})"))
-    else:
+        # Debt
         de = safe_float(f.debt_equity)
-        s, exp = evaluate_metric(de, (0.2, 0.5, 1.0), higher_is_better=False)
-        metrics.append((s, 2.0, f"Debt/Equity ({exp})"))
+        if de < 1.5: score += min(8.0, 8.0 * (1.5 - de) / (1.5 - 0.1))
+            
+        # Cash Flow
+        fcf_margin = safe_float(f.fcf_margin, None)
+        if fcf_margin is not None and fcf_margin > 0: score += 4.0
         
-    return calculate_pillar(metrics, f.data_freshness), warnings
+        cfo_pat = safe_float(f.cfo_pat_ratio, None)
+        if cfo_pat is not None and cfo_pat > 0.5:
+            score += min(3.0, 3.0 * (cfo_pat - 0.5) / (1.0 - 0.5))
 
-def score_capital_allocation(f: CoreFundamentals) -> PillarResult:
-    metrics = []
-    dy = safe_float(f.div_yield)
-    s, exp = evaluate_metric(dy, (0.03, 0.01, 0.0))
-    metrics.append((s, 2.0, f"Div Yield ({exp})"))
-    
-    rr = safe_float(f.reinvestment_rate)
-    s, exp = evaluate_metric(rr, (0.6, 0.3, 0.1))
-    metrics.append((s, 2.0, f"Reinvestment ({exp})"))
-    
-    pht = safe_float(f.promoter_holding_change)
-    s, exp = evaluate_metric(pht, (0.01, 0.0, -0.01))
-    metrics.append((s, 2.0, f"Promoter Holding ({exp})"))
-    
-    metrics.append((0.5, 2.0, "Acquisition Quality (Missing)"))
-    
-    return calculate_pillar(metrics, f.data_freshness)
+    return clamp(score, 0.0, 15.0)
 
-def score_momentum(p_data: CorePriceData) -> PillarResult:
-    if not p_data:
-        return calculate_pillar([(0.5, 1.0, "Price Data (Missing)")], "UNKNOWN")
-    metrics = []
-    rs_nifty = safe_float(p_data.rs_nifty)
-    s, exp = evaluate_metric(rs_nifty, (0.2, 0.0, -0.1))
-    metrics.append((s, 3.0, f"RS Nifty ({exp})"))
-    
-    high_52 = safe_float(p_data.high_52w)
-    price = safe_float(p_data.price)
-    dist_52 = None
-    if high_52 and price:
-        dist_52 = (price / high_52) - 1
-    s, exp = evaluate_metric(dist_52, (-0.05, -0.15, -0.30))
-    metrics.append((s, 3.0, f"52W High Dist ({exp})"))
-    
-    eps_rev = safe_float(p_data.eps_revision_score)
-    s, exp = evaluate_metric(eps_rev, (1.0, 0.0, -1.0))
-    metrics.append((s, 2.0, f"EPS Revisions ({exp})"))
-    
-    return calculate_pillar(metrics, "LIVE")
+# --- Sector-Aware Valuation ---
 
-def get_institutional_rating(score: float) -> str:
-    if score >= 95: return "AAA"
-    if score >= 90: return "AA+"
-    if score >= 85: return "AA"
-    if score >= 80: return "A+"
-    if score >= 75: return "A"
-    if score >= 70: return "BBB"
-    if score >= 60: return "BB"
-    if score >= 50: return "B"
-    return "C"
+def get_sector_val_config(canonical_industry: str) -> dict:
+    config = get_engine_config()
+    industries = config.get("industries", {})
+    return industries.get(canonical_industry, industries.get("DEFAULT", {"pe": 0.4, "pb": 0.4, "peg": 0.2}))
 
-# --- Main Engine Entry ---
-
-def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData, regime: str = "BULL") -> CoreScoreResult:
-    q_res = score_quality(f, p)
-    g_res = score_growth(f)
-    v_res = score_value(f, p)
-    r_res, warnings = score_risk(f, p)
-    ca_res = score_capital_allocation(f)
-    m_res = score_momentum(price_data)
+def score_relative_valuation(f: CoreFundamentals, p: PeerMetrics) -> float:
+    """Max 30 points based on config."""
+    score = 0.0
+    config = get_sector_val_config(f.canonical_industry)
     
-    # Weighting: 30/20/20/10/10/10
-    total = (
-        (q_res.score * 30.0) +
-        (g_res.score * 20.0) +
-        (v_res.score * 20.0) +
-        (r_res.score * 10.0) +
-        (ca_res.score * 10.0) +
-        (m_res.score * 10.0)
+    for metric, weight in config.items():
+        max_pts = 30.0 * weight
+        metric_score = 0.0
+        
+        if metric == "pe" and f.pe is not None and f.pe > 0:
+            if p.median_pe is not None and p.median_pe > 0:
+                ratio = f.pe / p.median_pe
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "pb" and f.pb is not None and f.pb > 0:
+            if p.median_pb is not None and p.median_pb > 0:
+                ratio = f.pb / p.median_pb
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "peg" and f.pe is not None and f.pe > 0:
+            g = safe_float(f.eps_growth_1y) * 100
+            if g > 0:
+                peg = f.pe / g
+                if peg < 2.5: metric_score = min(max_pts, max_pts * (2.5 - peg) / (2.5 - 0.5))
+        elif metric == "ev_ebitda":
+            # Note: ev_ebitda would need f.ev_ebitda but we'll use PE as proxy if missing
+            if f.pe is not None and p.median_pe is not None and p.median_pe > 0:
+                ratio = f.pe / p.median_pe
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "roe" and f.roe is not None:
+            if p.median_roe is not None and p.median_roe > -0.5:
+                diff = safe_float(f.roe) - p.median_roe
+                if diff > 0: metric_score = min(max_pts, max_pts * diff / 0.05)
+        elif metric == "dividend" and f.div_yield is not None:
+            dy = safe_float(f.div_yield)
+            if p.median_div_yield is not None and p.median_div_yield >= 0:
+                if dy > p.median_div_yield: metric_score = min(max_pts, max_pts * (dy - p.median_div_yield) / 0.02)
+            elif dy > 0.02: metric_score = min(max_pts, max_pts * (dy - 0.02) / 0.03)
+            
+        score += metric_score
+
+    return clamp(score, 0.0, 30.0)
+
+# --- Percentile Improvement Score ---
+
+def score_improvement() -> float:
+    # Requires historical data percentile ranking against industry
+    # Hard to calculate perfectly without historical DB, returning a base proxy
+    return 5.0 
+
+# --- Bayesian Confidence ---
+
+def score_bayesian_confidence(f: CoreFundamentals, p: PeerMetrics) -> float:
+    """Probability that the data is complete and consistent."""
+    prob = 1.0
+    
+    # 1. Missing Critical Metrics (Data Completeness)
+    if f.pe is None and f.pb is None: prob *= 0.7
+    if f.roe is None and f.roce is None: prob *= 0.8
+    if f.operating_margin is None: prob *= 0.9
+    
+    # 2. Peer Sample Size
+    if p.peer_count < 5: prob *= 0.6
+    elif p.peer_count < 10: prob *= 0.85
+    
+    # 3. Metric Consistency (Dispersion)
+    if p.dispersion_iqr_median is not None:
+        if p.dispersion_iqr_median > 0.8: prob *= 0.8
+        elif p.dispersion_iqr_median > 0.5: prob *= 0.9
+
+    return clamp(prob * 100, 0.0, 100.0)
+
+# --- Trend & Market Structure ---
+
+def score_market_structure(p: CorePriceData) -> float:
+    score = 0.0
+    price = safe_float(p.price)
+    if price > safe_float(p.sma_50) and safe_float(p.sma_50) > 0: score += 7.5
+    if price > safe_float(p.sma_200) and safe_float(p.sma_200) > 0: score += 7.5
+    return clamp(score, 0.0, 15.0)
+
+# --- Hierarchical Orchestration ---
+
+def check_kill_gates(f: CoreFundamentals) -> Tuple[bool, Optional[str]]:
+    config = get_engine_config()
+    gates = config.get("kill_gates", {})
+    
+    de = safe_float(f.debt_equity)
+    if not f.is_financial and de > gates.get("max_debt_equity", 3.0):
+        return False, f"Debt/Equity {de:.1f} > Max {gates.get('max_debt_equity', 3.0)}"
+        
+    yoy = safe_float(f.yoy_profit_growth, 0.0)
+    if yoy < gates.get("max_profit_decline_yoy", -0.3):
+        return False, f"YoY Profit {yoy*100:.1f}% < Max Decline {gates.get('max_profit_decline_yoy', -0.3)*100:.1f}%"
+        
+    if safe_float(f.roe) < gates.get("min_roe", 0.05):
+        return False, f"ROE {safe_float(f.roe)*100:.1f}% < Min {gates.get('min_roe', 0.05)*100:.1f}%"
+        
+    return True, None
+
+def check_valuation_guard(f: CoreFundamentals, rvs: float) -> Tuple[bool, Optional[str]]:
+    config = get_engine_config()
+    vg = config.get("valuation_guard", {})
+    if not vg.get("enabled", True): return True, None
+    
+    if rvs < vg.get("min_relative_score", 5.0):
+        peg = 0.0
+        g = safe_float(f.eps_growth_1y) * 100
+        if g > 0 and f.pe is not None: peg = f.pe / g
+        
+        if peg > vg.get("max_peg", 2.5):
+            return False, f"Valuation Guard: RVS {rvs:.1f} < {vg.get('min_relative_score')} AND PEG {peg:.1f} > {vg.get('max_peg')}"
+            
+    return True, None
+
+def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData, regime: str = "BULL") -> CoreScores:
+    # 1. Kill Gates
+    passed_kill, kill_reason = check_kill_gates(f)
+    if not passed_kill:
+        return CoreScores(0, 0, 0, 0, 0, 0, 0, "KILL_GATE", kill_reason, False)
+        
+    # 2. Quality Scores
+    bqs = score_business_quality(f)
+    fqs = score_financial_quality(f)
+    
+    config = get_engine_config()
+    qm = config.get("quality_minimums", {})
+    if bqs < qm.get("min_business_quality_score", 5.0):
+        return CoreScores(bqs, fqs, 0, 0, 0, 0, 0, "QUALITY_GATE", f"BQS {bqs:.1f} < Min", False)
+        
+    # 3. Valuation Guard
+    rvs = score_relative_valuation(f, p)
+    passed_val, val_reason = check_valuation_guard(f, rvs)
+    if not passed_val:
+        return CoreScores(bqs, fqs, rvs, 0, 0, 0, 0, "VALUATION_GUARD", val_reason, False)
+        
+    # 4. Trend Confirmation
+    mss = score_market_structure(price_data) if price_data else 0.0
+    
+    # 5. Improvement & Confidence
+    imp = score_improvement()
+    conf = score_bayesian_confidence(f, p)
+    
+    # 6. Composite Score (Based on Regime Weights)
+    weights = config.get("market_regimes", {}).get(regime, config.get("market_regimes", {}).get("BULL", {}))
+    cis = (
+        (bqs / 20.0) * weights.get("business_quality", 25) +
+        (fqs / 15.0) * weights.get("financial_quality", 10) +
+        (rvs / 30.0) * weights.get("valuation", 20) +
+        (mss / 15.0) * weights.get("trend", 25) +
+        (imp / 10.0) * weights.get("improvement", 20)
     )
     
-    if warnings:
-        total = min(total, 49.0) # Force C rating if kill-gate triggered
-        
-    # Multi-Scenario DCF
-    dcf = None
-    if f.operating_cash_flow is not None and f.revenue_growth_5y is not None:
-        try:
-            from valuation_utils import multi_scenario_dcf
-            dcf = multi_scenario_dcf(
-                fcf=float(f.operating_cash_flow), 
-                growth_rate=float(f.revenue_growth_5y),
-                shares=1.0 # Assuming per-share basis or market cap basis depending on caller, but FCF/share is usually needed
-            )
-        except ImportError:
-            pass
-
-    if dcf:
-        val_res = ValuationResult(
-            fair_value=round(dcf["fair_value"], 2) if dcf["fair_value"] else None,
-            bear_value=round(dcf["bear_value"], 2) if dcf["bear_value"] else None,
-            bull_value=round(dcf["bull_value"], 2) if dcf["bull_value"] else None,
-            method="MULTI_SCENARIO_DCF"
-        )
-    else:
-        val_res = ValuationResult(
-            fair_value=None,
-            bear_value=None,
-            bull_value=None,
-            method="MISSING"
-        )
-    
-    return CoreScoreResult(
-        overall_score=round(total, 1),
-        institutional_rating=get_institutional_rating(total),
-        quality=q_res,
-        growth=g_res,
-        value=v_res,
-        risk=r_res,
-        capital_allocation=ca_res,
-        momentum=m_res,
-        warnings=warnings,
-        valuation=val_res,
-        version="3.0.0",
-        data_version="YF-LIVE",
-        generated_at=datetime.utcnow().isoformat()
+    return CoreScores(
+        business_quality_score=round(bqs, 1),
+        financial_quality_score=round(fqs, 1),
+        relative_valuation_score=round(rvs, 1),
+        market_structure_score=round(mss, 1),
+        improvement_score=round(imp, 1),
+        bayesian_confidence_score=round(conf, 1),
+        composite_investment_score=round(cis, 1),
+        rejection_stage=None,
+        rejection_reason=None,
+        is_buy=True
     )
-
-# Backward compatibility alias
-score_business_quality = generate_core_scores
