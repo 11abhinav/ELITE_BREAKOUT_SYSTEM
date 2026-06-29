@@ -69,8 +69,8 @@ self.addEventListener('fetch', event => {
 async function networkFirstWithOfflineFallback(request) {
   try {
     const networkResponse = await fetch(request);
-    // Only cache successful GET responses
-    if (request.method === 'GET' && networkResponse.ok) {
+    // Only cache successful GET responses with http/https schemes (prevents chrome-extension:// errors)
+    if (request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
@@ -94,7 +94,7 @@ async function cacheFirst(request) {
   if (cached) return cached;
   try {
     const networkResponse = await fetch(request);
-    if (networkResponse.ok) {
+    if (networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
