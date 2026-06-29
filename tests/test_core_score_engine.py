@@ -112,7 +112,7 @@ def test_missing_eps_and_bvps():
     assert scores.composite_investment_score >= 0
     # Fair values will now be synthetically floored to 0.8 * CMP because base_fv was 0.0
     assert scores.base_fair_value == 160.0
-    assert scores.bull_fair_value == 176.0
+    assert scores.bull_fair_value == 168.0
 
 def test_missing_peer_multiples():
     """Verify missing peer PE and PB reduces reliability but does not crash."""

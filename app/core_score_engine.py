@@ -276,7 +276,7 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
             bull_fv = base_fv * (1.0 + spread)
             bear_fv = base_fv * (1.0 - spread)
         else:
-            # Fallback to current P/B discounted
+            # Fallback to current P/E or P/B equivalent discounted
             current_pb = pb if pb is not None and pb > 0 else 1.0
             base_fv = bvps * current_pb * 0.85 if bvps > 0 else 0.0
             bull_fv, bear_fv = base_fv * 1.1, base_fv * 0.9
@@ -311,11 +311,6 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
             
             base_fv = target_mult * eps
             
-            # Floor Logic: Prevent mathematically correct but practically absurd FV for high-growth tiny-EPS stocks
-            if current_price and current_price > 0:
-                if base_fv < 0.5 * current_price:
-                    base_fv = 0.8 * current_price
-            
             # Reliability Adjustments
             if reliability < 10: base_fv *= 0.90
             spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
@@ -327,11 +322,16 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
             current_pe = pe if pe is not None and pe > 0 else 15.0
             base_fv = eps * min(current_pe * 0.85, 30.0) if eps > 0 else 0.0
             
-            if current_price and current_price > 0:
-                if base_fv < 0.5 * current_price:
-                    base_fv = 0.8 * current_price
-            
             bull_fv, bear_fv = base_fv * 1.1, base_fv * 0.9
+            
+    # Global Floor Logic: Prevent mathematically correct but practically absurd FV for asset-light or high-growth stocks
+    if current_price and current_price > 0:
+        if base_fv < 0.5 * current_price:
+            base_fv = 0.8 * current_price
+            # Recalculate bands around the new floored base_fv
+            spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
+            bull_fv = base_fv * (1.0 + spread)
+            bear_fv = base_fv * (1.0 - spread)
             
     return base_fv, bull_fv, bear_fv, target_mult, anchor
 
