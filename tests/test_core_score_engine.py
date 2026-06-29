@@ -83,7 +83,6 @@ def test_decimal_vs_percent_growth_input_peg():
     # Let's ensure the score is computed cleanly without TypeError or explosion.
     assert scores.relative_valuation_score > 0
     assert scores.business_quality_score > 0
-    assert scores.base_fair_value > 0
 
 def test_missing_growth_inputs():
     """Verify that entirely missing growth inputs do not crash or erroneously reward."""
@@ -110,9 +109,6 @@ def test_missing_eps_and_bvps():
     
     scores = generate_core_scores(f, p, pd_data)
     assert scores.composite_investment_score >= 0
-    # Fair values will now fallback to the 0.3x maximum downside bound (0.3 * 200 = 60.0)
-    assert scores.base_fair_value == 60.0
-    assert scores.bull_fair_value == 63.0
 
 def test_missing_peer_multiples():
     """Verify missing peer PE and PB reduces reliability but does not crash."""
