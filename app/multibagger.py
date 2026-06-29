@@ -364,6 +364,20 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     for attempt in range(3):
         try:
             info = ticker.info
+        except Exception as e:
+            if "401" in str(e) or "Invalid Crumb" in str(e):
+                logger.warning(f"⚠️ YFinance crumb stale for {symbol}, clearing tzcache and retrying...")
+                import shutil, os
+                from config import BASE_DIR
+                tz_path = os.path.join(BASE_DIR, "data", "tzcache")
+                if os.path.exists(tz_path):
+                    shutil.rmtree(tz_path, ignore_errors=True)
+                ticker = yf.Ticker(f"{symbol}.NS")
+                info = ticker.info
+            else:
+                raise e
+        
+        try:
             if info and "marketCap" in info:
                 from valuation_utils import fetch_tickertape_industry_metrics
                 tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
