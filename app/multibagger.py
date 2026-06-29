@@ -330,7 +330,7 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
     try:
         entry = cache[symbol]
         fetched_at = datetime.fromisoformat(entry["fetched_at"])
-        age_days = (datetime.now() - fetched_at).days
+        age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
         if age_days < 7:
             return StockFundamentals(
                 symbol=symbol,
@@ -545,7 +545,7 @@ def save_watchlist_to_db(results: list):
         # Determine last alert fields (only write when alert is triggered)
         if r.status == "ALERT_TRIGGERED":
             last_price = r.price
-            last_at = datetime.now()
+            last_at = datetime.now(IST)
         else:
             last_price = None
             last_at = None
