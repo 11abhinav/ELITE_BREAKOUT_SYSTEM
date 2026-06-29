@@ -774,7 +774,7 @@
         <thead><tr>
           <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
           <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-          <th onclick="sortMbWatchlist('fair_value')" style="cursor:pointer" title="Sort by Fair Value">Sector Relative FV ↕</th>
+          <th onclick="sortMbWatchlist('fair_value')" style="cursor:pointer" title="Sort by Fair Value">Sector FV ↕</th>
           <th>Buy Zone</th>
           <th onclick="sortMbWatchlist('dist_to_buy')" style="cursor:pointer" title="Sort by Distance to Buy Zone">Dist. to Buy ↕</th>
           <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by BQS">BQS ↕</th>
@@ -782,7 +782,7 @@
           <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
           <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by CIS">CIS ↕</th>
           <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
-          <th>Rel. Value Band</th>
+          <th>Value Band</th>
           <th onclick="sortMbWatchlist('status')" style="cursor:pointer" title="Sort by Status">Status ↕</th>
           <th>Reason</th>
           <th>Act</th>
@@ -1905,7 +1905,7 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:11px;">${bucket}</td>
         <td class="mono">${bandHtml}</td>
         <td><span class="badge badge-${statusClass}">${status.replace('_', ' ')}</span></td>
-        <td style="font-size:11px; max-width:200px; white-space:normal; color:var(--muted);">${notes}</td>
+        <td style="font-size:10px; line-height:1.2; max-width:140px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
         </td>

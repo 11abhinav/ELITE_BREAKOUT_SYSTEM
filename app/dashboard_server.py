@@ -1969,7 +1969,8 @@ def get_multibagger_watchlist():
                     cur.execute("""
                         SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated,
+                               bear_value, bull_value, valuation_confidence
                         FROM stockupdates.watchlist
                         WHERE status = %s
                         ORDER BY total_score DESC NULLS LAST
@@ -1978,7 +1979,8 @@ def get_multibagger_watchlist():
                     cur.execute("""
                         SELECT symbol, fair_value, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
+                               bucket, status, notes, last_alert_price, last_alert_at, last_updated,
+                               bear_value, bull_value, valuation_confidence
                         FROM stockupdates.watchlist
                         ORDER BY total_score DESC NULLS LAST
                     """)
