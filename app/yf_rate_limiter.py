@@ -66,9 +66,12 @@ def acquire(timeout: Optional[float] = None) -> bool:
             now = _now()
             # Enforce minimal interval
             since = now - _last_call_ts
+            sleep_for = 0
             if since < _MIN_INTERVAL_S:
                 sleep_for = _MIN_INTERVAL_S - since
-            time.sleep(sleep_for)
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            break # Exit the while True loop!
         # Acquire semaphore (may block)
     ok = _semaphore.acquire(timeout=timeout)
     if ok:
