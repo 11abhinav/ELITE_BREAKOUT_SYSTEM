@@ -2207,19 +2207,26 @@ def api_breakout_watchlist():
                 prices = {}
                 for sym in symbols:
                     sym_clean = sym.replace(':', '_')
-                    # Check the most frequently updated caches first
-                    for interval in ["5m", "15m", "30m", "1d"]:
+                    # Find the most recently updated parquet file across all intervals
+                    latest_mtime = 0
+                    best_file = None
+                    for interval in ["1m", "5m", "15m", "30m", "1h", "1d"]:
                         file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
                         if os.path.exists(file_path):
-                            try:
-                                df = pd.read_parquet(file_path)
-                                if not df.empty and "Close" in df.columns:
-                                    df_valid = df.dropna(subset=["Close"])
-                                    if not df_valid.empty:
-                                        prices[sym] = float(df_valid["Close"].iloc[-1])
-                                        break # Got the price, move to next symbol
-                            except Exception:
-                                pass
+                            mtime = os.path.getmtime(file_path)
+                            if mtime > latest_mtime:
+                                latest_mtime = mtime
+                                best_file = file_path
+                                
+                    if best_file:
+                        try:
+                            df = pd.read_parquet(best_file)
+                            if not df.empty and "Close" in df.columns:
+                                df_valid = df.dropna(subset=["Close"])
+                                if not df_valid.empty:
+                                    prices[sym] = float(df_valid["Close"].iloc[-1])
+                        except Exception:
+                            pass
                 for d in data:
                     d["cmp"] = prices.get(d["symbol"])
             except Exception as e:
