@@ -162,16 +162,6 @@ class YFinanceRateLimitGuard:
 
 rate_limiter = YFinanceRateLimitGuard()
 
-yf_thread_local = threading.local()
-
-def get_yf_session() -> requests.Session:
-    """Returns a thread-local requests.Session configured with browser headers for yfinance."""
-    if not hasattr(yf_thread_local, "session"):
-        session = requests.Session()
-        session.headers.update(HTTP_HEADERS)
-        yf_thread_local.session = session
-    return yf_thread_local.session
-
 def get_nse_session() -> requests.Session:
     """Returns a requests.Session configured with connection pool and retries."""
     session = requests.Session()
@@ -369,7 +359,7 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     """Fetch deeper company info metadata from yfinance."""
     rate_limiter.wait_if_needed()
     ticker_name = f"{symbol}.NS"
-    ticker = yf.Ticker(ticker_name, session=get_yf_session())
+    ticker = yf.Ticker(ticker_name)
     
     for attempt in range(3):
         try:
@@ -428,9 +418,6 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
             msg = str(e).lower()
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
                 rate_limiter.record_failure()
-                # Clear the thread's yf session to force a fresh crumb on the next attempt
-                if hasattr(yf_thread_local, "session"):
-                    del yf_thread_local.session
             time.sleep(2 ** attempt)
             
     # Record non-critical error in DB
@@ -583,7 +570,7 @@ def save_scores_to_db(results: list):
     
     data = []
     for r in results:
-        legacy_score = int(r.total_score * 2.5) # scaled out of 50
+        legacy_score = int(r.total_score) # total_score is now the 0-100 composite investment score
         data.append((r.symbol.upper(), r.price, r.change_pct, legacy_score, r.cqs, r.pas))
         
     try:
@@ -1027,7 +1014,7 @@ def start(debug_limit: int = None):
             cqs = scores.business_quality_score
             pas = scores.relative_valuation_score
             trend = scores.market_structure_score
-            total = cqs + pas
+            total = scores.composite_investment_score # 0 to 100 scale natively
             
             base_fv = scores.base_fair_value
             bear_fv = scores.bear_fair_value
@@ -1086,10 +1073,10 @@ def start(debug_limit: int = None):
         # Trigger buy alert for ready positions
         if alert_triggered:
             logger.info(f"🌟 Alert Triggered for {sym}! FV={base_fv:.1f}, Price={price_data.price:.1f}. Reason: {alert_reason}")
-            scaled_score = int(total * 5.0)
+            scaled_score = int(total)
             
-            # Compute position sizing (total_score 0-20 → momentum 0-100)
-            momentum_for_sizing = min(100, int(total * 5.0))
+            # Compute position sizing (total is 0-100 natively)
+            momentum_for_sizing = int(total)
             sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
             pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
             
