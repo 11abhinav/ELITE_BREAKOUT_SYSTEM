@@ -100,6 +100,7 @@ class StockFundamentals:
     sector: str
     eps: float
     bvps: float
+    roa: float = None
 
 @dataclass
 class ScreenerResult:
@@ -394,7 +395,8 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
                 div_yield=entry["div_yield"],
                 sector=entry["sector"],
                 eps=entry.get("eps"),
-                bvps=entry.get("bvps")
+                bvps=entry.get("bvps"),
+                roa=entry.get("roa")
             )
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -425,7 +427,8 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
                     div_yield=info.get("dividendYield"),
                     sector=info.get("sector", "Unknown"),
                     eps=info.get("trailingEps"),
-                    bvps=info.get("bookValue")
+                    bvps=info.get("bookValue"),
+                    roa=info.get("returnOnAssets")
                 )
             time.sleep(1.0 + (2 ** attempt))
         except Exception as e:
@@ -473,38 +476,63 @@ def calculate_cqs(f: StockFundamentals) -> float:
     """Calculate Company Quality / Growth Score out of 10 points (0 pts if missing)."""
     score = 0.0
     
-    # 1. ROE (Max 3 pts: >=20% = 3, >=15% = 1)
+    # 1. ROE (Max 2 pts: >=15% = 2, >=10% = 1)
     if f.roe is not None:
         roe_val = float(f.roe)
-        if roe_val >= 0.20:
-            score += 3.0
-        elif roe_val >= 0.15:
+        if roe_val >= 0.15:
+            score += 2.0
+        elif roe_val >= 0.10:
             score += 1.0
             
-    # 2. Debt/Equity (Max 2 pts: <=0.3 = 2, <=0.7 = 1) - Only scored for Non-Financials
-    # Financials skip this logic and receive a flat +2 quality adjustment (rescaled for leverage)
+    # 2. Leverage/Quality (Max 2 pts)
     if is_financial_sector(f.sector):
-        score += 2.0
+        # Financials use ROA instead of D/E
+        if getattr(f, "roa", None) is not None:
+            roa_val = float(f.roa)
+            if roa_val >= 0.08:
+                score += 2.0
+            elif roa_val >= 0.04:
+                score += 1.0
     else:
+        # Non-Financials use D/E: <=0.50 = 2, <=1.00 = 1
         if f.debt_equity is not None:
             de_val = float(f.debt_equity)
             de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-            if de_ratio <= 0.3:
+            if de_ratio <= 0.50:
                 score += 2.0
-            elif de_ratio <= 0.7:
+            elif de_ratio <= 1.00:
                 score += 1.0
             
-    # 3. Revenue Growth (Max 2 pts: >=15% = 2)
-    if f.revenue_growth is not None and float(f.revenue_growth) >= 0.15:
-        score += 2.0
+    # 3. Revenue Growth (Max 2 pts: >=10% = 2, >=5% = 1)
+    if f.revenue_growth is not None:
+        rg = float(f.revenue_growth)
+        if rg >= 0.10:
+            score += 2.0
+        elif rg >= 0.05:
+            score += 1.0
         
-    # 4. Earnings Growth (Max 2 pts: >=15% = 2)
-    if f.earnings_growth is not None and float(f.earnings_growth) >= 0.15:
-        score += 2.0
+    # 4. Earnings Growth (Max 2 pts: >=10% = 2, >=5% = 1)
+    if f.earnings_growth is not None:
+        eg = float(f.earnings_growth)
+        if eg >= 0.10:
+            score += 2.0
+        elif eg >= 0.05:
+            score += 1.0
         
-    # 5. Operating Margin (Max 1 pt: >=18% = 1)
-    if f.operating_margin is not None and float(f.operating_margin) >= 0.18:
-        score += 1.0
+    # 5. Operating Margin (Max 1 pt: >=15% = 1, >=10% = 0.5)
+    if f.operating_margin is not None:
+        opm = float(f.operating_margin)
+        if opm >= 0.15:
+            score += 1.0
+        elif opm >= 0.10:
+            score += 0.5
+
+    # 6. EPS Floor (Max 1 pt)
+    if f.eps is not None:
+        eps_val = float(f.eps)
+        eg = float(f.earnings_growth) if f.earnings_growth is not None else 0.0
+        if eps_val >= 5.0 or (eps_val >= 1.0 and eg >= 0.05):
+            score += 1.0
         
     return round(score, 1)
 
@@ -609,21 +637,25 @@ def calculate_trend_score(price_data: StockPriceData) -> float:
 def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> FairValueResult:
     info = medians.get(f.symbol, {}) if medians else {}
 
-    peer_count = info.get("peer_count")
+    peer_count_raw = info.get("peer_count")
+    peer_count_pe = info.get("peer_count_pe", peer_count_raw)
+    peer_count_pb = info.get("peer_count_pb", peer_count_raw)
     peer_pe = info.get("median_pe")
     peer_pb = info.get("median_pb")
 
-    min_peer_count = 5
+    min_peer_count = 8
 
     try:
         if is_financial_sector(f.sector):
             current_pb = float(f.pb) if f.pb and f.pb > 0 else None
             bvps = float(f.bvps) if f.bvps and f.bvps > 0 else None
+            peer_count = peer_count_pb
 
             if bvps and peer_pb and peer_count and peer_count >= min_peer_count:
                 raw_target_pb = (0.65 * float(peer_pb)) + (0.35 * current_pb if current_pb else 0.0)
                 target_pb = clamp(raw_target_pb, 0.8, 1.5 * float(peer_pb))
                 fair_value = target_pb * bvps
+                fair_value = min(fair_value, price_data.price * 2.0)
                 bear_value = max(bvps * max(0.85 * target_pb, 0.8), price_data.price * 0.85)
                 bull_value = bvps * min(target_pb * 1.15, 1.75 * float(peer_pb))
 
@@ -657,6 +689,7 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
 
         current_pe = float(f.pe) if f.pe and f.pe > 0 else None
         eps = float(f.eps) if f.eps and f.eps > 0 else None
+        peer_count = peer_count_pe
 
         if eps and peer_pe and peer_count and peer_count >= min_peer_count:
             peer_pe = float(peer_pe)
@@ -667,17 +700,20 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
                 raw_target_pe = peer_pe
 
             sector_cap = 1.35 * peer_pe
-            absolute_cap = 25.0 if (f.revenue_growth or 0) < 0.15 else 35.0
+            absolute_cap = 30.0 if (f.revenue_growth or 0) < 0.15 else 50.0
             target_pe = clamp(raw_target_pe, 6.0, min(sector_cap, absolute_cap))
 
             fair_value = target_pe * eps
+            fair_value = min(fair_value, price_data.price * 2.0)
             bear_pe = max(0.85 * target_pe, 0.85 * current_pe if current_pe else 6.0)
             bull_pe = min(1.15 * target_pe, sector_cap, absolute_cap)
 
             bear_value = bear_pe * eps
             bull_value = bull_pe * eps
 
-            if current_pe and peer_pe > current_pe * 1.75:
+            if current_pe and current_pe > peer_pe * 2.0:
+                confidence = "LOW"
+            elif current_pe and peer_pe > current_pe * 1.75:
                 confidence = "MEDIUM"
             else:
                 confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
@@ -701,8 +737,9 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
             )
 
         if current_pe and eps:
-            target_pe = clamp(current_pe, 6.0, 20.0)
+            target_pe = clamp(current_pe * 0.85, 6.0, 30.0)
             fair_value = target_pe * eps
+            fair_value = min(fair_value, price_data.price * 2.0)
             return FairValueResult(
                 fair_value=round(fair_value, 2),
                 bear_value=round(fair_value * 0.90, 2),

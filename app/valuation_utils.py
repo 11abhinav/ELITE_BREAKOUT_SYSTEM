@@ -8,14 +8,29 @@ logger = logging.getLogger(__name__)
 
 UNIVERSE_CACHE_PATH = "data/tradingview_universe_cache.pkl"
 
+def normalize_id(x: str) -> str:
+    if pd.isna(x) or not isinstance(x, str): return ""
+    if ":" in x: x = x.split(":")[-1]
+    return x.upper().replace("-", "").replace("_", "").replace("&", "").strip()
+
 def fetch_full_universe_for_valuation() -> pd.DataFrame:
     from tradingview_screener import Query, col
     fields = [
-        "name", "sector", "market_cap_basic", 
+        "ticker", "name", "sector", "market_cap_basic", 
         "return_on_equity_fy", "total_revenue_yoy_growth_ttm",
         "price_earnings_ttm", "price_book_ratio"
     ]
     
+    # Check cache freshness first
+    if os.path.exists(UNIVERSE_CACHE_PATH):
+        try:
+            mtime = os.path.getmtime(UNIVERSE_CACHE_PATH)
+            age_hours = (time.time() - mtime) / 3600
+            if age_hours < 24:
+                return pd.read_pickle(UNIVERSE_CACHE_PATH)
+        except Exception as e:
+            logger.warning(f"Failed to read universe cache age: {e}")
+            
     for attempt in range(3):
         try:
             q = (
@@ -27,6 +42,24 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             )
             total, df = q.get_scanner_data()
             if df is not None and not df.empty:
+                # Add normalized columns for fast matching
+                if "ticker" in df.columns:
+                    df["ticker_norm"] = df["ticker"].apply(normalize_id)
+                if "name" in df.columns:
+                    df["name_norm"] = df["name"].apply(normalize_id)
+                    
+                # Coerce numeric fields to float
+                numeric_cols = [
+                    "market_cap_basic", "return_on_equity_fy", 
+                    "total_revenue_yoy_growth_ttm", "price_earnings_ttm", "price_book_ratio"
+                ]
+                for col_name in numeric_cols:
+                    if col_name in df.columns:
+                        df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+                        
+                if "return_on_equity_fy" in df.columns and "total_revenue_yoy_growth_ttm" in df.columns:
+                    logger.info(f"Universe Refresh: ROE range [{df['return_on_equity_fy'].min():.1f}, {df['return_on_equity_fy'].max():.1f}], Growth range [{df['total_revenue_yoy_growth_ttm'].min():.1f}, {df['total_revenue_yoy_growth_ttm'].max():.1f}]")
+                    
                 # Save to cache
                 os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
                 df.to_pickle(UNIVERSE_CACHE_PATH)
@@ -37,8 +70,10 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             
     # If fetch fails, try loading from cache
     if os.path.exists(UNIVERSE_CACHE_PATH):
-        logger.info("Loading market universe from local cache due to fetch failure.")
         try:
+            mtime = os.path.getmtime(UNIVERSE_CACHE_PATH)
+            age_hours = (time.time() - mtime) / 3600
+            logger.warning(f"Loading market universe from local cache ({age_hours:.1f} hours old) due to fetch failure.")
             df = pd.read_pickle(UNIVERSE_CACHE_PATH)
             return df
         except Exception as e:
@@ -57,6 +92,13 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         logger.exception(f"Failed to fetch full market universe")
         universe_df = None
 
+    # Ensure normalized columns exist (for backward compatibility if loaded from old cache)
+    if universe_df is not None and not universe_df.empty:
+        if "ticker_norm" not in universe_df.columns and "ticker" in universe_df.columns:
+            universe_df["ticker_norm"] = universe_df["ticker"].apply(normalize_id)
+        if "name_norm" not in universe_df.columns and "name" in universe_df.columns:
+            universe_df["name_norm"] = universe_df["name"].apply(normalize_id)
+
     medians_map = {}
     for symbol in symbols:
         medians_map[symbol] = {"median_pe": None, "median_pb": None, "median_roe": None, "peer_count": 0}
@@ -64,9 +106,24 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         if universe_df is None or universe_df.empty:
             continue
             
-        stock_row = universe_df[universe_df["name"] == symbol]
-        if stock_row.empty:
-            stock_row = universe_df[universe_df["name"] == symbol.replace("-", "_")]
+        stock_row = pd.DataFrame()
+        norm_sym = normalize_id(symbol)
+        
+        # Try ticker_norm first
+        if "ticker_norm" in universe_df.columns:
+            matches = universe_df[universe_df["ticker_norm"] == norm_sym]
+            if not matches.empty:
+                stock_row = matches
+        # Then try name_norm
+        if stock_row.empty and "name_norm" in universe_df.columns:
+            matches = universe_df[universe_df["name_norm"] == norm_sym]
+            if not matches.empty:
+                stock_row = matches
+        # Then exact name fallback
+        if stock_row.empty and "name" in universe_df.columns:
+            matches = universe_df[universe_df["name"] == symbol]
+            if not matches.empty:
+                stock_row = matches
             
         sector = None
         mcap = None
@@ -89,6 +146,17 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             
         peers = universe_df[universe_df["sector"] == sector].copy()
         
+        # Exclude the stock itself from the peer set
+        if not stock_row.empty:
+            current_ticker = stock_row.iloc[0].get("ticker")
+            if pd.notna(current_ticker):
+                peers = peers[peers["ticker"] != current_ticker]
+        
+        # Clean anomalous P/E, P/B, and ROE values so they don't pollute sector medians
+        peers["price_earnings_ttm"] = peers["price_earnings_ttm"].apply(lambda x: x if pd.notnull(x) and 0 < x < 500 else np.nan)
+        peers["price_book_ratio"] = peers["price_book_ratio"].apply(lambda x: x if pd.notnull(x) and 0 < x < 100 else np.nan)
+        peers["return_on_equity_fy"] = peers["return_on_equity_fy"].apply(lambda x: x if pd.notnull(x) and -200 < x < 200 else np.nan)
+        
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -97,11 +165,18 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             raw_roe = peers["return_on_equity_fy"].median()
             
             if pd.isna(mcap) or pd.isna(roe) or pd.isna(growth):
+                valid_pe_count = int(peers["price_earnings_ttm"].count())
+                valid_pb_count = int(peers["price_book_ratio"].count())
+                valid_roe_count = int(peers["return_on_equity_fy"].count())
+                conservative_peer_count = min(valid_pe_count, valid_pb_count, valid_roe_count)
                 medians_map[symbol] = {
                     "median_pe": float(raw_pe) if not pd.isna(raw_pe) else None,
                     "median_pb": float(raw_pb) if not pd.isna(raw_pb) else None,
                     "median_roe": float(raw_roe) if not pd.isna(raw_roe) else None,
-                    "peer_count": len(peers) if not peers.empty else 0
+                    "peer_count": conservative_peer_count,
+                    "peer_count_pe": valid_pe_count,
+                    "peer_count_pb": valid_pb_count,
+                    "peer_count_roe": valid_roe_count
                 }
                 continue
                 
@@ -124,22 +199,30 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             ]
             
             final_peers = peers
-            if len(p1) >= 5:
+            if len(p1) >= 8:
                 final_peers = p1
-            elif len(p2) >= 5:
+            elif len(p2) >= 8:
                 final_peers = p2
-            elif len(p3) >= 5:
+            elif len(p3) >= 8:
                 final_peers = p3
                 
             val_pe = final_peers["price_earnings_ttm"].median()
             val_pb = final_peers["price_book_ratio"].median()
             val_roe = final_peers["return_on_equity_fy"].median()
             
+        valid_pe_count = int(final_peers["price_earnings_ttm"].count())
+        valid_pb_count = int(final_peers["price_book_ratio"].count())
+        valid_roe_count = int(final_peers["return_on_equity_fy"].count())
+        conservative_peer_count = min(valid_pe_count, valid_pb_count, valid_roe_count)
+        
         medians_map[symbol] = {
             "median_pe": float(val_pe) if not pd.isna(val_pe) else None,
             "median_pb": float(val_pb) if not pd.isna(val_pb) else None,
             "median_roe": float(val_roe) if not pd.isna(val_roe) else None,
-            "peer_count": len(final_peers) if not final_peers.empty else 0
+            "peer_count": conservative_peer_count,
+            "peer_count_pe": valid_pe_count,
+            "peer_count_pb": valid_pb_count,
+            "peer_count_roe": valid_roe_count
         }
         
     return medians_map
