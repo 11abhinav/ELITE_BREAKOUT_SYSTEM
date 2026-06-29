@@ -1548,7 +1548,10 @@
 
       <!-- PENDING USERS -->
       <div id="pendingUsersContainer" style="display:none; margin-bottom: 28px;">
-        <div class="section-label">Pending Approvals</div>
+        <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Pending Approvals</span>
+          <button class="refresh-btn" onclick="forceRefreshPendingUsers()" style="font-size:11px; padding:2px 8px;">Refresh</button>
+        </div>
         <div class="card" style="padding: 0;">
           <table class="table">
             <thead>
@@ -4739,17 +4742,11 @@ document.addEventListener('click', (e) => {
 
 async function fetchNotifications() {
     try {
-        const [notifRes, pendingRes] = await Promise.all([
-            fetch('/api/notifications'),
-            fetch('/admin/pending_users')
-        ]);
+        const notifRes = await fetch('/api/notifications');
         if (!notifRes.ok) return;
 
         const data = await notifRes.json();
-        let pendingData = [];
-        if (pendingRes.ok) {
-            pendingData = await pendingRes.json();
-        }
+        const pendingData = await getPendingUsersCached(false);
 
         const list = document.getElementById('notif-list');
         const badge = document.getElementById('notif-badge');
@@ -4890,22 +4887,41 @@ async function clearAllNotifications(e) {
     }
 }
 
-// Poll every 30 seconds
-setInterval(fetchNotifications, 30000);
+// Poll every 3 minutes (180000 ms)
+setInterval(fetchNotifications, 180000);
 fetchNotifications();
 
-async function loadPendingUsers() {
+let cachedPendingUsers = [];
+let lastPendingFetch = 0;
+
+async function getPendingUsersCached(force = false) {
+    const now = Date.now();
+    // 1 hour cache = 3600000 ms
+    if (!force && now - lastPendingFetch < 3600000 && lastPendingFetch !== 0) {
+        return cachedPendingUsers;
+    }
     try {
         const res = await fetch('/admin/pending_users');
-        const container = document.getElementById('pendingUsersContainer');
-        if (!res.ok) {
-            container.style.display = 'none';
-            return;
+        if (res.ok) {
+            cachedPendingUsers = await res.json();
+            lastPendingFetch = now;
         }
-        const users = await res.json();
+    } catch(e) {}
+    return cachedPendingUsers;
+}
+
+async function forceRefreshPendingUsers() {
+    await loadPendingUsers(true);
+    fetchNotifications();
+}
+
+async function loadPendingUsers(force = false) {
+    try {
+        const users = await getPendingUsersCached(force);
+        const container = document.getElementById('pendingUsersContainer');
         const tbody = document.getElementById('pendingUsersTableBody');
         
-        if (users.length === 0) {
+        if (!users || users.length === 0) {
             container.style.display = 'none';
             return;
         }
@@ -4937,7 +4953,7 @@ async function approveUser(id) {
     try {
         const res = await fetch(`/admin/approve_user/${id}`, {method: 'POST'});
         if(res.ok) {
-            loadPendingUsers();
+            await loadPendingUsers(true);
             fetchNotifications();
             if (typeof searchUsers === 'function') searchUsers();
         } else {
@@ -4955,7 +4971,7 @@ async function rejectUser(id) {
     try {
         const res = await fetch(`/admin/reject_user/${id}`, {method: 'POST'});
         if(res.ok) {
-            loadPendingUsers();
+            await loadPendingUsers(true);
             fetchNotifications();
             if (typeof searchUsers === 'function') searchUsers();
         } else {
