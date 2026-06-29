@@ -437,37 +437,53 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     return None
 
 def passes_kill_gates(f: StockFundamentals) -> bool:
-    """Instant rejection checks: Mcap < 500Cr, D/E > 1.0 (non-financials), OCF < 0, Yearly Loss, or Abysmal ROE/Growth."""
-    if f.market_cap is None or float(f.market_cap) < 5000000000: # ₹500 Cr
-        return False
-        
-    # Debt/Equity check (Strict: reject if > 1.0, except for Banks / NBFC / Financial sectors)
-    if not is_financial_sector(f.sector):
-        if f.debt_equity is not None:
-            de_val = float(f.debt_equity)
-            de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-            if de_ratio > 1.0:
-                return False
-                
-    # Operating Cash Flow check (Strict: reject if negative)
-    if f.operating_cash_flow is not None and float(f.operating_cash_flow) < 0:
-        return False
-        
-    # Earnings check (Strict: reject if company is posting Trailing 12-Month Net Losses)
-    if f.eps is not None and float(f.eps) <= 0:
-        return False
-        
-    # Core Operations check (Strict: reject if operating margin is negative, meaning the core business loses money)
-    if not is_financial_sector(f.sector):
-        if f.operating_margin is not None and float(f.operating_margin) < 0:
+    """Instant rejection checks with Golden Exceptions for hyper-growth microcaps and turnarounds."""
+    
+    # Parse base metrics safely
+    mcap = float(f.market_cap) if f.market_cap is not None else 0.0
+    ocf = float(f.operating_cash_flow) if f.operating_cash_flow is not None else 0.0
+    eps = float(f.eps) if f.eps is not None else 0.0
+    opm = float(f.operating_margin) if f.operating_margin is not None else 0.0
+    roe = float(f.roe) if f.roe is not None else 0.0
+    rev_growth = float(f.revenue_growth) if f.revenue_growth is not None else 0.0
+    de_val = float(f.debt_equity) if f.debt_equity is not None else 0.0
+    de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
+    
+    is_fin = is_financial_sector(f.sector)
+    
+    # 1. Size Check (with Hidden Gem Exception)
+    # Reject < 500Cr, UNLESS it's a "Hidden Gem" (> 200Cr, high ROE, hyper revenue growth, low debt)
+    if mcap < 5000000000: # ₹500 Cr
+        is_hidden_gem = (mcap >= 2000000000) and (roe > 0.15) and (rev_growth > 0.20) and (de_ratio < 0.5)
+        if not is_hidden_gem:
             return False
             
-    # Capital Efficiency check (Reject if Return on Equity is abysmal < 5%, destroying shareholder value)
-    if f.roe is not None and float(f.roe) < 0.05:
+    # 2. Debt/Equity check
+    if not is_fin and de_ratio > 1.0:
         return False
         
-    # Deterioration check (Reject if revenue or earnings are collapsing by more than 30%)
-    if f.revenue_growth is not None and float(f.revenue_growth) < -0.30:
+    # 3. Operating Cash Flow check (Must be positive)
+    if ocf < 0:
+        return False
+        
+    # 4. Earnings Check (with Turnaround Exception)
+    if eps <= 0:
+        # Turnaround Exception: Allow if cash flow is positive, operating margin is positive, and revenues are exploding
+        is_turnaround = (ocf > 0) and (opm > 0) and (rev_growth > 0.25)
+        if not is_turnaround:
+            return False
+            
+    # 5. Core Operations check
+    if not is_fin and opm < 0:
+        return False
+            
+    # 6. Capital Efficiency check
+    # Only enforce ROE > 5% on profitable companies (turnarounds will naturally have negative ROE)
+    if eps > 0 and roe < 0.05:
+        return False
+        
+    # 7. Deterioration check
+    if rev_growth < -0.30:
         return False
     if f.earnings_growth is not None and float(f.earnings_growth) < -0.30:
         return False
