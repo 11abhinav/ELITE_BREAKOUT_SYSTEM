@@ -214,10 +214,13 @@ def fetch_constituents() -> list:
         except Exception as e:
             logger.warning(f"⚠️ Error fetching {name}: {e}")
             
-    # Normalize symbols for yfinance querying
+    # Normalize symbols for yfinance querying, filtering out NSE dummy/placeholder entries
     normalized = []
     for s in symbols:
         clean = s.replace("_", "-")
+        if "DUMMY" in clean.upper():
+            logger.info(f"🗑️ Skipping NSE placeholder symbol: {clean}")
+            continue
         normalized.append(clean)
         
     logger.info(f"🎯 Total unique constituent symbols fetched: {len(normalized)}")
