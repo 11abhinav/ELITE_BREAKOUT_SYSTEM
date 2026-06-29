@@ -233,7 +233,7 @@ def batch_download_market_data(symbols: list) -> dict:
     logger.info(f"📥 Batch downloading 1y history for {len(ticker_names)} tickers...")
     
     try:
-        df = yf.download(ticker_names, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False)
+        df = yf.download(ticker_names, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False, threads=False)
         
         results = {}
         for sym in symbols:
