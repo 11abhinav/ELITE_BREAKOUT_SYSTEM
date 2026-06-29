@@ -241,7 +241,6 @@ class FyersFetcher(DataFetcher):
                     
                     if str(code) in ["494", "-401", "401"]:
                         logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
-                        import fyers_auth
                         fyers_auth.clear_token()
                         raise ValueError("Could not authenticate the user")
                         
