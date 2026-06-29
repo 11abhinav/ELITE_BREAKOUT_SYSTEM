@@ -1610,6 +1610,9 @@ def api_scanner_status():
                     "error":         row["error_msg"],
                     "updated_at":    row["updated_at"],
                     "is_acknowledged": row["is_acknowledged"],
+                    "processed_count": row.get("processed_count"),
+                    "total_count":   row.get("total_count"),
+                    "scheduled_for": row.get("scheduled_for"),
                     "today_trades":  [
                         {
                             "symbol":       t["symbol"],
