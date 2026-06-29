@@ -436,8 +436,8 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
         
     return None
 
-def passes_kill_gates(f: StockFundamentals) -> bool:
-    """Instant rejection checks with Golden Exceptions for hyper-growth microcaps and turnarounds."""
+def passes_kill_gates(f: StockFundamentals) -> tuple[bool, str]:
+    """Instant rejection checks with Golden Exceptions for hyper-growth microcaps and turnarounds. Returns (passed, reason)."""
     
     # Parse base metrics safely
     mcap = float(f.market_cap) if f.market_cap is not None else 0.0
@@ -452,43 +452,40 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
     is_fin = is_financial_sector(f.sector)
     
     # 1. Size Check (with Hidden Gem Exception)
-    # Reject < 500Cr, UNLESS it's a "Hidden Gem" (> 200Cr, high ROE, hyper revenue growth, low debt)
     if mcap < 5000000000: # ₹500 Cr
         is_hidden_gem = (mcap >= 2000000000) and (roe > 0.15) and (rev_growth > 0.20) and (de_ratio < 0.5)
         if not is_hidden_gem:
-            return False
+            return False, f"Invalidated: Market Cap (₹{mcap/10000000:.1f} Cr) < 500 Cr and fails Hidden Gem exception."
             
     # 2. Debt/Equity check
     if not is_fin and de_ratio > 1.0:
-        return False
+        return False, f"Invalidated: Debt/Equity ({de_ratio:.2f}) > 1.0"
         
     # 3. Operating Cash Flow check (Must be positive)
     if ocf < 0:
-        return False
+        return False, "Invalidated: Negative Operating Cash Flow (Burning cash)."
         
     # 4. Earnings Check (with Turnaround Exception)
     if eps <= 0:
-        # Turnaround Exception: Allow if cash flow is positive, operating margin is positive, and revenues are exploding
         is_turnaround = (ocf > 0) and (opm > 0) and (rev_growth > 0.25)
         if not is_turnaround:
-            return False
+            return False, "Invalidated: TTM Net Loss (EPS <= 0) and fails Turnaround exception."
             
     # 5. Core Operations check
     if not is_fin and opm < 0:
-        return False
+        return False, "Invalidated: Negative Operating Margin (Core operations losing money)."
             
     # 6. Capital Efficiency check
-    # Only enforce ROE > 5% on profitable companies (turnarounds will naturally have negative ROE)
     if eps > 0 and roe < 0.05:
-        return False
+        return False, f"Invalidated: Abysmal Capital Efficiency (ROE {roe*100:.1f}% < 5%)."
         
     # 7. Deterioration check
     if rev_growth < -0.30:
-        return False
+        return False, f"Invalidated: Severe Revenue Collapse ({rev_growth*100:.1f}%)."
     if f.earnings_growth is not None and float(f.earnings_growth) < -0.30:
-        return False
+        return False, f"Invalidated: Severe Earnings Collapse ({float(f.earnings_growth)*100:.1f}%)."
         
-    return True
+    return True, "Passed Kill Gates"
 def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
     price = price_data.price
     
@@ -937,7 +934,7 @@ def start(debug_limit: int = None):
     save_fundamentals_cache(cache)
     
     # Filter fundamentals matching Kill Gates for sector median calculations
-    passed_count = sum(1 for f in fundamentals_list if passes_kill_gates(f))
+    passed_count = sum(1 for f in fundamentals_list if passes_kill_gates(f)[0])
     logger.info(f"🛡️ {passed_count}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
     
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
@@ -966,10 +963,11 @@ def start(debug_limit: int = None):
         is_fallback = True
         
         # Enforce Kill Gates to flag INVALIDATED early
-        if not passes_kill_gates(f):
+        passed_kg, kg_reason = passes_kill_gates(f)
+        if not passed_kg:
             status = "INVALIDATED"
             bucket = "Invalidated"
-            notes = "Invalidated: Fails Layer 1 Kill Gates (Market Cap / Debt / Cash Flow)"
+            notes = kg_reason
             cqs = 0.0
             pas = 0.0
             trend = 0.0
