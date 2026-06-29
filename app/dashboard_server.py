@@ -2210,13 +2210,14 @@ def api_breakout_watchlist():
                 prices = {}
 
                 def fetch_cmp(sym):
+                    from datetime import datetime
                     try:
                         yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
                         t = yf.Ticker(yf_sym)
                         price = float(t.fast_info.last_price)
                         if pd.isna(price):
                             raise ValueError("NaN price")
-                        return sym, price
+                        return sym, price, datetime.now().isoformat()
                     except Exception as e:
                         # Fallback to local cache if live fetch fails
                         try:
@@ -2235,20 +2236,22 @@ def api_breakout_watchlist():
                                 if not df.empty and "Close" in df.columns:
                                     df_valid = df.dropna(subset=["Close"])
                                     if not df_valid.empty:
-                                        return sym, float(df_valid["Close"].iloc[-1])
+                                        return sym, float(df_valid["Close"].iloc[-1]), datetime.fromtimestamp(latest_mtime).isoformat()
                         except Exception:
                             pass
-                        return sym, None
+                        return sym, None, None
 
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     futures = {executor.submit(fetch_cmp, sym): sym for sym in symbols}
                     for future in as_completed(futures):
-                        sym, price = future.result()
+                        sym, price, ts = future.result()
                         if price is not None:
-                            prices[sym] = price
+                            prices[sym] = {"price": price, "ts": ts}
                             
                 for d in data:
-                    d["cmp"] = prices.get(d["symbol"])
+                    if d["symbol"] in prices:
+                        d["cmp"] = prices[d["symbol"]]["price"]
+                        d["last_updated"] = prices[d["symbol"]]["ts"]
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to fetch live CMP for watchlist: {e}")
