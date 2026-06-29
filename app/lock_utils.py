@@ -4,17 +4,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import threading
+
 class ProcessLock:
     """
-    Cross-process file-based lock. 
-    Prevents multiple Gunicorn workers or standalone scripts from running the same scanner concurrently.
+    Hybrid lock combining threading.Lock and fcntl.flock.
+    Protects against BOTH multiple threads in the same process AND multiple processes.
     """
     def __init__(self, lock_name: str):
         self.lock_name = lock_name
         self.lock_file = f"data/{lock_name}.lock"
         self.lock_fd = None
+        self.thread_lock = threading.Lock()
 
     def acquire(self, blocking: bool = False) -> bool:
+        if not self.thread_lock.acquire(blocking=blocking):
+            return False
+            
         try:
             os.makedirs("data", exist_ok=True)
             if self.lock_fd is None:
@@ -27,6 +33,7 @@ class ProcessLock:
             fcntl.flock(self.lock_fd, flags)
             return True
         except (BlockingIOError, IOError):
+            self.thread_lock.release()
             return False
         except Exception as e:
             logger.error(f"Error acquiring lock {self.lock_name}: {e}")
@@ -38,3 +45,7 @@ class ProcessLock:
                 fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
             except Exception:
                 pass
+        try:
+            self.thread_lock.release()
+        except RuntimeError:
+            pass
