@@ -784,6 +784,7 @@
           <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
           <th>Rel. Value Band</th>
           <th onclick="sortMbWatchlist('status')" style="cursor:pointer" title="Sort by Status">Status ↕</th>
+          <th>Reason</th>
           <th>Act</th>
         </tr></thead>
         <tbody id="mb-watchlist-body"></tbody>
@@ -1904,6 +1905,7 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:11px;">${bucket}</td>
         <td class="mono">${bandHtml}</td>
         <td><span class="badge badge-${statusClass}">${status.replace('_', ' ')}</span></td>
+        <td style="font-size:11px; max-width:200px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
         </td>
