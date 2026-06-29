@@ -637,12 +637,17 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
             peer_count = peer_count_pb
 
             if bvps and peer_pb and peer_count and peer_count >= min_peer_count:
-                raw_target_pb = (0.65 * float(peer_pb)) + (0.35 * current_pb if current_pb else 0.0)
-                target_pb = clamp(raw_target_pb, 0.8, 1.5 * float(peer_pb))
+                # 40% sector median, 60% own structural premium (allows AMCs/Exchanges to keep their high PB)
+                raw_target_pb = (0.40 * float(peer_pb)) + (0.60 * current_pb if current_pb else 0.0)
+                
+                # Dynamic cap: allow up to 3x sector median, or 85% of current PB (whichever is higher)
+                max_pb = max(3.0 * float(peer_pb), (0.85 * current_pb) if current_pb else 0.0)
+                target_pb = clamp(raw_target_pb, 0.8, max_pb)
+                
                 fair_value = target_pb * bvps
                 fair_value = min(fair_value, price_data.price * 2.0)
                 bear_value = max(bvps * max(0.85 * target_pb, 0.8), price_data.price * 0.85)
-                bull_value = bvps * min(target_pb * 1.15, 1.75 * float(peer_pb))
+                bull_value = bvps * min(target_pb * 1.15, max_pb)
 
                 confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
                 return FairValueResult(
@@ -680,30 +685,41 @@ def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, media
             peer_pe = float(peer_pe)
 
             if current_pe:
-                raw_target_pe = (0.60 * peer_pe) + (0.40 * current_pe)
+                # 50/50 blend pulls extreme overvaluation back to reality but respects premiums
+                raw_target_pe = (0.50 * peer_pe) + (0.50 * current_pe)
             else:
                 raw_target_pe = peer_pe
 
-            sector_cap = 1.35 * peer_pe
-            absolute_cap = 30.0 if (f.revenue_growth or 0) < 0.15 else 50.0
+            # Relax caps: allow up to 3x sector median, or 85% of current PE
+            sector_cap = max(3.0 * peer_pe, (0.85 * current_pe) if current_pe else 0.0)
+            
+            growth = f.revenue_growth or 0
+            if growth > 0.30:
+                absolute_cap = max(200.0, current_pe * 0.90 if current_pe else 0)
+            elif growth > 0.15:
+                absolute_cap = max(100.0, current_pe * 0.85 if current_pe else 0)
+            else:
+                absolute_cap = max(60.0, current_pe * 0.80 if current_pe else 0)
+
             target_pe = clamp(raw_target_pe, 6.0, min(sector_cap, absolute_cap))
 
             fair_value = target_pe * eps
             fair_value = min(fair_value, price_data.price * 2.0)
+            
             bear_pe = max(0.85 * target_pe, 0.85 * current_pe if current_pe else 6.0)
             bull_pe = min(1.15 * target_pe, sector_cap, absolute_cap)
 
             bear_value = bear_pe * eps
             bull_value = bull_pe * eps
 
-            if current_pe and current_pe > peer_pe * 2.0:
+            if current_pe and current_pe > peer_pe * 3.0:
                 confidence = "LOW"
-            elif current_pe and peer_pe > current_pe * 1.75:
+            elif current_pe and peer_pe > current_pe * 2.0:
                 confidence = "MEDIUM"
             else:
                 confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
 
-            if current_pe and fair_value > price_data.price * 1.50 and (f.revenue_growth or 0) < 0.15:
+            if current_pe and fair_value > price_data.price * 1.50 and growth < 0.15:
                 fair_value = price_data.price * 1.50
                 bull_value = min(bull_value, price_data.price * 1.65)
                 confidence = "MEDIUM"

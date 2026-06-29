@@ -42,6 +42,9 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             )
             total, df = q.get_scanner_data()
             if df is not None and not df.empty:
+                # Remove duplicated columns (like 'ticker') returned by tradingview_screener
+                df = df.loc[:, ~df.columns.duplicated()].copy()
+                
                 # Add normalized columns for fast matching
                 if "ticker" in df.columns:
                     df["ticker_norm"] = df["ticker"].apply(normalize_id)
@@ -65,7 +68,7 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 df.to_pickle(UNIVERSE_CACHE_PATH)
                 return df
         except Exception as e:
-            logger.warning(f"Attempt {attempt + 1}: Failed to fetch market universe: {e}")
+            logger.exception(f"Attempt {attempt + 1}: Failed to fetch market universe")
             time.sleep(2 ** attempt)
             
     # If fetch fails, try loading from cache
