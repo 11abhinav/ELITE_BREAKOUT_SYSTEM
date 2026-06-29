@@ -581,8 +581,8 @@ def start(run_once=False):
                         error_msg=str(e)[:500],
                         scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                     )
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.exception(f"Failed to update scanner health to DOWN: {ex}")
 
             if run_once:
                 break

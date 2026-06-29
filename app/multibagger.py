@@ -168,111 +168,7 @@ def get_nse_session() -> requests.Session:
     session.headers.update(HTTP_HEADERS)
     return session
 
-def init_db_schema():
-    """Create dedicated schema and tables for stockupdates watchlist and scores."""
-    logger.info("🛠️ Initializing stockupdates schema and tables in database...")
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("CREATE SCHEMA IF NOT EXISTS stockupdates;")
-                
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS stockupdates.watchlist (
-                        symbol VARCHAR(50) PRIMARY KEY,
-                        fair_value NUMERIC(10, 2),
-                        buy_zone_low NUMERIC(10, 2),
-                        buy_zone_high NUMERIC(10, 2),
-                        latest_price NUMERIC(10, 2),
-                        growth_score NUMERIC(4, 1),
-                        value_score NUMERIC(4, 1),
-                        trend_score NUMERIC(4, 1),
-                        total_score NUMERIC(4, 1),
-                        bucket VARCHAR(50),
-                        status VARCHAR(50),
-                        notes TEXT,
-                        last_alert_price NUMERIC(10, 2),
-                        last_alert_at TIMESTAMP,
-                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS stockupdates.prices (
-                        symbol VARCHAR(50) PRIMARY KEY,
-                        latest_price NUMERIC(10, 2),
-                        change_pct NUMERIC(10, 2),
-                        fundamental_score INTEGER,
-                        quality_score NUMERIC(4, 1),
-                        value_score NUMERIC(4, 1),
-                        last_fetched TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS stockupdates.universe (
-                        symbol VARCHAR(50) PRIMARY KEY,
-                        bse_code VARCHAR(20),
-                        sector VARCHAR(100),
-                        pe NUMERIC(10, 2),
-                        pb NUMERIC(10, 2),
-                        roe NUMERIC(10, 4),
-                        eps NUMERIC(10, 2),
-                        bvps NUMERIC(10, 2),
-                        div_yield NUMERIC(10, 4),
-                        tt_indpe NUMERIC(10, 2),
-                        tt_indpb NUMERIC(10, 2),
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        fetch_status VARCHAR(50),
-                        last_error TEXT
-                    );
-                """)
-                
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS stockupdates.fundamental_snapshots (
-                        id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(50) NOT NULL,
-                        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        sector VARCHAR(100),
-                        pe NUMERIC(10, 2),
-                        pb NUMERIC(10, 2),
-                        roe NUMERIC(10, 4),
-                        eps NUMERIC(10, 2),
-                        bvps NUMERIC(10, 2),
-                        div_yield NUMERIC(10, 4),
-                        revenue_growth NUMERIC(10, 4),
-                        earnings_growth NUMERIC(10, 4),
-                        operating_margin NUMERIC(10, 4),
-                        debt_equity NUMERIC(10, 2),
-                        operating_cashflow NUMERIC(15, 2),
-                        roa NUMERIC(10, 4),
-                        tt_indpe NUMERIC(10, 2),
-                        tt_indpb NUMERIC(10, 2)
-                    );
-                """)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_fund_snap_sym_date ON stockupdates.fundamental_snapshots(symbol, fetched_at DESC);")
-                
-                # Add new valuation and confidence columns if they don't exist
-                columns_to_add = [
-                    ("bear_value", "NUMERIC(10, 2)"),
-                    ("bull_value", "NUMERIC(10, 2)"),
-                    ("valuation_method", "VARCHAR(50)"),
-                    ("valuation_confidence", "VARCHAR(20)"),
-                    ("peer_count", "INTEGER"),
-                    ("target_multiple", "NUMERIC(10, 2)"),
-                    ("current_multiple", "NUMERIC(10, 2)"),
-                    ("peer_multiple", "NUMERIC(10, 2)")
-                ]
-                for col_name, col_type in columns_to_add:
-                    cur.execute(f"ALTER TABLE stockupdates.watchlist ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
-                    
-                conn.commit()
-        logger.info("✅ Database tables validated successfully.")
-        
-        from valuation_utils import seed_universe_if_empty
-        seed_universe_if_empty()
-        
-    except Exception as e:
-        logger.exception(f"❌ Failed to initialize database schema")
+
 
 def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
@@ -1188,7 +1084,10 @@ def run_standalone_exit_monitor():
 def start(debug_limit: int = None):
     """Main scanning wrapper."""
     logger.info("🚀 Multibagger Scanner execution started...")
-    init_db_schema()
+    from database import init_db
+    init_db()
+    from valuation_utils import seed_universe_if_empty
+    seed_universe_if_empty()
     
     # Load fundamentals cache
     cache = load_cache()

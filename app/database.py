@@ -1115,15 +1115,15 @@ def save_alert_if_new(
                     cur.execute("""
                         INSERT INTO alerts
                             (symbol, breakout_type, alert_time, scanner, category,
-                             entry_price, stop_loss, target_price, signals, score,
-                             rsi, volume_ratio, status, context, capital_allocated, shares_bought,
-                             model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand)
+                            entry_price, stop_loss, target_price, signals, score,
+                            rsi, volume_ratio, status, context, capital_allocated, shares_bought,
+                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                     """, (symbol, breakout_type, alert_time, scanner, category,
-                          entry_price, stop_loss, target_price, signals, score,
-                          rsi, volume_ratio, context_str, capital_allocated, shares_bought,
-                          model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
+                        entry_price, stop_loss, target_price, signals, score,
+                        rsi, volume_ratio, context_str, capital_allocated, shares_bought,
+                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
                     conn.commit()
                     success = True
                     inserted = cur.rowcount > 0
@@ -1177,7 +1177,7 @@ def update_alert_outcome(
                             pnl_rs     = %s,
                             closed_at  = %s
                         WHERE id = %s
-                          AND status = 'OPEN'   -- never overwrite an already-closed row
+                        AND status = 'OPEN'   -- never overwrite an already-closed row
                     """, (status, exit_price, pnl_pct, pnl_rs, closed_at, alert_id))
                     conn.commit()
                     success = True
@@ -1271,9 +1271,9 @@ def classify_error_severity(error_msg: str) -> str:
     it's IGNORABLE (keeps scanner GREEN). If scanner crashes entirely, it's CRITICAL.
     
     Example: BAJAJ AUTO yfinance timeout
-      → Stock rejected, scan continues with 49 other stocks
-      → Scanner shows GREEN with alerts from successful stocks
-      → Not critical because scanner completed successfully
+    → Stock rejected, scan continues with 49 other stocks
+    → Scanner shows GREEN with alerts from successful stocks
+    → Not critical because scanner completed successfully
     """
     if not error_msg:
         return None
@@ -1346,9 +1346,9 @@ def upsert_scanner_health(
     Insert or update a scanner's health record in the scanner_health table.
     
     Auto-recovery logic:
-      • When status='OK': Auto-clear error fields + set is_acknowledged=TRUE (recovery)
-      • When status='DOWN': Classify error severity + set is_acknowledged=FALSE
-      • When status='DOWN' with IGNORABLE error: Still set DOWN but error_severity=IGNORABLE
+    • When status='OK': Auto-clear error fields + set is_acknowledged=TRUE (recovery)
+    • When status='DOWN': Classify error severity + set is_acknowledged=FALSE
+    • When status='DOWN' with IGNORABLE error: Still set DOWN but error_severity=IGNORABLE
     """
     init_db()
     now_str = datetime.now(IST).isoformat()
@@ -1468,7 +1468,7 @@ def get_scanner_today_trades(scanner_name: str, today_str: str) -> list[dict]:
                         exit_price, closed_at
                     FROM alerts
                     WHERE scanner    = %s
-                      AND alert_date = %s
+                    AND alert_date = %s
                     ORDER BY alert_time DESC
                 """, (scanner_name, today_str))
                 return [dict(row) for row in cur.fetchall()]
@@ -1487,7 +1487,7 @@ def get_todays_alerts(today_str: str) -> list[dict]:
             try:
                 cur.execute("""
                     SELECT id, symbol, breakout_type, alert_time, scanner, category, entry_price,
-                           stop_loss, target_price, signals, score, status, seen_by_user, seen_by_admin
+                        stop_loss, target_price, signals, score, status, seen_by_user, seen_by_admin
                     FROM alerts
                     WHERE alert_date = %s
                     ORDER BY alert_time DESC
@@ -1780,14 +1780,14 @@ def upsert_data_fetch_health(source_name: str, last_success: str = None, last_fa
                     # Standard failure reporting
                     cur.execute("""
                         INSERT INTO data_fetch_health 
-                          (source_name, last_success, last_failure, consecutive_failures, error_msg, is_acknowledged, updated_at)
+                        (source_name, last_success, last_failure, consecutive_failures, error_msg, is_acknowledged, updated_at)
                         VALUES (%s, %s, %s, 1, %s, FALSE, %s)
                         ON CONFLICT (source_name) DO UPDATE
-                          SET last_failure = COALESCE(EXCLUDED.last_failure, data_fetch_health.last_failure),
-                              consecutive_failures = COALESCE(data_fetch_health.consecutive_failures, 0) + 1,
-                              is_acknowledged = CASE WHEN EXCLUDED.error_msg IS DISTINCT FROM data_fetch_health.error_msg THEN FALSE ELSE data_fetch_health.is_acknowledged END,
-                              error_msg = COALESCE(EXCLUDED.error_msg, data_fetch_health.error_msg),
-                              updated_at = EXCLUDED.updated_at
+                        SET last_failure = COALESCE(EXCLUDED.last_failure, data_fetch_health.last_failure),
+                            consecutive_failures = COALESCE(data_fetch_health.consecutive_failures, 0) + 1,
+                            is_acknowledged = CASE WHEN EXCLUDED.error_msg IS DISTINCT FROM data_fetch_health.error_msg THEN FALSE ELSE data_fetch_health.is_acknowledged END,
+                            error_msg = COALESCE(EXCLUDED.error_msg, data_fetch_health.error_msg),
+                            updated_at = EXCLUDED.updated_at
                     """, (source_name, last_success, last_failure, error_msg, now))
                 conn.commit()
             except Exception:
@@ -1886,10 +1886,10 @@ def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interva
                     INSERT INTO fetch_errors (source_name, scanner_name, symbol, interval, category, occurrences, first_seen, last_seen, last_error_msg, is_acknowledged)
                     VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, FALSE)
                     ON CONFLICT (source_name, scanner_name, symbol, interval, category) DO UPDATE
-                      SET occurrences = fetch_errors.occurrences + 1,
-                          last_seen = EXCLUDED.last_seen,
-                          last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg),
-                          is_acknowledged = FALSE
+                    SET occurrences = fetch_errors.occurrences + 1,
+                        last_seen = EXCLUDED.last_seen,
+                        last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg),
+                        is_acknowledged = FALSE
                 """, (source_name, scanner_name, symbol, interval, category, now, now, error_msg))
                 conn.commit()
             except Exception:
@@ -1932,7 +1932,7 @@ def get_fetch_errors_for_scanner(scanner_name: str) -> list:
                     SELECT id, source_name, scanner_name, symbol, interval, category, occurrences, first_seen, last_seen, last_error_msg, is_acknowledged
                     FROM fetch_errors
                     WHERE scanner_name = %s 
-                      AND NOT (is_acknowledged = TRUE AND occurrences = 0)
+                    AND NOT (is_acknowledged = TRUE AND occurrences = 0)
                     ORDER BY occurrences DESC, last_seen DESC
                 """, (scanner_name,))
                 return [dict(r) for r in cur.fetchall()]
@@ -2731,8 +2731,8 @@ def get_pending_bayesian_updates() -> list:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT id, regime, proposed_version, current_version,
-                           current_weights, proposed_weights,
-                           trades_analyzed, win_rate, reason, created_at
+                        current_weights, proposed_weights,
+                        trades_analyzed, win_rate, reason, created_at
                     FROM bayesian_model_updates
                     WHERE status = 'PENDING'
                     ORDER BY created_at DESC
@@ -2870,8 +2870,8 @@ def get_bayesian_update_history(regime: str = None, limit: int = 20) -> list:
                 if regime:
                     cur.execute("""
                         SELECT id, regime, proposed_version, current_version,
-                               trades_analyzed, win_rate, status, approved_by,
-                               approved_at, rejected_at, admin_comment, created_at
+                            trades_analyzed, win_rate, status, approved_by,
+                            approved_at, rejected_at, admin_comment, created_at
                         FROM bayesian_model_updates
                         WHERE regime = %s
                         ORDER BY created_at DESC
@@ -2880,8 +2880,8 @@ def get_bayesian_update_history(regime: str = None, limit: int = 20) -> list:
                 else:
                     cur.execute("""
                         SELECT id, regime, proposed_version, current_version,
-                               trades_analyzed, win_rate, status, approved_by,
-                               approved_at, rejected_at, admin_comment, created_at
+                            trades_analyzed, win_rate, status, approved_by,
+                            approved_at, rejected_at, admin_comment, created_at
                         FROM bayesian_model_updates
                         ORDER BY created_at DESC
                         LIMIT %s
@@ -2898,12 +2898,12 @@ def get_bayesian_update_history(regime: str = None, limit: int = 20) -> list:
 # ──────────────────────────────────────────────────────────────────────────────────────────
 
 def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = None, 
-                         fm_score: float = None, notes: str = None,
-                         position_pct: float = None, position_amount: float = None,
-                         position_shares: int = None,
-                         portfolio_bucket: str = None, valuation_score: float = None,
-                         momentum_score: int = None, momentum_confidence: str = None,
-                         data_quality: str = None, fallback_timestamp: str = None) -> bool:
+                        fm_score: float = None, notes: str = None,
+                        position_pct: float = None, position_amount: float = None,
+                        position_shares: int = None,
+                        portfolio_bucket: str = None, valuation_score: float = None,
+                        momentum_score: int = None, momentum_confidence: str = None,
+                        data_quality: str = None, fallback_timestamp: str = None) -> bool:
     """Save BUY alert to wealth_buy_alert with position sizing. Deduplicates by (symbol, alert_date, breakout_type)."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -2950,8 +2950,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         cur.execute("""
                             INSERT INTO wealth_buy_alert 
                             (symbol, alert_price, breakout_type, fm_score, status, notes, alert_date, alert_time,
-                             position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                             momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score)
+                            position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
+                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score)
                             VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
                             DO UPDATE SET 
@@ -2960,8 +2960,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                                 current_score = COALESCE(wealth_buy_alert.current_score, EXCLUDED.current_score),
                                 updated_at = NOW()
                         """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S.%f%z'),
-                              position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                              momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score))
+                            position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
+                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score))
                         
                         if cur.rowcount == 0:
                             logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")
@@ -3528,8 +3528,8 @@ def upsert_breakout_watchlist(
                         context_json = COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json),
                         last_updated = NOW()
                 """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
-                      breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
-                      buffer_pct, armed_at, session_date, context_json))
+                    breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
+                    buffer_pct, armed_at, session_date, context_json))
                 conn.commit()
 
     except Exception as e:
@@ -3541,12 +3541,12 @@ def get_active_breakout_watchlist() -> list:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
-                           breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, buffer_pct, armed_at, 
-                           context_json, last_updated
+                        breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, buffer_pct, armed_at, 
+                        context_json, last_updated
                     FROM breakout_watchlist
                     WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
-                      AND (cooldown_until IS NULL OR cooldown_until < NOW())
-                      AND (invalidated_at IS NULL OR invalidated_at > NOW())
+                    AND (cooldown_until IS NULL OR cooldown_until < NOW())
+                    AND (invalidated_at IS NULL OR invalidated_at > NOW())
                 """)
                 columns = [desc[0] for desc in cur.description]
                 return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -3581,14 +3581,14 @@ def sweep_stale_breakout_watchlist():
                     UPDATE breakout_watchlist
                     SET current_state = 'SETUP_ARMED', m15_status = 'PENDING', m5_status = 'PENDING', last_updated = NOW()
                     WHERE current_state IN ('BREAKOUT_CONFIRMED', 'ENTRY_READY')
-                      AND session_date < CURRENT_DATE::TEXT
+                    AND session_date < CURRENT_DATE::TEXT
                 """)
                 # If an hourly approved setup hasn't triggered after 2 days, drop it
                 cur.execute("""
                     UPDATE breakout_watchlist
                     SET current_state = 'FAILED', invalidated_at = NOW()
                     WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED')
-                      AND last_updated < NOW() - interval '2 days'
+                    AND last_updated < NOW() - interval '2 days'
                 """)
     except Exception as e:
         logger.exception(f"❌ Failed to sweep breakout_watchlist: {e}")
@@ -3983,10 +3983,10 @@ def search_users(query: str, status_filter: str = "all") -> list:
                     SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
                     FROM users 
                     WHERE (username ILIKE %s 
-                       OR email ILIKE %s 
-                       OR mobile ILIKE %s
-                       OR first_name ILIKE %s
-                       OR last_name ILIKE %s)
+                    OR email ILIKE %s 
+                    OR mobile ILIKE %s
+                    OR first_name ILIKE %s
+                    OR last_name ILIKE %s)
                     {{status_condition}}
                     ORDER BY created_at DESC LIMIT %s
                 """.format(status_condition=status_condition), (search_term, search_term, search_term, search_term, search_term, limit_val))

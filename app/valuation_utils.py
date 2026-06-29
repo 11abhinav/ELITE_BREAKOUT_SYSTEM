@@ -382,10 +382,8 @@ def seed_universe_if_empty():
         logger.info("🌱 Universe table is empty! Seeding from index constituents...")
         
         try:
-            from multibagger import get_nse_index_constituents
-            symbols = set()
-            for idx in ["NIFTY 50", "NIFTY NEXT 50", "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250"]:
-                symbols.update(get_nse_index_constituents(idx))
+            from multibagger import fetch_constituents
+            symbols = set(fetch_constituents())
                 
             if not symbols:
                 logger.warning("No index constituents found to seed universe.")

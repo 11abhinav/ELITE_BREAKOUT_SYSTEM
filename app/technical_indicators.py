@@ -86,6 +86,10 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     if df is None or df.empty:
         return df
 
+    # De-fragment the DataFrame to prevent pandas internal block manager crashes 
+    # (e.g. np.bincount array too big) when assigning many columns sequentially.
+    df = df.copy()
+
     close = df["Close"]
     high  = df["High"]
     low   = df["Low"]
