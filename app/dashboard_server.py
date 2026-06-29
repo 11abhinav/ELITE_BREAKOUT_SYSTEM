@@ -2211,13 +2211,15 @@ def api_breakout_watchlist():
 
                 def fetch_cmp(sym):
                     from datetime import datetime
+                    import pytz
+                    ist = pytz.timezone('Asia/Kolkata')
                     try:
                         yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
                         t = yf.Ticker(yf_sym)
                         price = float(t.fast_info.last_price)
                         if pd.isna(price):
                             raise ValueError("NaN price")
-                        return sym, price, datetime.now().isoformat()
+                        return sym, price, datetime.now(ist).isoformat()
                     except Exception as e:
                         # Fallback to local cache if live fetch fails
                         try:
@@ -2236,7 +2238,8 @@ def api_breakout_watchlist():
                                 if not df.empty and "Close" in df.columns:
                                     df_valid = df.dropna(subset=["Close"])
                                     if not df_valid.empty:
-                                        return sym, float(df_valid["Close"].iloc[-1]), datetime.fromtimestamp(latest_mtime).isoformat()
+                                        dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=pytz.utc)
+                                        return sym, float(df_valid["Close"].iloc[-1]), dt_utc.astimezone(ist).isoformat()
                         except Exception:
                             pass
                         return sym, None, None
