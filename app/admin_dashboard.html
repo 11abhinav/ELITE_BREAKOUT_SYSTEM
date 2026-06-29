@@ -4887,9 +4887,37 @@ async function clearAllNotifications(e) {
     }
 }
 
-// Poll every 3 minutes (180000 ms)
-setInterval(fetchNotifications, 180000);
-fetchNotifications();
+function isMarketHours() {
+    const now = new Date();
+    const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: 'numeric', weekday: 'short', hour12: false };
+    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(now);
+    
+    let hour = 0, minute = 0, weekday = '';
+    for (const part of parts) {
+        if (part.type === 'hour') hour = parseInt(part.value, 10);
+        if (part.type === 'minute') minute = parseInt(part.value, 10);
+        if (part.type === 'weekday') weekday = part.value;
+    }
+    
+    if (weekday === 'Sat' || weekday === 'Sun') return false;
+    
+    const timeInMinutes = hour * 60 + minute;
+    const marketStart = 9 * 60 + 15; // 09:15
+    const marketEnd = 15 * 60 + 30;  // 15:30
+    
+    return timeInMinutes >= marketStart && timeInMinutes <= marketEnd;
+}
+
+function scheduleNextNotificationFetch() {
+    const interval = isMarketHours() ? 60000 : 300000;
+    setTimeout(async () => {
+        await fetchNotifications();
+        scheduleNextNotificationFetch();
+    }, interval);
+}
+
+// Initial fetch and start loop
+fetchNotifications().then(scheduleNextNotificationFetch);
 
 let cachedPendingUsers = [];
 let lastPendingFetch = 0;
