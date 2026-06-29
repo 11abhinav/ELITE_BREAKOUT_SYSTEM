@@ -224,7 +224,7 @@ def init_db_schema():
     except Exception as e:
         logger.error(f"❌ Failed to initialize database schema: {e}")
 
-def load_fundamentals_cache() -> dict:
+def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
     if os.path.exists(CACHE_PATH):
         try:
@@ -1050,8 +1050,8 @@ def run_standalone_exit_monitor():
                 )
                 
         # 3. Use cache for fundamentals
-        from fundamentals_cache import load_fundamentals_cache
-        cache = load_fundamentals_cache()
+        from fundamentals_cache import load_cache
+        cache = load_cache()
         
         # 4. Run the core exit logic
         run_exit_monitor(price_data_map, cache)
@@ -1065,7 +1065,7 @@ def start(debug_limit: int = None):
     init_db_schema()
     
     # Load fundamentals cache
-    cache = load_fundamentals_cache()
+    cache = load_cache()
     
     # 1. Fetch constituents
     symbols = fetch_constituents()
