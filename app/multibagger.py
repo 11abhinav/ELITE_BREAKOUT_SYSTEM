@@ -437,7 +437,7 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     return None
 
 def passes_kill_gates(f: StockFundamentals) -> bool:
-    """Instant rejection checks: Mcap < 500Cr, D/E > 1.0 (non-financials), OCF < 0, or Yearly Loss (EPS <= 0)."""
+    """Instant rejection checks: Mcap < 500Cr, D/E > 1.0 (non-financials), OCF < 0, Yearly Loss, or Abysmal ROE/Growth."""
     if f.market_cap is None or float(f.market_cap) < 5000000000: # ₹500 Cr
         return False
         
@@ -455,6 +455,21 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
         
     # Earnings check (Strict: reject if company is posting Trailing 12-Month Net Losses)
     if f.eps is not None and float(f.eps) <= 0:
+        return False
+        
+    # Core Operations check (Strict: reject if operating margin is negative, meaning the core business loses money)
+    if not is_financial_sector(f.sector):
+        if f.operating_margin is not None and float(f.operating_margin) < 0:
+            return False
+            
+    # Capital Efficiency check (Reject if Return on Equity is abysmal < 5%, destroying shareholder value)
+    if f.roe is not None and float(f.roe) < 0.05:
+        return False
+        
+    # Deterioration check (Reject if revenue or earnings are collapsing by more than 30%)
+    if f.revenue_growth is not None and float(f.revenue_growth) < -0.30:
+        return False
+    if f.earnings_growth is not None and float(f.earnings_growth) < -0.30:
         return False
         
     return True
