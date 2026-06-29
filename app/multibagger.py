@@ -483,6 +483,9 @@ def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
     if scores.reliability_score < 12.0:
         return False, f"Fails reliability guard: Reliability ({scores.reliability_score:.1f}) < 12.0"
         
+    if scores.composite_investment_score < 50.0:
+        return False, f"Fails overall fundamental check: CIS ({scores.composite_investment_score:.1f}/100) is too low."
+        
     if price < price_data.sma_200:
         return False, "Trend breakdown: Price < 200-DMA."
         
