@@ -141,7 +141,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 logger.warning(f"⚠️ {yf_sym}: Fetch failed on attempt {attempt+1}/{max_retries} due to {e}. Retrying in {backoff:.1f}s...")
                 time.sleep(backoff)
             else:
-                logger.error(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error: {e}")
+                logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error")
                 return {"score": -1, "date": str(datetime.now(IST).date())}
         
         # Multi-bagger enhancements extraction

@@ -187,7 +187,7 @@ def flush_telegram_queue(batch_size: int = 5, batch_delay: float = 0.2):
             cleanup_old_telegram_sent
         )
     except Exception as e:
-        logger.error(f"❌ Failed to import database functions: {e}")
+        logger.exception(f"❌ Failed to import database functions")
         return
 
     while True:
@@ -211,7 +211,7 @@ def flush_telegram_queue(batch_size: int = 5, batch_delay: float = 0.2):
                         mark_telegram_failed(alert['id'])
                         logger.warning(f"⚠️ Telegram retry queued: {alert['symbol']}")
                 except Exception as e:
-                    logger.error(f"❌ Error processing alert {alert['id']}: {e}")
+                    logger.exception(f"❌ Error processing alert {alert['id']}")
                     mark_telegram_failed(alert['id'])
             
             # Clean up old sent messages (weekly)
@@ -233,6 +233,6 @@ def queue_telegram_message(message: str, symbol: str = "", alert_id: int = None)
         from database import queue_alert_to_telegram
         return queue_alert_to_telegram(symbol, message, alert_id)
     except Exception as e:
-        logger.error(f"❌ Failed to queue message: {e}")
+        logger.exception(f"❌ Failed to queue message")
         # Fallback to direct send on queue failure
         return send_telegram_message(message, scan_type=None, retries=1)

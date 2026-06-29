@@ -48,7 +48,7 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
             
         return text.strip()
     except Exception as e:
-        logger.error(f"Failed to extract text from {pdf_url}: {e}")
+        logger.exception(f"Failed to extract text from {pdf_url}")
         return ""
 
 if __name__ == "__main__":

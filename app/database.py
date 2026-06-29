@@ -123,7 +123,7 @@ def get_connection(timeout: int = 5):
         yield conn
     except OperationalError as e:
         # Circuit breaker: log and fail fast instead of hanging
-        logger.error(f"🔴 DB connection failed (circuit breaker): {e}")
+        logger.exception(f"🔴 DB connection failed (circuit breaker)")
         if conn:
             try:
                 p.putconn(conn, close=True)  # Return broken connection to pool
@@ -131,7 +131,7 @@ def get_connection(timeout: int = 5):
                 pass
         raise
     except Exception as e:
-        logger.error(f"🔴 DB operation failed: {e}")
+        logger.exception(f"🔴 DB operation failed")
         if conn:
             try:
                 p.putconn(conn, close=True)
@@ -169,7 +169,7 @@ def insert_notification(notif_type: str, title: str, message: str, symbol: str =
                 ''', (notif_type, title, message, symbol))
             conn.commit()
     except Exception as e:
-        logger.error(f"Failed to insert notification: {e}")
+        logger.exception(f"Failed to insert notification")
 
 def init_db():
     global _DB_INITIALIZED
@@ -910,7 +910,7 @@ ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status
                         except Exception:
                             pass
                 except Exception as e:
-                    logger.error(f"Failed to run V5 migrations: {e}")
+                    logger.exception(f"Failed to run V5 migrations")
                 # outer connection will commit below
 
                 conn.commit()
@@ -1138,7 +1138,7 @@ def save_alert_if_new(
                             body = f"Buy Alert at ₹{entry_price} ({category})"
                             threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
                         except Exception as e:
-                            logger.error(f"Failed to start push thread: {e}")
+                            logger.exception(f"Failed to start push thread")
                             
                     return inserted, capital_allocated, shares_bought
             except Exception:
@@ -1593,7 +1593,7 @@ def get_total_cached_concalls() -> int:
                 row = cur.fetchone()
                 return row[0] if row else 0
             except Exception as e:
-                logger.error(f"Error getting total cached concalls: {e}")
+                logger.exception(f"Error getting total cached concalls")
                 return 0
 
 
@@ -1612,7 +1612,7 @@ def get_ai_concall_stats() -> dict:
                     return {"total_cached": int(total), "last_symbol": last[0], "last_updated": last[1]}
                 return {"total_cached": int(total), "last_symbol": None, "last_updated": None}
             except Exception as e:
-                logger.error(f"Error getting ai concall stats: {e}")
+                logger.exception(f"Error getting ai concall stats")
                 return {"total_cached": 0, "last_symbol": None, "last_updated": None}
 
 
@@ -1631,7 +1631,7 @@ def get_promoter_pledge_stats() -> dict:
                     return {"total_cached": int(total), "last_symbol": last[0], "last_updated": last[1]}
                 return {"total_cached": int(total), "last_symbol": None, "last_updated": None}
             except Exception as e:
-                logger.error(f"Error getting pledge stats: {e}")
+                logger.exception(f"Error getting pledge stats")
                 return {"total_cached": 0, "last_symbol": None, "last_updated": None}
 
 def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
@@ -1667,7 +1667,7 @@ def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict):
                 """, (symbol, pdf_url, json.dumps(analysis_data)))
             conn.commit()
     except Exception as e:
-        logger.error(f"Failed to save concall cache for {symbol}: {e}")
+        logger.exception(f"Failed to save concall cache for {symbol}")
 
 
 def get_cache_metadata(key: str):
@@ -2217,7 +2217,7 @@ def upload_parquet_to_db(name: str, file_path: str):
             conn.commit()
         logger.info(f"💾 Uploaded {name} to DB parquet_cache for {today}")
     except Exception as e:
-        logger.error(f"❌ Failed to upload {name} to DB: {e}")
+        logger.exception(f"❌ Failed to upload {name} to DB")
 
 def download_parquet_from_db(name: str, file_path: str) -> bool:
     """Download the latest binary parquet file from the database."""
@@ -2236,7 +2236,7 @@ def download_parquet_from_db(name: str, file_path: str) -> bool:
                     return True
         return False
     except Exception as e:
-        logger.error(f"❌ Failed to download {name} from DB: {e}")
+        logger.exception(f"❌ Failed to download {name} from DB")
         return False
 
 def download_parquet_from_db_today(name: str, file_path: str) -> bool:
@@ -2259,7 +2259,7 @@ def download_parquet_from_db_today(name: str, file_path: str) -> bool:
                     logger.warning(f"⚠️ No today's data ({today}) found for {name} in DB cache")
         return False
     except Exception as e:
-        logger.error(f"❌ Failed to download {name} from DB (today check): {e}")
+        logger.exception(f"❌ Failed to download {name} from DB (today check)")
         return False
 
 def delete_stale_parquet_from_db(name: str) -> bool:
@@ -2276,7 +2276,7 @@ def delete_stale_parquet_from_db(name: str) -> bool:
             logger.info(f"🗑️ Deleted {deleted} stale entry/entries for {name} from parquet_cache (older than {today})")
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to delete stale {name} from DB: {e}")
+        logger.exception(f"❌ Failed to delete stale {name} from DB")
         return False
 
 
@@ -2405,7 +2405,7 @@ def check_data_exists_for_today() -> bool:
                 
                 return count > 0 and has_parquet
     except Exception as e:
-        logger.error(f"Error checking if today's data exists in DB: {e}")
+        logger.exception(f"Error checking if today's data exists in DB")
         return False
 
 # ── Checkpoint persistence (audit trail) ──────────────────────────────────────────────
@@ -2426,7 +2426,7 @@ def save_checkpoint(checkpoint_name: str, content: str, reason: str = '') -> boo
                 logger.info(f"✅ Checkpoint saved: {checkpoint_name}")
                 return True
     except Exception as e:
-        logger.error(f"❌ Failed to save checkpoint '{checkpoint_name}': {e}")
+        logger.exception(f"❌ Failed to save checkpoint '{checkpoint_name}'")
         return False
 
 def get_checkpoint(checkpoint_name: str) -> str:
@@ -2442,7 +2442,7 @@ def get_checkpoint(checkpoint_name: str) -> str:
                 row = cur.fetchone()
                 return row[0] if row else None
     except Exception as e:
-        logger.error(f"❌ Failed to retrieve checkpoint '{checkpoint_name}': {e}")
+        logger.exception(f"❌ Failed to retrieve checkpoint '{checkpoint_name}'")
         return None
 
 # ── Telegram Queue Management ──────────────────────────────────────────────────────────
@@ -2461,7 +2461,7 @@ def queue_alert_to_telegram(symbol: str, message_text: str, alert_id: int = None
                 logger.debug(f"✅ Queued Telegram alert for {symbol}")
                 return True
     except Exception as e:
-        logger.error(f"❌ Failed to queue Telegram alert: {e}")
+        logger.exception(f"❌ Failed to queue Telegram alert")
         return False
 
 def get_pending_telegram_alerts(limit: int = 5) -> list:
@@ -2479,7 +2479,7 @@ def get_pending_telegram_alerts(limit: int = 5) -> list:
                 """, (limit,))
                 return [dict(row) for row in cur.fetchall()]
     except Exception as e:
-        logger.error(f"❌ Failed to fetch pending Telegram alerts: {e}")
+        logger.exception(f"❌ Failed to fetch pending Telegram alerts")
         return []
 
 def mark_telegram_sent(queue_id: int) -> bool:
@@ -2496,7 +2496,7 @@ def mark_telegram_sent(queue_id: int) -> bool:
                 conn.commit()
                 return True
     except Exception as e:
-        logger.error(f"❌ Failed to mark alert sent: {e}")
+        logger.exception(f"❌ Failed to mark alert sent")
         return False
 
 def mark_telegram_failed(queue_id: int) -> bool:
@@ -2513,7 +2513,7 @@ def mark_telegram_failed(queue_id: int) -> bool:
                 conn.commit()
                 return True
     except Exception as e:
-        logger.error(f"❌ Failed to retry Telegram alert: {e}")
+        logger.exception(f"❌ Failed to retry Telegram alert")
         return False
 
 def cleanup_old_telegram_sent(days: int = 7) -> int:
@@ -2532,7 +2532,7 @@ def cleanup_old_telegram_sent(days: int = 7) -> int:
                 logger.info(f"🗑️  Deleted {deleted} old Telegram messages (>{days} days)")
                 return deleted
     except Exception as e:
-        logger.error(f"❌ Failed to cleanup Telegram queue: {e}")
+        logger.exception(f"❌ Failed to cleanup Telegram queue")
         return 0
 
 # ── Alert Save Verification (2026-06-17) ──────────────────────────────────────────────
@@ -2587,7 +2587,7 @@ def verify_alerts_saved_today(scanner_name: str, expected_count: int) -> bool:
                     return False
                     
     except Exception as e:
-        logger.error(f"❌ CRITICAL: Could not verify alerts for {scanner_name}: {e}")
+        logger.exception(f"❌ CRITICAL: Could not verify alerts for {scanner_name}")
         return False
 
 
@@ -2719,7 +2719,7 @@ def submit_bayesian_update_for_approval(
                 return update_id
                 
     except Exception as e:
-        logger.error(f"❌ Failed to submit Bayesian update for approval: {e}")
+        logger.exception(f"❌ Failed to submit Bayesian update for approval")
         return None
 
 
@@ -2748,7 +2748,7 @@ def get_pending_bayesian_updates() -> list:
                 
                 return updates
     except Exception as e:
-        logger.error(f"❌ Failed to fetch pending Bayesian updates: {e}")
+        logger.exception(f"❌ Failed to fetch pending Bayesian updates")
         return []
 
 
@@ -2816,7 +2816,7 @@ def approve_bayesian_update(update_id: int, admin_name: str, comment: str = "") 
                 return True
                 
     except Exception as e:
-        logger.error(f"❌ Failed to approve Bayesian update {update_id}: {e}")
+        logger.exception(f"❌ Failed to approve Bayesian update {update_id}")
         return False
 
 
@@ -2857,7 +2857,7 @@ def reject_bayesian_update(update_id: int, admin_name: str, reason: str = "") ->
                 return True
                 
     except Exception as e:
-        logger.error(f"❌ Failed to reject Bayesian update {update_id}: {e}")
+        logger.exception(f"❌ Failed to reject Bayesian update {update_id}")
         return False
 
 
@@ -2889,7 +2889,7 @@ def get_bayesian_update_history(regime: str = None, limit: int = 20) -> list:
                 
                 return [dict(row) for row in cur.fetchall()]
     except Exception as e:
-        logger.error(f"❌ Failed to fetch Bayesian update history: {e}")
+        logger.exception(f"❌ Failed to fetch Bayesian update history")
         return []
 
 
@@ -2986,7 +2986,7 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
             logger.info(msg)
             return True
         except Exception as e:
-            logger.error(f"❌ Failed to save wealth buy alert: {e}")
+            logger.exception(f"❌ Failed to save wealth buy alert")
             return False
 
 
@@ -3015,7 +3015,7 @@ def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
                         row['current_score'] = row.get('fm_score')
                 return rows
     except Exception as e:
-        logger.error(f"❌ Failed to fetch wealth buy alerts: {e}")
+        logger.exception(f"❌ Failed to fetch wealth buy alerts")
         return []
 
 
@@ -3033,7 +3033,7 @@ def update_wealth_alert_status(alert_id: int, status: str, current_price: float 
         logger.info(f"✅ Wealth alert {alert_id} status updated to {status}")
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to update wealth alert status: {e}")
+        logger.exception(f"❌ Failed to update wealth alert status")
         return False
 
 
@@ -3059,7 +3059,7 @@ def get_today_wealth_alerts() -> list:
                         row['current_score'] = row.get('fm_score')
                 return rows
     except Exception as e:
-        logger.error(f"❌ Failed to fetch today's wealth alerts: {e}")
+        logger.exception(f"❌ Failed to fetch today's wealth alerts")
         return []
 
 
@@ -3086,7 +3086,7 @@ def get_open_positions() -> list:
                         row['current_score'] = row.get('fm_score')
                 return rows
     except Exception as e:
-        logger.error(f"❌ Failed to fetch open positions: {e}")
+        logger.exception(f"❌ Failed to fetch open positions")
         return []
 
 
@@ -3103,7 +3103,7 @@ def get_closed_positions(days_back: int = 30) -> list:
                 """, (days_back,))
                 return [dict(row) for row in cur.fetchall()]
     except Exception as e:
-        logger.error(f"❌ Failed to fetch closed positions: {e}")
+        logger.exception(f"❌ Failed to fetch closed positions")
         return []
 
 
@@ -3170,7 +3170,7 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None, forc
                     conn.rollback()
                 return success
         except Exception as e:
-            logger.error(f"❌ Failed to close position: {e}")
+            logger.exception(f"❌ Failed to close position")
             return False
 
 def get_open_symbols() -> list:
@@ -3185,7 +3185,7 @@ def get_open_symbols() -> list:
                 """)
                 return [row[0] for row in cur.fetchall()]
     except Exception as e:
-        logger.error(f"❌ Failed to fetch open symbols: {e}")
+        logger.exception(f"❌ Failed to fetch open symbols")
         return []
 
 
@@ -3202,7 +3202,7 @@ def update_position_current_price(symbol: str, current_price: float) -> bool:
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to update current price for {symbol}: {e}")
+        logger.exception(f"❌ Failed to update current price for {symbol}")
         return False
 
 
@@ -3241,7 +3241,7 @@ def update_position_real_time_prices(symbols_metrics: dict) -> int:
             logger.info(f"✅ Updated {updated_count} position(s) with real-time metrics")
             return updated_count
         except Exception as e:
-            logger.error(f"❌ Failed to update real-time prices: {e}")
+            logger.exception(f"❌ Failed to update real-time prices")
             return 0
 
 # ── USER AND SESSION TRACKING ─────────────────────────────────────────────
@@ -3255,7 +3255,7 @@ def get_user_id_by_username(username: str) -> Optional[int]:
                 row = cur.fetchone()
                 return row[0] if row else None
     except Exception as e:
-        logger.error(f"❌ Failed to get user_id for {username}: {e}")
+        logger.exception(f"❌ Failed to get user_id for {username}")
         return None
 
 def ping_user_session(user_id: int, ip_address: str):
@@ -3285,7 +3285,7 @@ def ping_user_session(user_id: int, ip_address: str):
                     """, (user_id, ip_address))
                 conn.commit()
     except Exception as e:
-        logger.error(f"❌ Failed to ping user session {user_id}: {e}")
+        logger.exception(f"❌ Failed to ping user session {user_id}")
 
 def cleanup_stale_sessions():
     """Mark sessions as offline if not pinged within 2 minutes."""
@@ -3300,7 +3300,7 @@ def cleanup_stale_sessions():
                 """)
                 conn.commit()
     except Exception as e:
-        logger.error(f"❌ Failed to cleanup stale sessions: {e}")
+        logger.exception(f"❌ Failed to cleanup stale sessions")
 
 def get_online_users_and_history():
     """Get active viewers and a brief session history."""
@@ -3348,7 +3348,7 @@ def get_online_users_and_history():
             
         return {"online": online, "history": history}
     except Exception as e:
-        logger.error(f"❌ Failed to fetch users and history: {e}")
+        logger.exception(f"❌ Failed to fetch users and history")
         return {"online": [], "history": []}
 
 
@@ -3368,7 +3368,7 @@ def send_user_message(user_id: int, message: str, is_from_admin: bool = False) -
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to send message for user {user_id}: {e}")
+        logger.exception(f"❌ Failed to send message for user {user_id}")
         return False
 
 def get_user_messages(user_id: int) -> list:
@@ -3385,7 +3385,7 @@ def get_user_messages(user_id: int) -> list:
                 """, (user_id,))
                 return [dict(row) for row in cur.fetchall()]
     except Exception as e:
-        logger.error(f"❌ Failed to fetch messages for user {user_id}: {e}")
+        logger.exception(f"❌ Failed to fetch messages for user {user_id}")
         return []
 
 def mark_user_messages_read(user_id: int, as_admin: bool = False) -> bool:
@@ -3405,7 +3405,7 @@ def mark_user_messages_read(user_id: int, as_admin: bool = False) -> bool:
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to mark messages read for user {user_id}: {e}")
+        logger.exception(f"❌ Failed to mark messages read for user {user_id}")
         return False
 
 def get_unread_message_counts() -> dict:
@@ -3426,7 +3426,7 @@ def get_unread_message_counts() -> dict:
                 """)
                 return {row['username']: row['unread_count'] for row in cur.fetchall()}
     except Exception as e:
-        logger.error(f"❌ Failed to fetch unread message counts: {e}")
+        logger.exception(f"❌ Failed to fetch unread message counts")
         return {}
 
 # =====================================================================================
@@ -3469,7 +3469,7 @@ def save_hold_score_history(symbol: str, hold_score: int, fm_score: float, rs_6m
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to save hold score history for {symbol}: {e}")
+        logger.exception(f"❌ Failed to save hold score history for {symbol}")
         return False
 
 
@@ -3746,7 +3746,7 @@ def reallocate_capital(alert_id: int):
                 conn.commit()
                 return True
     except Exception as e:
-        logger.error(f"❌ Failed to reallocate capital for alert {alert_id}: {e}")
+        logger.exception(f"❌ Failed to reallocate capital for alert {alert_id}")
         return False
 
 def reallocate_capital_multiple(alert_ids: list):
@@ -3882,7 +3882,7 @@ def bootstrap_admin():
             conn.commit()
             logger.info(f"🔐 [SECURITY] Admin setup required. Login as 'admin' with password: {password}")
     except Exception as e:
-        logger.error(f"Failed to bootstrap admin: {e}")
+        logger.exception(f"Failed to bootstrap admin")
 
 def create_user(username, email, mobile, password, first_name='', last_name='', role='user'):
     try:
@@ -3920,7 +3920,7 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
     except ValueError:
         raise
     except Exception as e:
-        logger.error(f"Failed to create user: {e}")
+        logger.exception(f"Failed to create user")
         return None
 
 def verify_user(identifier, password):
@@ -3962,7 +3962,7 @@ def verify_user(identifier, password):
                 
         return None
     except Exception as e:
-        logger.error(f"Failed to verify user: {e}")
+        logger.exception(f"Failed to verify user")
         return None
 
 def search_users(query: str, status_filter: str = "all") -> list:
@@ -4001,7 +4001,7 @@ def search_users(query: str, status_filter: str = "all") -> list:
                                 r[field] = str(r[field])
                 return [dict(r) for r in rows]
     except Exception as e:
-        logger.error(f"Failed to search users: {e}")
+        logger.exception(f"Failed to search users")
         return []
 
 def admin_reset_password(user_id: int, new_password: str, force_change: bool = False) -> bool:
@@ -4017,7 +4017,7 @@ def admin_reset_password(user_id: int, new_password: str, force_change: bool = F
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"Failed to reset password for user {user_id}: {e}")
+        logger.exception(f"Failed to reset password for user {user_id}")
         return False
 
 def check_session_validity(user_id: int, session_token: str) -> bool:
@@ -4038,7 +4038,7 @@ def check_session_validity(user_id: int, session_token: str) -> bool:
                     return bool(is_active) and str(db_token) == str(session_token)
         return False
     except Exception as e:
-        logger.error(f"Session validation failed: {e}")
+        logger.exception(f"Session validation failed")
         return False
 
 # ── PWA Push Notifications ───────────────────────────────────────────────────
@@ -4061,7 +4061,7 @@ def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str) 
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"Failed to save push subscription: {e}")
+        logger.exception(f"Failed to save push subscription")
         return False
 
 def remove_push_subscription(endpoint: str) -> bool:
@@ -4074,7 +4074,7 @@ def remove_push_subscription(endpoint: str) -> bool:
                 conn.commit()
         return True
     except Exception as e:
-        logger.error(f"Failed to remove push subscription: {e}")
+        logger.exception(f"Failed to remove push subscription")
         return False
 
 def get_all_push_subscriptions() -> list[dict]:
@@ -4089,5 +4089,5 @@ def get_all_push_subscriptions() -> list[dict]:
                     for r in rows
                 ]
     except Exception as e:
-        logger.error(f"Failed to get push subscriptions: {e}")
+        logger.exception(f"Failed to get push subscriptions")
         return []

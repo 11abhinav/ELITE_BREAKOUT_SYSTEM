@@ -371,7 +371,7 @@ class FyersFetcher(DataFetcher):
                     for orig_sym in normalized_map[ns_sym]:
                         results[orig_sym] = df
                 except Exception as e:
-                    logger.error(f"Error fetching batch OHLCV for {ns_sym}: {e}")
+                    logger.exception(f"Error fetching batch OHLCV for {ns_sym}")
                     for orig_sym in normalized_map[ns_sym]:
                         results[orig_sym] = None
                         
@@ -450,7 +450,7 @@ class FyersFetcher(DataFetcher):
                     except Exception:
                         pass
 
-            logger.error(f"Failed to fetch quote for symbol {symbol}: {e}")
+            logger.exception(f"Failed to fetch quote for symbol {symbol}")
             try:
                 from data_fetch_status import mark_failure
                 mark_failure('fyers', f"Quote fetch exception for {symbol}: {str(e)}")

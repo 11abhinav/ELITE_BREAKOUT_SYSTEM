@@ -42,7 +42,7 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             df = pd.read_pickle(UNIVERSE_CACHE_PATH)
             return df
         except Exception as e:
-            logger.error(f"Failed to load universe cache: {e}")
+            logger.exception(f"Failed to load universe cache")
             
     return pd.DataFrame()
 
@@ -54,7 +54,7 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     try:
         universe_df = fetch_full_universe_for_valuation()
     except Exception as e:
-        logger.error(f"Failed to fetch full market universe: {e}")
+        logger.exception(f"Failed to fetch full market universe")
         universe_df = None
 
     medians_map = {}

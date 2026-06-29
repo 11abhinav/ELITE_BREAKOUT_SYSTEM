@@ -222,7 +222,7 @@ def init_db_schema():
                 conn.commit()
         logger.info("✅ Database tables validated successfully.")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize database schema: {e}")
+        logger.exception(f"❌ Failed to initialize database schema")
 
 def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
@@ -242,7 +242,7 @@ def save_fundamentals_cache(cache_data: dict):
             json.dump(cache_data, f, indent=4)
         logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
     except Exception as e:
-        logger.error(f"❌ Failed to save fundamentals cache: {e}")
+        logger.exception(f"❌ Failed to save fundamentals cache")
 
 def fetch_constituents() -> list:
     """Download index lists from NSE and return unique, normalized symbol list."""
@@ -361,7 +361,7 @@ def batch_download_market_data(symbols: list) -> dict:
         logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
         return results
     except Exception as e:
-        logger.error(f"❌ Batch price download failed: {e}")
+        logger.exception(f"❌ Batch price download failed")
         return {}
 
 def is_financial_sector(sector: str) -> bool:
@@ -841,7 +841,7 @@ def save_watchlist_to_db(results: list):
             conn.commit()
         logger.info(f"✅ Stored {len(results)} candidates in stockupdates.watchlist (execute_values).")
     except Exception as e:
-        logger.error(f"❌ Failed to bulk write to stockupdates.watchlist: {e}")
+        logger.exception(f"❌ Failed to bulk write to stockupdates.watchlist")
 
 def save_scores_to_db(results: list):
     """Save scanned scores in bulk using psycopg2 execute_values."""
@@ -870,7 +870,7 @@ def save_scores_to_db(results: list):
             conn.commit()
         logger.info(f"✅ Stored {len(results)} stock scores in stockupdates.prices (execute_values).")
     except Exception as e:
-        logger.error(f"❌ Failed to bulk write to stockupdates.prices: {e}")
+        logger.exception(f"❌ Failed to bulk write to stockupdates.prices")
 
 def format_telegram_message(categorized_stocks: dict) -> list:
     """Format categorized stocks into chunked Telegram messages (HTML)."""
@@ -1007,7 +1007,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                     queue_telegram_message(sell_msg, symbol=symbol, alert_id=alert_id)
                     
     except Exception as e:
-        logger.error(f"❌ Failed to complete exit monitoring: {e}")
+        logger.exception(f"❌ Failed to complete exit monitoring")
 
 def run_standalone_exit_monitor():
     """Entry point for the 5-minute scheduler to check exits only"""
@@ -1057,7 +1057,7 @@ def run_standalone_exit_monitor():
         run_exit_monitor(price_data_map, cache)
         
     except Exception as e:
-        logger.error(f"Failed to run standalone exit monitor: {e}")
+        logger.exception(f"Failed to run standalone exit monitor")
 
 def start(debug_limit: int = None):
     """Main scanning wrapper."""
@@ -1139,7 +1139,7 @@ def start(debug_limit: int = None):
                         "bvps": fund.bvps
                     }
             except Exception as e:
-                logger.error(f"Error fetching fundamentals for {sym}: {e}")
+                logger.exception(f"Error fetching fundamentals for {sym}")
                 
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)

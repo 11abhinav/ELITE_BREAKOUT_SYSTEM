@@ -43,7 +43,7 @@ def get_live_blacklist() -> set[str]:
                 blacklist.add(str(sym).strip().upper())
             logger.info(f"🛡️ Loaded {len(df_csv)} blacklisted promoters from CSV.")
         except Exception as e:
-            logger.error(f"Failed to load promoter blacklist: {e}")
+            logger.exception(f"Failed to load promoter blacklist")
 
     # 2. Fetch Live NSE ASM/GSM (Surveillance measures)
     headers = {
@@ -102,7 +102,7 @@ def get_live_blacklist() -> set[str]:
                     raise # Re-raise on final failure to hit outer exception handler
         
     except Exception as e:
-        logger.error(f"Failed to fetch live NSE surveillance lists: {e}")
+        logger.exception(f"Failed to fetch live NSE surveillance lists")
         # On failure, if we have a stale cache, keep using it rather than returning empty
         if _blacklist_cache is not None:
             logger.warning("Using stale surveillance cache due to fetch failure.")

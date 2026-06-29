@@ -261,7 +261,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
                             all_data[sym].to_parquet(file_path)
                         except Exception as e:
-                            logger.error(f"Failed to write disk cache for {sym}: {e}")
+                            logger.exception(f"Failed to write disk cache for {sym}")
                     else:
                         # Fallback to stale cached data if fresh fetch returned empty
                         if cached_df is not None and not cached_df.empty:

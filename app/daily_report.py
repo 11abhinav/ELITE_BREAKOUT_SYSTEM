@@ -36,7 +36,7 @@ def generate_and_send_daily_summary():
             pd.DataFrame(columns=['Time (IST)', 'Scanner', 'Stock', 'Category', 'Breakout Signals']).to_csv(csv_filename, index=False)
             
     except Exception as e:
-        logger.error(f"Error fetching alerts: {e}")
+        logger.exception(f"Error fetching alerts")
         alerts_df = pd.DataFrame()
 
     # ── 2. FETCH CURRENT WATCHLIST ───────────────────────────────────────────────────

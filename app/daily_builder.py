@@ -217,7 +217,7 @@ def fetch_universe() -> pd.DataFrame:
     except Exception as e:
         from data_fetch_status import mark_failure
         mark_failure('tradingview', e)
-        logger.error(f"❌ TradingView fetch failed: {e}")
+        logger.exception(f"❌ TradingView fetch failed")
         return pd.DataFrame()
 
 # =====================================================================================
@@ -732,7 +732,7 @@ def classify_stock(row: pd.Series) -> dict:
         else:
             return _classify_nonfin(row, symbol)
     except Exception as e:
-        logger.error(f"❌ EXCEPTION [{symbol}]: {e}")
+        logger.exception(f"❌ EXCEPTION [{symbol}]")
         return None
 
 # =====================================================================================

@@ -47,4 +47,4 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = ""):
                 logger.info(f"Removing expired subscription: {sub['endpoint']}")
                 database.remove_push_subscription(sub['endpoint'])
         except Exception as e:
-            logger.error(f"Failed to send push: {e}")
+            logger.exception(f"Failed to send push")

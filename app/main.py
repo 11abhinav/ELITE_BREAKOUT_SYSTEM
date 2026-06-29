@@ -1036,7 +1036,7 @@ def run_watchdog():
         flusher_thread.start()
         logger.info("📨 Background Telegram queue flusher thread started.")
     except Exception as e:
-        logger.error(f"❌ Failed to start Telegram queue flusher: {e}")
+        logger.exception(f"❌ Failed to start Telegram queue flusher")
 
     for name, target in ALL_THREADS.items():
         start_thread(name, target)

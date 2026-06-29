@@ -309,7 +309,7 @@ def guest_chat():
         
         return jsonify({"success": True, "message": "Message sent successfully!"}), 200
     except Exception as e:
-        logger.error(f"Guest chat error: {e}")
+        logger.exception(f"Guest chat error")
         return jsonify({"error": "Failed to send message"}), 500
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -501,7 +501,7 @@ def get_notifications():
                 
                 return jsonify(notifications)
     except Exception as e:
-        logger.error(f"Error fetching notifications: {e}")
+        logger.exception(f"Error fetching notifications")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/mark_seen/<int:notif_id>', methods=['POST'])
@@ -515,7 +515,7 @@ def mark_notification_seen(notif_id):
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"Error marking notification as seen: {e}")
+        logger.exception(f"Error marking notification as seen")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/mark_all_seen', methods=['POST'])
@@ -529,7 +529,7 @@ def mark_all_notifications_seen():
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"Error marking all notifications as seen: {e}")
+        logger.exception(f"Error marking all notifications as seen")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/clear_all', methods=['POST'])
@@ -543,7 +543,7 @@ def clear_all_notifications():
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"Error clearing all notifications: {e}")
+        logger.exception(f"Error clearing all notifications")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/notifications/clear/<int:id>', methods=['POST'])
@@ -557,7 +557,7 @@ def clear_notification(id):
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"Error clearing notification {id}: {e}")
+        logger.exception(f"Error clearing notification {id}")
         return jsonify({"error": str(e)}), 500
 
 # ── CORS + cache headers on every response ──────────────────────────────────────────
@@ -617,7 +617,7 @@ def api_admin_users_search():
         users = search_users(query, status_filter)
         return jsonify({"users": users})
     except Exception as e:
-        logger.error(f"Error searching users: {e}")
+        logger.exception(f"Error searching users")
         return jsonify({"error": "Failed to search users"}), 500
 
 
@@ -641,7 +641,7 @@ def api_admin_reset_password():
         else:
             return jsonify({"error": "Failed to reset password."}), 400
     except Exception as e:
-        logger.error(f"Error resetting password: {e}")
+        logger.exception(f"Error resetting password")
         return jsonify({"error": "Internal server error"}), 500
 
 
@@ -729,7 +729,7 @@ def fyers_login():
         login_url = get_login_url()
         return redirect(login_url)
     except Exception as e:
-        logger.error(f"Fyers login URL generation failed: {e}")
+        logger.exception(f"Fyers login URL generation failed")
         return f"Error generating Fyers login URL: {e}", 500
 
 
@@ -797,7 +797,7 @@ def fyers_callback():
         </html>
         """, 200
     except Exception as e:
-        logger.error(f"Fyers callback token exchange failed: {e}")
+        logger.exception(f"Fyers callback token exchange failed")
         return f"Error exchanging Fyers token: {e}", 500
 
 
@@ -837,7 +837,7 @@ def export_csv_data(table):
             headers={"Content-disposition": f"attachment; filename={table}_export.csv"}
         )
     except Exception as e:
-        logger.error(f"Error exporting CSV for table {table}: {e}")
+        logger.exception(f"Error exporting CSV for table {table}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/admin/export/watchlist/<list_type>")
@@ -895,7 +895,7 @@ def api_shortlist():
         records = json.loads(df.to_json(orient="records"))
         return jsonify(records)
     except Exception as e:
-        logger.error(f"Failed to load shortlist JSON: {e}")
+        logger.exception(f"Failed to load shortlist JSON")
         return jsonify([])
 
 @app.route("/api/shortlist_excluded")
@@ -913,7 +913,7 @@ def api_shortlist_excluded():
         records = json.loads(df.to_json(orient="records"))
         return jsonify(records)
     except Exception as e:
-        logger.error(f"Failed to load excluded stocks JSON: {e}")
+        logger.exception(f"Failed to load excluded stocks JSON")
         return jsonify([])
 
 @app.route("/api/wealth")
@@ -934,7 +934,7 @@ def api_wealth():
         generated_at = datetime.fromtimestamp(mtime).isoformat()
         return jsonify({"data": records, "generated_at": generated_at})
     except Exception as e:
-        logger.error(f"Failed to load wealth JSON: {e}")
+        logger.exception(f"Failed to load wealth JSON")
         return jsonify([])
 
 @app.route("/api/macro_state")
@@ -952,7 +952,7 @@ def api_macro_state():
             "bear_market_gate": bool(d_52w > 15.0) if d_52w is not None else False
         })
     except Exception as e:
-        logger.error(f"Failed to fetch macro state: {e}")
+        logger.exception(f"Failed to fetch macro state")
         return jsonify({"nifty_6m_return": 0, "nifty_dist_52w": 0, "bear_market_gate": False})
 
 
@@ -1199,7 +1199,7 @@ def api_get_portfolio():
             
         return jsonify(enriched)
     except Exception as e:
-        logger.error(f"Failed to get manual portfolio: {e}")
+        logger.exception(f"Failed to get manual portfolio")
         return jsonify([])
 
 @app.route("/api/portfolio/add", methods=["POST"])
@@ -1219,7 +1219,7 @@ def api_add_portfolio():
         add_portfolio_entry(symbol, entry_date, entry_price, quantity)
         return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"Failed to add portfolio entry: {e}")
+        logger.exception(f"Failed to add portfolio entry")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/portfolio/remove", methods=["POST"])
@@ -1232,7 +1232,7 @@ def api_remove_portfolio():
         remove_portfolio_entry(entry_id)
         return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"Failed to remove portfolio entry: {e}")
+        logger.exception(f"Failed to remove portfolio entry")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/data_fetch_health")
@@ -1484,7 +1484,7 @@ def api_download_shortlist():
             download_name=f"Elite_Watchlist_{datetime.now(IST).strftime('%Y%m%d')}.csv"
         )
     except Exception as e:
-        logger.error(f"Failed to generate shortlist CSV: {e}")
+        logger.exception(f"Failed to generate shortlist CSV")
         return "Server Error", 500
 
 @app.route("/api/scanner_status")
@@ -1712,7 +1712,7 @@ def api_news(symbol):
             if 'too many requests' in msg or 'rate limit' in msg:
                 from yf_rate_limiter import record_rate_limit
                 record_rate_limit()
-            logger.error(f"Failed to fetch news for {yf_symbol}: {e}")
+            logger.exception(f"Failed to fetch news for {yf_symbol}")
             try:
                 mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
             except Exception:
@@ -1773,7 +1773,7 @@ def api_notices(symbol):
             logger.exception('Failed to report nse_announcements success')
         return jsonify(notices)
     except Exception as e:
-        logger.error(f"Failed to fetch notices for {symbol}: {e}")
+        logger.exception(f"Failed to fetch notices for {symbol}")
         try:
             mark_failure('nse_announcements', e)
         except Exception:
@@ -1799,7 +1799,7 @@ def api_all_tickers():
             return jsonify(sorted(list(tickers)))
         return jsonify([])
     except Exception as e:
-        logger.error(f"Failed to fetch tickers: {e}")
+        logger.exception(f"Failed to fetch tickers")
         return jsonify([])
 
 def fetch_and_analyze_concall(symbol):
@@ -1925,7 +1925,7 @@ def fetch_and_analyze_concall(symbol):
         
         return ai_data
     except Exception as e:
-        logger.error(f"Error in concall AI analysis for {symbol}: {e}")
+        logger.exception(f"Error in concall AI analysis for {symbol}")
         return {"error": str(e)}
 
 @app.route("/api/concall_ai/<symbol>")
@@ -1983,7 +1983,7 @@ def get_multibagger_watchlist():
             return d
         return jsonify([safe(r) for r in rows])
     except Exception as e:
-        logger.error(f"Failed to fetch multibagger watchlist: {e}")
+        logger.exception(f"Failed to fetch multibagger watchlist")
         return jsonify([])
 
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
@@ -2006,7 +2006,7 @@ def get_wealth_alerts():
         
         return jsonify(alerts)
     except Exception as e:
-        logger.error(f"❌ Error fetching wealth alerts: {e}")
+        logger.exception(f"❌ Error fetching wealth alerts")
         return jsonify({"error": str(e)}), 500
 
 
@@ -2042,7 +2042,7 @@ def save_wealth_alert():
         else:
             return jsonify({"error": "Failed to save alert"}), 500
     except Exception as e:
-        logger.error(f"❌ Error saving wealth alert: {e}")
+        logger.exception(f"❌ Error saving wealth alert")
         return jsonify({"error": str(e)}), 500
 
 
@@ -2065,7 +2065,7 @@ def update_wealth_alert(alert_id):
         else:
             return jsonify({"error": "Failed to update alert"}), 500
     except Exception as e:
-        logger.error(f"❌ Error updating wealth alert: {e}")
+        logger.exception(f"❌ Error updating wealth alert")
         return jsonify({"error": str(e)}), 500
 
 
@@ -2078,7 +2078,7 @@ def get_open_positions_api():
         positions = get_open_positions()
         return jsonify(positions)
     except Exception as e:
-        logger.error(f"❌ Error fetching open positions: {e}")
+        logger.exception(f"❌ Error fetching open positions")
         return jsonify({"error": str(e)}), 500
 
 
@@ -2093,7 +2093,7 @@ def get_closed_positions_api():
         positions = get_closed_positions(days_back=days)
         return jsonify(positions)
     except Exception as e:
-        logger.error(f"❌ Error fetching closed positions: {e}")
+        logger.exception(f"❌ Error fetching closed positions")
         return jsonify({"error": str(e)}), 500
 
 
@@ -2117,7 +2117,7 @@ def close_wealth_position():
         else:
             return jsonify({"error": "No open position found"}), 404
     except Exception as e:
-        logger.error(f"❌ Error closing position: {e}")
+        logger.exception(f"❌ Error closing position")
         return jsonify({"error": str(e)}), 500
 
 # ── Scanner DOWN helpers
@@ -2252,7 +2252,7 @@ def get_pending_users():
                     })
         return jsonify(users)
     except Exception as e:
-        logger.error(f"Failed to fetch pending users: {e}")
+        logger.exception(f"Failed to fetch pending users")
         return jsonify({"error": "Failed to fetch pending users"}), 500
 
 @app.route("/admin/approve_user/<int:user_id>", methods=["POST"])
@@ -2265,7 +2265,7 @@ def approve_user(user_id):
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"Failed to approve user: {e}")
+        logger.exception(f"Failed to approve user")
         return jsonify({"error": "Failed to approve user"}), 500
 
 @app.route("/admin/reject_user/<int:user_id>", methods=["POST"])
@@ -2278,7 +2278,7 @@ def reject_user(user_id):
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"Failed to reject user: {e}")
+        logger.exception(f"Failed to reject user")
         return jsonify({"error": "Failed to reject user"}), 500
 
 @app.route("/admin/deactivate_user/<int:user_id>", methods=["POST"])
@@ -2291,5 +2291,5 @@ def deactivate_user(user_id):
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
-        logger.error(f"Failed to deactivate user: {e}")
+        logger.exception(f"Failed to deactivate user")
         return jsonify({"error": "Failed to deactivate user"}), 500

@@ -53,7 +53,7 @@ def run_worker_loop():
             try:
                 df = pd.read_parquet(WATCHLIST_PATH)
             except Exception as e:
-                logger.error(f"Failed to read parquet watchlist: {e}")
+                logger.exception(f"Failed to read parquet watchlist")
                 upsert_scanner_health("AI Worker", "IDLE", today_alerts=get_total_cached_concalls(), error_msg=f"Status: Error reading parquet: {e}")
                 time.sleep(300)
                 continue
@@ -160,7 +160,7 @@ def run_worker_loop():
                         time.sleep(5)
                         
                     except Exception as e:
-                        logger.error(f"❌ [AI WORKER] Error processing {sym}: {e}")
+                        logger.exception(f"❌ [AI WORKER] Error processing {sym}")
                         # Log to fetch_errors for per-stock error tracking (NOT scanner_health - individual stock failure is non-critical)
                         try:
                             upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall_failure', str(e))
@@ -188,7 +188,7 @@ def run_worker_loop():
                             logger.exception(f"Failed to upsert final fetch_error for {fsym}")
                     
         except Exception as e:
-            logger.error(f"❌ [AI WORKER] Main loop crashed: {e}")
+            logger.exception(f"❌ [AI WORKER] Main loop crashed")
             upsert_scanner_health("AI Worker", "DOWN", error_msg=str(e))
             
         # Once we've checked the whole list, do a quick recheck in 5 minutes

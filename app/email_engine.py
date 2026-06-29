@@ -73,5 +73,5 @@ def send_html_email(subject: str, html_content: str, attachment_path: str = None
         logger.error("❌ Email connection timed out after 15 seconds. (Firewall block)")
         return False
     except Exception as e:
-        logger.error(f"❌ Email generation failed: {e}")
+        logger.exception(f"❌ Email generation failed")
         return False

@@ -29,7 +29,7 @@ def get_login_url() -> str:
         session = get_session_model()
         return session.generate_authcode()
     except Exception as e:
-        logger.error(f"Error generating Fyers login URL: {e}")
+        logger.exception(f"Error generating Fyers login URL")
         raise
 
 def save_access_token(auth_code: str) -> str:
@@ -60,7 +60,7 @@ def save_access_token(auth_code: str) -> str:
         logger.info(f"Fyers access token updated and saved to DB and {token_path}")
         return access_token
     except Exception as e:
-        logger.error(f"Error saving Fyers access token: {e}")
+        logger.exception(f"Error saving Fyers access token")
         raise
 
 def auto_login() -> str:
@@ -138,7 +138,7 @@ def auto_login() -> str:
         return save_access_token(auth_code)
         
     except Exception as e:
-        logger.error(f"Fyers headless login failed: {e}")
+        logger.exception(f"Fyers headless login failed")
         return None
 
 
@@ -166,7 +166,7 @@ def get_access_token() -> str:
                     _token_date = now_date
                     return token
             except Exception as e:
-                logger.error(f"Error reading Fyers access token file: {e}")
+                logger.exception(f"Error reading Fyers access token file")
 
     # 2. Try auto_login if no valid token for today
     logger.info("No valid token for today found locally. Attempting auto-login...")
@@ -203,7 +203,7 @@ def get_access_token() -> str:
                 _token_date = now_date
                 return token
         except Exception as e:
-            logger.error(f"Error reading Fyers access token file: {e}")
+            logger.exception(f"Error reading Fyers access token file")
             
     return None
 

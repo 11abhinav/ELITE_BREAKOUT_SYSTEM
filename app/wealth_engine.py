@@ -68,7 +68,7 @@ def fetch_nifty_macro_state() -> Tuple[Optional[float], Optional[float]]:
             _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": now}
             return (ret_6m, dist_52w)
     except Exception as e:
-        logger.error(f"Failed to fetch Nifty Macro State: {e}")
+        logger.exception(f"Failed to fetch Nifty Macro State")
 
     # Return stale cache rather than None if fetch fails
     logger.warning("Nifty fetch failed — serving stale cache if available")
@@ -176,7 +176,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             if attempt < RETRY_ATTEMPTS - 1:
                 time.sleep(2 ** attempt)
             else:
-                logger.error(f"Failed to fetch technicals for {symbol} after {RETRY_ATTEMPTS} attempts: {e}")
+                logger.exception(f"Failed to fetch technicals for {symbol} after {RETRY_ATTEMPTS} attempts")
                 return defaults
 
 
@@ -608,7 +608,7 @@ def run_wealth_scan():
                 from daily_builder import build_watchlist
                 build_watchlist()
             except Exception as e:
-                logger.error(f"❌ Wealth Engine failed to build watchlist: {e}")
+                logger.exception(f"❌ Wealth Engine failed to build watchlist")
                 import database
                 if not getattr(database, "DONT_SAVE_WEALTH", False):
                     upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Watchlist build failed")
@@ -626,7 +626,7 @@ def run_wealth_scan():
             try:
                 prev_wealth_df = pd.read_parquet(WEALTH_PATH)
             except Exception as e:
-                logger.error(f"Failed to load prev_wealth_df: {e}")
+                logger.exception(f"Failed to load prev_wealth_df")
 
         df = pd.read_parquet(WATCHLIST_PATH)
 

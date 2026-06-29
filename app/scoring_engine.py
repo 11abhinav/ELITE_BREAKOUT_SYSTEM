@@ -766,7 +766,7 @@ def calculate_score(
             model_version = latest_db_weights.get("version", "v1")
             weights = latest_db_weights.get("weights")
     except Exception as e:
-        logger.error(f"Failed to fetch DB weights: {e}")
+        logger.exception(f"Failed to fetch DB weights")
 
     score = 0
     tag   = f"[{symbol}] " if symbol else ""

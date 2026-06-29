@@ -42,7 +42,7 @@ def _get_daily_nifty() -> pd.DataFrame:
                 _cache.daily_last_fetched = time.time()
             return df
     except Exception as e:
-        logger.error(f"Failed to fetch Nifty daily macro data: {e}")
+        logger.exception(f"Failed to fetch Nifty daily macro data")
         
     return _cache.daily_data
 
@@ -62,7 +62,7 @@ def _get_intraday_nifty() -> pd.DataFrame:
                 _cache.intraday_last_fetched = time.time()
             return df
     except Exception as e:
-        logger.error(f"Failed to fetch Nifty intraday macro data: {e}")
+        logger.exception(f"Failed to fetch Nifty intraday macro data")
         
     return _cache.intraday_data
 

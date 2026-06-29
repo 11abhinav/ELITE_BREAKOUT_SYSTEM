@@ -181,7 +181,7 @@ class YFinanceFetcher(DataFetcher):
             msg = str(e).lower()
             if 'too many requests' in msg or 'rate limit' in msg:
                 record_rate_limit()
-            logger.error(f"Failed to fetch quote for {symbol}: {e}")
+            logger.exception(f"Failed to fetch quote for {symbol}")
             return {}
 
 # ── Auto Switching & Fallback Fetcher ───────────────────────────────────────
@@ -241,7 +241,7 @@ class AutoSwitchingFetcher(DataFetcher):
                             symbol="SYSTEM"
                         )
                     except Exception as e:
-                        logger.error(f"Failed to insert dashboard notification: {e}")
+                        logger.exception(f"Failed to insert dashboard notification")
                         
                     with open(ping_file, "w") as f:
                         f.write(today_str)
