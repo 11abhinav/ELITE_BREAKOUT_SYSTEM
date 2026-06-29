@@ -392,6 +392,8 @@ def init_db():
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS first_error_at TEXT DEFAULT NULL")
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0")
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS scheduled_for TEXT DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS processed_count INTEGER DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS total_count INTEGER DEFAULT NULL")
 
 
                 # ── System state table for dashboard metrics / state caching ───────
@@ -1376,6 +1378,8 @@ def upsert_scanner_health(
     today_alerts: int = None,     # number of alerts fired today (None = keep existing)
     error_msg: str = None,        # error message when status=DOWN, else None
     scheduled_for: str = None,    # When this scanner is scheduled to run (e.g., "01:00 IST")
+    processed_count: int = None,  # Number of stocks processed/shortlisted/alerts
+    total_count: int = None,      # Total number of stocks scanned in universe/watchlist
 ) -> None:
     """
     Insert or update a scanner's health record in the scanner_health table.
@@ -1445,25 +1449,45 @@ def upsert_scanner_health(
                 if scheduled_for is not None:
                     set_clauses.append("scheduled_for = %s")
                     params.append(scheduled_for)
+                if processed_count is not None:
+                    set_clauses.append("processed_count = %s")
+                    params.append(processed_count)
+                if total_count is not None:
+                    set_clauses.append("total_count = %s")
+                    params.append(total_count)
                 
                 set_clauses.append("updated_at = %s")
                 params.append(now_str)
                 
-                # Always include scanner_name for conflict/insert
-                params.insert(0, scanner_name)
+                # We need to construct the INSERT clause dynamically so we can insert new columns on initial row creation
+                insert_cols = ["scanner_name", "status", "updated_at"]
+                
                 if status is None:
                     status = 'IDLE'
-                params.insert(1, status)
-                params.insert(2, now_str)
+                
+                insert_vals = [scanner_name, status, now_str]
+                
+                if processed_count is not None:
+                    insert_cols.append("processed_count")
+                    insert_vals.append(processed_count)
+                if total_count is not None:
+                    insert_cols.append("total_count")
+                    insert_vals.append(total_count)
+                
+                insert_placeholders = ", ".join(["%s"] * len(insert_cols))
+                insert_cols_str = ", ".join(insert_cols)
+                
+                # Combine insert_vals and params
+                final_params = insert_vals + params
                 
                 set_sql = ", ".join(set_clauses)
                 cur.execute(f"""
                     INSERT INTO scanner_health
-                        (scanner_name, status, updated_at)
-                    VALUES (%s, %s, %s)
+                        ({insert_cols_str})
+                    VALUES ({insert_placeholders})
                     ON CONFLICT (scanner_name) DO UPDATE
                         SET {set_sql}
-                """, params)
+                """, final_params)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -1477,7 +1501,7 @@ def get_all_scanner_health() -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for
+                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count
                     FROM scanner_health
                     ORDER BY scanner_name
                 """)

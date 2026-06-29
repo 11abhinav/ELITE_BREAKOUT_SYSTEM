@@ -237,7 +237,7 @@ class FyersFetcher(DataFetcher):
                 if response.get("s") != "ok":
                     error_msg = response.get("message", "Unknown error")
                     code = response.get("code", "NO_CODE")
-                    logger.error(f"Fyers API error for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
+                    logger.warning(f"Fyers API warning for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
                     
                     if str(code) in ["494", "-401", "401"]:
                         logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
@@ -427,7 +427,7 @@ class FyersFetcher(DataFetcher):
             else:
                 error_msg = response.get("message", "Unknown error") if response else "Empty response"
                 code = response.get("code", "NO_CODE") if response else "NO_CODE"
-                logger.error(f"Fyers quotes API returned error for {ns_symbol}: {error_msg}, code={code}")
+                logger.warning(f"Fyers quotes API returned warning for {ns_symbol}: {error_msg}, code={code}")
                 
                 if str(code) in ["494", "-401", "401"]:
                     logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")

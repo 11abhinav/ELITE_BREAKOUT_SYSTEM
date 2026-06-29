@@ -1116,6 +1116,27 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     fn = TRIGGER_MAP.get(scanner_key)
     if fn is None:
         return {"status": "error", "message": f"Unknown scanner: {scanner_key}"}
+        
+    # Check locks synchronously to return immediate HTTP JSON error
+    LOCK_MAP = {
+        "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
+        "MULTI_TF":      lambda: __import__('multi_tf_scanner')._scan_lock,
+        "EOD":           lambda: __import__('eod_scanner')._scan_lock,
+        "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
+        "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
+        "INTRADAY":      lambda: __import__('intraday')._scan_lock,
+        "1H":            lambda: __import__('live_scanner')._scan_lock,
+        "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
+    }
+    
+    lock_fn = LOCK_MAP.get(scanner_key)
+    if lock_fn:
+        try:
+            lock = lock_fn()
+            if lock.locked():
+                return {"status": "error", "message": f"{scanner_key} is already actively running!"}
+        except Exception:
+            pass
     
     # Mark as running
     upsert_scanner_health(scanner_key, status="OK", error_msg="⏳ Manual trigger in progress...")
@@ -1129,6 +1150,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
                                   error_msg=None)
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
+        except RuntimeError as e:
+            if "already actively running" in str(e).lower():
+                logger.warning(f"⚠️ ADMIN MANUAL TRIGGER | {scanner_key} skipped (already running)")
+            else:
+                logger.exception(f"❌ ADMIN MANUAL TRIGGER | {scanner_key} FAILED")
+                upsert_scanner_health(scanner_key, status="DOWN",
+                                      error_msg=f"Manual trigger failed: {str(e)[:400]}")
         except Exception as e:
             logger.exception(f"❌ ADMIN MANUAL TRIGGER | {scanner_key} FAILED")
             upsert_scanner_health(scanner_key, status="DOWN",

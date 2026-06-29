@@ -232,7 +232,23 @@ def seconds_to_next_15m(now):
         next_run = next_run + pd.Timedelta(days=1)
     return max(0, (next_run - now).total_seconds())
 
+import threading
+_scan_lock = threading.Lock()
+
 def start(run_once=False):
+    if not _scan_lock.acquire(blocking=False):
+        if run_once:
+            raise RuntimeError("Scanner is already actively running!")
+        else:
+            import time
+            time.sleep(60)
+            return
+    try:
+        return _start_wrapper(run_once)
+    finally:
+        _scan_lock.release()
+
+def _start_wrapper(run_once=False):
     init_db()
 
     from surveillance import force_refresh_blacklist
@@ -471,6 +487,7 @@ def start(run_once=False):
                     status=status,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total_alerts if is_active_window else 0,
+                    total_count=len(watchlist),
                     error_msg=error_msg,
                     scheduled_for="Every 15min (9:32 AM - 3:30 PM)"
                 )

@@ -56,7 +56,18 @@ MAX_GAP_FROM_PRIOR_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_GAP_FROM_PRIOR_HIGH_PCT"]
 GAP_LOOKBACK_BARS           = EOD_ADVANCED_CONFIG["GAP_LOOKBACK_BARS"]
 
 
+import threading
+_scan_lock = threading.Lock()
+
 def start(force: bool = False):
+    if not _scan_lock.acquire(blocking=False):
+        raise RuntimeError("Scanner is already actively running!")
+    try:
+        return _start_wrapper(force)
+    finally:
+        _scan_lock.release()
+
+def _start_wrapper(force: bool = False):
     init_db()
     
     from surveillance import force_refresh_blacklist
@@ -608,6 +619,7 @@ def start(force: bool = False):
                     status=status,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total_alerts,
+                    total_count=len(watchlist),
                     error_msg=error_msg
                 )
             except Exception:
@@ -615,7 +627,7 @@ def start(force: bool = False):
                 
             try:
                 from database import insert_notification
-                insert_notification("info", f"✅ EOD Scan Completed", f"Generated {total_alerts} alerts today.")
+                insert_notification("info", f"✅ EOD Scan Completed", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
             except Exception:
                 pass
 

@@ -835,7 +835,18 @@ def run_standalone_exit_monitor():
     except Exception as e:
         logger.exception(f"Failed to run standalone exit monitor")
 
+import threading
+_scan_lock = threading.Lock()
+
 def start(debug_limit: int = None):
+    if not _scan_lock.acquire(blocking=False):
+        raise RuntimeError("Scanner is already actively running!")
+    try:
+        return _start_wrapper(debug_limit)
+    finally:
+        _scan_lock.release()
+
+def _start_wrapper(debug_limit: int = None):
     """Main scanning wrapper."""
     logger.info("🚀 Multibagger Scanner execution started...")
     from database import init_db

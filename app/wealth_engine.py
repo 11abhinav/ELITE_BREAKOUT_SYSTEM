@@ -478,7 +478,18 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
     return {"bonus": 0, "reason": "Normal STCG zone", "harvest_signal": harvest_signal}
 
 
+import threading
+_scan_lock = threading.Lock()
+
 def run_wealth_scan():
+    if not _scan_lock.acquire(blocking=False):
+        raise RuntimeError("Scanner is already actively running!")
+    try:
+        return _run_wealth_scan_wrapper()
+    finally:
+        _scan_lock.release()
+
+def _run_wealth_scan_wrapper():
     """Runs a single iteration of the Wealth Engine scan."""
     from config import WATCHLIST_PATH, DATA_DIR, MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
     from database import upsert_scanner_health
@@ -1046,9 +1057,9 @@ def run_wealth_scan():
         if not getattr(database, "DONT_SAVE_WEALTH", False):
             if GLOBAL_BUY_SUPPRESSED:
                 health_status = "DEGRADED" if fresh_ratio < 0.70 else "OK"
-                upsert_scanner_health("Wealth Engine", health_status, last_success=datetime.now(IST).isoformat(), today_alerts=buy_count, error_msg=f"BUY SUPPRESSED: {suppression_reason}")
+                upsert_scanner_health("Wealth Engine", health_status, last_success=datetime.now(IST).isoformat(), today_alerts=buy_count, total_count=len(df), error_msg=f"BUY SUPPRESSED: {suppression_reason}")
             else:
-                upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count)
+                upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count, total_count=len(df))
 
         # Weekly Telegram Alert removed (2026-06-17)
 

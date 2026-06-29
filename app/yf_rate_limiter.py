@@ -25,7 +25,8 @@ _MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
 _MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "0.15"))  # minimal spacing between calls
 _RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
 _RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "5"))      # trip circuit if >= in window
-_COOLDOWN_S = int(os.getenv("YF_COOLDOWN_S", str(15 * 60)))      # seconds to pause when tripped
+_COOLDOWN_SCHEDULE_S = [5 * 60, 10 * 60, 15 * 60]
+_current_cooldown_idx = 0
 
 _semaphore = threading.BoundedSemaphore(_MAX_CONCURRENCY)
 _last_call_ts = 0.0
@@ -73,9 +74,19 @@ def release() -> None:
         pass
 
 
+def record_success() -> None:
+    """Reset the cooldown multiplier on successful fetch."""
+    global _current_cooldown_idx, _rate_count
+    with _lock:
+        if _current_cooldown_idx > 0:
+            logger.info("YF rate-limit cooldown reset to 5 minutes after successful fetch.")
+        _current_cooldown_idx = 0
+        _rate_count = 0
+
+
 def record_rate_limit() -> None:
     """Record a 429 event. If events exceed threshold within window, trip the circuit."""
-    global _rate_count, _rate_window_start, _circuit_tripped_until
+    global _rate_count, _rate_window_start, _circuit_tripped_until, _current_cooldown_idx
     now = _now()
     with _lock:
         if now - _rate_window_start > _RATE_WINDOW_S:
@@ -84,8 +95,11 @@ def record_rate_limit() -> None:
         _rate_count += 1
         logger.warning(f"YF rate-limit event recorded ({_rate_count}/{_RATE_THRESHOLD}) in window")
         if _rate_count >= _RATE_THRESHOLD:
-            _circuit_tripped_until = now + _COOLDOWN_S
-            logger.error(f"YF circuit tripped for {_COOLDOWN_S}s due to {_rate_count} rate-limit events")
+            cooldown = _COOLDOWN_SCHEDULE_S[_current_cooldown_idx]
+            _circuit_tripped_until = now + cooldown
+            logger.error(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events")
+            _current_cooldown_idx = min(_current_cooldown_idx + 1, len(_COOLDOWN_SCHEDULE_S) - 1)
+            _rate_count = 0
 
 
 def is_circuit_open() -> bool:

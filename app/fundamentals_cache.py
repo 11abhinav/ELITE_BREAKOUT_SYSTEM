@@ -14,7 +14,7 @@ import yfinance as yf
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import concurrent.futures
-from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
+from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, record_success, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -114,8 +114,8 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 finally:
                     yf_release()
             except CircuitOpenError as ce:
-                logger.error(f"YFinance circuit open; abort fundamentals fetch for {yf_sym}: {ce}")
-                return {"score": -1, "date": str(datetime.now(IST).date())}
+                logger.error(f"YFinance circuit open; aborting fundamentals fetch for {yf_sym}: {ce}")
+                return None
             except Exception as inner_e:
                 # Catch yfinance fetch errors
                 msg = str(inner_e).lower()
@@ -125,10 +125,11 @@ def fetch_single_piotroski(symbol: str) -> dict:
 
             if fin.empty and bs.empty:
                 logger.warning(f"⚠️ {yf_sym}: Financials and Balance Sheet are both empty.")
-                return {"score": -1, "date": str(datetime.now(IST).date())}
+                return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
                 
             combined = pd.concat([fin, bs])
             score = compute_piotroski(info, combined)
+            record_success()
             break  # Success, exit retry loop
             
         except Exception as e:
@@ -142,7 +143,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 time.sleep(backoff)
             else:
                 logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error")
-                return {"score": -1, "date": str(datetime.now(IST).date())}
+                return None
         
         # Multi-bagger enhancements extraction
         ocf = info.get("operatingCashflow")
@@ -209,6 +210,11 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
     try:
         entry_date = datetime.strptime(cache_entry["date"], "%Y-%m-%d").date()
         days_old = (datetime.now(IST).date() - entry_date).days
+        
+        # If it failed to fetch (no data), respect a 2-day cooldown before retrying
+        if cache_entry.get("failed", False):
+            return days_old >= 2
+            
         return days_old > FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)
     except Exception:
         return True
@@ -236,17 +242,35 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         return sym, fetch_single_piotroski(sym)
         
     import gc
+    missing_data_stocks = []
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(process, sym) for sym in to_fetch]
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             sym, result = future.result()
-            cache[sym] = result
+            
+            # None means rate limited or circuit open -> skip caching so it's retried next time
+            if result is not None:
+                cache[sym] = result
+                if result.get("failed", False):
+                    missing_data_stocks.append(sym)
+                    
             if idx > 0 and idx % 10 == 0:
                 logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
                 save_cache(cache, upload_to_db=True)
                 gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
                 
     save_cache(cache, upload_to_db=True)
+    
+    # Notify Admin if any stocks permanently failed (No Data)
+    if missing_data_stocks:
+        try:
+            from database import insert_notification
+            msg = f"Yahoo Finance returned empty data for {len(missing_data_stocks)} stocks. These have been skipped and will be retried in 2 days.\nExamples: {', '.join(missing_data_stocks[:5])}"
+            insert_notification("info", "⚠️ Yahoo Missing Fundamentals", msg)
+        except Exception:
+            pass
+            
     logger.info("✅ Fundamental fetch complete.")
 
 def get_piotroski_score(symbol: str) -> int:

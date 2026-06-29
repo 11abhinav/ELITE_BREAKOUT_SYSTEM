@@ -489,7 +489,23 @@ def run_sweeper():
     sweep_stale_breakout_watchlist()
     logger.info("🧹 Swept stale breakout watchlist setups.")
 
+import threading
+_scan_lock = threading.Lock()
+
 def start(run_once=False):
+    if not _scan_lock.acquire(blocking=False):
+        if run_once:
+            raise RuntimeError("Scanner is already actively running!")
+        else:
+            import time
+            time.sleep(60)
+            return
+    try:
+        return _start_wrapper(run_once)
+    finally:
+        _scan_lock.release()
+
+def _start_wrapper(run_once=False):
     from datetime import time as dt_time
     while True:
         try:
@@ -559,6 +575,7 @@ def start(run_once=False):
                         scanner_name="MULTI_TF",
                         status=status,
                         last_success=datetime.now(IST).isoformat(),
+                        total_count=metrics_a.get("total", 0),
                         error_msg=error_msg,
                         scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                     )

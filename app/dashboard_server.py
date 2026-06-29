@@ -849,9 +849,10 @@ def export_watchlist(list_type):
     from flask import send_file
     
     if list_type == "fundamental":
-        file_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.csv")
+        file_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
         filename = "elite_fundamental_watchlist.csv"
     elif list_type == "excluded":
+        # The excluded file is still generated as CSV in daily_builder
         file_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
         filename = "elite_fundamental_watchlist_excluded.csv"
     else:
@@ -860,6 +861,24 @@ def export_watchlist(list_type):
     if not os.path.exists(file_path):
         return jsonify({"error": "Watchlist file not found. Ensure daily builder has run."}), 404
         
+    if file_path.endswith('.parquet'):
+        import pandas as pd
+        import io
+        from flask import Response
+        try:
+            df = pd.read_parquet(file_path)
+            output = io.StringIO()
+            df.to_csv(output, index=False)
+            csv_data = output.getvalue()
+            return Response(
+                csv_data,
+                mimetype="text/csv",
+                headers={"Content-disposition": f"attachment; filename={filename}"}
+            )
+        except Exception as e:
+            logger.exception("Failed to convert parquet to CSV for export")
+            return jsonify({"error": "Failed to convert file for export"}), 500
+            
     return send_file(file_path, as_attachment=True, download_name=filename)
 
 

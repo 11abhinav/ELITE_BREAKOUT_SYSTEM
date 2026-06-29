@@ -739,7 +739,18 @@ def classify_stock(row: pd.Series) -> dict:
 # MAIN
 # =====================================================================================
 
+import threading
+_build_lock = threading.Lock()
+
 def main(force_rebuild: bool = False):
+    if not _build_lock.acquire(blocking=False):
+        raise RuntimeError("Daily Builder is already actively running!")
+    try:
+        _main_wrapper(force_rebuild)
+    finally:
+        _build_lock.release()
+
+def _main_wrapper(force_rebuild: bool = False):
     from datetime import datetime, time as dt_time
     from zoneinfo import ZoneInfo
     from config import WATCHLIST_PATH, MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST
@@ -760,10 +771,19 @@ def main(force_rebuild: bool = False):
         try:
             from zoneinfo import ZoneInfo
             _ist = ZoneInfo("Asia/Kolkata")
+            import pandas as pd
+            try:
+                tot = len(pd.read_parquet("data/temp_universe.parquet"))
+                proc = len(pd.read_parquet(WATCHLIST_PATH))
+            except Exception:
+                tot = None
+                proc = None
             upsert_scanner_health(
                 "DAILY_BUILDER", "OK",
                 last_success=datetime.now(_ist).isoformat(),
                 error_msg=None,
+                processed_count=proc,
+                total_count=tot,
                 scheduled_for="01:00 IST"
             )
             logger.info("✅ Daily Builder health heartbeat updated successfully.")

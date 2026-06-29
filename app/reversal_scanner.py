@@ -718,20 +718,32 @@ def _run_scan(force: bool = False):
                 scanner_name="REVERSAL",
                 status="OK",
                 last_success=ist_now.isoformat(),
-                today_alerts=total_alerts
+                today_alerts=total_alerts,
+                total_count=len(watchlist)
             )
         except Exception:
             logger.exception("❌ Failed to update scanner health for REVERSAL")
             
         try:
             from database import insert_notification
-            insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts today.")
+            insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
         except Exception:
             pass
     return total_alerts
 
 
+import threading
+_scan_lock = threading.Lock()
+
 def start(force: bool = False) -> int:
+    if not _scan_lock.acquire(blocking=False):
+        raise RuntimeError("Scanner is already actively running!")
+    try:
+        return _start_wrapper(force)
+    finally:
+        _scan_lock.release()
+
+def _start_wrapper(force: bool = False) -> int:
     """
     Single-shot scan. Called once by main.py at the 18:30 window.
     Returns the number of alerts generated (0 = no setups found).
