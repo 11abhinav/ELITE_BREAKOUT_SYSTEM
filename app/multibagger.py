@@ -437,7 +437,7 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     return None
 
 def passes_kill_gates(f: StockFundamentals) -> bool:
-    """Instant rejection checks: Mcap < 500Cr, D/E > 1.5 (non-financials only), or Operating Cash Flow < 0."""
+    """Instant rejection checks: Mcap < 500Cr, D/E > 1.0 (non-financials), OCF < 0, or Yearly Loss (EPS <= 0)."""
     if f.market_cap is None or float(f.market_cap) < 5000000000: # ₹500 Cr
         return False
         
@@ -451,6 +451,10 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
                 
     # Operating Cash Flow check (Strict: reject if negative)
     if f.operating_cash_flow is not None and float(f.operating_cash_flow) < 0:
+        return False
+        
+    # Earnings check (Strict: reject if company is posting Trailing 12-Month Net Losses)
+    if f.eps is not None and float(f.eps) <= 0:
         return False
         
     return True
