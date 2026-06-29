@@ -434,7 +434,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                         continue
                     # Idempotency check before alert using stricter symbol-trigger key
                     dedup_key = f"{cat}|MULTI_TF|{symbol}|{trigger_type}|{ist_now.strftime('%Y-%m-%d')}"
-                    if not check_recent_alert(symbol, "INTRADAY", dedup_key, minutes=390):
+                    if not check_recent_alert(symbol, "INTRADAY", dedup_key, lookback_minutes=390):
                         # Direct structural stop using max for tighter stop
                         invalidation_level = float(item.get("invalidation_level") or (low - atr20))
                         structure_sl = min(low, float(prev["Low"])) - (0.2 * atr20)
