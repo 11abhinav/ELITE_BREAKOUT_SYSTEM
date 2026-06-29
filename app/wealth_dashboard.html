@@ -1888,7 +1888,7 @@ function renderMultibaggerWatchlist() {
     // Score color gradient
     const cisColor = cis >= 85 ? 'var(--green)' : cis >= 70 ? 'var(--amber)' : cis >= 50 ? 'var(--text)' : 'var(--muted)';
 
-    const bandHtml = bear_value > 0 ? `<div style="font-size:11px; white-space:nowrap;">₹${bear_value.toLocaleString('en-IN')} - ₹${bull_value.toLocaleString('en-IN')}</div><div style="font-size:9px; color:var(--muted); margin-top:2px;">Reliability: ${valConf}/10</div>` : '-';
+    const bandHtml = bear_value > 0 ? `<div style="font-size:11px; white-space:nowrap;">₹${bear_value.toLocaleString('en-IN')} - ₹${bull_value.toLocaleString('en-IN')}</div><div style="font-size:9px; color:var(--muted); margin-top:2px;">Reliability: ${item.valuation_confidence}</div>` : '-';
 
     return `
       <tr>
