@@ -506,17 +506,24 @@ def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
         return False, "Waiting for trend confirmation: Price < 50-DMA."
         
     # Buy Zone
-    buy_zone_high = scores.base_fair_value * 0.90  # 10% below base FV
-    if scores.reliability_score >= 16:
-        buy_zone_high = scores.base_fair_value * 1.0  # allow buying closer to fair value if high trust
-        
+    # The true technical buy zone is between the 200 SMA and 50 SMA (or just below 50 SMA).
+    # Since we already verified Price > 50-DMA and Price > 200-DMA in the above guards,
+    # wait... the above guards REJECT if price < 50-DMA!
+    # If we want a technical breakout system, we buy when it crosses UP the 50-DMA.
+    # Let's say if price > 50-DMA and price > 200-DMA, it's valid to buy.
+    
+    # We can just say any stock that passes the fundamental guards and is above 50-DMA is valid.
+    # However, to avoid buying too extended, we can cap it at 10% above the 50-DMA.
+    buy_zone_high = price_data.sma_50 * 1.10 if price_data.sma_50 > 0 else (price_data.sma_200 * 1.20)
+    
     if price <= buy_zone_high:
-        return True, f"Value Breakout: inside buy zone, SRV={scores.base_fair_value:.1f}, Reliability={scores.reliability_score:.1f}"
+        return True, f"Value Breakout: inside technical buy zone, BQS={scores.business_quality_score:.1f}, Reliability={scores.reliability_score:.1f}"
         
-    # High Growth Rerating
+    # High Growth Rerating (Extended buy zone for Prime Multibaggers)
     if scores.business_quality_score >= 24.0 and scores.market_structure_score >= 10.0:
-        if price <= scores.bull_fair_value:
-            return True, f"GARP Rerating: strong growth & trend, using bull SRV cap."
+        extended_buy_zone = price_data.sma_50 * 1.25 if price_data.sma_50 > 0 else (price_data.sma_200 * 1.40)
+        if price <= extended_buy_zone:
+            return True, f"GARP Rerating: strong growth & trend, allowing extended breakout entry."
             
     return False, f"Price (₹{price:.1f}) > Buy Zone High (₹{buy_zone_high:.1f})"
         
@@ -1062,7 +1069,6 @@ def start(debug_limit: int = None):
                 bucket = "Watchlist Waiting"
                 
             notes = notes_prefix + alert_reason
-            fair_val_result = scores
             
         res = ScreenerResult(
             symbol=sym,
