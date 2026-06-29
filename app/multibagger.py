@@ -835,8 +835,8 @@ def run_standalone_exit_monitor():
     except Exception as e:
         logger.exception(f"Failed to run standalone exit monitor")
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("multibagger")
 
 def start(debug_limit: int = None):
     if not _scan_lock.acquire(blocking=False):

@@ -59,8 +59,8 @@ IST        = ZoneInfo("Asia/Kolkata")
 TIMEFRAME  = "1h"
 
 ENABLE_REGIME_GATE_1H = False
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("live_scanner")
 
 def start(run_once=False):
     if not _scan_lock.acquire(blocking=False):

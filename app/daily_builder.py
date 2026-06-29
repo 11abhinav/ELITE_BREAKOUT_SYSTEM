@@ -739,8 +739,8 @@ def classify_stock(row: pd.Series) -> dict:
 # MAIN
 # =====================================================================================
 
-import threading
-_build_lock = threading.Lock()
+from lock_utils import ProcessLock
+_build_lock = ProcessLock("daily_builder")
 
 def main(force_rebuild: bool = False):
     if not _build_lock.acquire(blocking=False):

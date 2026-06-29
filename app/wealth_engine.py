@@ -478,8 +478,8 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
     return {"bonus": 0, "reason": "Normal STCG zone", "harvest_signal": harvest_signal}
 
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("wealth_engine")
 
 def run_wealth_scan():
     if not _scan_lock.acquire(blocking=False):

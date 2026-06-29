@@ -232,8 +232,8 @@ def seconds_to_next_15m(now):
         next_run = next_run + pd.Timedelta(days=1)
     return max(0, (next_run - now).total_seconds())
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("intraday")
 
 def start(run_once=False):
     if not _scan_lock.acquire(blocking=False):

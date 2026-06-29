@@ -732,8 +732,8 @@ def _run_scan(force: bool = False):
     return total_alerts
 
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("reversal_scanner")
 
 def start(force: bool = False) -> int:
     if not _scan_lock.acquire(blocking=False):

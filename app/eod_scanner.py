@@ -56,8 +56,8 @@ MAX_GAP_FROM_PRIOR_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_GAP_FROM_PRIOR_HIGH_PCT"]
 GAP_LOOKBACK_BARS           = EOD_ADVANCED_CONFIG["GAP_LOOKBACK_BARS"]
 
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("eod_scanner")
 
 def start(force: bool = False):
     if not _scan_lock.acquire(blocking=False):

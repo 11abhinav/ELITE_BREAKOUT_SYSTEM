@@ -489,8 +489,8 @@ def run_sweeper():
     sweep_stale_breakout_watchlist()
     logger.info("🧹 Swept stale breakout watchlist setups.")
 
-import threading
-_scan_lock = threading.Lock()
+from lock_utils import ProcessLock
+_scan_lock = ProcessLock("multi_tf_scanner")
 
 def start(run_once=False):
     if not _scan_lock.acquire(blocking=False):
