@@ -753,7 +753,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                         f"• Return: {((current_price - entry_price) / entry_price * 100.0):.1f}%\n"
                         f"• Reason: <i>{exit_reason}</i>\n"
                     )
-                    queue_telegram_message(sell_msg, symbol=symbol, alert_id=alert_id)
+                    queue_telegram_message(sell_msg, symbol=symbol)
                     
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
