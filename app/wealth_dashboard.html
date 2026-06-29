@@ -774,8 +774,6 @@
         <thead><tr>
           <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
           <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-          <th>Buy Zone</th>
-          <th onclick="sortMbWatchlist('dist_to_buy')" style="cursor:pointer" title="Sort by Distance to Buy Zone">Dist. to Buy ↕</th>
           <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by BQS">BQS ↕</th>
           <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by RVS">RVS ↕</th>
           <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
@@ -1787,15 +1785,7 @@ function sortMbWatchlist(col) {
     let valA = a[col];
     let valB = b[col];
     
-    if (col === 'dist_to_buy') {
-      const bzhA = parseFloat(a.buy_zone_high) || 0;
-      const cmpA = parseFloat(a.latest_price) || 0;
-      valA = bzhA > 0 ? (cmpA - bzhA) / bzhA : 999;
-      
-      const bzhB = parseFloat(b.buy_zone_high) || 0;
-      const cmpB = parseFloat(b.latest_price) || 0;
-      valB = bzhB > 0 ? (cmpB - bzhB) / bzhB : 999;
-    }
+
     
     if (typeof valA === 'string') valA = valA.toLowerCase();
     if (typeof valB === 'string') valB = valB.toLowerCase();
@@ -1853,23 +1843,7 @@ function renderMultibaggerWatchlist() {
     const notes = item.notes || '-';
     const status = item.status || '-';
 
-    let distLabel = '-';
-    let distColor = 'var(--muted)';
-    if (bzHigh > 0 && cmp > 0) {
-      if (cmp <= bzHigh && cmp >= bzLow) {
-        distLabel = '✅ IN ZONE';
-        distColor = 'var(--green)';
-      } else {
-        const distPct = ((cmp - bzHigh) / bzHigh * 100);
-        if (distPct < 0) {
-          distLabel = `↓ ${Math.abs(distPct).toFixed(1)}% below zone`;
-          distColor = 'var(--green)';
-        } else {
-          distLabel = `↑ ${distPct.toFixed(1)}% above zone`;
-          distColor = distPct > 20 ? 'var(--red)' : 'var(--amber)';
-        }
-      }
-    }
+
 
     // Status badge color
     let statusClass = 'muted';
@@ -1884,8 +1858,6 @@ function renderMultibaggerWatchlist() {
       <tr>
         <td class="sym"><strong>${sym}</strong></td>
         <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
-        <td class="mono" style="font-size:11px;">₹${bzLow.toFixed(0)} – ₹${bzHigh.toFixed(0)}</td>
-        <td class="mono" style="color:${distColor}; font-weight:600;">${distLabel}</td>
         <td class="mono">${bqs.toFixed(1)}</td>
         <td class="mono">${rvs.toFixed(1)}</td>
         <td class="mono">${trend.toFixed(1)}</td>
