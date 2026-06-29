@@ -220,6 +220,41 @@ def init_db():
                         context_json TEXT
                     )
                 """)
+                cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'wealth_buy_alert'
+                        AND column_name = 'engine_version'
+                    ) THEN
+                        ALTER TABLE wealth_buy_alert ADD COLUMN engine_version TEXT;
+                    END IF;
+                    
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'wealth_buy_alert'
+                        AND column_name = 'config_version'
+                    ) THEN
+                        ALTER TABLE wealth_buy_alert ADD COLUMN config_version TEXT;
+                    END IF;
+                END $$;
+                """)
+                
+                cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'stockupdates'
+                        AND table_name = 'universe'
+                        AND column_name = 'canonical_industry'
+                    ) THEN
+                        ALTER TABLE stockupdates.universe ADD COLUMN canonical_industry TEXT;
+                    END IF;
+                END $$;
+                """)
+                
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -4098,30 +4133,29 @@ def get_all_push_subscriptions() -> list[dict]:
 
 # ── Universe & Fundamental Benchmarking (Multibagger) ───────────────────────────────
 
-def upsert_universe_stock(symbol, bse_code, sector, pe, pb, roe, eps, bvps, div_yield, tt_indpe, tt_indpb, fetch_status=None, last_error=None):
+def upsert_universe_stock(symbol, bse_code, sector, canonical_industry, pe, pb, roe, eps, bvps, div_yield, fetch_status=None, last_error=None):
     try:
         with _DB_WRITE_LOCK:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO stockupdates.universe 
-                        (symbol, bse_code, sector, pe, pb, roe, eps, bvps, div_yield, tt_indpe, tt_indpb, fetch_status, last_error, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        (symbol, bse_code, sector, canonical_industry, pe, pb, roe, eps, bvps, div_yield, fetch_status, last_error, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (symbol) DO UPDATE SET
                             bse_code = EXCLUDED.bse_code,
                             sector = EXCLUDED.sector,
+                            canonical_industry = EXCLUDED.canonical_industry,
                             pe = EXCLUDED.pe,
                             pb = EXCLUDED.pb,
                             roe = EXCLUDED.roe,
                             eps = EXCLUDED.eps,
                             bvps = EXCLUDED.bvps,
                             div_yield = EXCLUDED.div_yield,
-                            tt_indpe = EXCLUDED.tt_indpe,
-                            tt_indpb = EXCLUDED.tt_indpb,
                             fetch_status = EXCLUDED.fetch_status,
                             last_error = EXCLUDED.last_error,
                             updated_at = CURRENT_TIMESTAMP
-                    """, (symbol, bse_code, sector, pe, pb, roe, eps, bvps, div_yield, tt_indpe, tt_indpb, fetch_status, last_error))
+                    """, (symbol, bse_code, sector, canonical_industry, pe, pb, roe, eps, bvps, div_yield, fetch_status, last_error))
                 conn.commit()
     except Exception as e:
         logger.exception(f"Failed to upsert universe stock {symbol}")
@@ -4146,16 +4180,16 @@ def get_all_universe_fundamentals():
         logger.exception("Failed to get all universe fundamentals")
         return []
 
-def insert_fundamental_snapshot(symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa, tt_indpe, tt_indpb):
+def insert_fundamental_snapshot(symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa):
     try:
         with _DB_WRITE_LOCK:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO stockupdates.fundamental_snapshots
-                        (symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa, tt_indpe, tt_indpb, fetched_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                    """, (symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa, tt_indpe, tt_indpb))
+                        (symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa, fetched_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    """, (symbol, sector, pe, pb, roe, eps, bvps, div_yield, revenue_growth, earnings_growth, operating_margin, debt_equity, operating_cashflow, roa))
                 conn.commit()
     except Exception as e:
         logger.exception(f"Failed to insert fundamental snapshot for {symbol}")

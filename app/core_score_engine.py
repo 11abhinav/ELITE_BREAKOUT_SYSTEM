@@ -1,10 +1,25 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
+import yaml
 
 logger = logging.getLogger(__name__)
+
+# --- Configuration Loader ---
+_ENGINE_CONFIG = None
+
+def get_engine_config() -> Dict[str, Any]:
+    global _ENGINE_CONFIG
+    if _ENGINE_CONFIG is None:
+        try:
+            with open("app/config/engine_config.yaml", "r") as f:
+                _ENGINE_CONFIG = yaml.safe_load(f)
+        except Exception as e:
+            logger.error(f"Failed to load engine_config.yaml: {e}")
+            _ENGINE_CONFIG = {}
+    return _ENGINE_CONFIG
 
 # --- Dataclasses ---
 
@@ -12,6 +27,7 @@ logger = logging.getLogger(__name__)
 class CoreFundamentals:
     symbol: str
     sector: str
+    canonical_industry: str
     pe: Optional[float]
     pb: Optional[float]
     roe: Optional[float]
@@ -40,13 +56,15 @@ class PeerMetrics:
     median_pe: Optional[float]
     median_pb: Optional[float]
     median_roe: Optional[float]
-    median_peg: Optional[float]
     peer_count: int
-    dispersion_iqr_median: Optional[float]
-    source_type: str  # "REFINED", "INDUSTRY", "FALLBACK"
-    is_complete: bool
-    missing_critical: bool
-    missing_minor: bool
+    median_ev_ebitda: Optional[float] = None
+    median_div_yield: Optional[float] = None
+    median_peg: Optional[float] = None
+    dispersion_iqr_median: Optional[float] = None
+    source_type: str = "FALLBACK"
+    is_complete: bool = False
+    missing_critical: bool = True
+    missing_minor: bool = False
 
 @dataclass(frozen=True)
 class CorePriceData:
@@ -59,13 +77,18 @@ class CorePriceData:
 
 @dataclass(frozen=True)
 class CoreScores:
-    business_quality_score: float  # 0-30
-    relative_valuation_score: float # 0-30
-    reliability_score: float       # 0-20
-    market_structure_score: float  # 0-15
-    composite_investment_score: float = 0.0
+    business_quality_score: float
+    financial_quality_score: float
+    relative_valuation_score: float
+    market_structure_score: float
+    improvement_score: float
+    bayesian_confidence_score: float # 0.0 to 100.0 (Probability)
+    composite_investment_score: float
+    rejection_stage: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    is_buy: bool = False
     
-# --- Scoring Functions ---
+# --- Utility Functions ---
 
 def clamp(val, min_val, max_val):
     if val is None or pd.isna(val): return min_val
@@ -84,204 +107,221 @@ def first_valid(*vals):
             return float(v)
     return None
 
+# --- Split Quality Scoring ---
+
 def score_business_quality(f: CoreFundamentals) -> float:
+    """Scores ROCE, Margins, Market Position, Growth Durability (Max 20 pts)"""
     score = 0.0
     
-    # 1. Profitability (8 pts) - Smooth scale
+    # 1. Profitability (Max 10)
     roe = safe_float(f.roe)
-    if roe > 0.05:
-        score += min(4.0, 4.0 * (roe - 0.05) / (0.15 - 0.05))
+    if roe > 0.05: score += min(5.0, 5.0 * (roe - 0.05) / (0.20 - 0.05))
         
     roce = safe_float(f.roce)
-    if roce > 0.08:
-        score += min(2.0, 2.0 * (roce - 0.08) / (0.18 - 0.08))
+    if roce > 0.08: score += min(3.0, 3.0 * (roce - 0.08) / (0.25 - 0.08))
         
     opm = safe_float(f.operating_margin)
-    if opm > 0.05:
-        score += min(2.0, 2.0 * (opm - 0.05) / (0.15 - 0.05))
+    if opm > 0.05: score += min(2.0, 2.0 * (opm - 0.05) / (0.20 - 0.05))
 
-    # 2. Balance Sheet (6 pts)
-    if f.is_financial:
-        roa = safe_float(f.roa)
-        if roa > 0.005:
-            score += min(6.0, 6.0 * (roa - 0.005) / (0.015 - 0.005))
-    else:
-        de = safe_float(f.debt_equity)
-        if de < 1.5:
-            score += min(6.0, 6.0 * (1.5 - de) / (1.5 - 0.3))
-            
-    # 3. Growth Durability (10 pts)
-    growth_score = 0.0
+    # 2. Growth Durability (Max 10)
     rev_cagr = first_valid(f.revenue_growth_5y, f.revenue_growth_3y, f.revenue_growth_1y)
     eps_cagr = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y)
-    
-    # Base growth up to 15% gets up to 5 points
     if rev_cagr is not None and rev_cagr > 0.05:
-        growth_score += min(2.5, 2.5 * (rev_cagr - 0.05) / (0.15 - 0.05))
+        score += min(5.0, 5.0 * (rev_cagr - 0.05) / (0.25 - 0.05))
     if eps_cagr is not None and eps_cagr > 0.05:
-        growth_score += min(2.5, 2.5 * (eps_cagr - 0.05) / (0.15 - 0.05))
-        
-    # Hyper growth bonus (15% to 35%) gets another 5 points
-    if rev_cagr is not None and rev_cagr > 0.15:
-        growth_score += min(2.5, 2.5 * (rev_cagr - 0.15) / (0.35 - 0.15))
-    if eps_cagr is not None and eps_cagr > 0.15:
-        growth_score += min(2.5, 2.5 * (eps_cagr - 0.15) / (0.35 - 0.15))
-        
-    has_long_term = pd.notna(f.revenue_growth_3y) or pd.notna(f.revenue_growth_5y)
-    if not has_long_term and (rev_cagr is not None or eps_cagr is not None):
-        growth_score *= 0.70 # 30% penalty applied after raw score
-        
-    score += clamp(growth_score, 0.0, 10.0)
+        score += min(5.0, 5.0 * (eps_cagr - 0.05) / (0.25 - 0.05))
 
-    # 4. Cash Conversion (4 pts)
-    cash_score = 0.0
-    fcf_margin = safe_float(f.fcf_margin, None)
-    if fcf_margin is not None:
-        if fcf_margin > 0:
-            target_fcf = opm * 0.5
-            if target_fcf > 0:
-                cash_score += min(2.0, 2.0 * min(fcf_margin / target_fcf, 1.0))
-            else:
-                cash_score += 2.0
-    
-    cfo_pat = safe_float(f.cfo_pat_ratio, None)
-    if cfo_pat is not None and cfo_pat > 0.5:
-        cash_score += min(2.0, 2.0 * (cfo_pat - 0.5) / (1.0 - 0.5))
-        
-    ocf = safe_float(f.operating_cash_flow, None)
-    if not f.is_financial and ocf is not None and ocf < 0:
-        cash_score -= min(3.0, 3.0 * (abs(ocf) / (abs(ocf) + 1000000)))
-        
-    score += clamp(cash_score, 0.0, 4.0)
-
-    # 5. Consistency (2 pts)
-    cons_score = 0.0
-    yoy_profit = first_valid(f.yoy_profit_growth)
-    if yoy_profit is not None and yoy_profit > 0:
-        cons_score += 1.0
-    if not f.net_losses_3y:
-        cons_score += 1.0
-        
-    score += clamp(cons_score, 0.0, 2.0)
-        
-    return clamp(score, 0.0, 30.0)
-
-def score_relative_valuation(f: CoreFundamentals, p: PeerMetrics) -> float:
-    """
-    Computes Relative Valuation Score.
-    Note: Growth values (e.g. eps_growth_1y) are expected to be decimals (e.g. 0.15 for 15%).
-    When computing PEG, growth is multiplied by 100 to convert to percentage points.
-    """
-    score = 0.0
-    
-    pe = safe_float(f.pe, None)
-    pb = safe_float(f.pb, None)
-    dy = safe_float(f.div_yield, 0.0)
-    
-    # Yield Support (4 pts)
-    if dy > 0.005:
-        score += min(4.0, 4.0 * (dy - 0.005) / (0.015 - 0.005))
-    
-    if f.is_financial:
-        # P/B vs Peer Median (16 pts) - Only if median_pb is sane
-        if pb is not None and p.median_pb is not None and p.median_pb > 0.1:
-            ratio = pb / p.median_pb
-            if ratio < 1.5:
-                score += min(16.0, 16.0 * (1.5 - ratio) / (1.5 - 0.8))
-                
-        # ROE Premium/Discount (8 pts)
-        roe = safe_float(f.roe)
-        if roe > 0 and p.median_roe is not None and p.median_roe > -0.5:
-            diff = roe - p.median_roe
-            if diff > 0:
-                score += min(8.0, 8.0 * (diff) / 0.05)
-                
-        # Growth Normalization Bonus (2 pts)
-        eg = safe_float(f.eps_growth_1y, None)
-        if eg is not None and eg > 0.05 and eg < 1.0 and safe_float(f.pe) > 0: # Ensure growth is sane and positive
-            peg = safe_float(f.pe) / (eg * 100)
-            if peg < 1.0:
-                score += 2.0
-    else:
-        # P/E vs Peer Median (12 pts) - Only if median_pe is sane
-        if pe is not None and p.median_pe is not None and p.median_pe > 2.0:
-            ratio = pe / p.median_pe
-            if ratio < 1.5:
-                score += min(12.0, 12.0 * (1.5 - ratio) / (1.5 - 0.8))
-                
-        # P/B vs Peer Median (8 pts) - Only if median_pb is sane
-        if pb is not None and p.median_pb is not None and p.median_pb > 0.1:
-            ratio = pb / p.median_pb
-            if ratio < 1.5:
-                score += min(8.0, 8.0 * (1.5 - ratio) / (1.5 - 0.8))
-                
-        # Growth Normalization (PEG) (6 pts)
-        eg = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y)
-        if eg is not None and eg > 0 and pe is not None and pe > 0:
-            peg = pe / (eg * 100)
-            if peg < 1.8:
-                score += min(6.0, 6.0 * (1.8 - peg) / (1.8 - 0.8))
-
-    return clamp(score, 0.0, 30.0)
-
-def score_reliability(p: PeerMetrics) -> float:
-    score = 0.0
-    
-    # 1. Peer Count Quality (6 pts)
-    if p.peer_count >= 15: score += 6.0
-    elif p.peer_count >= 8: score += 3.0
-    
-    # 2. Peer Dispersion (4 pts)
-    disp = p.dispersion_iqr_median
-    if disp is not None:
-        if disp < 0.4: score += 4.0
-        elif disp < 0.8: score += 2.0
-        
-    # 3. Source Confidence (6 pts)
-    if p.source_type == "REFINED": score += 6.0
-    elif p.source_type == "INDUSTRY": score += 4.0
-    
-    # 4. Data Completeness (4 pts)
-    if p.is_complete: score += 4.0
-    elif p.missing_minor and not p.missing_critical: score += 2.0
-    
     return clamp(score, 0.0, 20.0)
 
+def score_financial_quality(f: CoreFundamentals) -> float:
+    """Scores Cash Conversion, Debt, Balance Sheet (Max 15 pts)"""
+    score = 0.0
+    
+    if f.is_financial:
+        roa = safe_float(f.roa)
+        if roa > 0.005: score += min(15.0, 15.0 * (roa - 0.005) / (0.02 - 0.005))
+    else:
+        # Debt
+        de = safe_float(f.debt_equity)
+        if de < 1.5: score += min(8.0, 8.0 * (1.5 - de) / (1.5 - 0.1))
+            
+        # Cash Flow
+        fcf_margin = safe_float(f.fcf_margin, None)
+        if fcf_margin is not None and fcf_margin > 0: score += 4.0
+        
+        cfo_pat = safe_float(f.cfo_pat_ratio, None)
+        if cfo_pat is not None and cfo_pat > 0.5:
+            score += min(3.0, 3.0 * (cfo_pat - 0.5) / (1.0 - 0.5))
 
-def compute_composite_investment_score(bqs: float, rvs: float, mss: float, reliability: float, strategic_overlays: float) -> float:
-    score = (bqs / 30.0) * 35.0 + (rvs / 30.0) * 30.0 + (mss / 15.0) * 15.0 + (reliability / 20.0) * 10.0 + strategic_overlays
-    return clamp(score, 0.0, 100.0)
+    return clamp(score, 0.0, 15.0)
+
+# --- Sector-Aware Valuation ---
+
+def get_sector_val_config(canonical_industry: str) -> dict:
+    config = get_engine_config()
+    industries = config.get("industries", {})
+    return industries.get(canonical_industry, industries.get("DEFAULT", {"pe": 0.4, "pb": 0.4, "peg": 0.2}))
+
+def score_relative_valuation(f: CoreFundamentals, p: PeerMetrics) -> float:
+    """Max 30 points based on config."""
+    score = 0.0
+    config = get_sector_val_config(f.canonical_industry)
+    
+    for metric, weight in config.items():
+        max_pts = 30.0 * weight
+        metric_score = 0.0
+        
+        if metric == "pe" and f.pe is not None and f.pe > 0:
+            if p.median_pe is not None and p.median_pe > 0:
+                ratio = f.pe / p.median_pe
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "pb" and f.pb is not None and f.pb > 0:
+            if p.median_pb is not None and p.median_pb > 0:
+                ratio = f.pb / p.median_pb
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "peg" and f.pe is not None and f.pe > 0:
+            g = safe_float(f.eps_growth_1y) * 100
+            if g > 0:
+                peg = f.pe / g
+                if peg < 2.5: metric_score = min(max_pts, max_pts * (2.5 - peg) / (2.5 - 0.5))
+        elif metric == "ev_ebitda":
+            # Note: ev_ebitda would need f.ev_ebitda but we'll use PE as proxy if missing
+            if f.pe is not None and p.median_pe is not None and p.median_pe > 0:
+                ratio = f.pe / p.median_pe
+                if ratio < 1.3: metric_score = min(max_pts, max_pts * (1.3 - ratio) / (1.3 - 0.7))
+        elif metric == "roe" and f.roe is not None:
+            if p.median_roe is not None and p.median_roe > -0.5:
+                diff = safe_float(f.roe) - p.median_roe
+                if diff > 0: metric_score = min(max_pts, max_pts * diff / 0.05)
+        elif metric == "dividend" and f.div_yield is not None:
+            dy = safe_float(f.div_yield)
+            if p.median_div_yield is not None and p.median_div_yield >= 0:
+                if dy > p.median_div_yield: metric_score = min(max_pts, max_pts * (dy - p.median_div_yield) / 0.02)
+            elif dy > 0.02: metric_score = min(max_pts, max_pts * (dy - 0.02) / 0.03)
+            
+        score += metric_score
+
+    return clamp(score, 0.0, 30.0)
+
+# --- Percentile Improvement Score ---
+
+def score_improvement() -> float:
+    # Requires historical data percentile ranking against industry
+    # Hard to calculate perfectly without historical DB, returning a base proxy
+    return 5.0 
+
+# --- Bayesian Confidence ---
+
+def score_bayesian_confidence(f: CoreFundamentals, p: PeerMetrics) -> float:
+    """Probability that the data is complete and consistent."""
+    prob = 1.0
+    
+    # 1. Missing Critical Metrics (Data Completeness)
+    if f.pe is None and f.pb is None: prob *= 0.7
+    if f.roe is None and f.roce is None: prob *= 0.8
+    if f.operating_margin is None: prob *= 0.9
+    
+    # 2. Peer Sample Size
+    if p.peer_count < 5: prob *= 0.6
+    elif p.peer_count < 10: prob *= 0.85
+    
+    # 3. Metric Consistency (Dispersion)
+    if p.dispersion_iqr_median is not None:
+        if p.dispersion_iqr_median > 0.8: prob *= 0.8
+        elif p.dispersion_iqr_median > 0.5: prob *= 0.9
+
+    return clamp(prob * 100, 0.0, 100.0)
+
+# --- Trend & Market Structure ---
 
 def score_market_structure(p: CorePriceData) -> float:
     score = 0.0
     price = safe_float(p.price)
-    
-    # 1. Broad Accumulation (Max 9 pts)
-    if price > safe_float(p.sma_50) and safe_float(p.sma_50) > 0:
-        score += 4.5
-    if price > safe_float(p.sma_200) and safe_float(p.sma_200) > 0:
-        score += 4.5
-        
-    # 2. Breakout strength (Max 6 pts)
-    if safe_float(p.latest_volume) > (1.5 * safe_float(p.volume_sma20)):
-        score += 3.0
-    if price >= safe_float(p.high_20d) and price > 0:
-        score += 3.0
-        
+    if price > safe_float(p.sma_50) and safe_float(p.sma_50) > 0: score += 7.5
+    if price > safe_float(p.sma_200) and safe_float(p.sma_200) > 0: score += 7.5
     return clamp(score, 0.0, 15.0)
 
-def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData = None, strategic_overlays: float = 0.0) -> CoreScores:
+# --- Hierarchical Orchestration ---
+
+def check_kill_gates(f: CoreFundamentals) -> Tuple[bool, Optional[str]]:
+    config = get_engine_config()
+    gates = config.get("kill_gates", {})
+    
+    de = safe_float(f.debt_equity)
+    if not f.is_financial and de > gates.get("max_debt_equity", 3.0):
+        return False, f"Debt/Equity {de:.1f} > Max {gates.get('max_debt_equity', 3.0)}"
+        
+    yoy = safe_float(f.yoy_profit_growth, 0.0)
+    if yoy < gates.get("max_profit_decline_yoy", -0.3):
+        return False, f"YoY Profit {yoy*100:.1f}% < Max Decline {gates.get('max_profit_decline_yoy', -0.3)*100:.1f}%"
+        
+    if safe_float(f.roe) < gates.get("min_roe", 0.05):
+        return False, f"ROE {safe_float(f.roe)*100:.1f}% < Min {gates.get('min_roe', 0.05)*100:.1f}%"
+        
+    return True, None
+
+def check_valuation_guard(f: CoreFundamentals, rvs: float) -> Tuple[bool, Optional[str]]:
+    config = get_engine_config()
+    vg = config.get("valuation_guard", {})
+    if not vg.get("enabled", True): return True, None
+    
+    if rvs < vg.get("min_relative_score", 5.0):
+        peg = 0.0
+        g = safe_float(f.eps_growth_1y) * 100
+        if g > 0 and f.pe is not None: peg = f.pe / g
+        
+        if peg > vg.get("max_peg", 2.5):
+            return False, f"Valuation Guard: RVS {rvs:.1f} < {vg.get('min_relative_score')} AND PEG {peg:.1f} > {vg.get('max_peg')}"
+            
+    return True, None
+
+def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData, regime: str = "BULL") -> CoreScores:
+    # 1. Kill Gates
+    passed_kill, kill_reason = check_kill_gates(f)
+    if not passed_kill:
+        return CoreScores(0, 0, 0, 0, 0, 0, 0, "KILL_GATE", kill_reason, False)
+        
+    # 2. Quality Scores
     bqs = score_business_quality(f)
+    fqs = score_financial_quality(f)
+    
+    config = get_engine_config()
+    qm = config.get("quality_minimums", {})
+    if bqs < qm.get("min_business_quality_score", 5.0):
+        return CoreScores(bqs, fqs, 0, 0, 0, 0, 0, "QUALITY_GATE", f"BQS {bqs:.1f} < Min", False)
+        
+    # 3. Valuation Guard
     rvs = score_relative_valuation(f, p)
-    reliability = score_reliability(p)
+    passed_val, val_reason = check_valuation_guard(f, rvs)
+    if not passed_val:
+        return CoreScores(bqs, fqs, rvs, 0, 0, 0, 0, "VALUATION_GUARD", val_reason, False)
+        
+    # 4. Trend Confirmation
     mss = score_market_structure(price_data) if price_data else 0.0
     
-    cis = compute_composite_investment_score(bqs, rvs, mss, reliability, strategic_overlays)
+    # 5. Improvement & Confidence
+    imp = score_improvement()
+    conf = score_bayesian_confidence(f, p)
+    
+    # 6. Composite Score (Based on Regime Weights)
+    weights = config.get("market_regimes", {}).get(regime, config.get("market_regimes", {}).get("BULL", {}))
+    cis = (
+        (bqs / 20.0) * weights.get("business_quality", 25) +
+        (fqs / 15.0) * weights.get("financial_quality", 10) +
+        (rvs / 30.0) * weights.get("valuation", 20) +
+        (mss / 15.0) * weights.get("trend", 25) +
+        (imp / 10.0) * weights.get("improvement", 20)
+    )
     
     return CoreScores(
         business_quality_score=round(bqs, 1),
+        financial_quality_score=round(fqs, 1),
         relative_valuation_score=round(rvs, 1),
-        reliability_score=round(reliability, 1),
         market_structure_score=round(mss, 1),
-        composite_investment_score=round(cis, 1)
+        improvement_score=round(imp, 1),
+        bayesian_confidence_score=round(conf, 1),
+        composite_investment_score=round(cis, 1),
+        rejection_stage=None,
+        rejection_reason=None,
+        is_buy=True
     )

@@ -27,7 +27,8 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
     fields = [
         "ticker", "name", "sector", "market_cap_basic", 
         "return_on_equity_fy", "total_revenue_yoy_growth_ttm",
-        "price_earnings_ttm", "price_book_ratio"
+        "price_earnings_ttm", "price_book_ratio",
+        "enterprise_value_ebitda_ratio", "dividend_yield_recent"
     ]
     
     # Check cache freshness first
@@ -81,7 +82,8 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 # Coerce numeric fields to float
                 numeric_cols = [
                     "market_cap_basic", "return_on_equity_fy", 
-                    "total_revenue_yoy_growth_ttm", "price_earnings_ttm", "price_book_ratio"
+                    "total_revenue_yoy_growth_ttm", "price_earnings_ttm", "price_book_ratio",
+                    "enterprise_value_ebitda_ratio", "dividend_yield_recent"
                 ]
                 for col_name in numeric_cols:
                     if col_name in df.columns:
@@ -217,16 +219,6 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
                     "source_type": "FALLBACK"
                 }
                 
-                # Enrich with Tickertape even for fallback
-                tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
-                medians_map[symbol]["tt_indpe"] = tt_indpe
-                medians_map[symbol]["tt_indpb"] = tt_indpb
-                medians_map[symbol]["effective_pe"] = tt_indpe if tt_indpe is not None else medians_map[symbol]["median_pe"]
-                medians_map[symbol]["effective_pb"] = tt_indpb if tt_indpb is not None else medians_map[symbol]["median_pb"]
-                
-                if tt_indpe is not None:
-                    medians_map[symbol]["source_type"] = "INDUSTRY"
-                    
                 continue
                 
             # Refine 1: Sector + Size (0.2x to 5.0x) + Profitability (+/- 10) + Growth (+/- 15)
@@ -270,6 +262,14 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             val_pb = final_peers["price_book_ratio"].median()
             val_roe = final_peers["return_on_equity_fy"].median()
             
+            val_ev_ebitda = None
+            if "enterprise_value_ebitda_ratio" in final_peers.columns:
+                val_ev_ebitda = final_peers["enterprise_value_ebitda_ratio"].median()
+                
+            val_div_yield = None
+            if "dividend_yield_recent" in final_peers.columns:
+                val_div_yield = final_peers["dividend_yield_recent"].median()
+            
             # Compute median PEG
             median_peg = None
             if "total_revenue_yoy_growth_ttm" in final_peers.columns:
@@ -300,6 +300,8 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             "median_pe": float(val_pe) if not pd.isna(val_pe) else None,
             "median_pb": float(val_pb) if not pd.isna(val_pb) else None,
             "median_roe": float(val_roe) if not pd.isna(val_roe) else None,
+            "median_ev_ebitda": float(val_ev_ebitda) if val_ev_ebitda is not None and not pd.isna(val_ev_ebitda) else None,
+            "median_div_yield": float(val_div_yield) if val_div_yield is not None and not pd.isna(val_div_yield) else None,
             "peer_count": conservative_peer_count,
             "peer_count_pe": valid_pe_count,
             "peer_count_pb": valid_pb_count,
@@ -309,47 +311,7 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             "source_type": source_type
         }
         
-        tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
-        medians_map[symbol]["tt_indpe"] = tt_indpe
-        medians_map[symbol]["tt_indpb"] = tt_indpb
-        medians_map[symbol]["effective_pe"] = tt_indpe if tt_indpe is not None else medians_map[symbol]["median_pe"]
-        medians_map[symbol]["effective_pb"] = tt_indpb if tt_indpb is not None else medians_map[symbol]["median_pb"]
-        
-        if source_type == "FALLBACK" and tt_indpe is not None:
-            medians_map[symbol]["source_type"] = "INDUSTRY"
-        
     return medians_map
-
-def fetch_tickertape_industry_metrics(symbol):
-    try:
-        session = get_tt_session()
-        search_res = session.get(f'https://api.tickertape.in/search?text={symbol}', timeout=5)
-        if search_res.status_code == 200:
-            data = search_res.json().get('data', {})
-            stocks = data.get('stocks', [])
-            
-            # Verify symbol match before proceeding
-            target_sid = None
-            for s in stocks:
-                ticker = s.get('ticker', '').upper()
-                # Often tickertape uses NSE symbols directly
-                if ticker == symbol.upper() or ticker.replace("-", "") == symbol.upper():
-                    target_sid = s.get('sid')
-                    break
-                    
-            if target_sid:
-                info_res = session.get(f'https://api.tickertape.in/stocks/info/{target_sid}', timeout=5)
-                if info_res.status_code == 200:
-                    ratios = info_res.json().get('data', {}).get('ratios', {})
-                    indpe = ratios.get('indpe')
-                    indpb = ratios.get('indpb')
-                    indpe = float(indpe) if indpe is not None else None
-                    indpb = float(indpb) if indpb is not None else None
-                    return indpe, indpb
-    except Exception as e:
-        logger.warning(f"Failed to fetch Tickertape metrics for {symbol}: {e}")
-    return None, None
-
 def norm_num(x):
     if x is None or pd.isna(x): return None
     try:
@@ -393,6 +355,9 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
                 raise e
         
         sector = info.get('sector')
+        raw_industry = info.get('industry')
+        from config.industry_normalizer import normalize_industry
+        canonical_industry = normalize_industry(raw_industry)
         pe = norm_num(info.get('trailingPE') or info.get('peRatio'))
         pb = norm_num(info.get('priceToBook') or info.get('pbRatio'))
         roe = norm_pct(info.get('returnOnEquity'))
@@ -406,18 +371,15 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
         if pb is None and bvps is not None and bvps > 0 and current_price is not None:
             pb = current_price / bvps
             
-        tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
-        
         return {
             'sector': sector,
+            'canonical_industry': canonical_industry,
             'pe': pe,
             'pb': pb,
             'roe': roe,
             'eps': eps,
             'bvps': bvps,
-            'div_yield': div_yield,
-            'tt_indpe': tt_indpe,
-            'tt_indpb': tt_indpb
+            'div_yield': div_yield
         }
     except Exception as e:
         logger.warning(f"Failed to extract raw metrics for {symbol}: {e}")
@@ -438,14 +400,13 @@ def refresh_universe_benchmarks():
             extracted = extract_raw_metrics(sym, bse_code)
             if extracted:
                 upsert_universe_stock(
-                    sym, bse_code, extracted['sector'], extracted['pe'], extracted['pb'],
+                    sym, bse_code, extracted['sector'], extracted['canonical_industry'], extracted['pe'], extracted['pb'],
                     extracted['roe'], extracted['eps'], extracted['bvps'],
-                    extracted['div_yield'], extracted['tt_indpe'], extracted['tt_indpb'],
-                    fetch_status="OK", last_error=None
+                    extracted['div_yield'], fetch_status="OK", last_error=None
                 )
             else:
                 upsert_universe_stock(
-                    sym, bse_code, None, None, None, None, None, None, None, None, None,
+                    sym, bse_code, None, None, None, None, None, None, None, None,
                     fetch_status="FAILED", last_error="extract_raw_metrics returned None"
                 )
             time.sleep(1) # rate limit protection

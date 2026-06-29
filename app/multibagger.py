@@ -101,11 +101,10 @@ class StockFundamentals:
     pb: float
     div_yield: float
     sector: str
+    canonical_industry: str
     eps: float
     bvps: float
     roa: Optional[float] = None
-    tt_indpe: Optional[float] = None
-    tt_indpb: Optional[float] = None
 
 @dataclass
 class ScreenerResult:
@@ -162,7 +161,11 @@ def get_nse_session() -> requests.Session:
     session.headers.update(HTTP_HEADERS)
     return session
 
-
+def safe_float(val, default=0.0):
+    try:
+        return float(val) if val is not None else default
+    except:
+        return default
 
 def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
@@ -319,28 +322,27 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
     if symbol not in cache:
         return None
     try:
-        entry = cache[symbol]
-        fetched_at = datetime.fromisoformat(entry["fetched_at"])
+        data = cache[symbol]
+        fetched_at = datetime.fromisoformat(data["fetched_at"])
         age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
         if age_days < 7:
             return StockFundamentals(
                 symbol=symbol,
-                market_cap=entry["market_cap"],
-                debt_equity=entry["debt_equity"],
-                operating_cash_flow=entry["operating_cash_flow"],
-                roe=entry["roe"],
-                revenue_growth=entry["revenue_growth"],
-                earnings_growth=entry["earnings_growth"],
-                operating_margin=entry["operating_margin"],
-                pe=entry["pe"],
-                pb=entry["pb"],
-                div_yield=entry["div_yield"],
-                sector=entry["sector"],
-                eps=entry.get("eps"),
-                bvps=entry.get("bvps"),
-                roa=entry.get("roa"),
-                tt_indpe=entry.get("tt_indpe"),
-                tt_indpb=entry.get("tt_indpb")
+                market_cap=data["market_cap"],
+                debt_equity=data["debt_equity"],
+                operating_cash_flow=data["operating_cash_flow"],
+                roe=data["roe"],
+                revenue_growth=data["revenue_growth"],
+                earnings_growth=data["earnings_growth"],
+                operating_margin=data["operating_margin"],
+                pe=data["pe"],
+                pb=safe_float(data.get("pb")),
+                div_yield=safe_float(data.get("div_yield")),
+                sector=data.get("sector", "Unknown"),
+                canonical_industry=data.get("canonical_industry", "DEFAULT"),
+                eps=safe_float(data.get("eps")),
+                bvps=safe_float(data.get("bvps")),
+                roa=safe_float(data.get("roa"))
             )
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -356,8 +358,6 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
         try:
             info = ticker.info
             if info and "marketCap" in info:
-                from valuation_utils import fetch_tickertape_industry_metrics
-                tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
                 rate_limiter.record_success()
                 
                 fund = StockFundamentals(
@@ -370,14 +370,13 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
                     earnings_growth=info.get("earningsGrowth"),
                     operating_margin=info.get("operatingMargins"),
                     pe=info.get("trailingPE"),
-                    pb=info.get("priceToBook"),
-                    div_yield=info.get("dividendYield"),
+                    pb=safe_float(info.get("priceToBook")),
+                    div_yield=safe_float(info.get("dividendYield")),
                     sector=info.get("sector", "Unknown"),
-                    eps=info.get("trailingEps"),
-                    bvps=info.get("bookValue"),
-                    roa=info.get("returnOnAssets"),
-                    tt_indpe=tt_indpe,
-                    tt_indpb=tt_indpb
+                    canonical_industry=info.get("industry", "DEFAULT"),
+                    eps=safe_float(info.get("trailingEps")),
+                    bvps=safe_float(info.get("bookValue")),
+                    roa=safe_float(info.get("returnOnAssets"))
                 )
                 
                 try:
@@ -396,9 +395,7 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
                         operating_margin=fund.operating_margin,
                         debt_equity=fund.debt_equity,
                         operating_cashflow=fund.operating_cash_flow,
-                        roa=fund.roa,
-                        tt_indpe=fund.tt_indpe,
-                        tt_indpb=fund.tt_indpb
+                        roa=fund.roa
                     )
                 except Exception as snap_err:
                     logger.warning(f"Failed to save fundamental snapshot for {symbol}: {snap_err}")
@@ -916,11 +913,10 @@ def start(debug_limit: int = None):
                         "pb": fund.pb,
                         "div_yield": fund.div_yield,
                         "sector": fund.sector,
+                        "canonical_industry": fund.canonical_industry,
                         "eps": fund.eps,
                         "bvps": fund.bvps,
-                        "roa": fund.roa,
-                        "tt_indpe": fund.tt_indpe,
-                        "tt_indpb": fund.tt_indpb
+                        "roa": fund.roa
                     }
             except Exception as e:
                 logger.exception(f"Error fetching fundamentals for {sym}")
@@ -928,9 +924,19 @@ def start(debug_limit: int = None):
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
     
-    # Filter fundamentals matching Kill Gates for sector median calculations
-    passed_count = sum(1 for f in fundamentals_list if passes_kill_gates(f)[0])
-    logger.info(f"🛡️ {passed_count}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
+    # Check Market Regime
+    market_regime = "BULL" # Defaulting for now
+    try:
+        nifty = price_data_map.get("^NSEI")
+        if nifty and nifty.sma_200 > 0:
+            if nifty.price > nifty.sma_200:
+                market_regime = "BULL"
+            else:
+                market_regime = "BEAR"
+    except Exception as e:
+        logger.warning("Could not determine market regime, defaulting to BULL")
+        
+    logger.info(f"📊 Detected Market Regime: {market_regime}")
     
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     from valuation_utils import compute_peer_medians
@@ -946,9 +952,136 @@ def start(debug_limit: int = None):
         "🟡 WATCHLIST CANDIDATE": []
     }
     
+    import json
+    import os
+    from datetime import datetime
+    
+    # Init Rejection Log
+    log_date = datetime.now().strftime('%Y-%m-%d')
+    rejection_log_path = f"logs/rejections_{log_date}.jsonl"
+    os.makedirs("logs", exist_ok=True)
+    
     for f in fundamentals_list:
         sym = f.symbol
         price_data = price_data_map.get(sym)
+        if not price_data:
+            continue
+            
+        alert_triggered = False
+        alert_reason = ""
+        cp = None
+        is_fallback = True
+        
+        # Prepare Core Fundamentals
+        cf = CoreFundamentals(
+            symbol=sym,
+            sector=f.sector,
+            canonical_industry=f.canonical_industry,
+            pe=f.pe,
+            pb=f.pb,
+            roe=f.roe,
+            roce=None, # Ticker tape data doesn't give ROCE easily here
+            debt_equity=f.debt_equity,
+            operating_margin=f.operating_margin,
+            revenue_growth_3y=None,
+            revenue_growth_5y=None,
+            eps_growth_3y=None,
+            eps_growth_5y=None,
+            revenue_growth_1y=f.revenue_growth,
+            eps_growth_1y=f.earnings_growth,
+            fcf_margin=None,
+            cfo_pat_ratio=None,
+            operating_cash_flow=f.operating_cash_flow,
+            yoy_profit_growth=f.earnings_growth,
+            net_losses_3y=False,
+            div_yield=f.div_yield,
+            eps=f.eps,
+            bvps=f.bvps,
+            roa=f.roa,
+            is_financial=is_financial_sector(f.sector)
+        )
+        
+        p_data = peer_medians.get(sym, {})
+        cp = PeerMetrics(
+            median_pe=p_data.get("median_pe"),
+            median_pb=p_data.get("median_pb"),
+            median_roe=p_data.get("median_roe", 0) / 100.0 if p_data.get("median_roe") else None,
+            median_ev_ebitda=p_data.get("median_ev_ebitda"),
+            median_div_yield=p_data.get("median_div_yield", 0) / 100.0 if p_data.get("median_div_yield") else None,
+            median_peg=p_data.get("median_peg"),
+            peer_count=p_data.get("peer_count", 0),
+            dispersion_iqr_median=p_data.get("dispersion_iqr_median"),
+            source_type=p_data.get("source_type", "FALLBACK"),
+            is_complete=(p_data.get("median_pe") is not None and p_data.get("median_pb") is not None),
+            missing_critical=(p_data.get("median_pe") is None),
+            missing_minor=False
+        )
+        is_fallback = (cp.source_type == "FALLBACK")
+        
+        c_price = CorePriceData(
+            price=price_data.price,
+            sma_50=price_data.sma_50,
+            sma_200=price_data.sma_200,
+            high_20d=price_data.high_20d,
+            latest_volume=price_data.latest_volume,
+            volume_sma20=price_data.volume_sma20
+        )
+        
+        # Generate Unified Scores with new Hierarchical Engine
+        scores = generate_core_scores(cf, cp, c_price, regime=market_regime)
+        
+        if not scores.is_buy:
+            # Log rejection
+            rej_data = {
+                "symbol": sym,
+                "timestamp": datetime.now().isoformat(),
+                "phase": scores.rejection_stage,
+                "reason": scores.rejection_reason,
+                "scores": {
+                    "bqs": scores.business_quality_score,
+                    "fqs": scores.financial_quality_score,
+                    "rvs": scores.relative_valuation_score,
+                    "trend": scores.market_structure_score
+                }
+            }
+            with open(rejection_log_path, "a") as rf:
+                rf.write(json.dumps(rej_data) + "\n")
+                
+            status = "INVALIDATED"
+            bucket = "Invalidated"
+            notes = f"{scores.rejection_stage}: {scores.rejection_reason}"
+            cqs = 0.0
+            pas = 0.0
+            trend = 0.0
+            total = 0.0
+            buy_low = 0
+            buy_high = 0
+        else:
+            cqs = scores.business_quality_score
+            pas = scores.relative_valuation_score
+            trend = scores.market_structure_score
+            total = scores.composite_investment_score
+            
+            # Use Configured Buy Zone
+            from core_score_engine import get_engine_config
+            cfg = get_engine_config().get("buy_zone", {})
+            buffer = cfg.get("breakout_buffer", 0.02)
+            
+            buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (price_data.price * 0.5)
+            buy_high = min(price_data.price * (1 + buffer), price_data.high_20d)
+            if buy_low >= buy_high:
+                buy_low = buy_high * 0.9
+                
+            alert_triggered, alert_reason = should_trigger_alert(price_data, scores)
+            
+            if alert_triggered:
+                status = "ALERT_TRIGGERED"
+                bucket = "Value Breakout"
+            else:
+                status = "WAITING_BUY_ZONE"
+                bucket = "Watchlist Waiting"
+                
+            notes = alert_reason
         if not price_data:
             continue
             
@@ -1020,6 +1153,8 @@ def start(debug_limit: int = None):
                 median_pe=p_data.get("median_pe"),
                 median_pb=p_data.get("median_pb"),
                 median_roe=p_data.get("median_roe", 0) / 100.0 if p_data.get("median_roe") else None,
+                median_ev_ebitda=p_data.get("median_ev_ebitda"),
+                median_div_yield=p_data.get("median_div_yield", 0) / 100.0 if p_data.get("median_div_yield") else None,
                 median_peg=p_data.get("median_peg"),
                 peer_count=p_data.get("peer_count", 0),
                 dispersion_iqr_median=p_data.get("dispersion_iqr_median"),
