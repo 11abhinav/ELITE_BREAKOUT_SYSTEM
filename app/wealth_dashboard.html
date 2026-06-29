@@ -777,12 +777,12 @@
           <th onclick="sortMbWatchlist('fair_value')" style="cursor:pointer" title="Sort by Fair Value">Sector Relative FV ↕</th>
           <th>Buy Zone</th>
           <th onclick="sortMbWatchlist('dist_to_buy')" style="cursor:pointer" title="Sort by Distance to Buy Zone">Dist. to Buy ↕</th>
-          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by CQS">CQS ↕</th>
-          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by PAS">PAS ↕</th>
+          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by BQS">BQS ↕</th>
+          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by RVS">RVS ↕</th>
           <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
-          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Total Score">Total ↕</th>
+          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by CIS">CIS ↕</th>
           <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
-          <th>Value Add</th>
+          <th>Rel. Value Band</th>
           <th onclick="sortMbWatchlist('status')" style="cursor:pointer" title="Sort by Status">Status ↕</th>
           <th>Act</th>
         </tr></thead>
@@ -1848,10 +1848,13 @@ function renderMultibaggerWatchlist() {
     const fv = parseFloat(item.fair_value) || 0;
     const bzLow = parseFloat(item.buy_zone_low) || 0;
     const bzHigh = parseFloat(item.buy_zone_high) || 0;
-    const cqs = parseFloat(item.growth_score) || 0;
-    const pas = parseFloat(item.value_score) || 0;
+    const bqs = parseFloat(item.growth_score) || 0;
+    const rvs = parseFloat(item.value_score) || 0;
     const trend = parseFloat(item.trend_score) || 0;
-    const total = parseFloat(item.total_score) || 0;
+    const cis = parseFloat(item.total_score) || 0;
+    const bear_value = parseFloat(item.bear_value) || 0;
+    const bull_value = parseFloat(item.bull_value) || 0;
+    const valConf = parseInt(item.valuation_confidence) || 0;
     const bucket = item.bucket || '-';
     const notes = item.notes || '-';
     const status = item.status || '-';
@@ -1883,7 +1886,9 @@ function renderMultibaggerWatchlist() {
     else if (status === 'INVALIDATED') statusClass = 'sell';
 
     // Score color gradient
-    const scoreColor = total >= 15 ? 'var(--green)' : total >= 10 ? 'var(--amber)' : total >= 5 ? 'var(--text)' : 'var(--muted)';
+    const cisColor = cis >= 85 ? 'var(--green)' : cis >= 70 ? 'var(--amber)' : cis >= 50 ? 'var(--text)' : 'var(--muted)';
+
+    const bandHtml = bear_value > 0 ? `<div style="font-size:11px; white-space:nowrap;">₹${bear_value.toLocaleString('en-IN')} - ₹${bull_value.toLocaleString('en-IN')}</div><div style="font-size:9px; color:var(--muted); margin-top:2px;">Reliability: ${valConf}/10</div>` : '-';
 
     return `
       <tr>
@@ -1892,12 +1897,12 @@ function renderMultibaggerWatchlist() {
         <td class="mono" style="color:var(--accent);">₹${fv > 0 ? fv.toFixed(2) : '-'}</td>
         <td class="mono" style="font-size:11px;">₹${bzLow.toFixed(0)} – ₹${bzHigh.toFixed(0)}</td>
         <td class="mono" style="color:${distColor}; font-weight:600;">${distLabel}</td>
-        <td class="mono">${cqs.toFixed(1)}</td>
-        <td class="mono">${pas.toFixed(1)}</td>
+        <td class="mono">${bqs.toFixed(1)}</td>
+        <td class="mono">${rvs.toFixed(1)}</td>
         <td class="mono">${trend.toFixed(1)}</td>
-        <td class="mono" style="color:${scoreColor}; font-weight:700;">${total.toFixed(1)}</td>
+        <td class="mono" style="color:${cisColor}; font-weight:700;">${cis.toFixed(1)}</td>
         <td style="font-size:11px;">${bucket}</td>
-        <td style="font-size:11px; color:var(--text);"><div style="max-width:200px; white-space:normal; line-height:1.2;">${notes}</div></td>
+        <td class="mono">${bandHtml}</td>
         <td><span class="badge badge-${statusClass}">${status.replace('_', ' ')}</span></td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>

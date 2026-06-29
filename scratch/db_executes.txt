@@ -1,0 +1,365 @@
+            cur.execute("SELECT 1")
+            cur.execute("SET TIME ZONE 'Asia/Kolkata'")
+                cur.execute('''
+                    VALUES (%s, %s, %s, %s)
+                cur.execute("""
+                cur.execute("""
+                cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+                    cur.execute(col_sql)
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS invalidation_level REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS max_extension_atr REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS buffer_pct REAL")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS armed_at TIMESTAMPTZ")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS error_severity TEXT DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS error_count INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS first_error_at TEXT DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS scheduled_for TEXT DEFAULT NULL")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_fetch_errors_uni ON fetch_errors (source_name, scanner_name, symbol, interval, category)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_cooldown ON alerts (symbol, scanner, breakout_type, alert_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_name ON scanner_health(scanner_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_fetch_health_source ON data_fetch_health(source_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_cache_metadata_key ON data_cache_metadata(key)")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("ALTER TABLE data_fetch_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
+                cur.execute("""
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
+                cur.execute("""
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_entry INTEGER")
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_current INTEGER")
+                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS re_eval_due_date DATE")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_status ON telegram_queue(status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS entry_signal TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_signal TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_price REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_date TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_time TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS is_closed BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS pnl_rs REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS pnl_pct REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_pct REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_amount REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_shares INTEGER")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS portfolio_bucket TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS valuation_score REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS current_score REAL")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_score INTEGER")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_confidence TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS data_quality TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS fallback_timestamp TIMESTAMPTZ")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_symbol ON wealth_buy_alert(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_date ON wealth_buy_alert(alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_status ON wealth_buy_alert(status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_is_closed ON wealth_buy_alert(is_closed)")
+                cur.execute("""
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+                cur.execute("DROP INDEX IF EXISTS unique_wealth_alert")
+                cur.execute("UPDATE wealth_buy_alert SET breakout_type = '' WHERE breakout_type IS NULL")
+                cur.execute("ALTER TABLE wealth_buy_alert ALTER COLUMN breakout_type SET DEFAULT ''")
+                cur.execute("ALTER TABLE wealth_buy_alert ALTER COLUMN breakout_type SET NOT NULL")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
+                cur.execute("""
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'pending'")
+                cur.execute("UPDATE users SET account_status = 'approved' WHERE is_active = TRUE AND (account_status = 'pending' OR account_status IS NULL)")
+                cur.execute("UPDATE users SET account_status = 'rejected' WHERE is_active = FALSE AND (account_status IS NULL)")
+                cur.execute("UPDATE users SET email = username || '@elitebreakout.temp' WHERE email IS NULL")
+                cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL")
+                cur.execute("UPDATE users SET password_hash = 'PLACEHOLDER' WHERE password_hash IS NULL")
+                cur.execute("ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL")
+                cur.execute("""
+                cur.execute("""
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
+                cur.execute("""
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)")
+                cur.execute("""
+                            mcur.execute("""
+                cur.execute("""
+                    WHERE symbol = %s AND scanner = 'REVERSAL'
+                    cur.execute("""
+                    cur.execute("""
+                        SET status     = %s,
+                            exit_price = %s,
+                            pnl_pct    = %s,
+                            pnl_rs     = %s,
+                        cur.execute("SELECT symbol FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("""
+                WHERE symbol = %s
+                AND scanner = %s
+                AND breakout_type = %s
+                AND alert_time > %s
+            cur.execute("""
+                WHERE scanner = %s
+                AND alert_time::timestamp with time zone > %s
+            cur.execute("""
+                cur.execute(f"""
+                    VALUES (%s, %s, %s)
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                    WHERE alert_date = %s
+                cur.execute(f"UPDATE alerts SET {col} = TRUE WHERE id = %s", (alert_id,))
+                cur.execute("""
+                    VALUES (%s, %s)
+                cur.execute("SELECT value FROM system_state WHERE key = %s", (key,))
+            cur.execute("""
+                WHERE symbol = %s AND pdf_url = %s
+                cur.execute("SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3")
+                cur.execute("SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3")
+                cur.execute("SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3")
+                cur.execute("SELECT symbol, created_at FROM ai_concall_cache_v3 ORDER BY created_at DESC LIMIT 1")
+                cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache")
+                cur.execute("SELECT symbol, updated_at FROM promoter_pledge_cache ORDER BY updated_at DESC LIMIT 1")
+            cur.execute("""
+                WHERE symbol = %s AND created_at::TIMESTAMP WITH TIME ZONE >= NOW() - INTERVAL '1 day' * %s
+                cur.execute("""
+                    VALUES (%s, %s, %s)
+                cur.execute("SELECT key, last_fetched, cadence_seconds, rows, etag, source, updated_at FROM data_cache_metadata WHERE key = %s", (key,))
+                cur.execute("""
+                    WHERE regime = %s 
+                cur.execute("""
+                    VALUES (%s, %s, %s)
+                cur.execute("""
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    cur.execute("""
+                        VALUES (%s, %s, 0, TRUE, %s)
+                    cur.execute("""
+                        VALUES (%s, %s, %s, %s, %s, FALSE, %s)
+                    cur.execute("""
+                        VALUES (%s, %s, %s, 1, %s, FALSE, %s)
+                cur.execute("""
+                    WHERE source_name = %s
+                cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s", (f'External:{source_name}',))
+                cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s", (f'External:{base}',))
+                        cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s", (sc,))
+                cur.execute("""
+                    WHERE scanner_name = %s
+                cur.execute("""
+                    VALUES (%s, %s, %s, %s, %s, 1, %s, %s, %s, FALSE)
+                cur.execute("""
+                    LIMIT %s
+                cur.execute("""
+                    WHERE scanner_name = %s 
+                cur.execute("""
+                    WHERE scanner_name = %s AND is_acknowledged = FALSE
+                cur.execute("""
+                    WHERE id = %s
+                cur.execute("SELECT scanner_name FROM fetch_errors WHERE id = %s", (error_id,))
+                cur.execute("""
+                    WHERE scanner_name = %s AND is_acknowledged = FALSE
+                    cur.execute("""
+                        SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                        WHERE scanner_name = %s
+                cur.execute("""
+                cur.execute("""
+                    SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                cur.execute("""
+                    VALUES ('DEPOSIT', %s, 'User deposit via admin dashboard')
+                cur.execute("""
+                cur.execute("""
+                    cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("SELECT source_name, last_success, last_failure, consecutive_failures, error_msg, is_acknowledged, updated_at FROM data_fetch_health ORDER BY source_name")
+            cur.execute("""
+            cur.execute("""
+                VALUES (%s, %s, %s, %s)
+            cur.execute("DELETE FROM manual_portfolio WHERE id = %s", (entry_id,))
+                cur.execute("""
+                cur.execute("""
+                    VALUES (%s, %s, %s)
+                logger.info(f"✅ [DB] Successfully executed ON CONFLICT DO UPDATE for {name}")
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s AND date = %s", (name, today))
+                cur.execute("DELETE FROM parquet_cache WHERE name = %s AND date < %s", (name, today))
+            cur.execute("""
+                WHERE table_name = %s
+                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" < %s', (today_str,))
+                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" = %s', (today_str,))
+                cur.execute(f"TRUNCATE TABLE {table_name}")
+                cur.execute(insert_query, tuple(vals))
+                cur.execute("""
+                cur.execute("""
+                cur.execute(f'SELECT COUNT(*) FROM daily_watchlist WHERE "{date_col}" = %s', (today_str,))
+                cur.execute("SELECT 1 FROM parquet_cache WHERE name = 'daily_builder' AND date = %s", (today_str,))
+                cur.execute("""
+                    VALUES (%s, NOW(), NOW(), %s, %s)
+                cur.execute("""
+                    WHERE checkpoint_name = %s
+                cur.execute("""
+                    VALUES (%s, %s, %s, NOW())
+                cur.execute("""
+                    LIMIT %s
+                cur.execute("""
+                    WHERE id = %s
+                cur.execute("""
+                    WHERE id = %s AND retry_count < 3
+                cur.execute("""
+                    AND created_at < NOW() - INTERVAL %s
+                cur.execute("""
+                    WHERE scanner = %s
+                    AND DATE(alert_time) = %s
+                    cur.execute("""
+                        WHERE regime = %s
+                cur.execute("""
+                    WHERE regime = %s AND status = 'PENDING'
+                cur.execute("""
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                cur.execute("""
+                cur.execute("""
+                    WHERE id = %s AND status = 'PENDING'
+                cur.execute("""
+                    VALUES (%s, %s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                cur.execute("""
+                    SET status = 'APPROVED', approved_by = %s, approved_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT,
+                        admin_comment = %s, applied_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                    WHERE id = %s
+                cur.execute("""
+                    SET status = 'REJECTED', approved_by = %s, rejected_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT,
+                        admin_comment = %s
+                    WHERE id = %s AND status = 'PENDING'
+                    cur.execute("""
+                        WHERE regime = %s
+                    cur.execute("""
+                        cur.execute("""
+                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    cur.execute("""
+                        WHERE symbol = %s AND alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
+                    cur.execute("""
+                        WHERE alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
+                cur.execute("""
+                    SET status = %s, current_price = %s, status_updated_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                    WHERE id = %s
+                cur.execute("""
+                    WHERE alert_date = %s
+                cur.execute("""
+                cur.execute("""
+                    AND exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
+                        cur.execute("""
+                            WHERE symbol = %s AND is_closed = FALSE
+                        cur.execute("""
+                                exit_price = %s, 
+                                exit_date = %s, 
+                                exit_time = %s,
+                cur.execute("""
+                cur.execute("""
+                    SET current_price = %s, status_updated_at = NOW()
+                    WHERE symbol = %s AND is_closed = FALSE
+                                cur.execute("""
+                                    SET current_price = %s, current_score = %s, status_updated_at = NOW()
+                                    WHERE symbol = %s AND is_closed = FALSE
+                cur.execute("SELECT user_id FROM users WHERE username = %s", (username,))
+                cur.execute("""
+                    WHERE user_id = %s AND ip_address = %s AND is_online = TRUE
+                    cur.execute("""
+                        WHERE id = %s
+                    cur.execute("""
+                        VALUES (%s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, TRUE)
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                    VALUES (%s, %s, %s)
+                cur.execute("""
+                    WHERE user_id = %s 
+                cur.execute("""
+                    WHERE user_id = %s AND is_from_admin = %s AND is_read = FALSE
+                cur.execute("""
+                cur.execute("""
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                cur.execute("""
+                    WHERE symbol = %s 
+                        SELECT 1 FROM wealth_buy_alert WHERE symbol = %s AND is_closed = FALSE
+                cur.execute("""
+                cur.execute("""
+                cur.execute("""
+                    SET current_state = %s,
+                        cooldown_until = NOW() + interval '%s hours',
+                    WHERE symbol = %s
+                # If a stock was confirmed or ready but didn't execute by end of session, downgrade it
+                cur.execute("""
+                cur.execute("""
+            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+                cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+                    cur.execute(
+                        "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = FALSE WHERE id = %s", (alert_id,))
+                cur.execute(
+                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+                cur.execute("SELECT entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id = %s", (alert_id,))
+                    cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (alert_id,))
+                cur.execute(
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
+                    cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
+                    cur.execute(
+                        "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
+            format_strings = ','.join(['%s'] * len(alert_ids))
+            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
+                    cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (r[0],))
+                cur.execute(
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
+                    cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, a_id))
+                cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
+                cur.execute("""
+                    VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
+                cur.execute("""
+                    WHERE LOWER(username) = %s OR LOWER(email) = %s OR mobile = %s
+                cur.execute("""
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
+                cur.execute("""
+                    WHERE LOWER(username) = %s OR LOWER(email) = %s
+                        cur.execute("UPDATE users SET failed_login_attempts = 0, last_login = NOW() WHERE user_id = %s", (row[0],))
+                    cur.execute("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE user_id = %s", (row[0],))
+                    cur.execute("SELECT failed_login_attempts FROM users WHERE user_id = %s", (row[0],))
+                cur.execute(f"""
+                    WHERE (username ILIKE %s 
+                       OR email ILIKE %s 
+                       OR mobile ILIKE %s
+                cur.execute("""
+                    SET password_hash = %s, failed_login_attempts = 0, must_change_password = %s
+                    WHERE user_id = %s
+                cur.execute("""
+                    WHERE user_id = %s
+                    cur.execute("""
+                        VALUES (%s, %s, %s, %s)
+                    cur.execute("DELETE FROM push_subscriptions WHERE endpoint = %s", (endpoint,))
+                cur.execute("SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions")

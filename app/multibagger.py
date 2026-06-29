@@ -26,6 +26,7 @@ import requests
 import threading
 import pandas as pd
 import yfinance as yf
+from core_score_engine import CoreFundamentals, PeerMetrics, generate_core_scores, CorePriceData
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -102,9 +103,9 @@ class StockFundamentals:
     sector: str
     eps: float
     bvps: float
-    roa: float = None
-    tt_indpe: float = None
-    tt_indpb: float = None
+    roa: Optional[float] = None
+    tt_indpe: Optional[float] = None
+    tt_indpb: Optional[float] = None
 
 @dataclass
 class ScreenerResult:
@@ -121,14 +122,14 @@ class ScreenerResult:
     status: str
     notes: str
     change_pct: float = 0.0
-    bear_value: float = None
-    bull_value: float = None
-    valuation_method: str = None
-    valuation_confidence: str = None
-    peer_count: int = None
-    target_multiple: float = None
-    current_multiple: float = None
-    peer_multiple: float = None
+    bear_value: Optional[float] = None
+    bull_value: Optional[float] = None
+    valuation_method: Optional[str] = None
+    valuation_confidence: Optional[str] = None
+    peer_count: Optional[int] = None
+    target_multiple: Optional[float] = None
+    current_multiple: Optional[float] = None
+    peer_multiple: Optional[float] = None
 
 class YFinanceRateLimitGuard:
     """Manages rate limit state and backoff lock-freely (sleep outside lock)."""
@@ -453,372 +454,48 @@ def passes_kill_gates(f: StockFundamentals) -> bool:
         return False
         
     return True
-
-def calculate_cqs(f: StockFundamentals) -> float:
-    """Calculate Company Quality / Growth Score out of 10 points (0 pts if missing)."""
-    score = 0.0
-    
-    # 1. ROE (Max 2 pts: >=15% = 2, >=10% = 1)
-    if f.roe is not None:
-        roe_val = float(f.roe)
-        if roe_val >= 0.15:
-            score += 2.0
-        elif roe_val >= 0.10:
-            score += 1.0
-            
-    # 2. Leverage/Quality (Max 2 pts)
-    if is_financial_sector(f.sector):
-        # Financials use ROA instead of D/E
-        if getattr(f, "roa", None) is not None:
-            roa_val = float(f.roa)
-            if roa_val >= 0.08:
-                score += 2.0
-            elif roa_val >= 0.04:
-                score += 1.0
-    else:
-        # Non-Financials use D/E: <=0.50 = 2, <=1.00 = 1
-        if f.debt_equity is not None:
-            de_val = float(f.debt_equity)
-            de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-            if de_ratio <= 0.50:
-                score += 2.0
-            elif de_ratio <= 1.00:
-                score += 1.0
-            
-    # 3. Revenue Growth (Max 2 pts: >=10% = 2, >=5% = 1)
-    if f.revenue_growth is not None:
-        rg = float(f.revenue_growth)
-        if rg >= 0.10:
-            score += 2.0
-        elif rg >= 0.05:
-            score += 1.0
-        
-    # 4. Earnings Growth (Max 2 pts: >=10% = 2, >=5% = 1)
-    if f.earnings_growth is not None:
-        eg = float(f.earnings_growth)
-        if eg >= 0.10:
-            score += 2.0
-        elif eg >= 0.05:
-            score += 1.0
-        
-    # 5. Operating Margin (Max 1 pt: >=15% = 1, >=10% = 0.5)
-    if f.operating_margin is not None:
-        opm = float(f.operating_margin)
-        if opm >= 0.15:
-            score += 1.0
-        elif opm >= 0.10:
-            score += 0.5
-
-    # 6. EPS Floor (Max 1 pt)
-    if f.eps is not None:
-        eps_val = float(f.eps)
-        eg = float(f.earnings_growth) if f.earnings_growth is not None else 0.0
-        if eps_val >= 5.0 or (eps_val >= 1.0 and eg >= 0.05):
-            score += 1.0
-        
-    return round(score, 1)
-
-# The compute_peer_medians function has been moved to valuation_utils.py
-
-def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
-    """Calculate Value Score (PAS) out of 10 points (0 pts if missing). Use peer medians."""
-    score = 0.0
-    
-    # Financial Sector valuation (rely on P/B and ROE compared to sector peer bands instead of P/E)
-    if is_financial_sector(f.sector):
-        # 1. P/B vs Sector (Max 5 pts: <= sector median = 5, <= 1.2 * sector median = 3)
-        if f.pb is not None and f.pb > 0:
-            peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else medians.get(f.sector, {}).get("median_pb")
-            if peer_pb is not None:
-                if f.pb <= peer_pb:
-                    score += 5.0
-                elif f.pb <= peer_pb * 1.2:
-                    score += 3.0
-            else:
-                # Fallback to absolute
-                if f.pb <= 2.0:
-                    score += 5.0
-                elif f.pb <= 3.5:
-                    score += 3.0
-                    
-        # 2. ROE Profitability vs Sector (Max 5 pts: >= sector median = 5, >= 0.8 * sector median = 3)
-        if f.roe is not None:
-            peer_roe = medians.get(f.sector, {}).get("median_roe")
-            if peer_roe is not None:
-                if f.roe >= peer_roe:
-                    score += 5.0
-                elif f.roe >= peer_roe * 0.8:
-                    score += 3.0
-            else:
-                # Fallback to absolute
-                if f.roe >= 0.16:
-                    score += 5.0
-                elif f.roe >= 0.12:
-                    score += 3.0
-    else:
-        # Non-Financials: standard P/E (Max 4) & P/B (Max 3) vs Sector, Div Yield (Max 1), and Low 52W (evaluated at alert step, now rescaled)
-        # Note: 2 points for 52W low distance is evaluated globally in should_trigger_alert.
-        # This function returns a fundamental-only value score out of 10 points.
-        
-        # 1. P/E vs Sector (Max 5 pts: <= median = 5, <= 1.2 * median = 3)
-        if f.pe is not None and f.pe > 0:
-            peer_pe = f.tt_indpe if getattr(f, "tt_indpe", None) else medians.get(f.sector, {}).get("median_pe")
-            if peer_pe is not None:
-                if f.pe <= peer_pe:
-                    score += 5.0
-                elif f.pe <= peer_pe * 1.2:
-                    score += 3.0
-            else:
-                if f.pe <= 20.0:
-                    score += 5.0
-                elif f.pe <= 35.0:
-                    score += 3.0
-                    
-        # 2. P/B vs Sector (Max 4 pts: <= median = 4, <= 1.2 * median = 2)
-        if f.pb is not None and f.pb > 0:
-            peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else medians.get(f.sector, {}).get("median_pb")
-            if peer_pb is not None:
-                if f.pb <= peer_pb:
-                    score += 4.0
-                elif f.pb <= peer_pb * 1.2:
-                    score += 2.0
-            else:
-                if f.pb <= 2.5:
-                    score += 4.0
-                elif f.pb <= 4.5:
-                    score += 2.0
-                    
-        # 3. Dividend Yield (Max 1 pt)
-        if f.div_yield is not None and float(f.div_yield) >= 0.005:
-            score += 1.0
-            
-    return round(score, 1)
-
-def calculate_trend_score(price_data: StockPriceData) -> float:
-    """Calculate Trend Score out of 10 points based on broad accumulation and breakout triggers."""
-    score = 0.0
-    
-    # 1. Broad Accumulation (Max 6 pts)
-    # Price above 50-DMA (+3)
-    if price_data.price > price_data.sma_50:
-        score += 3.0
-    # Price above 200-DMA (+3)
-    if price_data.price > price_data.sma_200:
-        score += 3.0
-        
-    # 2. Breakout day/strength signal (Max 4 pts)
-    # Volume spike: latest volume > 1.5x average 20-day volume (+2)
-    if price_data.latest_volume > (1.5 * price_data.volume_sma20):
-        score += 2.0
-    # Price breakout: close price matches or exceeds 20-day high (+2)
-    if price_data.price >= price_data.high_20d:
-        score += 2.0
-        
-    return round(score, 1)
-
-def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> FairValueResult:
-    info = medians.get(f.sector, {}) if medians else {}
-
-    peer_count_raw = info.get("peer_count", 0)
-    peer_count_pe = info.get("peer_count_pe", peer_count_raw)
-    peer_count_pb = info.get("peer_count_pb", peer_count_raw)
-    
-    # Prefer Tickertape, fallback to DB medians
-    peer_pe = f.tt_indpe if getattr(f, "tt_indpe", None) else info.get("median_pe")
-    peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else info.get("median_pb")
-    
-    # If using Tickertape, assume enough peers exist for the metric
-    if getattr(f, "tt_indpe", None):
-        peer_count_pe = max(peer_count_pe, 8)
-    if getattr(f, "tt_indpb", None):
-        peer_count_pb = max(peer_count_pb, 8)
-
-    min_peer_count = 8
-
-    try:
-        if is_financial_sector(f.sector):
-            current_pb = float(f.pb) if f.pb and f.pb > 0 else None
-            bvps = float(f.bvps) if f.bvps and f.bvps > 0 else None
-            peer_count = peer_count_pb
-
-            if bvps and peer_pb and peer_count and peer_count >= min_peer_count:
-                # 40% sector median, 60% own structural premium (allows AMCs/Exchanges to keep their high PB)
-                raw_target_pb = (0.40 * float(peer_pb)) + (0.60 * current_pb if current_pb else 0.0)
-                
-                # Dynamic cap: allow up to 3x sector median, or 85% of current PB (whichever is higher)
-                max_pb = max(3.0 * float(peer_pb), (0.85 * current_pb) if current_pb else 0.0)
-                target_pb = clamp(raw_target_pb, 0.8, max_pb)
-                
-                fair_value = target_pb * bvps
-                fair_value = min(fair_value, price_data.price * 2.0)
-                bear_value = max(bvps * max(0.85 * target_pb, 0.8), price_data.price * 0.85)
-                bull_value = bvps * min(target_pb * 1.15, max_pb)
-
-                confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
-                return FairValueResult(
-                    fair_value=round(fair_value, 2),
-                    bear_value=round(bear_value, 2),
-                    bull_value=round(bull_value, 2),
-                    valuation_method="BLENDED_SECTOR_PB",
-                    valuation_confidence=confidence,
-                    peer_count=peer_count,
-                    target_multiple=round(target_pb, 2),
-                    current_multiple=round(current_pb, 2) if current_pb else None,
-                    peer_multiple=round(float(peer_pb), 2),
-                    is_fallback=False
-                )
-
-            fallback_fv = price_data.price * 0.95
-            return FairValueResult(
-                fair_value=round(fallback_fv, 2),
-                bear_value=round(fallback_fv * 0.92, 2),
-                bull_value=round(fallback_fv * 1.08, 2),
-                valuation_method="FALLBACK_PRICE_ANCHORED_PB",
-                valuation_confidence="LOW",
-                peer_count=peer_count,
-                target_multiple=None,
-                current_multiple=current_pb,
-                peer_multiple=float(peer_pb) if peer_pb else None,
-                is_fallback=True
-            )
-
-        current_pe = float(f.pe) if f.pe and f.pe > 0 else None
-        eps = float(f.eps) if f.eps and f.eps > 0 else None
-        peer_count = peer_count_pe
-
-        if eps and peer_pe and peer_count and peer_count >= min_peer_count:
-            peer_pe = float(peer_pe)
-
-            if current_pe:
-                # 50/50 blend pulls extreme overvaluation back to reality but respects premiums
-                raw_target_pe = (0.50 * peer_pe) + (0.50 * current_pe)
-            else:
-                raw_target_pe = peer_pe
-
-            # Relax caps: allow up to 3x sector median, or 85% of current PE
-            sector_cap = max(3.0 * peer_pe, (0.85 * current_pe) if current_pe else 0.0)
-            
-            growth = f.revenue_growth or 0
-            if growth > 0.30:
-                absolute_cap = max(200.0, current_pe * 0.90 if current_pe else 0)
-            elif growth > 0.15:
-                absolute_cap = max(100.0, current_pe * 0.85 if current_pe else 0)
-            else:
-                absolute_cap = max(60.0, current_pe * 0.80 if current_pe else 0)
-
-            target_pe = clamp(raw_target_pe, 6.0, min(sector_cap, absolute_cap))
-
-            fair_value = target_pe * eps
-            fair_value = min(fair_value, price_data.price * 2.0)
-            
-            bear_pe = max(0.85 * target_pe, 0.85 * current_pe if current_pe else 6.0)
-            bull_pe = min(1.15 * target_pe, sector_cap, absolute_cap)
-
-            bear_value = bear_pe * eps
-            bull_value = bull_pe * eps
-
-            if current_pe and current_pe > peer_pe * 3.0:
-                confidence = "LOW"
-            elif current_pe and peer_pe > current_pe * 2.0:
-                confidence = "MEDIUM"
-            else:
-                confidence = "HIGH" if peer_count >= 15 else "MEDIUM"
-
-            if current_pe and fair_value > price_data.price * 1.50 and growth < 0.15:
-                fair_value = price_data.price * 1.50
-                bull_value = min(bull_value, price_data.price * 1.65)
-                confidence = "MEDIUM"
-
-            return FairValueResult(
-                fair_value=round(fair_value, 2),
-                bear_value=round(bear_value, 2),
-                bull_value=round(bull_value, 2),
-                valuation_method="BLENDED_SECTOR_PE",
-                valuation_confidence=confidence,
-                peer_count=peer_count,
-                target_multiple=round(target_pe, 2),
-                current_multiple=round(current_pe, 2) if current_pe else None,
-                peer_multiple=round(peer_pe, 2),
-                is_fallback=False
-            )
-
-        if current_pe and eps:
-            target_pe = clamp(current_pe * 0.85, 6.0, 30.0)
-            fair_value = target_pe * eps
-            fair_value = min(fair_value, price_data.price * 2.0)
-            return FairValueResult(
-                fair_value=round(fair_value, 2),
-                bear_value=round(fair_value * 0.90, 2),
-                bull_value=round(fair_value * 1.10, 2),
-                valuation_method="CURRENT_PE_FALLBACK",
-                valuation_confidence="LOW",
-                peer_count=peer_count,
-                target_multiple=round(target_pe, 2),
-                current_multiple=round(current_pe, 2),
-                peer_multiple=float(peer_pe) if peer_pe else None,
-                is_fallback=True
-            )
-
-    except Exception as e:
-        logger.exception(f"Fair value derivation exception for {f.symbol}")
-
-    fallback_fv = price_data.price * 0.95
-    return FairValueResult(
-        fair_value=round(fallback_fv, 2),
-        bear_value=round(fallback_fv * 0.92, 2),
-        bull_value=round(fallback_fv * 1.08, 2),
-        valuation_method="PRICE_FALLBACK",
-        valuation_confidence="LOW",
-        peer_count=peer_count,
-        target_multiple=None,
-        current_multiple=float(f.pe) if f.pe else None,
-        peer_multiple=float(peer_pe) if peer_pe else None,
-        is_fallback=True
-    )
-
-def should_trigger_alert(price_data: StockPriceData, fv: FairValueResult, cqs: float, value_score: float, trend_score: float) -> tuple:
+def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
     price = price_data.price
-    buy_zone_low = price_data.sma_200
-
-    if fv.valuation_confidence == "HIGH":
-        buy_zone_high = fv.fair_value * 1.03
-    elif fv.valuation_confidence == "MEDIUM":
-        buy_zone_high = fv.fair_value * 1.00
-    else:
-        buy_zone_high = min(fv.fair_value, price * 1.08)
-
-    if cqs < 5.0 or price < price_data.sma_200:
-        return False, f"Fails base entry guards: CQS ({cqs:.1f}) < 5.0 or Price < 200-DMA."
-
-    in_buy_zone = (price >= buy_zone_low and price <= buy_zone_high)
-    trend_ok = (trend_score >= 5.0 and price > price_data.sma_50)
-
-    if in_buy_zone and trend_ok:
-        return True, f"Value Breakout: inside buy zone, FV={fv.fair_value:.1f}, confidence={fv.valuation_confidence}"
-
-    is_high_growth = (cqs >= 8.0)
-    strong_trend = (trend_score >= 7.0)
-    premium_cap = fv.bull_value if fv.valuation_confidence != "LOW" else fv.fair_value * 1.08
-
-    if is_high_growth and strong_trend and price <= premium_cap:
-        return True, f"GARP Rerating: using bull case cap, confidence={fv.valuation_confidence}"
-
-    if in_buy_zone and not trend_ok:
-        return False, f"Waiting for trend confirmation: Trend Score ({trend_score:.1f}) < 5.0."
-
-    return False, "Watchlist waiting: price outside buy zone."
+    
+    # Eligibility
+    if scores.business_quality_score < 18.0:
+        return False, f"Fails quality guard: BQS ({scores.business_quality_score:.1f}) < 18.0"
+        
+    if scores.reliability_score < 12.0:
+        return False, f"Fails reliability guard: Reliability ({scores.reliability_score:.1f}) < 12.0"
+        
+    if price < price_data.sma_200:
+        return False, "Trend breakdown: Price < 200-DMA."
+        
+    if price < price_data.sma_50:
+        return False, "Waiting for trend confirmation: Price < 50-DMA."
+        
+    # Buy Zone
+    buy_zone_high = scores.base_fair_value * 0.90  # 10% below base FV
+    if scores.reliability_score >= 16:
+        buy_zone_high = scores.base_fair_value * 1.0  # allow buying closer to fair value if high trust
+        
+    if price <= buy_zone_high:
+        return True, f"Value Breakout: inside buy zone, SRV={scores.base_fair_value:.1f}, Reliability={scores.reliability_score:.1f}"
+        
+    # High Growth Rerating
+    if scores.business_quality_score >= 24.0 and scores.market_structure_score >= 10.0:
+        if price <= scores.bull_fair_value:
+            return True, f"GARP Rerating: strong growth & trend, using bull SRV cap."
+            
+    return False, f"Price (₹{price:.1f}) > Buy Zone High (₹{buy_zone_high:.1f})"
         
 def get_label(cqs: float, pas: float) -> str:
     """Return the output label category based on CQS and PAS."""
-    if cqs >= 7.0 and pas >= 7.0:
+    if cqs >= 21.0 and pas >= 21.0:
         return "🚀 PRIME MULTIBAGGER CANDIDATE"
-    elif cqs >= 7.0 and 4.0 <= pas <= 6.0:
+    elif cqs >= 21.0 and 12.0 <= pas <= 18.0:
         return "💎 HIGH QUALITY — FAIR ENTRY"
-    elif cqs >= 7.0 and pas < 4.0:
+    elif cqs >= 21.0 and pas < 12.0:
         return "🏆 GREAT BUSINESS — WAIT FOR DIP"
-    elif 5.0 <= cqs <= 6.0 and pas >= 6.0:
+    elif 15.0 <= cqs <= 18.0 and pas >= 18.0:
         return "💰 VALUE BUY — DECENT QUALITY"
-    elif 5.0 <= cqs <= 6.0 and 4.0 <= pas <= 5.0:
+    elif 15.0 <= cqs <= 18.0 and 12.0 <= pas <= 15.0:
         return "🟡 WATCHLIST CANDIDATE"
     return None
 
@@ -998,8 +675,37 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
             if not fund:
                 fund = fetch_ticker_fundamentals(symbol)
                 
-            cqs = calculate_cqs(fund) if fund else 5.0 # fallback if no fundamentals
-            
+            if fund:
+                from core_score_engine import score_business_quality, CoreFundamentals
+                cf = CoreFundamentals(
+                    symbol=symbol,
+                    sector=fund.sector,
+                    pe=fund.pe,
+                    pb=fund.pb,
+                    roe=fund.roe,
+                    roce=None,
+                    debt_equity=fund.debt_equity,
+                    operating_margin=fund.operating_margin,
+                    revenue_growth_3y=None,
+                    revenue_growth_5y=None,
+                    eps_growth_3y=None,
+                    eps_growth_5y=None,
+                    revenue_growth_1y=fund.revenue_growth,
+                    eps_growth_1y=fund.earnings_growth,
+                    fcf_margin=None,
+                    cfo_pat_ratio=None,
+                    operating_cash_flow=fund.operating_cash_flow,
+                    yoy_profit_growth=fund.earnings_growth,
+                    net_losses_3y=False,
+                    div_yield=fund.div_yield,
+                    eps=fund.eps,
+                    bvps=fund.bvps,
+                    roa=fund.roa,
+                    is_financial=is_financial_sector(fund.sector)
+                )
+                cqs = score_business_quality(cf)
+            else:
+                cqs = 15.0 # fallback if no fundamentals
             exit_triggered = False
             exit_reason = ""
             
@@ -1024,11 +730,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                     exit_triggered = True
                     exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
                     
-            # Rule 3: Fundamental Deterioration (CQS < 5.0 or fails Kill Gates)
+            # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
             if not exit_triggered and fund:
-                if cqs < 5.0:
+                if cqs < 15.0:
                     exit_triggered = True
-                    exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 5.0 (CQS: {cqs:.1f})"
+                    exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
                 elif not passes_kill_gates(fund):
                     exit_triggered = True
                     exit_reason = "Fundamental failure: fails Layer 1 Kill Gates"
@@ -1168,7 +874,7 @@ def start(debug_limit: int = None):
                     fundamentals_list.append(fund)
                     # Update local cache memory
                     cache[sym] = {
-                        "fetched_at": datetime.now().isoformat(),
+                        "fetched_at": datetime.now(IST).isoformat(),
                         "market_cap": fund.market_cap,
                         "debt_equity": fund.debt_equity,
                         "operating_cash_flow": fund.operating_cash_flow,
@@ -1193,25 +899,13 @@ def start(debug_limit: int = None):
     save_fundamentals_cache(cache)
     
     # Filter fundamentals matching Kill Gates for sector median calculations
-    valid_fundamentals = [f for f in fundamentals_list if passes_kill_gates(f)]
-    logger.info(f"🛡️ {len(valid_fundamentals)}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
+    passed_count = sum(1 for f in fundamentals_list if passes_kill_gates(f))
+    logger.info(f"🛡️ {passed_count}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
     
-    # 4. Phase 3: Peer-aware scoring & buy zone assessment (Using Persistent Universe)
-    from database import get_all_universe_fundamentals
-    from valuation_utils import compute_sector_medians
-    
-    universe_rows = get_all_universe_fundamentals()
-    if not universe_rows:
-        logger.warning("Universe table is empty! Sector medians will be unavailable.")
-        
-    peer_medians = compute_sector_medians(universe_rows)
-    
-    # Explicit schema verification on the returned peer medians object
-    if peer_medians and isinstance(peer_medians, dict):
-        sample_val = next(iter(peer_medians.values()), None)
-        if sample_val and not all(k in sample_val for k in ["median_pe", "median_pb", "median_roe", "peer_count"]):
-            logger.error("❌ peer_medians schema invalid. Expected keys missing.")
-            peer_medians = {}
+    # 4. Phase 3: Peer-aware scoring & buy zone assessment
+    from valuation_utils import compute_peer_medians
+    symbols_to_val = [f.symbol for f in fundamentals_list]
+    peer_medians = compute_peer_medians(symbols_to_val)
             
     results = []
     categorized_stocks = {
@@ -1230,6 +924,8 @@ def start(debug_limit: int = None):
             
         alert_triggered = False
         alert_reason = ""
+        cp = None
+        is_fallback = True
         
         # Enforce Kill Gates to flag INVALIDATED early
         if not passes_kill_gates(f):
@@ -1260,37 +956,82 @@ def start(debug_limit: int = None):
                 is_fallback=True
             )
         else:
-            # Calculate scores for valid stocks
-            cqs = calculate_cqs(f)
-            pas = calculate_value_score(f, peer_medians)
-            trend = calculate_trend_score(price_data)
+            # Prepare Core Fundamentals
+            cf = CoreFundamentals(
+                symbol=sym,
+                sector=f.sector,
+                pe=f.pe,
+                pb=f.pb,
+                roe=f.roe,
+                roce=None, # Ticker tape data doesn't give ROCE easily here
+                debt_equity=f.debt_equity,
+                operating_margin=f.operating_margin,
+                revenue_growth_3y=None,
+                revenue_growth_5y=None,
+                eps_growth_3y=None,
+                eps_growth_5y=None,
+                revenue_growth_1y=f.revenue_growth,
+                eps_growth_1y=f.earnings_growth,
+                fcf_margin=None,
+                cfo_pat_ratio=None,
+                operating_cash_flow=f.operating_cash_flow,
+                yoy_profit_growth=f.earnings_growth,
+                net_losses_3y=False,
+                div_yield=f.div_yield,
+                eps=f.eps,
+                bvps=f.bvps,
+                roa=f.roa,
+                is_financial=is_financial_sector(f.sector)
+            )
+            
+            p_data = peer_medians.get(sym, {})
+            cp = PeerMetrics(
+                median_pe=p_data.get("median_pe"),
+                median_pb=p_data.get("median_pb"),
+                median_roe=p_data.get("median_roe", 0) / 100.0 if p_data.get("median_roe") else None,
+                median_peg=p_data.get("median_peg"),
+                peer_count=p_data.get("peer_count", 0),
+                dispersion_iqr_median=p_data.get("dispersion_iqr_median"),
+                source_type=p_data.get("source_type", "FALLBACK"),
+                is_complete=(p_data.get("median_pe") is not None and p_data.get("median_pb") is not None),
+                missing_critical=(p_data.get("median_pe") is None),
+                missing_minor=False
+            )
+            is_fallback = (cp.source_type == "FALLBACK")
+            
+            c_price = CorePriceData(
+                price=price_data.price,
+                sma_50=price_data.sma_50,
+                sma_200=price_data.sma_200,
+                high_20d=price_data.high_20d,
+                latest_volume=price_data.latest_volume,
+                volume_sma20=price_data.volume_sma20
+            )
+            
+            # Generate Unified Scores
+            scores = generate_core_scores(cf, cp, c_price)
+            
+            cqs = scores.business_quality_score
+            pas = scores.relative_valuation_score
+            trend = scores.market_structure_score
             total = cqs + pas
             
-            fair_val_result = calculate_fair_value(f, price_data, peer_medians)
-            base_fv = fair_val_result.fair_value
-            bear_fv = fair_val_result.bear_value
-            bull_fv = fair_val_result.bull_value
+            base_fv = scores.base_fair_value
+            bear_fv = scores.bear_fair_value
+            bull_fv = scores.bull_fair_value
             
             buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (base_fv * 0.5)
+            buy_high = base_fv * 0.90 if scores.reliability_score < 16 else base_fv
             
-            if fair_val_result.valuation_confidence == "HIGH":
-                buy_high = base_fv * 1.03
-            elif fair_val_result.valuation_confidence == "MEDIUM":
-                buy_high = base_fv * 1.00
-            else:
-                buy_high = min(base_fv, price_data.price * 1.08)
-            
-            # Enforce invariant: buy zone low must be strictly less than buy zone high
+            # Enforce invariant
             if buy_low >= buy_high:
-                buy_low = base_fv * 0.8  # Fallback to a 20% discount if 200-DMA is structurally too high
+                buy_low = base_fv * 0.8
                 notes_prefix = "(Buy Zone Synthetically Repaired) "
             else:
                 notes_prefix = ""
             
-            # Check alerts
-            alert_triggered, alert_reason = should_trigger_alert(price_data, fair_val_result, cqs, pas, trend)
+            alert_triggered, alert_reason = should_trigger_alert(price_data, scores)
             
-            # Determine buckets
             if alert_triggered:
                 status = "ALERT_TRIGGERED"
                 if "GARP" in alert_reason:
@@ -1302,11 +1043,7 @@ def start(debug_limit: int = None):
                 bucket = "Watchlist Waiting"
                 
             notes = notes_prefix + alert_reason
-            
-            if fair_val_result.is_fallback:
-                missing_details = f"eps={f.eps}, pe={f.pe}, peer_pe={fair_val_result.peer_multiple}, peer_count={fair_val_result.peer_count}"
-                notes += f"\n⚠️ (Estimated Fallback: Valuation metrics missing. {missing_details})"
-                logger.warning(f"⚠️ Yahoo/Peer data missing for {sym} valuation (Estimated Fallback used). Details: {missing_details}")
+            fair_val_result = scores
             
         res = ScreenerResult(
             symbol=sym,
@@ -1324,12 +1061,12 @@ def start(debug_limit: int = None):
             change_pct=price_data.change_pct,
             bear_value=bear_fv,
             bull_value=bull_fv,
-            valuation_method=fair_val_result.valuation_method,
-            valuation_confidence=fair_val_result.valuation_confidence,
-            peer_count=fair_val_result.peer_count,
-            target_multiple=fair_val_result.target_multiple,
-            current_multiple=fair_val_result.current_multiple,
-            peer_multiple=fair_val_result.peer_multiple
+            valuation_method="UNIFIED_BAND",
+            valuation_confidence=f"{getattr(fair_val_result, 'reliability_score', 0)}/20",
+            peer_count=cp.peer_count if cp and not is_fallback else None,
+            target_multiple=getattr(fair_val_result, 'target_multiple', None),
+            current_multiple=f.pb if getattr(fair_val_result, 'valuation_anchor', '') == 'P/B' else (f.pe if f else None),
+            peer_multiple=cp.median_pb if cp and getattr(fair_val_result, 'valuation_anchor', '') == 'P/B' else (cp.median_pe if cp else None)
         )
         results.append(res)
         

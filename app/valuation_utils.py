@@ -3,8 +3,17 @@ import pandas as pd
 import numpy as np
 import time
 import os
+import requests
+import threading
 
 logger = logging.getLogger(__name__)
+
+_thread_local = threading.local()
+
+def get_tt_session():
+    if not hasattr(_thread_local, "tt_session"):
+        _thread_local.tt_session = requests.Session()
+    return _thread_local.tt_session
 
 UNIVERSE_CACHE_PATH = "data/tradingview_universe_cache.pkl"
 
@@ -38,12 +47,30 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 .set_markets("india")
                 .select(*fields)
                 .where(col("exchange") == "NSE")
+                .order_by("ticker")
                 .limit(5000)
             )
             total, df = q.get_scanner_data()
+            
             if df is not None and not df.empty:
+                # Paginate if needed
+                while len(df) < total:
+                    offset = len(df)
+                    q_next = q.offset(offset)
+                    next_total, next_df = q_next.get_scanner_data()
+                    if next_df is None or next_df.empty:
+                        break
+                    df = pd.concat([df, next_df], ignore_index=True)
+                
+                if len(df) < total:
+                    logger.warning(f"Universe pagination incomplete: fetched {len(df)} out of {total} total stocks.")
+                
                 # Remove duplicated columns (like 'ticker') returned by tradingview_screener
                 df = df.loc[:, ~df.columns.duplicated()].copy()
+                
+                # Remove duplicate rows by ticker due to pagination overlap
+                if "ticker" in df.columns:
+                    df = df.drop_duplicates(subset=["ticker"], keep="first")
                 
                 # Add normalized columns for fast matching
                 if "ticker" in df.columns:
@@ -63,9 +90,14 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 if "return_on_equity_fy" in df.columns and "total_revenue_yoy_growth_ttm" in df.columns:
                     logger.info(f"Universe Refresh: ROE range [{df['return_on_equity_fy'].min():.1f}, {df['return_on_equity_fy'].max():.1f}], Growth range [{df['total_revenue_yoy_growth_ttm'].min():.1f}, {df['total_revenue_yoy_growth_ttm'].max():.1f}]")
                     
-                # Save to cache
+                # Save to cache atomically
                 os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
-                df.to_pickle(UNIVERSE_CACHE_PATH)
+                temp_path = f"{UNIVERSE_CACHE_PATH}.tmp"
+                with open(temp_path, "wb") as f:
+                    df.to_pickle(f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, UNIVERSE_CACHE_PATH)
                 return df
         except Exception as e:
             logger.exception(f"Attempt {attempt + 1}: Failed to fetch market universe")
@@ -179,11 +211,26 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
                     "peer_count": conservative_peer_count,
                     "peer_count_pe": valid_pe_count,
                     "peer_count_pb": valid_pb_count,
-                    "peer_count_roe": valid_roe_count
+                    "peer_count_roe": valid_roe_count,
+                    "median_peg": None,
+                    "dispersion_iqr_median": None,
+                    "source_type": "FALLBACK"
                 }
+                
+                # Enrich with Tickertape even for fallback
+                tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
+                medians_map[symbol]["tt_indpe"] = tt_indpe
+                medians_map[symbol]["tt_indpb"] = tt_indpb
+                medians_map[symbol]["effective_pe"] = tt_indpe if tt_indpe is not None else medians_map[symbol]["median_pe"]
+                medians_map[symbol]["effective_pb"] = tt_indpb if tt_indpb is not None else medians_map[symbol]["median_pb"]
+                
+                if tt_indpe is not None:
+                    medians_map[symbol]["source_type"] = "INDUSTRY"
+                    
                 continue
                 
             # Refine 1: Sector + Size (0.2x to 5.0x) + Profitability (+/- 10) + Growth (+/- 15)
+            # Require non-null ROE and Growth to truly be a "refined" peer
             p1 = peers[
                 (peers["market_cap_basic"].between(mcap * 0.2, mcap * 5.0)) &
                 (peers["return_on_equity_fy"].between(roe - 10, roe + 10)) &
@@ -202,21 +249,52 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             ]
             
             final_peers = peers
+            refinement_level = "FULL"
             if len(p1) >= 8:
                 final_peers = p1
+                refinement_level = "P1"
+                logger.debug(f"{symbol}: Selected {len(final_peers)} peers using Refine 1 (Size, ROE, Growth).")
             elif len(p2) >= 8:
                 final_peers = p2
+                refinement_level = "P2"
+                logger.debug(f"{symbol}: Selected {len(final_peers)} peers using Refine 2 (Size, ROE).")
             elif len(p3) >= 8:
                 final_peers = p3
+                refinement_level = "P3"
+                logger.debug(f"{symbol}: Selected {len(final_peers)} peers using Refine 3 (Size).")
+            else:
+                logger.debug(f"{symbol}: Selected {len(final_peers)} peers using Full Sector Fallback.")
                 
+
             val_pe = final_peers["price_earnings_ttm"].median()
             val_pb = final_peers["price_book_ratio"].median()
             val_roe = final_peers["return_on_equity_fy"].median()
+            
+            # Compute median PEG
+            median_peg = None
+            if "total_revenue_yoy_growth_ttm" in final_peers.columns:
+                # Note: TradingView returns total_revenue_yoy_growth_ttm in percentage points (e.g., 15 for 15%).
+                # The .clip(lower=1) prevents division by zero or negative growth, relying on the percentage point assumption.
+                peg_series = final_peers["price_earnings_ttm"] / final_peers["total_revenue_yoy_growth_ttm"].clip(lower=1)
+                peg_series = peg_series.apply(lambda x: x if pd.notnull(x) and 0 < x < 10 else np.nan)
+                median_peg = peg_series.median()
+                
+            # Compute Dispersion (IQR / Median)
+            dispersion = None
+            if len(final_peers["price_earnings_ttm"].dropna()) >= 4:
+                pe_series = final_peers["price_earnings_ttm"].dropna()
+                q75, q25 = np.percentile(pe_series, [75 ,25])
+                iqr = q75 - q25
+                med = pe_series.median()
+                if med > 0:
+                    dispersion = iqr / med
             
         valid_pe_count = int(final_peers["price_earnings_ttm"].count())
         valid_pb_count = int(final_peers["price_book_ratio"].count())
         valid_roe_count = int(final_peers["return_on_equity_fy"].count())
         conservative_peer_count = min(valid_pe_count, valid_pb_count, valid_roe_count)
+        
+        source_type = "REFINED" if refinement_level in ("P1", "P2", "P3") else "FALLBACK"
         
         medians_map[symbol] = {
             "median_pe": float(val_pe) if not pd.isna(val_pe) else None,
@@ -225,29 +303,49 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             "peer_count": conservative_peer_count,
             "peer_count_pe": valid_pe_count,
             "peer_count_pb": valid_pb_count,
-            "peer_count_roe": valid_roe_count
+            "peer_count_roe": valid_roe_count,
+            "median_peg": float(median_peg) if not pd.isna(median_peg) else 1.0,
+            "dispersion_iqr_median": float(dispersion) if not pd.isna(dispersion) else None,
+            "source_type": source_type
         }
+        
+        tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
+        medians_map[symbol]["tt_indpe"] = tt_indpe
+        medians_map[symbol]["tt_indpb"] = tt_indpb
+        medians_map[symbol]["effective_pe"] = tt_indpe if tt_indpe is not None else medians_map[symbol]["median_pe"]
+        medians_map[symbol]["effective_pb"] = tt_indpb if tt_indpb is not None else medians_map[symbol]["median_pb"]
+        
+        if source_type == "FALLBACK" and tt_indpe is not None:
+            medians_map[symbol]["source_type"] = "INDUSTRY"
         
     return medians_map
 
 def fetch_tickertape_industry_metrics(symbol):
     try:
-        import requests
-        search_res = requests.get(f'https://api.tickertape.in/search?text={symbol}', timeout=5)
+        session = get_tt_session()
+        search_res = session.get(f'https://api.tickertape.in/search?text={symbol}', timeout=5)
         if search_res.status_code == 200:
             data = search_res.json().get('data', {})
             stocks = data.get('stocks', [])
-            if stocks:
-                sid = stocks[0].get('sid')
-                if sid:
-                    info_res = requests.get(f'https://api.tickertape.in/stocks/info/{sid}', timeout=5)
-                    if info_res.status_code == 200:
-                        ratios = info_res.json().get('data', {}).get('ratios', {})
-                        indpe = ratios.get('indpe')
-                        indpb = ratios.get('indpb')
-                        indpe = float(indpe) if indpe is not None else None
-                        indpb = float(indpb) if indpb is not None else None
-                        return indpe, indpb
+            
+            # Verify symbol match before proceeding
+            target_sid = None
+            for s in stocks:
+                ticker = s.get('ticker', '').upper()
+                # Often tickertape uses NSE symbols directly
+                if ticker == symbol.upper() or ticker.replace("-", "") == symbol.upper():
+                    target_sid = s.get('sid')
+                    break
+                    
+            if target_sid:
+                info_res = session.get(f'https://api.tickertape.in/stocks/info/{target_sid}', timeout=5)
+                if info_res.status_code == 200:
+                    ratios = info_res.json().get('data', {}).get('ratios', {})
+                    indpe = ratios.get('indpe')
+                    indpb = ratios.get('indpb')
+                    indpe = float(indpe) if indpe is not None else None
+                    indpb = float(indpb) if indpb is not None else None
+                    return indpe, indpb
     except Exception as e:
         logger.warning(f"Failed to fetch Tickertape metrics for {symbol}: {e}")
     return None, None
@@ -256,7 +354,7 @@ def norm_num(x):
     if x is None or pd.isna(x): return None
     try:
         return float(x)
-    except:
+    except (TypeError, ValueError):
         return None
 
 def norm_pct(x):
@@ -264,7 +362,7 @@ def norm_pct(x):
     try:
         val = float(x)
         return val / 100.0 if abs(val) > 1 else val
-    except:
+    except (TypeError, ValueError):
         return None
 
 def extract_raw_metrics(symbol, bse_code=None, ticker=None):
@@ -284,7 +382,6 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
         bvps = norm_num(info.get('bookValue'))
         div_yield = norm_pct(info.get('dividendYield') or info.get('divYield'))
         current_price = norm_num(info.get('currentPrice') or info.get('regularMarketPrice'))
-        revenue_growth = norm_pct(info.get('revenueGrowth'))
         
         if pe is None and eps is not None and eps > 0 and current_price is not None:
             pe = current_price / eps
