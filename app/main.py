@@ -632,6 +632,7 @@ def run_system_scheduler():
     wealth_initial_ran = False
     verify_scans_ran = False
     last_wealth_market_run = None  # Track last market-hours wealth run
+    universe_refresh_ran = False
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
@@ -825,6 +826,20 @@ def run_system_scheduler():
             if is_market_open(now):
                 safe_run_wealth_market_hours()
                 check_scanner_staleness(now)
+                
+        # Sunday only
+        elif now.weekday() == 6:
+            # 2:00 AM - Refresh Universe Benchmarks
+            if now.hour == 2 and now.minute >= 0 and not universe_refresh_ran:
+                universe_refresh_ran = True
+                def safe_run_universe_refresh():
+                    logger.info("🕒 SCHEDULER | [Sunday 2:00 AM] Triggering Universe Benchmark Refresh")
+                    from valuation_utils import refresh_universe_benchmarks
+                    t = threading.Thread(target=refresh_universe_benchmarks, name="WeeklyUniverseRefresh", daemon=True)
+                    t.start()
+                safe_run_universe_refresh()
+            elif now.hour != 2:
+                universe_refresh_ran = False
         
         time.sleep(30)  # Check every 30 seconds
 

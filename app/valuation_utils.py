@@ -226,3 +226,176 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         }
         
     return medians_map
+
+def fetch_tickertape_industry_metrics(symbol):
+    try:
+        import requests
+        search_res = requests.get(f'https://api.tickertape.in/search?text={symbol}', timeout=5)
+        if search_res.status_code == 200:
+            data = search_res.json().get('data', {})
+            stocks = data.get('stocks', [])
+            if stocks:
+                sid = stocks[0].get('sid')
+                if sid:
+                    info_res = requests.get(f'https://api.tickertape.in/stocks/info/{sid}', timeout=5)
+                    if info_res.status_code == 200:
+                        ratios = info_res.json().get('data', {}).get('ratios', {})
+                        indpe = ratios.get('indpe')
+                        indpb = ratios.get('indpb')
+                        indpe = float(indpe) if indpe is not None else None
+                        indpb = float(indpb) if indpb is not None else None
+                        return indpe, indpb
+    except Exception as e:
+        logger.warning(f"Failed to fetch Tickertape metrics for {symbol}: {e}")
+    return None, None
+
+def norm_num(x):
+    if x is None or pd.isna(x): return None
+    try:
+        return float(x)
+    except:
+        return None
+
+def norm_pct(x):
+    if x is None or pd.isna(x): return None
+    try:
+        val = float(x)
+        return val / 100.0 if abs(val) > 1 else val
+    except:
+        return None
+
+def extract_raw_metrics(symbol, bse_code=None, ticker=None):
+    try:
+        import yfinance as yf
+        if not ticker:
+            ticker = yf.Ticker(f"{symbol}.NS")
+            if ticker.history(period="1d").empty and bse_code:
+                ticker = yf.Ticker(f"{bse_code}.BO")
+        info = ticker.info
+        
+        sector = info.get('sector')
+        pe = norm_num(info.get('trailingPE') or info.get('peRatio'))
+        pb = norm_num(info.get('priceToBook') or info.get('pbRatio'))
+        roe = norm_pct(info.get('returnOnEquity'))
+        eps = norm_num(info.get('trailingEps') or info.get('forwardEps'))
+        bvps = norm_num(info.get('bookValue'))
+        div_yield = norm_pct(info.get('dividendYield') or info.get('divYield'))
+        current_price = norm_num(info.get('currentPrice') or info.get('regularMarketPrice'))
+        revenue_growth = norm_pct(info.get('revenueGrowth'))
+        
+        if pe is None and eps is not None and eps > 0 and current_price is not None:
+            pe = current_price / eps
+        if pb is None and bvps is not None and bvps > 0 and current_price is not None:
+            pb = current_price / bvps
+            
+        tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
+        
+        return {
+            'sector': sector,
+            'pe': pe,
+            'pb': pb,
+            'roe': roe,
+            'eps': eps,
+            'bvps': bvps,
+            'div_yield': div_yield,
+            'tt_indpe': tt_indpe,
+            'tt_indpb': tt_indpb
+        }
+    except Exception as e:
+        logger.warning(f"Failed to extract raw metrics for {symbol}: {e}")
+        return None
+
+def refresh_universe_benchmarks():
+    from database import get_universe_symbols, upsert_universe_stock
+    universe_rows = get_universe_symbols()
+    if not universe_rows:
+        logger.info("Universe table empty, nothing to refresh.")
+        return
+        
+    logger.info(f"Refreshing {len(universe_rows)} universe benchmarks...")
+    for row in universe_rows:
+        try:
+            sym = row['symbol']
+            bse_code = row.get('bse_code')
+            extracted = extract_raw_metrics(sym, bse_code)
+            if extracted:
+                upsert_universe_stock(
+                    sym, bse_code, extracted['sector'], extracted['pe'], extracted['pb'],
+                    extracted['roe'], extracted['eps'], extracted['bvps'],
+                    extracted['div_yield'], extracted['tt_indpe'], extracted['tt_indpb'],
+                    fetch_status="OK", last_error=None
+                )
+            else:
+                upsert_universe_stock(
+                    sym, bse_code, None, None, None, None, None, None, None, None, None,
+                    fetch_status="FAILED", last_error="extract_raw_metrics returned None"
+                )
+            time.sleep(1) # rate limit protection
+        except Exception as e:
+            logger.warning(f"Failed to refresh universe metrics for {row}: {e}")
+
+def compute_sector_medians(all_stocks):
+    import statistics
+    sector_data = {}
+    for stock in all_stocks:
+        sector = stock.get('sector')
+        if not sector or sector == "Unknown":
+            continue
+
+        if sector not in sector_data:
+            sector_data[sector] = {"pe_list": [], "pb_list": [], "roe_list": []}
+
+        pe = norm_num(stock.get('pe'))
+        if pe is not None and pe > 0:
+            sector_data[sector]["pe_list"].append(pe)
+
+        pb = norm_num(stock.get('pb'))
+        if pb is not None and pb > 0:
+            sector_data[sector]["pb_list"].append(pb)
+
+        roe = norm_pct(stock.get('roe'))
+        if roe is not None and roe > 0:
+            sector_data[sector]["roe_list"].append(roe)
+
+    medians = {}
+    for sector, data in sector_data.items():
+        pe_list = data["pe_list"]
+        pb_list = data["pb_list"]
+        roe_list = data["roe_list"]
+
+        medians[sector] = {
+            "median_pe": statistics.median(pe_list) if len(pe_list) >= 3 else None,
+            "median_pb": statistics.median(pb_list) if len(pb_list) >= 3 else None,
+            "median_roe": statistics.median(roe_list) if len(roe_list) >= 3 else None,
+            "peer_count_pe": len(pe_list),
+            "peer_count_pb": len(pb_list),
+            "peer_count_roe": len(roe_list),
+            "peer_count": min(len(pe_list), len(pb_list), len(roe_list)) if len(pe_list) > 0 else 0
+        }
+    return medians
+
+def seed_universe_if_empty():
+    from database import get_universe_symbols, upsert_universe_stock
+    import threading
+    universe = get_universe_symbols()
+    if not universe:
+        logger.info("🌱 Universe table is empty! Seeding from index constituents...")
+        
+        try:
+            from multibagger import get_nse_index_constituents
+            symbols = set()
+            for idx in ["NIFTY 50", "NIFTY NEXT 50", "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250"]:
+                symbols.update(get_nse_index_constituents(idx))
+                
+            if not symbols:
+                logger.warning("No index constituents found to seed universe.")
+                return
+                
+            for sym in symbols:
+                upsert_universe_stock(sym, None, None, None, None, None, None, None, None, None, None, fetch_status="PENDING")
+                
+            logger.info(f"🌱 Seeded {len(symbols)} symbols into universe. Spawning background refresh...")
+            t = threading.Thread(target=refresh_universe_benchmarks, name="InitialUniverseRefresh", daemon=True)
+            t.start()
+        except Exception as e:
+            logger.exception("Failed to seed universe")

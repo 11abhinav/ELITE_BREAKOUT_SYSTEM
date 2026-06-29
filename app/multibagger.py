@@ -101,6 +101,8 @@ class StockFundamentals:
     eps: float
     bvps: float
     roa: float = None
+    tt_indpe: float = None
+    tt_indpb: float = None
 
 @dataclass
 class ScreenerResult:
@@ -206,6 +208,49 @@ def init_db_schema():
                     );
                 """)
                 
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS stockupdates.universe (
+                        symbol VARCHAR(50) PRIMARY KEY,
+                        bse_code VARCHAR(20),
+                        sector VARCHAR(100),
+                        pe NUMERIC(10, 2),
+                        pb NUMERIC(10, 2),
+                        roe NUMERIC(10, 4),
+                        eps NUMERIC(10, 2),
+                        bvps NUMERIC(10, 2),
+                        div_yield NUMERIC(10, 4),
+                        tt_indpe NUMERIC(10, 2),
+                        tt_indpb NUMERIC(10, 2),
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        fetch_status VARCHAR(50),
+                        last_error TEXT
+                    );
+                """)
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS stockupdates.fundamental_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(50) NOT NULL,
+                        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sector VARCHAR(100),
+                        pe NUMERIC(10, 2),
+                        pb NUMERIC(10, 2),
+                        roe NUMERIC(10, 4),
+                        eps NUMERIC(10, 2),
+                        bvps NUMERIC(10, 2),
+                        div_yield NUMERIC(10, 4),
+                        revenue_growth NUMERIC(10, 4),
+                        earnings_growth NUMERIC(10, 4),
+                        operating_margin NUMERIC(10, 4),
+                        debt_equity NUMERIC(10, 2),
+                        operating_cashflow NUMERIC(15, 2),
+                        roa NUMERIC(10, 4),
+                        tt_indpe NUMERIC(10, 2),
+                        tt_indpb NUMERIC(10, 2)
+                    );
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fund_snap_sym_date ON stockupdates.fundamental_snapshots(symbol, fetched_at DESC);")
+                
                 # Add new valuation and confidence columns if they don't exist
                 columns_to_add = [
                     ("bear_value", "NUMERIC(10, 2)"),
@@ -222,6 +267,10 @@ def init_db_schema():
                     
                 conn.commit()
         logger.info("✅ Database tables validated successfully.")
+        
+        from valuation_utils import seed_universe_if_empty
+        seed_universe_if_empty()
+        
     except Exception as e:
         logger.exception(f"❌ Failed to initialize database schema")
 
@@ -396,7 +445,9 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
                 sector=entry["sector"],
                 eps=entry.get("eps"),
                 bvps=entry.get("bvps"),
-                roa=entry.get("roa")
+                roa=entry.get("roa"),
+                tt_indpe=entry.get("tt_indpe"),
+                tt_indpb=entry.get("tt_indpb")
             )
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -412,8 +463,11 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
         try:
             info = ticker.info
             if info and "marketCap" in info:
+                from valuation_utils import fetch_tickertape_industry_metrics
+                tt_indpe, tt_indpb = fetch_tickertape_industry_metrics(symbol)
                 rate_limiter.record_success()
-                return StockFundamentals(
+                
+                fund = StockFundamentals(
                     symbol=symbol,
                     market_cap=info.get("marketCap"),
                     debt_equity=info.get("debtToEquity"),
@@ -428,8 +482,35 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
                     sector=info.get("sector", "Unknown"),
                     eps=info.get("trailingEps"),
                     bvps=info.get("bookValue"),
-                    roa=info.get("returnOnAssets")
+                    roa=info.get("returnOnAssets"),
+                    tt_indpe=tt_indpe,
+                    tt_indpb=tt_indpb
                 )
+                
+                try:
+                    from database import insert_fundamental_snapshot
+                    insert_fundamental_snapshot(
+                        symbol=symbol,
+                        sector=fund.sector,
+                        pe=fund.pe,
+                        pb=fund.pb,
+                        roe=fund.roe,
+                        eps=fund.eps,
+                        bvps=fund.bvps,
+                        div_yield=fund.div_yield,
+                        revenue_growth=fund.revenue_growth,
+                        earnings_growth=fund.earnings_growth,
+                        operating_margin=fund.operating_margin,
+                        debt_equity=fund.debt_equity,
+                        operating_cashflow=fund.operating_cash_flow,
+                        roa=fund.roa,
+                        tt_indpe=fund.tt_indpe,
+                        tt_indpb=fund.tt_indpb
+                    )
+                except Exception as snap_err:
+                    logger.warning(f"Failed to save fundamental snapshot for {symbol}: {snap_err}")
+                    
+                return fund
             time.sleep(1.0 + (2 ** attempt))
         except Exception as e:
             msg = str(e).lower()
@@ -546,7 +627,7 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
     if is_financial_sector(f.sector):
         # 1. P/B vs Sector (Max 5 pts: <= sector median = 5, <= 1.2 * sector median = 3)
         if f.pb is not None and f.pb > 0:
-            peer_pb = medians.get(f.symbol, {}).get("median_pb") if f.symbol else None
+            peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else medians.get(f.sector, {}).get("median_pb")
             if peer_pb is not None:
                 if f.pb <= peer_pb:
                     score += 5.0
@@ -561,7 +642,7 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
                     
         # 2. ROE Profitability vs Sector (Max 5 pts: >= sector median = 5, >= 0.8 * sector median = 3)
         if f.roe is not None:
-            peer_roe = medians.get(f.symbol, {}).get("median_roe") if f.symbol else None
+            peer_roe = medians.get(f.sector, {}).get("median_roe")
             if peer_roe is not None:
                 if f.roe >= peer_roe:
                     score += 5.0
@@ -580,7 +661,7 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
         
         # 1. P/E vs Sector (Max 5 pts: <= median = 5, <= 1.2 * median = 3)
         if f.pe is not None and f.pe > 0:
-            peer_pe = medians.get(f.symbol, {}).get("median_pe") if f.symbol else None
+            peer_pe = f.tt_indpe if getattr(f, "tt_indpe", None) else medians.get(f.sector, {}).get("median_pe")
             if peer_pe is not None:
                 if f.pe <= peer_pe:
                     score += 5.0
@@ -594,7 +675,7 @@ def calculate_value_score(f: StockFundamentals, medians: dict) -> float:
                     
         # 2. P/B vs Sector (Max 4 pts: <= median = 4, <= 1.2 * median = 2)
         if f.pb is not None and f.pb > 0:
-            peer_pb = medians.get(f.symbol, {}).get("median_pb") if f.symbol else None
+            peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else medians.get(f.sector, {}).get("median_pb")
             if peer_pb is not None:
                 if f.pb <= peer_pb:
                     score += 4.0
@@ -635,13 +716,21 @@ def calculate_trend_score(price_data: StockPriceData) -> float:
     return round(score, 1)
 
 def calculate_fair_value(f: StockFundamentals, price_data: StockPriceData, medians: dict) -> FairValueResult:
-    info = medians.get(f.symbol, {}) if medians else {}
+    info = medians.get(f.sector, {}) if medians else {}
 
-    peer_count_raw = info.get("peer_count")
+    peer_count_raw = info.get("peer_count", 0)
     peer_count_pe = info.get("peer_count_pe", peer_count_raw)
     peer_count_pb = info.get("peer_count_pb", peer_count_raw)
-    peer_pe = info.get("median_pe")
-    peer_pb = info.get("median_pb")
+    
+    # Prefer Tickertape, fallback to DB medians
+    peer_pe = f.tt_indpe if getattr(f, "tt_indpe", None) else info.get("median_pe")
+    peer_pb = f.tt_indpb if getattr(f, "tt_indpb", None) else info.get("median_pb")
+    
+    # If using Tickertape, assume enough peers exist for the metric
+    if getattr(f, "tt_indpe", None):
+        peer_count_pe = max(peer_count_pe, 8)
+    if getattr(f, "tt_indpb", None):
+        peer_count_pb = max(peer_count_pb, 8)
 
     min_peer_count = 8
 
@@ -1173,7 +1262,10 @@ def start(debug_limit: int = None):
                         "div_yield": fund.div_yield,
                         "sector": fund.sector,
                         "eps": fund.eps,
-                        "bvps": fund.bvps
+                        "bvps": fund.bvps,
+                        "roa": fund.roa,
+                        "tt_indpe": fund.tt_indpe,
+                        "tt_indpb": fund.tt_indpb
                     }
             except Exception as e:
                 logger.exception(f"Error fetching fundamentals for {sym}")
@@ -1185,11 +1277,15 @@ def start(debug_limit: int = None):
     valid_fundamentals = [f for f in fundamentals_list if passes_kill_gates(f)]
     logger.info(f"🛡️ {len(valid_fundamentals)}/{len(fundamentals_list)} shortlisted stocks passed Layer 1 Kill Gates.")
     
-    # 4. Phase 3: Peer-aware scoring & buy zone assessment
-    from valuation_utils import compute_peer_medians
-    symbols_for_valuation = [f.symbol for f in valid_fundamentals]
-    known_sectors = {f.symbol: f.sector for f in valid_fundamentals}
-    peer_medians = compute_peer_medians(symbols_for_valuation, known_sectors=known_sectors)
+    # 4. Phase 3: Peer-aware scoring & buy zone assessment (Using Persistent Universe)
+    from database import get_all_universe_fundamentals
+    from valuation_utils import compute_sector_medians
+    
+    universe_rows = get_all_universe_fundamentals()
+    if not universe_rows:
+        logger.warning("Universe table is empty! Sector medians will be unavailable.")
+        
+    peer_medians = compute_sector_medians(universe_rows)
     
     # Explicit schema verification on the returned peer medians object
     if peer_medians and isinstance(peer_medians, dict):
