@@ -110,9 +110,9 @@ def test_missing_eps_and_bvps():
     
     scores = generate_core_scores(f, p, pd_data)
     assert scores.composite_investment_score >= 0
-    # Fair values will likely be 0.0 because the anchor metrics are missing.
-    assert scores.base_fair_value == 0.0
-    assert scores.bull_fair_value == 0.0
+    # Fair values will now be synthetically floored to 0.8 * CMP because base_fv was 0.0
+    assert scores.base_fair_value == 160.0
+    assert scores.bull_fair_value == 176.0
 
 def test_missing_peer_multiples():
     """Verify missing peer PE and PB reduces reliability but does not crash."""

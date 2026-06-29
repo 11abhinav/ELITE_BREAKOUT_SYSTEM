@@ -1434,9 +1434,9 @@
       empty.style.display = 'none';
       tbody.innerHTML = positions.map(pos => {
         const symbol = pos.symbol || '';
-        const entryDate = pos.alert_date || '-';
+        const entryDate = pos.alert_date ? `${pos.alert_date} ${pos.alert_time ? pos.alert_time.split('.')[0] : ''}`.trim() : '-';
         const entryPrice = parseFloat(pos.alert_price) || 0;
-        const exitDate = pos.exit_date || '-';
+        const exitDate = pos.exit_date ? `${pos.exit_date} ${pos.exit_time ? pos.exit_time.split('.')[0] : ''}`.trim() : '-';
         const exitPrice = parseFloat(pos.exit_price) || 0;
         const pnlRs = parseFloat(pos.pnl_rs) || 0;
         const pnlPct = parseFloat(pos.pnl_pct) || 0;
@@ -1444,9 +1444,9 @@
         
         // Calculate days held
         let daysHeld = '-';
-        if (entryDate && entryDate !== '-' && exitDate && exitDate !== '-') {
-          const entry = new Date(entryDate);
-          const exit = new Date(exitDate);
+        if (pos.alert_date && pos.exit_date) {
+          const entry = new Date(pos.alert_date);
+          const exit = new Date(pos.exit_date);
           daysHeld = Math.floor((exit - entry) / (1000 * 60 * 60 * 24));
         }
         

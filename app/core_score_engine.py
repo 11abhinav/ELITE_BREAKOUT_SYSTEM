@@ -245,7 +245,7 @@ def score_reliability(p: PeerMetrics) -> float:
     
     return clamp(score, 0.0, 20.0)
 
-def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability: float):
+def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability: float, current_price: float = None):
     base_fv, bull_fv, bear_fv = 0.0, 0.0, 0.0
     target_mult = 0.0
     anchor = ""
@@ -311,6 +311,11 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
             
             base_fv = target_mult * eps
             
+            # Floor Logic: Prevent mathematically correct but practically absurd FV for high-growth tiny-EPS stocks
+            if current_price and current_price > 0:
+                if base_fv < 0.5 * current_price:
+                    base_fv = 0.8 * current_price
+            
             # Reliability Adjustments
             if reliability < 10: base_fv *= 0.90
             spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
@@ -321,6 +326,11 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
             # Fallback to current P/E discounted
             current_pe = pe if pe is not None and pe > 0 else 15.0
             base_fv = eps * min(current_pe * 0.85, 30.0) if eps > 0 else 0.0
+            
+            if current_price and current_price > 0:
+                if base_fv < 0.5 * current_price:
+                    base_fv = 0.8 * current_price
+            
             bull_fv, bear_fv = base_fv * 1.1, base_fv * 0.9
             
     return base_fv, bull_fv, bear_fv, target_mult, anchor
@@ -353,7 +363,8 @@ def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePr
     reliability = score_reliability(p)
     mss = score_market_structure(price_data) if price_data else 0.0
     
-    base_fv, bull_fv, bear_fv, target_mult, anchor = compute_relative_value_band(f, p, reliability)
+    current_price = safe_float(price_data.price) if price_data else None
+    base_fv, bull_fv, bear_fv, target_mult, anchor = compute_relative_value_band(f, p, reliability, current_price)
     
     cis = compute_composite_investment_score(bqs, rvs, mss, reliability, strategic_overlays)
     
