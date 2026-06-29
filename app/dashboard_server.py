@@ -1444,10 +1444,11 @@ def api_trigger_scanner(scanner_name):
         force_refresh = request.args.get('force_refresh', 'false') == 'true'
         if scanner_name == 'MULTIBAGGER' and force_refresh:
             import os
-            cache_path = "data/multibagger_fundamentals_cache.json"
+            from config import DATA_DIR
+            cache_path = os.path.join(DATA_DIR, "multibagger_fundamentals_cache.json")
             if os.path.exists(cache_path):
                 os.remove(cache_path)
-                logger.info("🗑️ Cleared Multibagger fundamentals cache before manual trigger.")
+                logger.info(f"🗑️ Cleared Multibagger fundamentals cache at {cache_path} before manual trigger.")
                 
         from main import trigger_scanner_manual
         result = trigger_scanner_manual(scanner_name)
