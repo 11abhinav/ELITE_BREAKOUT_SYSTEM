@@ -1142,9 +1142,10 @@ def start(debug_limit: int = None):
             continue
         shortlist_candidates.append(price_data)
         
-    # Sort by turnover descending and shortlist top 120 most liquid
+    # Sort by turnover descending and shortlist top 250 most liquid
+    # (Expanded from 120 to 250 to accommodate the larger 750+ universe)
     shortlist_candidates = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
-    shortlist = shortlist_candidates[:120]
+    shortlist = shortlist_candidates[:250]
     logger.info(f"📋 Shortlisted {len(shortlist)}/{len(price_data_map)} liquid stocks for fundamental screening.")
     
     # 3. Phase 2: Fetch Fundamentals
