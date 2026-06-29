@@ -372,7 +372,25 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
             ticker = yf.Ticker(f"{symbol}.NS")
             if ticker.history(period="1d").empty and bse_code:
                 ticker = yf.Ticker(f"{bse_code}.BO")
-        info = ticker.info
+                
+        try:
+            info = ticker.info
+        except Exception as e:
+            if "401" in str(e) or "Invalid Crumb" in str(e):
+                logger.warning(f"⚠️ YFinance crumb stale for {symbol}, clearing tzcache and retrying...")
+                import shutil, os
+                from config import BASE_DIR
+                tz_path = os.path.join(BASE_DIR, "data", "tzcache")
+                if os.path.exists(tz_path):
+                    shutil.rmtree(tz_path, ignore_errors=True)
+                # Re-init ticker to clear any in-memory cached session
+                if not bse_code or ticker.ticker.endswith('.NS'):
+                    ticker = yf.Ticker(f"{symbol}.NS")
+                else:
+                    ticker = yf.Ticker(f"{bse_code}.BO")
+                info = ticker.info
+            else:
+                raise e
         
         sector = info.get('sector')
         pe = norm_num(info.get('trailingPE') or info.get('peRatio'))
