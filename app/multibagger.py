@@ -162,6 +162,16 @@ class YFinanceRateLimitGuard:
 
 rate_limiter = YFinanceRateLimitGuard()
 
+yf_thread_local = threading.local()
+
+def get_yf_session() -> requests.Session:
+    """Returns a thread-local requests.Session configured with browser headers for yfinance."""
+    if not hasattr(yf_thread_local, "session"):
+        session = requests.Session()
+        session.headers.update(HTTP_HEADERS)
+        yf_thread_local.session = session
+    return yf_thread_local.session
+
 def get_nse_session() -> requests.Session:
     """Returns a requests.Session configured with connection pool and retries."""
     session = requests.Session()
@@ -359,7 +369,7 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
     """Fetch deeper company info metadata from yfinance."""
     rate_limiter.wait_if_needed()
     ticker_name = f"{symbol}.NS"
-    ticker = yf.Ticker(ticker_name)
+    ticker = yf.Ticker(ticker_name, session=get_yf_session())
     
     for attempt in range(3):
         try:
@@ -416,8 +426,11 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
             time.sleep(1.0 + (2 ** attempt))
         except Exception as e:
             msg = str(e).lower()
-            if "too many requests" in msg or "429" in msg:
+            if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
                 rate_limiter.record_failure()
+                # Clear the thread's yf session to force a fresh crumb on the next attempt
+                if hasattr(yf_thread_local, "session"):
+                    del yf_thread_local.session
             time.sleep(2 ** attempt)
             
     # Record non-critical error in DB
