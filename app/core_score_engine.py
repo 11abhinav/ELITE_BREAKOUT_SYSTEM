@@ -246,6 +246,12 @@ def score_reliability(p: PeerMetrics) -> float:
     return clamp(score, 0.0, 20.0)
 
 def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability: float, current_price: float = None):
+    """
+    Computes a Multi-Factor Intrinsic Valuation using:
+    1. Absolute Value (Graham Formula)
+    2. Relative Value (Quality-adjusted Peer Multiples)
+    3. Asset Value (Book Value)
+    """
     base_fv, bull_fv, bear_fv = 0.0, 0.0, 0.0
     target_mult = 0.0
     anchor = ""
@@ -255,83 +261,85 @@ def compute_relative_value_band(f: CoreFundamentals, p: PeerMetrics, reliability
     pb = safe_float(f.pb)
     eps = safe_float(f.eps)
     bvps = safe_float(f.bvps)
+    roce = safe_float(f.roce)
     
+    # 1. Evaluate Earnings Growth (Capped at 20% to avoid extreme extrapolation)
+    raw_growth = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y, f.revenue_growth_3y, 0.0)
+    growth_pct = clamp(raw_growth, 0.0, 0.20)
+    
+    # 2. Compute Absolute Intrinsic Value (Benjamin Graham Formula)
+    # V = EPS * (8.5 + 2g)
+    v_earnings = 0.0
+    if eps > 0:
+        v_earnings = eps * (8.5 + 2 * (growth_pct * 100))
+        
+    # 3. Compute Relative Peer Value (Quality Adjusted)
+    v_peer = 0.0
+    quality_premium = 0.0
+    
+    # Calculate Quality Premium based on ROE/ROCE vs Sector Median
+    if p.median_roe is not None and p.median_roe > 0 and roe > p.median_roe:
+        quality_premium += (roe - p.median_roe) / p.median_roe
+    if roce > 0.15: quality_premium += 0.1
+    if roce > 0.25: quality_premium += 0.1
+    quality_premium = clamp(quality_premium, 0.0, 0.5) # Cap premium at 50%
+    
+    if p.median_pe is not None and p.median_pe > 0 and eps > 0:
+        target_mult = p.median_pe * (1.0 + quality_premium)
+        target_mult = clamp(target_mult, 5.0, 60.0) # Sane PE bounds
+        v_peer = eps * target_mult
+        
+    # 4. Compute Asset/Book Value (Baseline)
+    v_book = 0.0
+    if bvps > 0:
+        median_pb = p.median_pb if p.median_pb is not None and p.median_pb > 0 else 1.0
+        v_book = bvps * median_pb * (1.0 + quality_premium)
+        
+    # --- Blending Logic ---
     if f.is_financial:
-        anchor = "P/B"
-        if p.median_pb is not None and p.median_pb > 0 and bvps > 0:
-            premium = 0.0
-            if p.median_roe is not None and p.median_roe > 0 and roe > p.median_roe:
-                premium = (roe - p.median_roe) / p.median_roe
-                premium = clamp(premium, 0.0, 0.8) # Cap premium at 80%
-            
-            target_mult = p.median_pb * (1.0 + premium)
-            target_mult = min(target_mult, p.median_pb * 3.0)
-            
-            base_fv = target_mult * bvps
-            
-            # Reliability Adjustments
-            if reliability < 10: base_fv *= 0.90
-            spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
-            
-            bull_fv = base_fv * (1.0 + spread)
-            bear_fv = base_fv * (1.0 - spread)
+        anchor = "COMPOSITE (P/B Heavily Weighted)"
+        # Financials are heavily weighted on Book Value
+        if v_book > 0:
+            if eps > 0 and v_peer > 0:
+                base_fv = (v_book * 0.7) + (v_peer * 0.3)
+            else:
+                base_fv = v_book
         else:
-            # Fallback to current P/E or P/B equivalent discounted
-            current_pb = pb if pb is not None and pb > 0 else 1.0
-            base_fv = bvps * current_pb * 0.85 if bvps > 0 else 0.0
-            bull_fv, bear_fv = base_fv * 1.1, base_fv * 0.9
-            
+            # Absolute fallback if BVPS missing
+            base_fv = current_price * 0.5 if current_price else 0.0
     else:
-        anchor = "P/E"
-        if p.median_pe is not None and p.median_pe > 0 and eps > 0:
-            premium = 0.0
-            eg = first_valid(f.eps_growth_5y, f.eps_growth_3y, f.eps_growth_1y)
-            if eg is not None:
-                if eg > 0.15: premium += 0.2
-                if eg > 0.30: premium += 0.2
-            
-            roce = safe_float(f.roce)
-            if roce > 0.15: premium += 0.1
-            if roce > 0.20: premium += 0.1
-            
-            premium = clamp(premium, 0.0, 0.8)
-            
-            # outlier blend protection
-            target_mult = p.median_pe * (1.0 + premium)
-            
-            if pe > 0 and pe < p.median_pe * 2.0:
-                # safe to blend
-                target_mult = (0.5 * target_mult) + (0.5 * pe)
-                
-            max_pe = 60
-            if eg is not None:
-                if eg > 0.15: max_pe = 80
-                if eg > 0.30: max_pe = 100
-            target_mult = clamp(target_mult, 6.0, max_pe)
-            
-            base_fv = target_mult * eps
-            
-            # Reliability Adjustments
-            if reliability < 10: base_fv *= 0.90
-            spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
-            
-            bull_fv = base_fv * (1.0 + spread)
-            bear_fv = base_fv * (1.0 - spread)
+        anchor = "COMPOSITE (Earnings + Peer Blend)"
+        if eps <= 0:
+            # Loss making companies (e.g. IDEA) cannot use Earnings or PE
+            base_fv = v_book * 0.8 if v_book > 0 else (current_price * 0.3 if current_price else 0.0)
+            anchor = "ASSET BASELINE (Loss-Making)"
         else:
-            # Fallback to current P/E discounted
-            current_pe = pe if pe is not None and pe > 0 else 15.0
-            base_fv = eps * min(current_pe * 0.85, 30.0) if eps > 0 else 0.0
-            
-            bull_fv, bear_fv = base_fv * 1.1, base_fv * 0.9
-            
-    # Global Floor Logic: Prevent mathematically correct but practically absurd FV for asset-light or high-growth stocks
+            # Profitable Non-Financials
+            if v_earnings > 0 and v_peer > 0:
+                base_fv = (v_earnings + v_peer) / 2.0
+            elif v_earnings > 0:
+                base_fv = v_earnings
+            elif v_peer > 0:
+                base_fv = v_peer
+            else:
+                base_fv = v_book
+                
+    # --- Reliability Spread & Sanity Bounds ---
     if current_price and current_price > 0:
-        if base_fv < 0.5 * current_price:
-            base_fv = 0.8 * current_price
-            # Recalculate bands around the new floored base_fv
-            spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
-            bull_fv = base_fv * (1.0 + spread)
-            bear_fv = base_fv * (1.0 - spread)
+        # Prevent "Too Low" (Max downside 70%)
+        if base_fv < 0.3 * current_price:
+            base_fv = 0.3 * current_price
+            
+        # Prevent "Too High" (Max upside 100%)
+        if base_fv > 2.0 * current_price:
+            base_fv = 2.0 * current_price
+            
+    # Reliability Penalties
+    if reliability < 10: base_fv *= 0.90
+    spread = 0.05 if reliability >= 16 else (0.10 if reliability >= 10 else 0.15)
+    
+    bull_fv = base_fv * (1.0 + spread)
+    bear_fv = base_fv * (1.0 - spread)
             
     return base_fv, bull_fv, bear_fv, target_mult, anchor
 
