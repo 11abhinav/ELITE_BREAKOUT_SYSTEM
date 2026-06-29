@@ -45,7 +45,9 @@ CONSTITUENT_URLS = {
     "Nifty 50": "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
     "Nifty Next 50": "https://nsearchives.nseindia.com/content/indices/ind_niftynext50list.csv",
     "Nifty Midcap 150": "https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv",
-    "Nifty Smallcap 250": "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv"
+    "Nifty Smallcap 250": "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
+    "Nifty 500": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
+    "Nifty Microcap 250": "https://nsearchives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
 }
 
 # Browser-like headers to bypass NSE's strict user-agent checking
