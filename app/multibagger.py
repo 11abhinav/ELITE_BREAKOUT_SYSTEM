@@ -955,9 +955,7 @@ def _start_wrapper(debug_limit: int = None):
         "🟡 WATCHLIST CANDIDATE": []
     }
     
-    import json
-    import os
-    from datetime import datetime
+
     
     # Init Rejection Log
     log_date = datetime.now().strftime('%Y-%m-%d')
