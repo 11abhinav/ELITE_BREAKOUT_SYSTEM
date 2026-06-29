@@ -251,9 +251,9 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
 
 def get_piotroski_score(symbol: str) -> int:
     cache = load_cache()
-    entry = cache.get(symbol, {})
+    entry = cache.get(symbol) or {}
     return entry.get("score", -1)
 
 def get_fundamentals(symbol: str) -> dict:
     cache = load_cache()
-    return cache.get(symbol, {})
+    return cache.get(symbol) or {}

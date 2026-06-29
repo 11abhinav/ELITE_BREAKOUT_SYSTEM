@@ -2311,9 +2311,11 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
 
             # 3. If there is old date data, delete it first
             if date_col:
-                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" < %s', (today_str,))
+                date_col_safe = date_col.replace("%", "%%")
+                table_name_safe = table_name.replace("%", "%%")
+                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" < %s', (today_str,))
                 # Also delete today's data just to be safe from duplicates on retry
-                cur.execute(f'DELETE FROM {table_name} WHERE "{date_col}" = %s', (today_str,))
+                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
             else:
                 cur.execute(f"TRUNCATE TABLE {table_name}")
                 
@@ -2340,9 +2342,10 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                 return
 
             # 5. Insert rows
-            col_list_str = ", ".join(f'"{c}"' for c in insert_cols)
+            col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
             val_placeholders = ", ".join(["%s"] * len(insert_cols))
-            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({val_placeholders})"
+            table_name_safe = table_name.replace("%", "%%")
+            insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders})"
 
             for _, row in df.iterrows():
                 vals = [row[sc] for sc in df_source_cols]
