@@ -214,6 +214,12 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
         if val is None or pd.isna(val): return False
         return bool(val)
         
+    def _safe_pct(val, default=None):
+        f = _safe_float(val, default=default)
+        if f is not None:
+            return f / 100.0
+        return default
+        
     symbol = str(r.get("Stock", ""))
     
     f = CoreFundamentals(
@@ -221,25 +227,25 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
         sector=str(r.get("Sector", "")),
         pe=_safe_float(r.get("P/E Ratio"), None),
         pb=_safe_float(r.get("P/B Ratio"), None),
-        roe=_safe_float(r.get("ROE %"), None) / 100.0 if r.get("ROE %") is not None else None,
-        roce=_safe_float(r.get("ROCE %"), None) / 100.0 if r.get("ROCE %") is not None else None,
+        roe=_safe_pct(r.get("ROE %"), None),
+        roce=_safe_pct(r.get("ROCE %"), None),
         debt_equity=_safe_float(r.get("Debt/Equity"), None),
-        operating_margin=_safe_float(r.get("OPM %"), None) / 100.0 if r.get("OPM %") is not None else None,
-        revenue_growth_3y=_safe_float(r.get("3Y Revenue %"), None) / 100.0 if r.get("3Y Revenue %") is not None else None,
-        revenue_growth_5y=_safe_float(r.get("5Y Revenue %"), None) / 100.0 if r.get("5Y Revenue %") is not None else None,
-        eps_growth_3y=_safe_float(r.get("3Y EPS %"), None) / 100.0 if r.get("3Y EPS %") is not None else None,
-        eps_growth_5y=_safe_float(r.get("5Y EPS %"), None) / 100.0 if r.get("5Y EPS %") is not None else None,
-        revenue_growth_1y=_safe_float(r.get("YOY Revenue %"), None) / 100.0 if r.get("YOY Revenue %") is not None else None,
-        eps_growth_1y=_safe_float(r.get("YOY EPS %"), None) / 100.0 if r.get("YOY EPS %") is not None else None,
-        fcf_margin=_safe_float(r.get("FCF Margin %"), None) / 100.0 if r.get("FCF Margin %") is not None else None,
+        operating_margin=_safe_pct(r.get("OPM %"), None),
+        revenue_growth_3y=_safe_pct(r.get("3Y Revenue %"), None),
+        revenue_growth_5y=_safe_pct(r.get("5Y Revenue %"), None),
+        eps_growth_3y=_safe_pct(r.get("3Y EPS %"), None),
+        eps_growth_5y=_safe_pct(r.get("5Y EPS %"), None),
+        revenue_growth_1y=_safe_pct(r.get("YOY Revenue %"), None),
+        eps_growth_1y=_safe_pct(r.get("YOY EPS %"), None),
+        fcf_margin=_safe_pct(r.get("FCF Margin %"), None),
         cfo_pat_ratio=_safe_float(r.get("CFO/PAT"), None),
         operating_cash_flow=_safe_float(r.get("Operating Cash Flow"), None),
-        yoy_profit_growth=_safe_float(r.get("YOY Profit %"), None) / 100.0 if r.get("YOY Profit %") is not None else None,
+        yoy_profit_growth=_safe_pct(r.get("YOY Profit %"), None),
         net_losses_3y=_safe_bool(r.get("Net Losses 3Y")),
-        div_yield=_safe_float(r.get("Div Yield %"), 0.0) / 100.0 if r.get("Div Yield %") is not None else 0.0,
+        div_yield=_safe_pct(r.get("Div Yield %"), 0.0),
         eps=_safe_float(r.get("EPS"), None),
         bvps=_safe_float(r.get("BVPS"), None),
-        roa=_safe_float(r.get("ROA %"), None) / 100.0 if r.get("ROA %") is not None else None,
+        roa=_safe_pct(r.get("ROA %"), None),
         is_financial=(str(r.get("Path", "")) == "Financial")
     )
     

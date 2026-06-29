@@ -964,103 +964,119 @@ def _start_wrapper(debug_limit: int = None):
     rejection_log_path = f"logs/rejections_{log_date}.jsonl"
     os.makedirs("logs", exist_ok=True)
     
+    # Import the new V4 pipeline
+    from core.multibagger_pipeline import run_pipeline_for_symbol
+    
     for f in fundamentals_list:
         sym = f.symbol
         price_data = price_data_map.get(sym)
         if not price_data:
             continue
             
-        alert_triggered = False
-        alert_reason = ""
-        cp = None
-        is_fallback = True
+        # 1. Adapt legacy data structures to Dict for the pipeline
+        raw_fundamentals = {
+            "total_equity": None, # Should be fetched in deep metrics
+            "promoter_pledge_pct": None, # Fallback
+            "auditor_flags": False,
+            "operating_cash_flow_ttm": f.operating_cash_flow,
+            "debt_equity": f.debt_equity,
+            "is_financial": f.is_financial,
+            
+            # Fundamentals for scoring
+            "roic_ttm": f.roce, # Using roce as proxy for now
+            "operating_margin_ttm": f.operating_margin,
+            "revenue_growth_1y": f.revenue_growth_1y,
+            "revenue_growth_3y": f.revenue_growth_3y,
+            
+            # Needed for adaptive history
+            # In a full implementation, we'd pass raw time series here
+        }
         
-        # Prepare Core Fundamentals
-        cf = f
+        technicals = {
+            "price": price_data.price,
+            "sma_50": price_data.sma_50,
+            "sma_200": price_data.sma_200,
+            "ema_20": price_data.sma_20, # using sma_20 as proxy for ema_20 for now
+            "atr": price_data.price * 0.05, # dummy ATR for now
+        }
         
-        p_data = peer_medians.get(sym, {})
-        cp = PeerMetrics(
-            median_pe=p_data.get("median_pe"),
-            median_pb=p_data.get("median_pb"),
-            median_roe=p_data.get("median_roe", 0) / 100.0 if p_data.get("median_roe") else None,
-            median_ev_ebitda=p_data.get("median_ev_ebitda"),
-            median_div_yield=p_data.get("median_div_yield", 0) / 100.0 if p_data.get("median_div_yield") else None,
-            median_peg=p_data.get("median_peg"),
-            peer_count=p_data.get("peer_count", 0),
-            dispersion_iqr_median=p_data.get("dispersion_iqr_median"),
-            source_type=p_data.get("source_type", "FALLBACK"),
-            is_complete=(p_data.get("median_pe") is not None and p_data.get("median_pb") is not None),
-            missing_critical=(p_data.get("median_pe") is None),
-            missing_minor=False
-        )
-        is_fallback = (cp.source_type == "FALLBACK")
+        # 2. Run the V4 Pipeline
+        pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         
-        c_price = CorePriceData(
-            price=price_data.price,
-            sma_50=price_data.sma_50,
-            sma_200=price_data.sma_200,
-            high_20d=price_data.high_20d,
-            latest_volume=price_data.latest_volume,
-            volume_sma20=price_data.volume_sma20
-        )
-        
-        # Generate Unified Scores with new Hierarchical Engine
-        scores = generate_core_scores(cf, cp, c_price, regime=market_regime)
-        
-        if not scores.is_buy:
+        if pipeline_result is None:
+            # Rejected by Gate Engine
             # Log rejection
             rej_data = {
                 "symbol": sym,
                 "timestamp": datetime.now().isoformat(),
-                "phase": scores.rejection_stage,
-                "reason": scores.rejection_reason,
-                "scores": {
-                    "bqs": scores.business_quality_score,
-                    "fqs": scores.financial_quality_score,
-                    "rvs": scores.relative_valuation_score,
-                    "trend": scores.market_structure_score
-                }
+                "phase": "GATE_ENGINE",
+                "reason": "Failed Kill Gates"
             }
             with open(rejection_log_path, "a") as rf:
                 rf.write(json.dumps(rej_data) + "\n")
                 
             status = "INVALIDATED"
             bucket = "Invalidated"
-            notes = f"{scores.rejection_stage}: {scores.rejection_reason}"
+            notes = "Failed Layer 3 Gates"
             cqs = 0.0
             pas = 0.0
             trend = 0.0
             total = 0.0
-            buy_low = 0
-            buy_high = 0
+            buy_low = 0.0
+            buy_high = 0.0
         else:
-            cqs = scores.business_quality_score
-            pas = scores.relative_valuation_score
-            trend = scores.market_structure_score
-            total = scores.composite_investment_score
+            cqs = pipeline_result.static_score.quality.score
+            pas = pipeline_result.static_score.value.score
+            trend = pipeline_result.static_score.momentum.score
+            total = pipeline_result.static_score.overall_score
             
-            # Use Configured Buy Zone
-            from core_score_engine import get_engine_config
-            cfg = get_engine_config().get("buy_zone", {})
-            buffer = cfg.get("breakout_buffer", 0.02)
+            buy_low = pipeline_result.buy_zone_low
+            buy_high = pipeline_result.buy_zone_high
             
-            buy_low = price_data.sma_200 if price_data.sma_200 > 0 else (price_data.price * 0.5)
-            buy_high = min(price_data.price * (1 + buffer), price_data.high_20d)
-            if buy_low >= buy_high:
-                buy_low = buy_high * 0.9
-                
-            alert_triggered, alert_reason = should_trigger_alert(price_data, scores)
+            alert_triggered = pipeline_result.in_buy_zone
+            status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
+            bucket = pipeline_result.classification.value
+            notes = pipeline_result.audit_trail
             
             if alert_triggered:
-                status = "ALERT_TRIGGERED"
-                bucket = "Value Breakout"
-            else:
-                status = "WAITING_BUY_ZONE"
-                bucket = "Watchlist Waiting"
+                logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
+                scaled_score = int(total)
                 
-            notes = alert_reason
-
-            
+                # Compute position sizing (total is 0-100 natively)
+                momentum_for_sizing = int(total)
+                sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
+                pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
+                
+                save_wealth_buy_alert(
+                    symbol=sym,
+                    alert_price=price_data.price,
+                    breakout_type="MULTIBAGGER",
+                    fm_score=scaled_score,
+                    notes=notes,
+                    position_pct=round(sizing["Position_Pct"] * 100, 2),
+                    position_amount=sizing["Position_Amount"],
+                    position_shares=pos_shares,
+                    portfolio_bucket="MULTIBAGGER",
+                    valuation_score=pas,
+                    momentum_score=int(trend),
+                    momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
+                )
+                
+            # Group only non-invalidated stocks for Telegram
+            if status != "INVALIDATED":
+                label = pipeline_result.classification.value
+                if label not in categorized_stocks:
+                    categorized_stocks[label] = []
+                    
+                categorized_stocks[label].append({
+                    'symbol': sym,
+                    'price': price_data.price,
+                    'cqs': cqs,
+                    'pas': pas,
+                    'total': total,
+                    'status': status
+                })
+                
         res = ScreenerResult(
             symbol=sym,
             price=price_data.price,
@@ -1076,44 +1092,7 @@ def _start_wrapper(debug_limit: int = None):
             change_pct=price_data.change_pct
         )
         results.append(res)
-        
-        # Trigger buy alert for ready positions
-        if alert_triggered:
-            logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: {alert_reason}")
-            scaled_score = int(total)
-            
-            # Compute position sizing (total is 0-100 natively)
-            momentum_for_sizing = int(total)
-            sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
-            pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
-            
-            save_wealth_buy_alert(
-                symbol=sym,
-                alert_price=price_data.price,
-                breakout_type="MULTIBAGGER",
-                fm_score=scaled_score,
-                notes=notes,
-                position_pct=round(sizing["Position_Pct"] * 100, 2),
-                position_amount=sizing["Position_Amount"],
-                position_shares=pos_shares,
-                portfolio_bucket="MULTIBAGGER",
-                valuation_score=pas,
-                momentum_score=int(trend),
-                momentum_confidence="HIGH" if cqs >= 7.0 else "MEDIUM"
-            )
-            
-        # Group only non-invalidated stocks for Telegram
-        if status != "INVALIDATED":
-            label = get_label(cqs, pas)
-            if label:
-                categorized_stocks[label].append({
-                    'symbol': sym,
-                    'price': price_data.price,
-                    'cqs': cqs,
-                    'pas': pas,
-                    'total': total,
-                    'status': status
-                })
+
             
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
