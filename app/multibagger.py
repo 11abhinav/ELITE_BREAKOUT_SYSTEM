@@ -88,25 +88,6 @@ class ExitPriceData:
     sma_200_yesterday: float
 
 @dataclass
-class StockFundamentals:
-    symbol: str
-    market_cap: float
-    debt_equity: float
-    operating_cash_flow: float
-    roe: float
-    revenue_growth: float
-    earnings_growth: float
-    operating_margin: float
-    pe: float
-    pb: float
-    div_yield: float
-    sector: str
-    canonical_industry: str
-    eps: float
-    bvps: float
-    roa: Optional[float] = None
-
-@dataclass
 class ScreenerResult:
     symbol: str
     price: float
@@ -317,16 +298,24 @@ def is_financial_sector(sector: str) -> bool:
     sec_lower = str(sector).lower()
     return any(keyword in sec_lower for keyword in ["financ", "bank", "nbfc", "insurance"])
 
-def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
-    """Fetch fundamentals from cache if it is < 7 days old."""
+def get_cached_fundamentals(symbol: str, cache: dict) -> CoreFundamentals:
     if symbol not in cache:
         return None
+    try:
+        data = cache[symbol]
+        fetched_at = datetime.fromisoformat(data.get("fetched_at", datetime.now().isoformat()))
+        age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
+        if age_days < 7:
+            return CoreFundamentals(**{k: v for k, v in data.items() if k != "fetched_at"})
+    except Exception as e:
+        logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
+    return None
     try:
         data = cache[symbol]
         fetched_at = datetime.fromisoformat(data["fetched_at"])
         age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
         if age_days < 7:
-            return StockFundamentals(
+            return CoreFundamentals(
                 symbol=symbol,
                 market_cap=data["market_cap"],
                 debt_equity=data["debt_equity"],
@@ -348,8 +337,29 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> StockFundamentals:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
     return None
 
-def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
-    """Fetch deeper company info metadata from yfinance."""
+
+def safe_extract(df, row_name, col_idx=0, default=None):
+    try:
+        if row_name in df.index:
+            val = df.loc[row_name].iloc[col_idx]
+            if not pd.isna(val): return float(val)
+    except: pass
+    return default
+
+def compute_cagr(df, row_name, years=3):
+    try:
+        if row_name not in df.index: return None
+        row = df.loc[row_name].dropna()
+        if len(row) < 2: return None
+        latest = float(row.iloc[0])
+        idx = min(years, len(row) - 1)
+        oldest = float(row.iloc[idx])
+        if oldest and oldest > 0 and latest and latest > 0:
+            return ((latest / oldest) ** (1.0 / idx)) - 1.0
+    except: pass
+    return None
+
+def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
     rate_limiter.wait_if_needed()
     ticker_name = f"{symbol}.NS"
     ticker = yf.Ticker(ticker_name)
@@ -360,80 +370,87 @@ def fetch_ticker_fundamentals(symbol: str) -> StockFundamentals:
             if info and "marketCap" in info:
                 rate_limiter.record_success()
                 
-                fund = StockFundamentals(
+                fin = ticker.financials
+                bs = ticker.balance_sheet
+                cf = ticker.cashflow
+                
+                pat = safe_extract(fin, 'Net Income')
+                cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
+                revenue = safe_extract(fin, 'Total Revenue')
+                assets = safe_extract(bs, 'Total Assets')
+                ebit = safe_extract(fin, 'EBIT')
+                current_liab = safe_extract(bs, 'Current Liabilities')
+                working_capital = safe_extract(bs, 'Working Capital')
+                retained_earnings = safe_extract(bs, 'Retained Earnings')
+                total_liab = safe_extract(bs, 'Total Liabilities Net Minority Interest') or safe_extract(bs, 'Total Liabilities')
+                
+                cfo_pat = cfo / pat if pat and cfo and pat > 0 else None
+                ato = revenue / assets if revenue and assets and assets > 0 else None
+                roic = ebit / (assets - current_liab) if ebit and assets and current_liab and (assets - current_liab) > 0 else None
+                
+                altman_z = None
+                market_cap = info.get('marketCap')
+                if all(v is not None for v in [working_capital, retained_earnings, ebit, market_cap, total_liab, assets]) and assets > 0 and total_liab > 0:
+                    x1 = working_capital / assets
+                    x2 = retained_earnings / assets
+                    x3 = ebit / assets
+                    x4 = market_cap / total_liab
+                    x5 = revenue / assets if revenue else 0
+                    altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
+                
+                fund = CoreFundamentals(
                     symbol=symbol,
-                    market_cap=info.get("marketCap"),
-                    debt_equity=info.get("debtToEquity"),
-                    operating_cash_flow=info.get("operatingCashflow"),
-                    roe=info.get("returnOnEquity"),
-                    revenue_growth=info.get("revenueGrowth"),
-                    earnings_growth=info.get("earningsGrowth"),
-                    operating_margin=info.get("operatingMargins"),
-                    pe=info.get("trailingPE"),
-                    pb=safe_float(info.get("priceToBook")),
-                    div_yield=safe_float(info.get("dividendYield")),
                     sector=info.get("sector", "Unknown"),
                     canonical_industry=info.get("industry", "DEFAULT"),
+                    market_cap=market_cap,
+                    pe=info.get("trailingPE"),
+                    pb=safe_float(info.get("priceToBook")),
+                    ev_ebitda=info.get("enterpriseToEbitda"),
+                    roe=info.get("returnOnEquity"),
+                    roce=roic, # proxy ROCE with ROIC if missing
+                    debt_equity=info.get("debtToEquity"),
+                    operating_margin=info.get("operatingMargins"),
+                    gross_margin=info.get("grossMargins"),
+                    fcf_margin=None, # Needs to be calculated later if needed
+                    revenue_growth_1y=info.get("revenueGrowth"),
+                    revenue_growth_3y=compute_cagr(fin, 'Total Revenue', 3),
+                    revenue_growth_5y=compute_cagr(fin, 'Total Revenue', 5),
+                    eps_growth_1y=info.get("earningsGrowth"),
+                    eps_growth_3y=compute_cagr(fin, 'Net Income', 3),
+                    eps_growth_5y=compute_cagr(fin, 'Net Income', 5),
+                    fcf_growth_3y=compute_cagr(cf, 'Free Cash Flow', 3),
+                    fcf_growth_5y=compute_cagr(cf, 'Free Cash Flow', 5),
+                    cfo_pat_ratio=cfo_pat,
+                    operating_cash_flow=cfo,
+                    asset_turnover=ato,
+                    div_yield=safe_float(info.get("dividendYield")),
+                    altman_z=altman_z,
+                    promoter_pledge=None, # Not in basic yf info usually
                     eps=safe_float(info.get("trailingEps")),
                     bvps=safe_float(info.get("bookValue")),
-                    roa=safe_float(info.get("returnOnAssets"))
+                    roa=safe_float(info.get("returnOnAssets")),
+                    is_financial=is_financial_sector(info.get("sector")),
+                    data_freshness="LIVE"
                 )
                 
-                try:
-                    from database import insert_fundamental_snapshot
-                    insert_fundamental_snapshot(
-                        symbol=symbol,
-                        sector=fund.sector,
-                        pe=fund.pe,
-                        pb=fund.pb,
-                        roe=fund.roe,
-                        eps=fund.eps,
-                        bvps=fund.bvps,
-                        div_yield=fund.div_yield,
-                        revenue_growth=fund.revenue_growth,
-                        earnings_growth=fund.earnings_growth,
-                        operating_margin=fund.operating_margin,
-                        debt_equity=fund.debt_equity,
-                        operating_cashflow=fund.operating_cash_flow,
-                        roa=fund.roa
-                    )
-                except Exception as snap_err:
-                    logger.warning(f"Failed to save fundamental snapshot for {symbol}: {snap_err}")
-                    
                 return fund
             time.sleep(1.0 + (2 ** attempt))
         except Exception as e:
             msg = str(e).lower()
             if "401" in msg or "crumb" in msg or "unauthorized" in msg:
-                logger.warning(f"⚠️ YFinance crumb stale for {symbol}, clearing tzcache and retrying...")
                 import shutil, os
                 from config import BASE_DIR
                 tz_path = os.path.join(BASE_DIR, "data", "tzcache")
                 if os.path.exists(tz_path):
                     shutil.rmtree(tz_path, ignore_errors=True)
                 ticker = yf.Ticker(f"{symbol}.NS")
-                
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
                 rate_limiter.record_failure()
             time.sleep(2 ** attempt)
             
-    # Record non-critical error in DB
-    try:
-        from database import upsert_fetch_error
-        upsert_fetch_error(
-            source_name='yfinance',
-            scanner_name='MULTIBAGGER',
-            symbol=symbol,
-            interval='fundamental',
-            category='fetch_failed',
-            error_msg="Failed to fetch info after 3 retries"
-        )
-    except Exception as db_err:
-        logger.warning(f"Failed to record fetch error in DB for {symbol}: {db_err}")
-        
     return None
 
-def passes_kill_gates(f: StockFundamentals) -> tuple[bool, str]:
+def passes_kill_gates(f: CoreFundamentals) -> tuple[bool, str]:
     """Instant rejection checks with Golden Exceptions for hyper-growth microcaps and turnarounds. Returns (passed, reason)."""
     
     # Parse base metrics safely
@@ -704,32 +721,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                 
             if fund:
                 from core_score_engine import score_business_quality, CoreFundamentals
-                cf = CoreFundamentals(
-                    symbol=symbol,
-                    sector=fund.sector,
-                    pe=fund.pe,
-                    pb=fund.pb,
-                    roe=fund.roe,
-                    roce=None,
-                    debt_equity=fund.debt_equity,
-                    operating_margin=fund.operating_margin,
-                    revenue_growth_3y=None,
-                    revenue_growth_5y=None,
-                    eps_growth_3y=None,
-                    eps_growth_5y=None,
-                    revenue_growth_1y=fund.revenue_growth,
-                    eps_growth_1y=fund.earnings_growth,
-                    fcf_margin=None,
-                    cfo_pat_ratio=None,
-                    operating_cash_flow=fund.operating_cash_flow,
-                    yoy_profit_growth=fund.earnings_growth,
-                    net_losses_3y=False,
-                    div_yield=fund.div_yield,
-                    eps=fund.eps,
-                    bvps=fund.bvps,
-                    roa=fund.roa,
-                    is_financial=is_financial_sector(fund.sector)
-                )
+                cf = fund
                 cqs = score_business_quality(cf)
             else:
                 cqs = 15.0 # fallback if no fundamentals
@@ -984,33 +976,7 @@ def _start_wrapper(debug_limit: int = None):
         is_fallback = True
         
         # Prepare Core Fundamentals
-        cf = CoreFundamentals(
-            symbol=sym,
-            sector=f.sector,
-            canonical_industry=f.canonical_industry,
-            pe=f.pe,
-            pb=f.pb,
-            roe=f.roe,
-            roce=None, # Ticker tape data doesn't give ROCE easily here
-            debt_equity=f.debt_equity,
-            operating_margin=f.operating_margin,
-            revenue_growth_3y=None,
-            revenue_growth_5y=None,
-            eps_growth_3y=None,
-            eps_growth_5y=None,
-            revenue_growth_1y=f.revenue_growth,
-            eps_growth_1y=f.earnings_growth,
-            fcf_margin=None,
-            cfo_pat_ratio=None,
-            operating_cash_flow=f.operating_cash_flow,
-            yoy_profit_growth=f.earnings_growth,
-            net_losses_3y=False,
-            div_yield=f.div_yield,
-            eps=f.eps,
-            bvps=f.bvps,
-            roa=f.roa,
-            is_financial=is_financial_sector(f.sector)
-        )
+        cf = f
         
         p_data = peer_medians.get(sym, {})
         cp = PeerMetrics(

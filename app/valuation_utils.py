@@ -476,3 +476,35 @@ def seed_universe_if_empty():
             t.start()
         except Exception as e:
             logger.exception("Failed to seed universe")
+
+def multi_scenario_dcf(fcf: float, growth_rate: float, discount_rate: float = 0.12, terminal_growth: float = 0.04, shares: float = 1.0):
+    if not fcf or fcf <= 0 or not shares:
+        return None
+        
+    def calculate_pv(g):
+        pv = 0
+        current_fcf = fcf
+        # 5 year explicit forecast
+        for i in range(1, 6):
+            current_fcf *= (1 + g)
+            pv += current_fcf / ((1 + discount_rate) ** i)
+        # Terminal value
+        tv = (current_fcf * (1 + terminal_growth)) / (discount_rate - terminal_growth)
+        pv += tv / ((1 + discount_rate) ** 5)
+        return pv / shares
+
+    base_g = max(min(growth_rate, 0.20), 0.05)
+    bear_g = base_g * 0.5
+    bull_g = min(base_g * 1.5, 0.25)
+    
+    base_val = calculate_pv(base_g)
+    bear_val = calculate_pv(bear_g)
+    bull_val = calculate_pv(bull_g)
+    
+    weighted_value = (0.30 * bear_val) + (0.50 * base_val) + (0.20 * bull_val)
+    
+    return {
+        "fair_value": weighted_value,
+        "bear_value": bear_val,
+        "bull_value": bull_val
+    }
