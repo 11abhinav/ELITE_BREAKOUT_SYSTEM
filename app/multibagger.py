@@ -36,6 +36,7 @@ from psycopg2.extras import execute_values
 from database import get_connection, save_wealth_buy_alert, close_position
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
+from core.multibagger_pipeline import run_pipeline_for_symbol
 
 logger = logging.getLogger("multibagger")
 IST = ZoneInfo("Asia/Kolkata")
@@ -916,9 +917,6 @@ def _start_wrapper(debug_limit: int = None):
     log_date = datetime.now().strftime('%Y-%m-%d')
     rejection_log_path = f"logs/rejections_{log_date}.jsonl"
     os.makedirs("logs", exist_ok=True)
-    
-    # Import the new V4 pipeline
-    from core.multibagger_pipeline import run_pipeline_for_symbol
     
     for f in fundamentals_list:
         sym = f.get("symbol")
