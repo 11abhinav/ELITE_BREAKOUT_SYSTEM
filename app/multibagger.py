@@ -317,12 +317,12 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> CoreFundamentals:
         if age_days < 7:
             return CoreFundamentals(
                 symbol=symbol,
-                market_cap=data["market_cap"],
-                debt_equity=data["debt_equity"],
-                operating_cash_flow=data["operating_cash_flow"],
-                roe=data["roe"],
-                revenue_growth=data["revenue_growth"],
-                earnings_growth=data["earnings_growth"],
+                market_cap=data.get("market_cap"),
+                debt_equity=data.get("debt_equity"),
+                operating_cash_flow=data.get("operating_cash_flow"),
+                roe=data.get("roe"),
+                revenue_growth_1y=data.get("revenue_growth"),
+                eps_growth_1y=data.get("earnings_growth"),
                 operating_margin=data["operating_margin"],
                 pe=data["pe"],
                 pb=safe_float(data.get("pb")),
@@ -459,7 +459,7 @@ def passes_kill_gates(f: CoreFundamentals) -> tuple[bool, str]:
     eps = float(f.eps) if f.eps is not None else 0.0
     opm = float(f.operating_margin) if f.operating_margin is not None else 0.0
     roe = float(f.roe) if f.roe is not None else 0.0
-    rev_growth = float(f.revenue_growth) if f.revenue_growth is not None else 0.0
+    rev_growth = float(f.revenue_growth_1y) if getattr(f, 'revenue_growth_1y', None) is not None else 0.0
     de_val = float(f.debt_equity) if f.debt_equity is not None else 0.0
     de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
     
@@ -496,8 +496,8 @@ def passes_kill_gates(f: CoreFundamentals) -> tuple[bool, str]:
     # 7. Deterioration check
     if rev_growth < -0.30:
         return False, f"Invalidated: Severe Revenue Collapse ({rev_growth*100:.1f}%)."
-    if f.earnings_growth is not None and float(f.earnings_growth) < -0.30:
-        return False, f"Invalidated: Severe Earnings Collapse ({float(f.earnings_growth)*100:.1f}%)."
+    if getattr(f, 'eps_growth_1y', None) is not None and float(f.eps_growth_1y) < -0.30:
+        return False, f"Invalidated: Severe Earnings Collapse ({float(f.eps_growth_1y)*100:.1f}%)."
         
     return True, "Passed Kill Gates"
 def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
@@ -909,8 +909,8 @@ def _start_wrapper(debug_limit: int = None):
                         "debt_equity": fund.debt_equity,
                         "operating_cash_flow": fund.operating_cash_flow,
                         "roe": fund.roe,
-                        "revenue_growth": fund.revenue_growth,
-                        "earnings_growth": fund.earnings_growth,
+                        "revenue_growth": fund.revenue_growth_1y,
+                        "earnings_growth": fund.eps_growth_1y,
                         "operating_margin": fund.operating_margin,
                         "pe": fund.pe,
                         "pb": fund.pb,
