@@ -1,26 +1,11 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Tuple, List
 from datetime import datetime
 import pandas as pd
 import numpy as np
-import yaml
 
 logger = logging.getLogger(__name__)
-
-# --- Configuration Loader ---
-_ENGINE_CONFIG = None
-
-def get_engine_config() -> Dict[str, Any]:
-    global _ENGINE_CONFIG
-    if _ENGINE_CONFIG is None:
-        try:
-            with open("app/config/engine_config.yaml", "r") as f:
-                _ENGINE_CONFIG = yaml.safe_load(f)
-        except Exception as e:
-            logger.error(f"Failed to load engine_config.yaml: {e}")
-            _ENGINE_CONFIG = {}
-    return _ENGINE_CONFIG
 
 # --- Dataclasses ---
 
@@ -193,6 +178,10 @@ class CoreScoreResult:
     @property
     def is_buy(self) -> bool:
         return self.overall_score >= 60.0 and len(self.warnings) == 0
+
+    @property
+    def reliability_score(self) -> float:
+        return self.risk.score * 10.0  # Map to 10 pts scale
 
 # --- Utility Functions ---
 
@@ -463,33 +452,12 @@ def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePr
     if warnings:
         total = min(total, 49.0) # Force C rating if kill-gate triggered
         
-    # Multi-Scenario DCF
-    dcf = None
-    if f.operating_cash_flow is not None and f.revenue_growth_5y is not None:
-        try:
-            from valuation_utils import multi_scenario_dcf
-            dcf = multi_scenario_dcf(
-                fcf=float(f.operating_cash_flow), 
-                growth_rate=float(f.revenue_growth_5y),
-                shares=1.0 # Assuming per-share basis or market cap basis depending on caller, but FCF/share is usually needed
-            )
-        except ImportError:
-            pass
-
-    if dcf:
-        val_res = ValuationResult(
-            fair_value=round(dcf["fair_value"], 2) if dcf["fair_value"] else None,
-            bear_value=round(dcf["bear_value"], 2) if dcf["bear_value"] else None,
-            bull_value=round(dcf["bull_value"], 2) if dcf["bull_value"] else None,
-            method="MULTI_SCENARIO_DCF"
-        )
-    else:
-        val_res = ValuationResult(
-            fair_value=None,
-            bear_value=None,
-            bull_value=None,
-            method="MISSING"
-        )
+    val_res = ValuationResult(
+        fair_value=None,
+        bear_value=None,
+        bull_value=None,
+        method="MISSING"
+    )
     
     return CoreScoreResult(
         overall_score=round(total, 1),
