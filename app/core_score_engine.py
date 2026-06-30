@@ -95,6 +95,7 @@ class PeerMetrics:
     median_asset_turnover: Optional[float] = None
     median_debt_equity: Optional[float] = None
     median_capital_intensity: Optional[float] = None
+    median_peg: Optional[float] = None
     peer_count: int = 0
     
     # For percentile rankings within industry
