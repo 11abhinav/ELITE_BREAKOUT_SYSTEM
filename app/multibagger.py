@@ -847,24 +847,8 @@ def _start_wrapper(debug_limit: int = None):
                 if fund:
                     fundamentals_list.append(fund)
                     # Update local cache memory
-                    cache[sym] = {
-                        "fetched_at": datetime.now(IST).isoformat(),
-                        "market_cap": fund.market_cap,
-                        "debt_equity": fund.debt_equity,
-                        "operating_cash_flow": fund.operating_cash_flow,
-                        "roe": fund.roe,
-                        "revenue_growth": fund.revenue_growth_1y,
-                        "earnings_growth": fund.eps_growth_1y,
-                        "operating_margin": fund.operating_margin,
-                        "pe": fund.pe,
-                        "pb": fund.pb,
-                        "div_yield": fund.div_yield,
-                        "sector": fund.sector,
-                        "canonical_industry": fund.canonical_industry,
-                        "eps": fund.eps,
-                        "bvps": fund.bvps,
-                        "roa": fund.roa
-                    }
+                    cache[sym] = fund
+                    cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
             except Exception as e:
                 logger.exception(f"Error fetching fundamentals for {sym}")
                 
@@ -890,7 +874,7 @@ def _start_wrapper(debug_limit: int = None):
     
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     from valuation_utils import compute_peer_medians
-    symbols_to_val = [f.symbol for f in fundamentals_list]
+    symbols_to_val = [f.get("symbol") for f in fundamentals_list]
     peer_medians = compute_peer_medians(symbols_to_val)
             
     results = []
@@ -913,29 +897,16 @@ def _start_wrapper(debug_limit: int = None):
     from core.multibagger_pipeline import run_pipeline_for_symbol
     
     for f in fundamentals_list:
-        sym = f.symbol
+        sym = f.get("symbol")
         price_data = price_data_map.get(sym)
         if not price_data:
             continue
             
-        # 1. Adapt legacy data structures to Dict for the pipeline
-        raw_fundamentals = {
-            "total_equity": None, # Should be fetched in deep metrics
-            "promoter_pledge_pct": None, # Fallback
-            "auditor_flags": False,
-            "operating_cash_flow_ttm": f.operating_cash_flow,
-            "debt_equity": f.debt_equity,
-            "is_financial": f.is_financial,
-            
-            # Fundamentals for scoring
-            "roic_ttm": f.roce, # Using roce as proxy for now
-            "operating_margin_ttm": f.operating_margin,
-            "revenue_growth_1y": f.revenue_growth_1y,
-            "revenue_growth_3y": f.revenue_growth_3y,
-            
-            # Needed for adaptive history
-            # In a full implementation, we'd pass raw time series here
-        }
+        # 1. Pass the raw dictionary directly to the V5 Pipeline
+        raw_fundamentals = f.copy()
+        raw_fundamentals["total_equity"] = None # Should be fetched in deep metrics
+        raw_fundamentals["promoter_pledge_pct"] = None # Fallback
+        raw_fundamentals["auditor_flags"] = False
         
         technicals = {
             "price": price_data.price,
