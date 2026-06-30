@@ -747,7 +747,8 @@
     </div>
 
     <div style="background: var(--card2); padding: 14px; border-radius: 8px; border-left: 4px solid var(--amber); margin-bottom: 20px; font-size: 13px; color: var(--text);">
-      <strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.
+      <div style="margin-bottom: 8px;"><strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.</div>
+      <div><strong>Bucket Meanings:</strong> <strong>Tier A:</strong> Emerging Compounder | <strong>Tier B:</strong> Established Compounder | <strong>Tier C:</strong> Turnaround | <strong>Tier D:</strong> Deep Value | <strong>Tier E:</strong> Watchlist (waiting for technical confirmation)</div>
     </div>
 
     <div style="display: flex; gap: 12px; margin-bottom: 16px;">
@@ -1128,25 +1129,33 @@
         document.getElementById('kpi-sells').textContent = totalSellsCount === 0 ? '-' : totalSellsCount;
         document.getElementById('sells-count').textContent = totalSellsCount;
         
-        let sellsHtml = sells.map(r => `
-          <tr class="${newSellSignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
-            <td class="sym">${r.Stock}</td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
-            </td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
-              <span class="mono">CMP: ${fmt(r.cmp)} | SMA: ${fmt(r.sma_200)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
-            </td>
-            <td>${bucketTag(r.Portfolio_Bucket)}</td>
-            <td>${sectorTag(r.Sector)}</td>
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('');
+        let sellsHtml = "";
+        try {
+            sellsHtml = sells.map(r => `
+              <tr class="${newSellSignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
+                <td class="sym">${r.Stock}</td>
+                <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                  <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+                </td>
+                <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+                <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+                  <span class="mono">CMP: ${fmt(r.cmp)} | SMA: ${fmt(r.sma_200)}</span>
+                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+                </td>
+                <td>${bucketTag(r.Portfolio_Bucket)}</td>
+                <td>${sectorTag(r.Sector)}</td>
+                <td>${getSigHtml(r.Signal)}</td>
+              </tr>
+            `).join('');
+        } catch (e) {
+            console.error("Error generating sells html:", e);
+            sellsHtml = `<tr><td colspan="7" class="empty" style="color:red">Error rendering alerts: ${e.message}</td></tr>`;
+        }
 
-        let closedRowsHtml = closedToday.map(r => `
+        let closedRowsHtml = "";
+        try {
+            closedRowsHtml = closedToday.map(r => `
           <tr style="background: rgba(239, 68, 68, 0.05);">
             <td class="sym">${r.symbol} <span style="font-size:9px; background:var(--red); color:#000; padding:2px 4px; border-radius:3px; margin-left:4px; font-weight:bold;">CLOSED</span></td>
             <td><span class="score-badge" style="background:var(--card2); color:var(--muted)">-</span></td>
@@ -1159,6 +1168,9 @@
             </td>
           </tr>
         `).join('');
+        } catch (e) {
+            console.error("Error generating closed rows html:", e);
+        }
 
         const combinedHtml = sellsHtml + closedRowsHtml;
         document.querySelector('#tbl-sells tbody').innerHTML = combinedHtml || `<tr><td colspan="7" class="empty">No sell alerts or closed positions today</td></tr>`;

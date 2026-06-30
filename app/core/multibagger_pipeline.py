@@ -61,11 +61,8 @@ def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], techn
     # We assign an initial HOLD exit state since it's just scanned, not owned yet.
     # The true Exit logic (Layer 9) runs separately on open positions.
     
-    # Generate Audit Trail
-    audit = f"Symbol: {symbol}\nTier: {tier.value}\n"
-    audit += f"Static Score: {static_score.overall_score:.1f}\n"
-    audit += f"Emerging Score: {emerging_score.overall_score:.1f}\n"
-    audit += f"Technical: {tech_reason}\n"
+    # Generate Audit Trail (End-User Facing Reason)
+    audit = tech_reason
     
     # Build final result
     return FinalScannerResult(

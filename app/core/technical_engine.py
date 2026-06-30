@@ -17,9 +17,9 @@ def evaluate_technicals(price_data: Dict[str, float]) -> Tuple[bool, float, floa
         
     # 1. Trend Confirmation
     if price < sma_50:
-        return False, 0.0, 0.0, f"Price ({price}) < SMA50 ({sma_50})"
+        return False, 0.0, 0.0, f"Price below SMA50 ({sma_50:.0f})"
     if price < sma_200:
-        return False, 0.0, 0.0, f"Price ({price}) < SMA200 ({sma_200})"
+        return False, 0.0, 0.0, f"Price below SMA200 ({sma_200:.0f})"
         
     # 2. Extension Check (Don't chase parabolic moves)
     dist_ema20 = price - ema_20
