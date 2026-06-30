@@ -979,10 +979,10 @@ def _start_wrapper(debug_limit: int = None):
             "atr": price_data.price * 0.05, # dummy ATR for now
         }
         
-        # 2. Run the V4 Pipeline
+        # 2. Run the V4 Pipeline for technical zones and emerging metrics
         pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         
-        # Log rejection if invalidated
+        # Log rejection if invalidated by gates
         if pipeline_result.classification.value == "Invalidated":
             rej_data = {
                 "symbol": sym,
@@ -993,26 +993,48 @@ def _start_wrapper(debug_limit: int = None):
             with open(rejection_log_path, "a") as rf:
                 rf.write(json.dumps(rej_data) + "\n")
                 
-        # Always extract scores from the new pipeline
-        cqs = pipeline_result.static_score.quality.score * 20.0 # Map to 20 pts
-        pas = pipeline_result.static_score.value.score * 30.0 # Map to 30 pts
-        trend = pipeline_result.static_score.momentum.score * 15.0 # Map to 15 pts
-        total = pipeline_result.static_score.overall_score
+        # 3. Calculate scores using V3 Core Engine (V4 engine is incomplete and yields 0.0)
+        from core_score_engine import generate_core_scores, PeerMetrics, CorePriceData as V3CorePriceData
+        v3_pdata = V3CorePriceData(
+            price=price_data.price,
+            sma_50=price_data.sma_50,
+            sma_200=price_data.sma_200,
+        )
+        v3_scores = generate_core_scores(f, PeerMetrics(), v3_pdata)
+        
+        # Always extract scores from the working V3 pipeline
+        cqs = v3_scores.business_quality_score
+        pas = v3_scores.relative_valuation_score
+        trend = v3_scores.market_structure_score
+        total = v3_scores.overall_score
         
         buy_low = pipeline_result.buy_zone_low
         buy_high = pipeline_result.buy_zone_high
         
-        alert_triggered = pipeline_result.in_buy_zone and pipeline_result.classification.value != "Invalidated"
+        # Check alerts based on technicals and V3 validity
+        alert_triggered = pipeline_result.in_buy_zone and (not v3_scores.warnings)
         
-        if pipeline_result.classification.value == "Invalidated":
+        if v3_scores.warnings or pipeline_result.classification.value == "Invalidated":
             status = "INVALIDATED"
         else:
             status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
             
-        bucket = pipeline_result.classification.value
+        # Revert to old label categorizations based on total score
+        if status == "INVALIDATED":
+            bucket = "Invalidated"
+        elif total >= 80:
+            bucket = "🚀 PRIME MULTIBAGGER CANDIDATE"
+        elif total >= 65 and alert_triggered:
+            bucket = "💎 HIGH QUALITY — FAIR ENTRY"
+        elif total >= 65:
+            bucket = "🏆 GREAT BUSINESS — WAIT FOR DIP"
+        elif total >= 50 and pas >= 15:
+            bucket = "💰 VALUE BUY — DECENT QUALITY"
+        else:
+            bucket = "🟡 WATCHLIST CANDIDATE"
         
         if status == "INVALIDATED":
-            notes = "Failed Layer 3 Gates"
+            notes = v3_scores.rejection_reason if v3_scores.warnings else "Failed Layer 3 Gates"
         else:
             tech_status = "In Buy Zone" if alert_triggered else "Waiting for Pullback"
             if total >= 80:
@@ -1032,24 +1054,24 @@ def _start_wrapper(debug_limit: int = None):
             
             # Compute position sizing (total is 0-100 natively)
             momentum_for_sizing = int(total)
-                sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
-                pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
-                
-                save_wealth_buy_alert(
-                    symbol=sym,
-                    alert_price=price_data.price,
-                    breakout_type="MULTIBAGGER",
-                    fm_score=scaled_score,
-                    notes=notes,
-                    position_pct=round(sizing["Position_Pct"] * 100, 2),
-                    position_amount=sizing["Position_Amount"],
-                    position_shares=pos_shares,
-                    portfolio_bucket="MULTIBAGGER",
-                    valuation_score=pas,
-                    momentum_score=int(trend),
-                    momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
-                )
-                
+            sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
+            pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
+            
+            save_wealth_buy_alert(
+                symbol=sym,
+                alert_price=price_data.price,
+                breakout_type="MULTIBAGGER",
+                fm_score=scaled_score,
+                notes=notes,
+                position_pct=round(sizing["Position_Pct"] * 100, 2),
+                position_amount=sizing["Position_Amount"],
+                position_shares=pos_shares,
+                portfolio_bucket="MULTIBAGGER",
+                valuation_score=pas,
+                momentum_score=int(trend),
+                momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
+            )
+            
             # Group only non-invalidated stocks for Telegram
             if status != "INVALIDATED":
                 label = pipeline_result.classification.value

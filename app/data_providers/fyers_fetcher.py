@@ -187,6 +187,20 @@ class FyersFetcher(DataFetcher):
         
         ns_symbol = self._normalize_symbol(symbol)
         
+        orig_sym = symbol.strip().upper()
+        if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
+        orig_sym = orig_sym.replace("_", "-")
+        try:
+            from data_providers.fyers_mapping_utils import is_fyers_invalid
+            if is_fyers_invalid(orig_sym):
+                logger.debug(f"⚠️ Skipping known invalid Fyers symbol: {orig_sym}")
+                return None
+        except Exception:
+            pass
+            
+        tried_suffixes = set()
+
+        
         # Determine if this is an incremental fetch
         if range_from and range_to:
             logger.debug(f"📥 Fetching incremental OHLCV for {symbol} ({interval}) from {range_from} to {range_to} via Fyers API...")
@@ -311,15 +325,22 @@ class FyersFetcher(DataFetcher):
                     
                 # Do not retry for non-retryable errors like bad symbols
                 if "Invalid symbol provided" in error_str:
+                    tried_suffixes.add(ns_symbol)
                     if ns_symbol.endswith("-EQ"):
                         fallback_sym = ns_symbol.replace("-EQ", "-BE")
+                        if fallback_sym in tried_suffixes:
+                            logger.warning(f"⚠️ Both -EQ and -BE failed for {orig_sym}. Marking as permanently invalid.")
+                            try:
+                                from data_providers.fyers_mapping_utils import mark_fyers_invalid
+                                mark_fyers_invalid(orig_sym)
+                            except Exception:
+                                pass
+                            return None
+                            
                         logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
                         
                         try:
                             from data_providers.fyers_mapping_utils import save_fyers_mapping
-                            orig_sym = symbol.strip().upper()
-                            if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
-                            orig_sym = orig_sym.replace("_", "-")
                             save_fyers_mapping(orig_sym, fallback_sym)
                         except Exception as e:
                             logger.warning(f"Failed to save fallback mapping: {e}")
@@ -330,13 +351,19 @@ class FyersFetcher(DataFetcher):
                         
                     elif ns_symbol.endswith("-BE"):
                         fallback_sym = ns_symbol.replace("-BE", "-EQ")
+                        if fallback_sym in tried_suffixes:
+                            logger.warning(f"⚠️ Both -BE and -EQ failed for {orig_sym}. Marking as permanently invalid.")
+                            try:
+                                from data_providers.fyers_mapping_utils import mark_fyers_invalid
+                                mark_fyers_invalid(orig_sym)
+                            except Exception:
+                                pass
+                            return None
+                            
                         logger.info(f"🔄 Fyers: {ns_symbol} is invalid (maybe moved back to EQ), attempting fallback to {fallback_sym}")
                         
                         try:
                             from data_providers.fyers_mapping_utils import remove_fyers_mapping
-                            orig_sym = symbol.strip().upper()
-                            if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
-                            orig_sym = orig_sym.replace("_", "-")
                             remove_fyers_mapping(orig_sym)
                         except Exception as e:
                             logger.warning(f"Failed to remove fallback mapping: {e}")
@@ -429,6 +456,17 @@ class FyersFetcher(DataFetcher):
             return {}
 
         ns_symbol = self._normalize_symbol(symbol)
+        
+        orig_sym = symbol.strip().upper()
+        if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
+        orig_sym = orig_sym.replace("_", "-")
+        try:
+            from data_providers.fyers_mapping_utils import is_fyers_invalid
+            if is_fyers_invalid(orig_sym):
+                logger.debug(f"⚠️ Skipping known invalid Fyers symbol for quotes: {orig_sym}")
+                return {}
+        except Exception:
+            pass
         logger.info(f"📥 Fetching quote for {symbol} via Fyers API...")
         client = fyers_auth.get_fyers_client()
         if not client:
