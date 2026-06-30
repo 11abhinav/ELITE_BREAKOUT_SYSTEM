@@ -280,15 +280,19 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     elif ai_conf == 7: overlays = 2.0
     elif 1 <= ai_conf <= 4: overlays = -5.0
     
-    scores = generate_core_scores(f, p, pd_data, strategic_overlays=overlays)
+    try:
+        scores = generate_core_scores(f, p, pd_data, strategic_overlays=overlays)
+    except TypeError:
+        # Fallback for older core_score_engine without strategic_overlays param
+        scores = generate_core_scores(f, p, pd_data)
     
     return pd.Series({
         "CIS": scores.composite_investment_score,
         "RVS": scores.relative_valuation_score,
         "BQS": scores.business_quality_score,
-        "Reliability": scores.reliability_score,
-        "Base_FV": scores.base_fair_value,
-        "Bull_FV": scores.bull_fair_value
+        "Reliability": scores.bayesian_confidence_score,
+        "Base_FV": scores.valuation.fair_value if scores.valuation else None,
+        "Bull_FV": scores.valuation.bull_value if scores.valuation else None
     })
 
 
