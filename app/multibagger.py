@@ -1004,10 +1004,13 @@ def _start_wrapper(debug_limit: int = None):
             buy_low = 0.0
             buy_high = 0.0
         else:
-            cqs = pipeline_result.static_score.quality.score
-            pas = pipeline_result.static_score.value.score
-            trend = pipeline_result.static_score.momentum.score
-            total = pipeline_result.static_score.overall_score
+            # Generate working scores using the proven core_score_engine
+            real_scores = generate_core_scores(f, PeerMetrics(), price_data)
+            
+            cqs = real_scores.business_quality_score
+            pas = real_scores.relative_valuation_score
+            trend = real_scores.market_structure_score
+            total = real_scores.composite_investment_score
             
             buy_low = pipeline_result.buy_zone_low
             buy_high = pipeline_result.buy_zone_high
