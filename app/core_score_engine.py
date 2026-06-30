@@ -440,7 +440,7 @@ def get_institutional_rating(score: float) -> str:
 
 # --- Main Engine Entry ---
 
-def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData, regime: str = "BULL") -> CoreScoreResult:
+def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePriceData, regime: str = "BULL", strategic_overlays: float = 0.0) -> CoreScoreResult:
     q_res = score_quality(f, p)
     g_res = score_growth(f)
     v_res = score_value(f, p)
@@ -457,6 +457,8 @@ def generate_core_scores(f: CoreFundamentals, p: PeerMetrics, price_data: CorePr
         (ca_res.score * 10.0) +
         (m_res.score * 10.0)
     )
+    
+    total += strategic_overlays
     
     if warnings:
         total = min(total, 49.0) # Force C rating if kill-gate triggered
