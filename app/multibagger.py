@@ -1018,7 +1018,19 @@ def _start_wrapper(debug_limit: int = None):
             alert_triggered = pipeline_result.in_buy_zone
             status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
             bucket = pipeline_result.classification.value
-            notes = pipeline_result.audit_trail
+            
+            # Formulate user-friendly notes instead of raw audit trail
+            tech_status = "In Buy Zone" if alert_triggered else "Waiting for Pullback"
+            if total >= 80:
+                qual_str = "Exceptional Fundamentals"
+            elif total >= 65:
+                qual_str = "Strong Fundamentals"
+            elif total >= 50:
+                qual_str = "Decent Fundamentals"
+            else:
+                qual_str = "Average Fundamentals"
+                
+            notes = f"{qual_str} | {tech_status}"
             
             if alert_triggered:
                 logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")

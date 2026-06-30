@@ -731,6 +731,18 @@
 
   <!-- MULTIBAGGER WATCHLIST TAB -->
   <div id="panel-mb-watchlist" class="tab-panel">
+    
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+      <div style="font-weight: 600; font-size: 14px; margin-bottom: 12px; color: var(--amber);">📖 How to read the Buckets (Tiers)</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; font-size: 13px; color: var(--muted);">
+        <div><strong style="color:var(--text);">Tier A (Prime Candidate):</strong> Exceptional fundamentals + accelerating growth & momentum. Best buys.</div>
+        <div><strong style="color:var(--text);">Tier B (Established):</strong> High quality, mature businesses with steady, reliable growth.</div>
+        <div><strong style="color:var(--text);">Tier C (Turnaround):</strong> Poor recent history but showing massive fundamental improvement & momentum.</div>
+        <div><strong style="color:var(--text);">Tier D (Deep Value):</strong> Heavily discounted valuations with emerging positive trajectory.</div>
+        <div><strong style="color:var(--text);">Tier E (Watchlist):</strong> Passed basic gates but doesn't have high conviction yet. Keep watching.</div>
+      </div>
+    </div>
+
     <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
       <div style="flex: 1; min-width: 200px;">
         <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
@@ -775,10 +787,10 @@
         <thead><tr>
           <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
           <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by BQS">BQS ↕</th>
-          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by RVS">RVS ↕</th>
+          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by Business Quality Score (BQS)">BQS ↕</th>
+          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by Relative Valuation Score (RVS)">RVS ↕</th>
           <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Trend">Trend ↕</th>
-          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by CIS">CIS ↕</th>
+          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Wealth Score">Score ↕</th>
           <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
           <th>Reason</th>
           <th>Act</th>
@@ -990,6 +1002,15 @@
     const bucketTag = (b) => {
       if (!b) return '-';
       return `<span style="font-size:11px;color:var(--muted)">${b}</span>`;
+    };
+    const fmtDetailTime = (isoStr) => {
+      if (!isoStr) return '';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      } catch (e) {
+        return isoStr;
+      }
     };
     const fmt = (v) => v !== null && v !== undefined ? parseFloat(v).toFixed(1) : '-';
     const getScoreCls = (s) => s >= 85 ? 'score-high' : (s >= 70 ? 'score-med' : 'score-low');
@@ -1865,14 +1886,6 @@ function renderMultibaggerWatchlist() {
     else if (status === 'WAITING_BUY_ZONE') statusClass = 'hold';
     else if (status === 'INVALIDATED') statusClass = 'sell';
 
-    // Score color gradient
-    const cisColor = cis >= 85 ? 'var(--green)' : cis >= 70 ? 'var(--amber)' : cis >= 50 ? 'var(--text)' : 'var(--muted)';
-
-    return `
-      <tr>
-        <td class="sym"><strong>${sym}</strong></td>
-        <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
-        <td class="mono">${bqs.toFixed(1)}</td>
         <td class="mono">${rvs.toFixed(1)}</td>
         <td class="mono">${trend.toFixed(1)}</td>
         <td class="mono" style="color:${cisColor}; font-weight:700;">${cis.toFixed(1)}</td>
