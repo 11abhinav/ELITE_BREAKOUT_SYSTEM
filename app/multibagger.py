@@ -336,7 +336,7 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
     
     for attempt in range(3):
         try:
-            yf_acquire()
+            yf_acquire(context=f"Multibagger Scanner | {symbol}")
             try:
                 info = ticker.info
                 if info and "marketCap" in info:
@@ -424,7 +424,7 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
                     shutil.rmtree(tz_path, ignore_errors=True)
                 ticker = yf.Ticker(f"{symbol}.NS")
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
-                record_rate_limit()
+                record_rate_limit(context=f"Multibagger Scanner | {symbol}")
                 time.sleep(get_backoff_delay(attempt))
             else:
                 time.sleep(2 ** attempt)
@@ -701,9 +701,9 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                 fund = fetch_ticker_fundamentals(symbol)
                 
             if fund:
-                from core_score_engine import score_business_quality, CoreFundamentals
+                from core_score_engine import score_business_quality, CoreFundamentals, PeerMetrics, CorePriceData
                 cf = fund
-                cqs = score_business_quality(cf)
+                cqs = score_business_quality(cf, PeerMetrics(), CorePriceData(price=current_price)).business_quality_score
             else:
                 cqs = 15.0 # fallback if no fundamentals
             exit_triggered = False

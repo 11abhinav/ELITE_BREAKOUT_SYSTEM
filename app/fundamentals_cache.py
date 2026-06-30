@@ -104,7 +104,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
             time.sleep(random.uniform(0.5, 2.0))
             
             try:
-                yf_acquire()
+                yf_acquire(context=f"Piotroski Cache | {symbol}")
                 try:
                     t = yf.Ticker(yf_sym)
                     info = t.info
@@ -117,7 +117,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 # Catch yfinance fetch errors
                 msg = str(inner_e).lower()
                 if 'too many requests' in msg or 'rate limit' in msg:
-                    record_rate_limit()
+                    record_rate_limit(context=f"Piotroski Cache | {symbol}")
                 raise inner_e  # Bubble up to trigger retry
 
             if fin.empty and bs.empty:
@@ -132,7 +132,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
         except Exception as e:
             msg = str(e).lower()
             if 'too many requests' in msg or 'rate limit' in msg:
-                record_rate_limit()
+                record_rate_limit(context=f"Piotroski Cache | {symbol}")
                 
             if attempt < max_retries - 1:
                 backoff = 5 * (2 ** attempt) + random.uniform(0, 2)

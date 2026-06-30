@@ -1658,7 +1658,7 @@ def api_indices():
         from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
         for name, sym in symbols.items():
             try:
-                yf_acquire()
+                yf_acquire(context=f"DashboardServer.refresh_valuation | {sym}")
                 try:
                     ticker = yf.Ticker(sym)
                     info = ticker.info
@@ -1670,7 +1670,7 @@ def api_indices():
             except Exception as e:
                 msg = str(e).lower()
                 if 'too many requests' in msg or 'rate limit' in msg:
-                    record_rate_limit()
+                    record_rate_limit(context=f"DashboardServer.refresh_valuation | {sym}")
                 logger.warning(f"Failed to fetch index {sym}: {e}")
                 info = {}
 
@@ -1714,7 +1714,8 @@ def api_news(symbol):
             
         try:
             try:
-                yf_acquire()
+                from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
+                yf_acquire(context=f"DashboardServer.api_fundamental_details | {yf_symbol}")
                 try:
                     ticker = yf.Ticker(yf_symbol)
                     raw_news = ticker.news[:3]
@@ -1723,6 +1724,18 @@ def api_news(symbol):
             except CircuitOpenError as ce:
                 logger.error(f"YFinance circuit open; abort news fetch for {yf_symbol}: {ce}")
                 return jsonify([])
+            except Exception as e:
+                msg = str(e).lower()
+                if 'too many requests' in msg or 'rate limit' in msg:
+                    from yf_rate_limiter import record_rate_limit
+                    record_rate_limit(context=f"DashboardServer.api_fundamental_details | {yf_symbol}")
+                logger.exception(f"Failed to fetch news for {yf_symbol}")
+                try:
+                    mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
+                except Exception:
+                    logger.exception('Failed to report yfinance failure from dashboard news')
+                return jsonify([])
+
             news = []
             for item in raw_news:
                 n = item.get("content", item)

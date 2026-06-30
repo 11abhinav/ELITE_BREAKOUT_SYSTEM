@@ -47,7 +47,7 @@ def _now() -> float:
     return time.monotonic()
 
 
-def acquire(timeout: Optional[float] = None) -> bool:
+def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
     """Acquire permission to call Yahoo. Blocks if circuit is tripped."""
     global _last_call_ts
     while True:
@@ -58,7 +58,7 @@ def acquire(timeout: Optional[float] = None) -> bool:
                 sleep_time = _circuit_tripped_until - now
                 
         if sleep_time > 0:
-            logger.warning(f"Yahoo circuit open. Sleeping for {sleep_time:.0f}s...")
+            logger.warning(f"Yahoo circuit open. Sleeping for {sleep_time:.0f}s... (Context: {context})")
             time.sleep(sleep_time)
             continue # Try again after sleeping
             
@@ -97,7 +97,7 @@ def record_success() -> None:
         _rate_count = 0
 
 
-def record_rate_limit() -> None:
+def record_rate_limit(context: str = "Unknown") -> None:
     """Record a 429 event. If events exceed threshold within window, trip the circuit."""
     global _rate_count, _rate_window_start, _circuit_tripped_until, _current_cooldown_idx
     now = _now()
@@ -106,11 +106,11 @@ def record_rate_limit() -> None:
             _rate_window_start = now
             _rate_count = 0
         _rate_count += 1
-        logger.warning(f"YF rate-limit event recorded ({_rate_count}/{_RATE_THRESHOLD}) in window")
+        logger.warning(f"YF rate-limit event recorded ({_rate_count}/{_RATE_THRESHOLD}) in window (Context: {context})")
         if _rate_count >= _RATE_THRESHOLD:
             cooldown = _COOLDOWN_SCHEDULE_S[_current_cooldown_idx]
             _circuit_tripped_until = now + cooldown
-            logger.error(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events")
+            logger.error(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events (Context: {context})")
             _current_cooldown_idx = min(_current_cooldown_idx + 1, len(_COOLDOWN_SCHEDULE_S) - 1)
             _rate_count = 0
 

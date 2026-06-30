@@ -55,7 +55,7 @@ class YFinanceFetcher(DataFetcher):
                     time.sleep(1.5)
 
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
-                yf_acquire()
+                yf_acquire(context=f"DataFetcher.get_ohlcv | {ns_sym}")
                 try:
                     if range_from and range_to:
                         from datetime import datetime, timedelta
@@ -86,7 +86,7 @@ class YFinanceFetcher(DataFetcher):
                 msg = str(e).lower()
                 # Detect Yahoo rate-limiting patterns
                 if 'too many requests' in msg or 'rate limit' in msg or 'yf' in msg and 'rate' in msg:
-                    record_rate_limit()
+                    record_rate_limit(context=f"DataFetcher.get_ohlcv | {ns_sym}")
                     # Use aggressive backoff schedule for 429s
                     delay = get_backoff_delay(attempt)
                     logger.warning(f"⚠️ Single fetch rate-limited for {ns_sym} (Attempt {attempt+1}/{retries}). Backing off {delay:.1f}s")
@@ -169,7 +169,7 @@ class YFinanceFetcher(DataFetcher):
         ns_sym = self._normalize_symbol(symbol)
         logger.info(f"📥 Fetching quote for {symbol} via YFinance...")
         try:
-            yf_acquire()
+            yf_acquire(context=f"DataFetcher.get_quote | {ns_sym}")
             try:
                 ticker = yf.Ticker(ns_sym)
                 return ticker.info
@@ -181,7 +181,7 @@ class YFinanceFetcher(DataFetcher):
         except Exception as e:
             msg = str(e).lower()
             if 'too many requests' in msg or 'rate limit' in msg:
-                record_rate_limit()
+                record_rate_limit(context=f"DataFetcher.get_quote | {ns_sym}")
             logger.exception(f"Failed to fetch quote for {symbol}")
             return {}
 

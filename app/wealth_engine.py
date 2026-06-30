@@ -225,6 +225,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     f = CoreFundamentals(
         symbol=symbol,
         sector=str(r.get("Sector", "")),
+        canonical_industry=str(r.get("Industry", r.get("Sector", ""))),
         pe=_safe_float(r.get("P/E Ratio"), None),
         pb=_safe_float(r.get("P/B Ratio"), None),
         roe=_safe_pct(r.get("ROE %"), None),
