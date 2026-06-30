@@ -102,36 +102,7 @@ class ScreenerResult:
     notes: str
     change_pct: float = 0.0
 
-class YFinanceRateLimitGuard:
-    """Manages rate limit state and backoff lock-freely (sleep outside lock)."""
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.consecutive_failures = 0
-        self.cooldown_until = 0.0
-
-    def record_success(self):
-        with self.lock:
-            self.consecutive_failures = 0
-
-    def record_failure(self):
-        with self.lock:
-            self.consecutive_failures += 1
-            if self.consecutive_failures >= 5:
-                # Trigger a safety cooldown
-                sleep_time = min(60.0, self.consecutive_failures * 3.0)
-                self.cooldown_until = time.time() + sleep_time
-                logger.warning(f"⚠️ yfinance rate limit guard triggered. Cooldown scheduled for {sleep_time} seconds...")
-
-    def wait_if_needed(self):
-        while True:
-            with self.lock:
-                cooldown_time = self.cooldown_until - time.time()
-            if cooldown_time <= 0:
-                break
-            logger.info(f"⏳ Thread cooling down for {cooldown_time:.1f} seconds...")
-            time.sleep(min(cooldown_time, 5.0))
-
-rate_limiter = YFinanceRateLimitGuard()
+from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
 def get_nse_session() -> requests.Session:
     """Returns a requests.Session configured with connection pool and retries."""
@@ -360,19 +331,24 @@ def compute_cagr(df, row_name, years=3):
     return None
 
 def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
-    rate_limiter.wait_if_needed()
     ticker_name = f"{symbol}.NS"
     ticker = yf.Ticker(ticker_name)
     
     for attempt in range(3):
         try:
-            info = ticker.info
-            if info and "marketCap" in info:
-                rate_limiter.record_success()
+            yf_acquire()
+            try:
+                info = ticker.info
+                if info and "marketCap" in info:
+                    fin = ticker.financials
+                    bs = ticker.balance_sheet
+                    cf = ticker.cashflow
+                else:
+                    fin = bs = cf = None
+            finally:
+                yf_release()
                 
-                fin = ticker.financials
-                bs = ticker.balance_sheet
-                cf = ticker.cashflow
+            if info and "marketCap" in info:
                 
                 pat = safe_extract(fin, 'Net Income')
                 cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
@@ -435,6 +411,9 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
                 
                 return fund
             time.sleep(1.0 + (2 ** attempt))
+        except CircuitOpenError as ce:
+            logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
+            return None
         except Exception as e:
             msg = str(e).lower()
             if "401" in msg or "crumb" in msg or "unauthorized" in msg:
@@ -445,8 +424,10 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
                     shutil.rmtree(tz_path, ignore_errors=True)
                 ticker = yf.Ticker(f"{symbol}.NS")
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
-                rate_limiter.record_failure()
-            time.sleep(2 ** attempt)
+                record_rate_limit()
+                time.sleep(get_backoff_delay(attempt))
+            else:
+                time.sleep(2 ** attempt)
             
     return None
 
