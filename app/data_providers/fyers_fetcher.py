@@ -123,6 +123,15 @@ class FyersFetcher(DataFetcher):
             # Generic index format
             return f"NSE:{sym[1:]}-INDEX"
             
+        # Check mapping cache to skip the 1st failure if we already know it's a -BE
+        try:
+            from data_providers.fyers_mapping_utils import load_fyers_mappings
+            mappings = load_fyers_mappings()
+            if sym in mappings:
+                return mappings[sym]
+        except Exception:
+            pass
+            
         # Standard stock format
         return f"NSE:{sym}-EQ"
 
@@ -305,6 +314,16 @@ class FyersFetcher(DataFetcher):
                     if ns_symbol.endswith("-EQ"):
                         fallback_sym = ns_symbol.replace("-EQ", "-BE")
                         logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
+                        
+                        try:
+                            from data_providers.fyers_mapping_utils import save_fyers_mapping
+                            orig_sym = symbol.strip().upper()
+                            if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
+                            orig_sym = orig_sym.replace("_", "-")
+                            save_fyers_mapping(orig_sym, fallback_sym)
+                        except Exception as e:
+                            logger.warning(f"Failed to save fallback mapping: {e}")
+                            
                         ns_symbol = fallback_sym
                         data["symbol"] = fallback_sym
                         continue  # Immediate retry with -BE without sleeping
