@@ -857,6 +857,7 @@ def _start_wrapper(debug_limit: int = None):
             else:
                 futures[executor.submit(fetch_ticker_fundamentals, sym)] = sym
                 
+        fetched_count = 0
         for future in as_completed(futures):
             sym = futures[future]
             try:
@@ -866,6 +867,12 @@ def _start_wrapper(debug_limit: int = None):
                     # Update local cache memory
                     cache[sym] = fund
                     cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
+                    fetched_count += 1
+                    
+                    # Save in chunks to prevent data loss if restarted
+                    if fetched_count % 50 == 0:
+                        logger.info(f"💾 Intermediary save: saving {fetched_count} newly fetched fundamentals to DB...")
+                        save_fundamentals_cache(cache)
             except Exception as e:
                 logger.exception(f"Error fetching fundamentals for {sym}")
                 
