@@ -38,3 +38,16 @@ def save_fyers_mapping(original_sym: str, mapped_sym: str):
                 json.dump(mappings, f)
         except Exception as e:
             logger.warning(f"Failed to save Fyers symbol mappings: {e}")
+
+def remove_fyers_mapping(original_sym: str):
+    mappings = load_fyers_mappings()
+    if original_sym not in mappings:
+        return
+    with _mapping_lock:
+        if original_sym in mappings:
+            del mappings[original_sym]
+            try:
+                with open(_FYERS_MAPPING_FILE, 'w') as f:
+                    json.dump(mappings, f)
+            except Exception as e:
+                logger.warning(f"Failed to remove Fyers symbol mapping: {e}")

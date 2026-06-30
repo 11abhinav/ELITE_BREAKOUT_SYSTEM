@@ -327,6 +327,23 @@ class FyersFetcher(DataFetcher):
                         ns_symbol = fallback_sym
                         data["symbol"] = fallback_sym
                         continue  # Immediate retry with -BE without sleeping
+                        
+                    elif ns_symbol.endswith("-BE"):
+                        fallback_sym = ns_symbol.replace("-BE", "-EQ")
+                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid (maybe moved back to EQ), attempting fallback to {fallback_sym}")
+                        
+                        try:
+                            from data_providers.fyers_mapping_utils import remove_fyers_mapping
+                            orig_sym = symbol.strip().upper()
+                            if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
+                            orig_sym = orig_sym.replace("_", "-")
+                            remove_fyers_mapping(orig_sym)
+                        except Exception as e:
+                            logger.warning(f"Failed to remove fallback mapping: {e}")
+                            
+                        ns_symbol = fallback_sym
+                        data["symbol"] = fallback_sym
+                        continue  # Immediate retry with -EQ without sleeping
                     
                     logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
                     return None
