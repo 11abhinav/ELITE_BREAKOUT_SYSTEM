@@ -982,44 +982,38 @@ def _start_wrapper(debug_limit: int = None):
         # 2. Run the V4 Pipeline
         pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         
-        if pipeline_result is None:
-            # Rejected by Gate Engine
-            # Log rejection
+        # Log rejection if invalidated
+        if pipeline_result.classification.value == "Invalidated":
             rej_data = {
                 "symbol": sym,
                 "timestamp": datetime.now().isoformat(),
                 "phase": "GATE_ENGINE",
-                "reason": "Failed Kill Gates"
+                "reason": pipeline_result.audit_trail
             }
             with open(rejection_log_path, "a") as rf:
                 rf.write(json.dumps(rej_data) + "\n")
                 
+        # Always extract scores from the new pipeline
+        cqs = pipeline_result.static_score.quality.score * 20.0 # Map to 20 pts
+        pas = pipeline_result.static_score.value.score * 30.0 # Map to 30 pts
+        trend = pipeline_result.static_score.momentum.score * 15.0 # Map to 15 pts
+        total = pipeline_result.static_score.overall_score
+        
+        buy_low = pipeline_result.buy_zone_low
+        buy_high = pipeline_result.buy_zone_high
+        
+        alert_triggered = pipeline_result.in_buy_zone and pipeline_result.classification.value != "Invalidated"
+        
+        if pipeline_result.classification.value == "Invalidated":
             status = "INVALIDATED"
-            bucket = "Invalidated"
-            notes = "Failed Layer 3 Gates"
-            cqs = 0.0
-            pas = 0.0
-            trend = 0.0
-            total = 0.0
-            buy_low = 0.0
-            buy_high = 0.0
         else:
-            # Generate working scores using the proven core_score_engine
-            real_scores = generate_core_scores(f, PeerMetrics(), price_data)
-            
-            cqs = real_scores.business_quality_score
-            pas = real_scores.relative_valuation_score
-            trend = real_scores.market_structure_score
-            total = real_scores.composite_investment_score
-            
-            buy_low = pipeline_result.buy_zone_low
-            buy_high = pipeline_result.buy_zone_high
-            
-            alert_triggered = pipeline_result.in_buy_zone
             status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
-            bucket = pipeline_result.classification.value
             
-            # Formulate user-friendly notes instead of raw audit trail
+        bucket = pipeline_result.classification.value
+        
+        if status == "INVALIDATED":
+            notes = "Failed Layer 3 Gates"
+        else:
             tech_status = "In Buy Zone" if alert_triggered else "Waiting for Pullback"
             if total >= 80:
                 qual_str = "Exceptional Fundamentals"
@@ -1032,12 +1026,12 @@ def _start_wrapper(debug_limit: int = None):
                 
             notes = f"{qual_str} | {tech_status}"
             
-            if alert_triggered:
-                logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
-                scaled_score = int(total)
-                
-                # Compute position sizing (total is 0-100 natively)
-                momentum_for_sizing = int(total)
+        if alert_triggered:
+            logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
+            scaled_score = int(total)
+            
+            # Compute position sizing (total is 0-100 natively)
+            momentum_for_sizing = int(total)
                 sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
                 pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
                 

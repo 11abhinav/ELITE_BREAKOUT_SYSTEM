@@ -21,6 +21,7 @@ class ClassificationTier(Enum):
     TIER_C = "Tier C: Turnaround"
     TIER_D = "Tier D: Deep Value"
     TIER_E = "Tier E: Watchlist"
+    INVALIDATED = "Invalidated"
 
 @dataclass
 class MetricResult:

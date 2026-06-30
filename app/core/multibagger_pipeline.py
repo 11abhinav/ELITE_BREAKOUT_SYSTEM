@@ -26,10 +26,10 @@ def determine_classification(static_score, emerging_score) -> ClassificationTier
     else:
         return ClassificationTier.TIER_E
 
-def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], technicals: Dict[str, float]) -> Optional[FinalScannerResult]:
+def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], technicals: Dict[str, float]) -> FinalScannerResult:
     """
     Executes Layers 2 through 7 for a single symbol.
-    Returns FinalScannerResult or None if rejected by gates.
+    Returns FinalScannerResult (tier is INVALIDATED if rejected by gates).
     """
     
     # Layer 2: Metric Engine
@@ -39,9 +39,6 @@ def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], techn
     
     # Layer 3: Gate Engine
     passed, reject_reason = run_gates(raw_data)
-    if not passed:
-        # Rejected by gate, we return None (or we could return a Rejected status)
-        return None
         
     # Layer 4: Six Pillar Score
     static_score = run_score_engine(metrics_dict)
@@ -53,7 +50,10 @@ def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], techn
     emerging_score = emerging_engine.compute_emerging_score(improvement, metrics_dict)
     
     # Layer 6: Classification
-    tier = determine_classification(static_score, emerging_score)
+    if not passed:
+        tier = ClassificationTier.INVALIDATED
+    else:
+        tier = determine_classification(static_score, emerging_score)
     
     # Layer 7: Technical Entry
     in_buy_zone, buy_zone_low, buy_zone_high, tech_reason = evaluate_technicals(technicals)
@@ -62,7 +62,7 @@ def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], techn
     # The true Exit logic (Layer 9) runs separately on open positions.
     
     # Generate Audit Trail (End-User Facing Reason)
-    audit = tech_reason
+    audit = reject_reason if not passed else tech_reason
     
     # Build final result
     return FinalScannerResult(
