@@ -827,13 +827,25 @@ def _start_wrapper(debug_limit: int = None):
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         return
         
-    # Run exit monitor first on open positions using downloaded price metrics
-    run_exit_monitor(price_data_map, cache)
-    
     # Apply cheap filters to build shortlist:
-    # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs = 1,000,000 Rupees)
+    # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
     shortlist_candidates = []
+    
+    # Always include currently open positions in the shortlist so their fundamentals are fetched concurrently
+    open_symbols = set()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol FROM wealth_buy_alerts WHERE status = 'OPEN' AND engine_type = 'MULTIBAGGER'")
+                open_symbols = {row[0] for row in cur.fetchall()}
+    except Exception as e:
+        logger.error(f"Failed to fetch open positions for shortlist injection: {e}")
+        
     for sym, price_data in price_data_map.items():
+        if sym in open_symbols:
+            shortlist_candidates.append(price_data)
+            continue
+            
         if price_data.price < 10.0:
             continue
         if price_data.turnover_20d < 1000000.0: # ₹10 Lakhs
@@ -876,6 +888,13 @@ def _start_wrapper(debug_limit: int = None):
                         save_fundamentals_cache(cache)
             except Exception as e:
                 logger.exception(f"Error fetching fundamentals for {sym}")
+                
+        if fetched_count > 0:
+            logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")
+            save_fundamentals_cache(cache)
+        
+        # Now that cache is fully populated concurrently, run exit monitor on open positions
+        run_exit_monitor(price_data_map, cache)
                 
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
