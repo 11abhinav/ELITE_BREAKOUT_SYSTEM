@@ -493,13 +493,13 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multi_tf_scanner")
 
 def start(run_once=False):
-    if not _scan_lock.acquire(blocking=False):
-        if run_once:
+    if run_once:
+        if not _scan_lock.acquire(blocking=False):
             raise RuntimeError("Scanner is already actively running!")
-        else:
+    else:
+        while not _scan_lock.acquire(blocking=False):
             import time
             time.sleep(60)
-            return
     try:
         return _start_wrapper(run_once)
     finally:
