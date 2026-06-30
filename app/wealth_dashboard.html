@@ -1886,9 +1886,20 @@ function renderMultibaggerWatchlist() {
     else if (status === 'WAITING_BUY_ZONE') statusClass = 'hold';
     else if (status === 'INVALIDATED') statusClass = 'sell';
 
-        <td class="mono">${rvs.toFixed(1)}</td>
-        <td class="mono">${trend.toFixed(1)}</td>
-        <td class="mono" style="color:${cisColor}; font-weight:700;">${cis.toFixed(1)}</td>
+    // Score color gradient
+    const cisColor = cis >= 85 ? 'var(--green)' : cis >= 70 ? 'var(--amber)' : cis >= 50 ? 'var(--text)' : 'var(--muted)';
+
+    return `
+      <tr class="${statusClass}">
+        <td class="font-bold">
+          <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link">${sym}</a>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;">${status === 'INVALIDATED' ? 'Failed Checks' : bucketTag(bucket)}</div>
+        </td>
+        <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
+        <td class="mono font-bold" style="color:var(--text)">${bqs.toFixed(1)}</td>
+        <td class="mono font-bold" style="color:var(--text)">${rvs.toFixed(1)}</td>
+        <td class="mono font-bold" style="color:var(--text)">${trend.toFixed(1)}</td>
+        <td><span class="score-badge ${getScoreCls(cis)}">${cis.toFixed(1)}</span></td>
         <td style="font-size:11px;">${bucket}</td>
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
