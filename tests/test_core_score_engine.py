@@ -1,5 +1,5 @@
 import pytest
-from app.core_score_engine import (
+from app.core.deprecated.core_score_engine import (
     CoreFundamentals, 
     PeerMetrics, 
     CorePriceData, 
