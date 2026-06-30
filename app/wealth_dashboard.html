@@ -1645,6 +1645,8 @@ async function fetchNotifications() {
         
         if (data.length === 0) {
             list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--muted); font-size:12px;">No notifications yet.</div>';
+            badge.classList.remove('active');
+            badge.textContent = '0';
             return;
         }
         
