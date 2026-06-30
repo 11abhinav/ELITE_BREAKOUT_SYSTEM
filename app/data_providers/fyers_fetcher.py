@@ -338,17 +338,18 @@ class FyersFetcher(DataFetcher):
             pass
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
 
         # Check if Fyers circuit breaker is open (too many failures)
         if not _fyers_circuit_breaker.is_available():
             return {}
 
+        prefix = f"[{caller}] " if caller else ""
         if range_from and range_to:
-            logger.info(f"📥 Fetching incremental batch OHLCV for {len(symbols)} symbols ({interval}, {range_from} to {range_to}) via Fyers API...")
+            logger.info(f"{prefix}📥 Fetching incremental batch OHLCV for {len(symbols)} symbols ({interval}, {range_from} to {range_to}) via Fyers API...")
         else:
-            logger.info(f"📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
+            logger.info(f"{prefix}📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via Fyers API...")
             
         normalized_map = {}
         for s in symbols:

@@ -227,7 +227,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             batch_end = min(i + batch_size, group_total)
             logger.info(f"[{requester}] 📥 Fetching Batch {desc} ({i}–{batch_end}/{group_total}) [{interval}]")
             
-            batch_results = fetcher.get_batch_ohlcv(batch, interval=interval, period=period, retries=3, range_from=range_from, range_to=range_to)
+            batch_results = fetcher.get_batch_ohlcv(batch, interval=interval, period=period, retries=3, range_from=range_from, range_to=range_to, caller=requester)
             
             if batch_results:
                 for sym in batch:
