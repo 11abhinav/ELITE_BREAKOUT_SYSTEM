@@ -414,8 +414,8 @@ def run_eod_scanner():
             retry_count += 1
             now = datetime.now(IST)
             
-            # Force stop at midnight
-            if now.hour == 0 or now.hour >= 1:
+            # Force stop at midnight (between 00:00 and 06:00)
+            if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
                 upsert_scanner_health(
                     "EOD",
@@ -535,8 +535,8 @@ def run_reversal_scanner():
             retry_count += 1
             now = datetime.now(IST)
             
-            # Force stop at midnight
-            if now.hour == 0 or now.hour >= 1:
+            # Force stop at midnight (between 00:00 and 06:00)
+            if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
                 upsert_scanner_health(
                     "REVERSAL",

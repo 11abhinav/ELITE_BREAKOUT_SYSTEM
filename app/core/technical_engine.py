@@ -1,37 +1,57 @@
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
+from core.models import BuyZoneResult
+from core.quality_engine import safe_float
+from core.audit_engine import audit_engine
 
-def evaluate_technicals(price_data: Dict[str, float]) -> Tuple[bool, float, float, str]:
+def run_buy_zone_engine(symbol: str, raw_data: Dict[str, Any]) -> BuyZoneResult:
     """
-    Evaluates technical entry rules for Layer 7.
-    Returns: (is_valid: bool, buy_zone_low: float, buy_zone_high: float, reason: str)
+    Layer 7: Buy Zone Engine
     """
+    price = safe_float(raw_data.get('price'))
+    sma_50 = safe_float(raw_data.get('sma_50'))
+    sma_200 = safe_float(raw_data.get('sma_200'))
+    atr = safe_float(raw_data.get('atr'))
     
-    price = price_data.get("price", 0.0)
-    sma_50 = price_data.get("sma_50", 0.0)
-    sma_200 = price_data.get("sma_200", 0.0)
-    ema_20 = price_data.get("ema_20", sma_50) # Fallback to sma50 if not provided
-    atr = price_data.get("atr", 0.0)
-    
-    if price <= 0.0 or sma_50 <= 0.0 or sma_200 <= 0.0 or atr <= 0.0:
-        return False, 0.0, 0.0, "Missing technical data"
+    if price == 0.0 or sma_50 == 0.0 or sma_200 == 0.0 or atr == 0.0:
+        audit_engine.log(symbol, "Buy Zone", "Warning", "Missing Technicals", "technicals", 0.0)
+        return BuyZoneResult(in_buy_zone=False, reason="Missing Technicals")
         
-    # 1. Trend Confirmation
-    if price < sma_50:
-        return False, 0.0, 0.0, f"Price below SMA50 ({sma_50:.0f})"
+    # Example logic: Trend must be up (Price > SMA200)
     if price < sma_200:
-        return False, 0.0, 0.0, f"Price below SMA200 ({sma_200:.0f})"
-        
-    # 2. Extension Check (Don't chase parabolic moves)
-    dist_ema20 = price - ema_20
-    if dist_ema20 > 2.5 * atr:
-        return False, 0.0, 0.0, f"Extended > 2.5 ATR from EMA20"
-        
-    # 3. ATR Buy Zone
-    # The ideal buy zone is near the breakout line. We define it around the moving averages.
-    buy_zone_low = sma_50
-    buy_zone_high = sma_50 + (1.5 * atr)
+        audit_engine.log(symbol, "Buy Zone", "Failed", "Price < SMA 200", "trend", price)
+        return BuyZoneResult(in_buy_zone=False, reason="Downtrend (Below SMA 200)")
+
+    # Dynamic ATR Bands: Adjust based on volatility regime
+    volatility_pct = atr / price
     
-    if price > buy_zone_high:
-        return False, buy_zone_low, buy_zone_high, f"Price above Buy Zone High ({buy_zone_high:.1f})"
+    # If highly volatile (>5% daily swing avg), widen the buy zone to prevent shakeouts
+    if volatility_pct > 0.05:
+        lower_multiplier = 1.0
+        upper_multiplier = 2.0
+    # If low volatility (<2%), tighten the buy zone
+    elif volatility_pct < 0.02:
+        lower_multiplier = 0.2
+        upper_multiplier = 1.0
+    else:
+        lower_multiplier = 0.5
+        upper_multiplier = 1.5
+
+    # Buy zone dynamically adjusting around SMA 50
+    buy_low = sma_50 - (lower_multiplier * atr)
+    buy_high = sma_50 + (upper_multiplier * atr)
+    
+    in_zone = (buy_low <= price <= buy_high)
+    
+    if in_zone:
+        reason = "In ATR Buy Zone near SMA 50"
+        audit_engine.log(symbol, "Buy Zone", "Passed", reason, "price_vs_zone", price)
+    else:
+        reason = "Overextended or too far below support"
+        audit_engine.log(symbol, "Buy Zone", "Warning", reason, "price_vs_zone", price)
         
-    return True, buy_zone_low, buy_zone_high, "Valid Technical Setup"
+    return BuyZoneResult(
+        in_buy_zone=in_zone,
+        buy_zone_low=round(buy_low, 2),
+        buy_zone_high=round(buy_high, 2),
+        reason=reason
+    )

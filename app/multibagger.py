@@ -26,7 +26,7 @@ import requests
 import threading
 import pandas as pd
 import yfinance as yf
-from core_score_engine import CoreFundamentals, PeerMetrics, generate_core_scores, CorePriceData
+from typing import Dict, Any, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -72,6 +72,8 @@ class StockPriceData:
     high_20d: float
     high_60d: float
     mom_3m: float
+    atr_14: float
+    ema_20: float
     latest_volume: float
     volume_sma20: float
     close_yesterday: float
@@ -86,6 +88,8 @@ class ExitPriceData:
     high_20d: float
     close_yesterday: float
     sma_200_yesterday: float
+    atr_14: float
+    ema_20: float
 
 @dataclass
 class ScreenerResult:
@@ -235,6 +239,22 @@ def batch_download_market_data(symbols: list) -> dict:
                 latest_volume = float(vol_series.iloc[-1])
                 volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
                 
+                # ATR(14) calculation
+                if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+                    high = ticker_df["High"]
+                    low = ticker_df["Low"]
+                    shifted_close = close_series.shift(1)
+                    tr1 = high - low
+                    tr2 = (high - shifted_close).abs()
+                    tr3 = (low - shifted_close).abs()
+                    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                    atr_14 = float(tr.rolling(14).mean().iloc[-1])
+                else:
+                    atr_14 = close_price * 0.05
+                    
+                # EMA(20) calculation
+                ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
+                
                 results[sym] = StockPriceData(
                     symbol=sym,
                     price=close_price,
@@ -251,7 +271,9 @@ def batch_download_market_data(symbols: list) -> dict:
                     latest_volume=latest_volume,
                     volume_sma20=volume_sma20,
                     close_yesterday=close_yesterday,
-                    sma_200_yesterday=sma_200_yesterday
+                    sma_200_yesterday=sma_200_yesterday,
+                    atr_14=atr_14,
+                    ema_20=ema_20
                 )
             except Exception as e:
                 logger.debug(f"Error parsing downloaded data for {sym}: {e}")
@@ -269,43 +291,23 @@ def is_financial_sector(sector: str) -> bool:
     sec_lower = str(sector).lower()
     return any(keyword in sec_lower for keyword in ["financ", "bank", "nbfc", "insurance"])
 
-def get_cached_fundamentals(symbol: str, cache: dict) -> CoreFundamentals:
+def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
         return None
     try:
         data = cache[symbol]
-        fetched_at = datetime.fromisoformat(data.get("fetched_at", datetime.now().isoformat()))
-        age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
+        fetched_at_str = data.get("fetched_at", datetime.now().isoformat())
+        fetched_at = datetime.fromisoformat(fetched_at_str)
+        now_dt = datetime.now(IST)
+        if fetched_at.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=None)
+            
+        age_days = (now_dt - fetched_at).days
         if age_days < 7:
-            return CoreFundamentals(**{k: v for k, v in data.items() if k != "fetched_at"})
+            return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
     return None
-    try:
-        data = cache[symbol]
-        fetched_at = datetime.fromisoformat(data["fetched_at"])
-        age_days = (datetime.now(IST).replace(tzinfo=None) - fetched_at).days if fetched_at.tzinfo is None else (datetime.now(IST) - fetched_at).days
-        if age_days < 7:
-            return CoreFundamentals(
-                symbol=symbol,
-                market_cap=data.get("market_cap"),
-                debt_equity=data.get("debt_equity"),
-                operating_cash_flow=data.get("operating_cash_flow"),
-                roe=data.get("roe"),
-                revenue_growth_1y=data.get("revenue_growth"),
-                eps_growth_1y=data.get("earnings_growth"),
-                operating_margin=data["operating_margin"],
-                pe=data["pe"],
-                pb=safe_float(data.get("pb")),
-                div_yield=safe_float(data.get("div_yield")),
-                sector=data.get("sector", "Unknown"),
-                canonical_industry=data.get("canonical_industry", "DEFAULT"),
-                eps=safe_float(data.get("eps")),
-                bvps=safe_float(data.get("bvps")),
-                roa=safe_float(data.get("roa"))
-            )
-    except Exception as e:
-        logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
     return None
 
 
@@ -330,7 +332,7 @@ def compute_cagr(df, row_name, years=3):
     except: pass
     return None
 
-def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
+def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     ticker_name = f"{symbol}.NS"
     ticker = yf.Ticker(ticker_name)
     
@@ -374,40 +376,41 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
                     x5 = revenue / assets if revenue else 0
                     altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
                 
-                fund = CoreFundamentals(
-                    symbol=symbol,
-                    sector=info.get("sector", "Unknown"),
-                    canonical_industry=info.get("industry", "DEFAULT"),
-                    market_cap=market_cap,
-                    pe=info.get("trailingPE"),
-                    pb=safe_float(info.get("priceToBook")),
-                    ev_ebitda=info.get("enterpriseToEbitda"),
-                    roe=info.get("returnOnEquity"),
-                    roce=roic, # proxy ROCE with ROIC if missing
-                    debt_equity=info.get("debtToEquity"),
-                    operating_margin=info.get("operatingMargins"),
-                    gross_margin=info.get("grossMargins"),
-                    fcf_margin=None, # Needs to be calculated later if needed
-                    revenue_growth_1y=info.get("revenueGrowth"),
-                    revenue_growth_3y=compute_cagr(fin, 'Total Revenue', 3),
-                    revenue_growth_5y=compute_cagr(fin, 'Total Revenue', 5),
-                    eps_growth_1y=info.get("earningsGrowth"),
-                    eps_growth_3y=compute_cagr(fin, 'Net Income', 3),
-                    eps_growth_5y=compute_cagr(fin, 'Net Income', 5),
-                    fcf_growth_3y=compute_cagr(cf, 'Free Cash Flow', 3),
-                    fcf_growth_5y=compute_cagr(cf, 'Free Cash Flow', 5),
-                    cfo_pat_ratio=cfo_pat,
-                    operating_cash_flow=cfo,
-                    asset_turnover=ato,
-                    div_yield=safe_float(info.get("dividendYield")),
-                    altman_z=altman_z,
-                    promoter_pledge=None, # Not in basic yf info usually
-                    eps=safe_float(info.get("trailingEps")),
-                    bvps=safe_float(info.get("bookValue")),
-                    roa=safe_float(info.get("returnOnAssets")),
-                    is_financial=is_financial_sector(info.get("sector")),
-                    data_freshness="LIVE"
-                )
+                # Map to V5 Engine Expected Keys
+                shares = info.get("sharesOutstanding") or (market_cap / info.get("currentPrice", 1))
+                
+                fund = {
+                    "symbol": symbol,
+                    "sector": info.get("sector", "Unknown"),
+                    "market_cap": market_cap,
+                    "shares_outstanding": shares,
+                    "eps": safe_float(info.get("trailingEps")),
+                    "book_value_per_share": safe_float(info.get("bookValue")),
+                    "free_cash_flow": info.get("freeCashflow"),
+                    "ebit": ebit,
+                    "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
+                    
+                    "operating_margin_ttm": info.get("operatingMargins"),
+                    "gross_margin_stability": info.get("grossMargins", 0) * 0.1, # Proxy
+                    "roce": roic,
+                    "cfo_pat_ratio": cfo_pat,
+                    "fcf_margin": info.get("freeCashflow") / revenue if revenue else None,
+                    
+                    "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
+                    "eps_cagr_3y": compute_cagr(fin, 'Net Income', 3),
+                    "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
+                    "reinvestment_rate": retained_earnings / assets if assets else 0,
+                    
+                    "debt_equity": info.get("debtToEquity", 0) / 100.0,
+                    "interest_coverage_ratio": ebit / safe_extract(fin, 'Interest Expense') if safe_extract(fin, 'Interest Expense') else 100.0,
+                    "debt_yoy_growth": 0.0, # Dummy for now
+                    "altman_z": altman_z,
+                    "current_ratio": info.get("currentRatio"),
+                    
+                    "price": info.get("currentPrice"),
+                    "is_financial": is_financial_sector(info.get("sector")),
+                    "data_freshness": "LIVE"
+                }
                 
                 return fund
             time.sleep(1.0 + (2 ** attempt))
@@ -431,56 +434,7 @@ def fetch_ticker_fundamentals(symbol: str) -> CoreFundamentals:
             
     return None
 
-def passes_kill_gates(f: CoreFundamentals) -> tuple[bool, str]:
-    """Instant rejection checks with Golden Exceptions for hyper-growth microcaps and turnarounds. Returns (passed, reason)."""
-    
-    # Parse base metrics safely
-    mcap = float(f.market_cap) if f.market_cap is not None else 0.0
-    ocf = float(f.operating_cash_flow) if f.operating_cash_flow is not None else 0.0
-    eps = float(f.eps) if f.eps is not None else 0.0
-    opm = float(f.operating_margin) if f.operating_margin is not None else 0.0
-    roe = float(f.roe) if f.roe is not None else 0.0
-    rev_growth = float(f.revenue_growth_1y) if getattr(f, 'revenue_growth_1y', None) is not None else 0.0
-    de_val = float(f.debt_equity) if f.debt_equity is not None else 0.0
-    de_ratio = de_val / 100.0 if de_val > 10.0 else de_val
-    
-    is_fin = is_financial_sector(f.sector)
-    
-    # 1. Size Check (with Hidden Gem Exception)
-    if mcap < 5000000000: # ₹500 Cr
-        is_hidden_gem = (mcap >= 2000000000) and (roe > 0.15) and (rev_growth > 0.20) and (de_ratio < 0.5)
-        if not is_hidden_gem:
-            return False, f"Invalidated: Market Cap (₹{mcap/10000000:.1f} Cr) < 500 Cr and fails Hidden Gem exception."
-            
-    # 2. Debt/Equity check
-    if not is_fin and de_ratio > 1.0:
-        return False, f"Invalidated: Debt/Equity ({de_ratio:.2f}) > 1.0"
-        
-    # 3. Operating Cash Flow check (Must be positive)
-    if ocf < 0:
-        return False, "Invalidated: Negative Operating Cash Flow (Burning cash)."
-        
-    # 4. Earnings Check (with Turnaround Exception)
-    if eps <= 0:
-        is_turnaround = (ocf > 0) and (opm > 0) and (rev_growth > 0.25)
-        if not is_turnaround:
-            return False, "Invalidated: TTM Net Loss (EPS <= 0) and fails Turnaround exception."
-            
-    # 5. Core Operations check
-    if not is_fin and opm < 0:
-        return False, "Invalidated: Negative Operating Margin (Core operations losing money)."
-            
-    # 6. Capital Efficiency check
-    if eps > 0 and roe < 0.05:
-        return False, f"Invalidated: Abysmal Capital Efficiency (ROE {roe*100:.1f}% < 5%)."
-        
-    # 7. Deterioration check
-    if rev_growth < -0.30:
-        return False, f"Invalidated: Severe Revenue Collapse ({rev_growth*100:.1f}%)."
-    if getattr(f, 'eps_growth_1y', None) is not None and float(f.eps_growth_1y) < -0.30:
-        return False, f"Invalidated: Severe Earnings Collapse ({float(f.eps_growth_1y)*100:.1f}%)."
-        
-    return True, "Passed Kill Gates"
+
 def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
     price = price_data.price
     
@@ -701,11 +655,18 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                 fund = fetch_ticker_fundamentals(symbol)
                 
             if fund:
-                from core_score_engine import score_business_quality, CoreFundamentals, PeerMetrics, CorePriceData
-                cf = fund
-                cqs = score_business_quality(cf, PeerMetrics(), CorePriceData(price=current_price)).business_quality_score
+                technicals = {
+                    "price": current_price,
+                    "sma_50": price_data.sma_50,
+                    "sma_200": price_data.sma_200,
+                    "atr": price_data.atr_14
+                }
+                decision = run_pipeline_for_symbol(symbol, fund, technicals)
+                cqs = decision.quality.score
+                is_invalid = decision.is_invalidated
             else:
                 cqs = 15.0 # fallback if no fundamentals
+                is_invalid = True
             exit_triggered = False
             exit_reason = ""
             
@@ -735,7 +696,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                 if cqs < 15.0:
                     exit_triggered = True
                     exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
-                elif not passes_kill_gates(fund):
+                elif is_invalid:
                     exit_triggered = True
                     exit_reason = "Fundamental failure: fails Layer 1 Kill Gates"
                     
@@ -795,7 +756,9 @@ def run_standalone_exit_monitor():
                     sma_200=stock_data.sma_200,
                     high_20d=stock_data.high_20d,
                     close_yesterday=stock_data.close_yesterday,
-                    sma_200_yesterday=stock_data.sma_200_yesterday
+                    sma_200_yesterday=stock_data.sma_200_yesterday,
+                    atr_14=stock_data.atr_14,
+                    ema_20=stock_data.ema_20
                 )
                 
         # 3. Use cache for fundamentals
@@ -908,15 +871,18 @@ def _start_wrapper(debug_limit: int = None):
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
     
-    # Check Market Regime
+    # Check Market Regime (Explicitly fetch Nifty)
     market_regime = "BULL" # Defaulting for now
     try:
-        nifty = price_data_map.get("^NSEI")
-        if nifty and nifty.sma_200 > 0:
-            if nifty.price > nifty.sma_200:
+        nifty_df = yf.download("^NSEI", period="1y", interval="1d", progress=False)
+        if not nifty_df.empty and len(nifty_df) >= 200:
+            nifty_close = float(nifty_df["Close"].iloc[-1])
+            nifty_sma200 = float(nifty_df["Close"].rolling(200).mean().iloc[-1])
+            if nifty_close > nifty_sma200:
                 market_regime = "BULL"
             else:
                 market_regime = "BEAR"
+
     except Exception as e:
         logger.warning("Could not determine market regime, defaulting to BULL")
         
@@ -975,81 +941,73 @@ def _start_wrapper(debug_limit: int = None):
             "price": price_data.price,
             "sma_50": price_data.sma_50,
             "sma_200": price_data.sma_200,
-            "ema_20": price_data.sma_20, # using sma_20 as proxy for ema_20 for now
-            "atr": price_data.price * 0.05, # dummy ATR for now
+            "ema_20": price_data.ema_20,
+            "atr": price_data.atr_14,
         }
         
-        # 2. Run the V4 Pipeline for technical zones and emerging metrics
+        # 2. Run the V5 Pipeline
         pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         
         # Log rejection if invalidated by gates
-        if pipeline_result.classification.value == "Invalidated":
+        if pipeline_result.is_invalidated:
             rej_data = {
                 "symbol": sym,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": pipeline_result.timestamp,
                 "phase": "GATE_ENGINE",
-                "reason": pipeline_result.audit_trail
+                "reason": pipeline_result.invalidation_reason
             }
             with open(rejection_log_path, "a") as rf:
                 rf.write(json.dumps(rej_data) + "\n")
                 
-        # 3. Calculate scores using V3 Core Engine (V4 engine is incomplete and yields 0.0)
-        from core_score_engine import generate_core_scores, PeerMetrics, CorePriceData as V3CorePriceData
-        v3_pdata = V3CorePriceData(
-            price=price_data.price,
-            sma_50=price_data.sma_50,
-            sma_200=price_data.sma_200,
-        )
-        v3_scores = generate_core_scores(f, PeerMetrics(), v3_pdata)
+        # Extract scores from the V5 pipeline
+        cqs = pipeline_result.quality.score
+        pas = pipeline_result.valuation.score
+        trend = pipeline_result.market_structure.score
+        total = pipeline_result.composite_score
         
-        # Always extract scores from the working V3 pipeline
-        cqs = v3_scores.business_quality_score
-        pas = v3_scores.relative_valuation_score
-        trend = v3_scores.market_structure_score
-        total = v3_scores.overall_score
+        buy_low = pipeline_result.buy_zone.buy_zone_low
+        buy_high = pipeline_result.buy_zone.buy_zone_high
         
-        buy_low = pipeline_result.buy_zone_low
-        buy_high = pipeline_result.buy_zone_high
+        # Check alerts based on technicals and V5 validity
+        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated)
         
-        # Check alerts based on technicals and V3 validity
-        alert_triggered = pipeline_result.in_buy_zone and (not v3_scores.warnings)
-        
-        if v3_scores.warnings or pipeline_result.classification.value == "Invalidated":
+        if pipeline_result.is_invalidated:
             status = "INVALIDATED"
         else:
             status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
             
-        # Revert to old label categorizations based on total score
-        if status == "INVALIDATED":
-            bucket = "Invalidated"
-        elif total >= 80:
-            bucket = "🚀 PRIME MULTIBAGGER CANDIDATE"
-        elif total >= 65 and alert_triggered:
-            bucket = "💎 HIGH QUALITY — FAIR ENTRY"
-        elif total >= 65:
-            bucket = "🏆 GREAT BUSINESS — WAIT FOR DIP"
-        elif total >= 50 and pas >= 15:
-            bucket = "💰 VALUE BUY — DECENT QUALITY"
-        else:
-            bucket = "🟡 WATCHLIST CANDIDATE"
+        # Label categorizations based on V5 pipeline
+        bucket = pipeline_result.classification
         
         if status == "INVALIDATED":
-            notes = v3_scores.rejection_reason if v3_scores.warnings else "Failed Layer 3 Gates"
+            notes = pipeline_result.invalidation_reason
         else:
             tech_status = "In Buy Zone" if alert_triggered else "Waiting for Pullback"
-            if total >= 80:
-                qual_str = "Exceptional Fundamentals"
-            elif total >= 65:
-                qual_str = "Strong Fundamentals"
-            elif total >= 50:
-                qual_str = "Decent Fundamentals"
-            else:
-                qual_str = "Average Fundamentals"
-                
-            notes = f"{qual_str} | {tech_status}"
+            notes = f"Confidence: {pipeline_result.confidence:.0f}% | {tech_status}"
+            
+            # Additional Valuation logging 
+            if pipeline_result.valuation.fair_value > 0:
+                notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
             
         if alert_triggered:
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
+            
+            # Queue telegram summary using V5 metrics
+            if V5_CONFIG.get("enable_telegram_alerts", True):
+                msg = (
+                    f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
+                    f"----------------------------------------\n"
+                    f"• Price: ₹{price_data.price:.1f}\n"
+                    f"• Classification: <b>{pipeline_result.classification}</b>\n"
+                    f"• Composite Score: {pipeline_result.composite_score:.1f}/100\n"
+                    f"• Confidence: {pipeline_result.confidence:.0f}%\n"
+                    f"• Fair Value: ₹{pipeline_result.valuation.fair_value:.1f} (MoS: {pipeline_result.valuation.margin_of_safety:.1f}%)\n"
+                    f"• Buy Zone: ₹{pipeline_result.buy_zone.buy_zone_low:.1f} - ₹{pipeline_result.buy_zone.buy_zone_high:.1f}\n"
+                    f"• Sector: {raw_fundamentals.get('sector', 'Unknown')}\n"
+                    f"\n<i>System V5 Architecture</i>"
+                )
+                queue_telegram_message(msg, symbol=sym)
+            
             scaled_score = int(total)
             
             # Compute position sizing (total is 0-100 natively)

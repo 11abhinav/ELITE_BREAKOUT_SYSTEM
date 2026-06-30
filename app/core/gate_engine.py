@@ -1,40 +1,64 @@
 from typing import Dict, Any, Tuple
-from core.models import MetricResult
+from core.audit_engine import audit_engine
 
-def run_gates(raw_metrics: Dict[str, Any]) -> Tuple[bool, str]:
-    """
-    Evaluates the business against the Layer 3 Gate Engine.
-    Instantly rejects fundamentally flawed businesses.
-    
-    Returns:
-        (passed: bool, reason: str)
-    """
-    
-    # Negative Equity
-    equity = raw_metrics.get("total_equity")
-    if equity is not None and equity <= 0:
-        return False, f"FAIL: Negative Equity ({equity})"
+def safe_float(val: Any) -> float:
+    try:
+        if val is None:
+            return 0.0
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
 
-    # Promoter Pledge > 50%
-    pledge = raw_metrics.get("promoter_pledge_pct")
-    if pledge is not None and pledge > 50.0:
-        return False, f"FAIL: High Promoter Pledge ({pledge}%)"
-        
-    # Auditor Flags / Fraud
-    auditor_flags = raw_metrics.get("auditor_flags", False)
-    if auditor_flags:
-        return False, "FAIL: Auditor/Fraud Flags Detected"
-        
-    # OCF Negative
-    ocf = raw_metrics.get("operating_cash_flow_ttm")
-    if ocf is not None and ocf < 0:
-        return False, f"FAIL: Negative Operating Cash Flow ({ocf})"
-        
-    # Extreme Debt (Exclude financials where high debt is normal)
-    is_financial = raw_metrics.get("is_financial", False)
-    if not is_financial:
-        debt_equity = raw_metrics.get("debt_equity")
-        if debt_equity is not None and debt_equity > 2.5: # Extreme debt threshold
-            return False, f"FAIL: Extreme Debt to Equity ({debt_equity})"
-            
-    return True, "PASS"
+def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
+    """
+    Layer 1: Hard Kill Gates
+    Returns (Passed, RejectionReason)
+    """
+    passed = True
+    reason = ""
+
+    # 1. Negative Equity
+    equity = safe_float(raw_data.get("total_equity", 0.0))
+    if "total_equity" in raw_data and equity <= 0:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Negative Equity", "total_equity", equity)
+        return False, "Negative Equity"
+    else:
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Positive Equity", "total_equity", equity)
+
+    # 2. Promoter Pledge > 50%
+    pledge = safe_float(raw_data.get("promoter_pledge_pct", 0.0))
+    if pledge > 0.50:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Promoter Pledge > 50%", "promoter_pledge_pct", pledge)
+        return False, "Promoter Pledge > 50%"
+    else:
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Acceptable Pledge", "promoter_pledge_pct", pledge)
+
+    # 3. Auditor Flags / Fraud
+    fraud = raw_data.get("auditor_flags", False)
+    if fraud:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Auditor Issues / Fraud Flags", "auditor_flags", fraud)
+        return False, "Auditor Issues"
+    else:
+        audit_engine.log(symbol, "Kill Gates", "Passed", "No Auditor Issues", "auditor_flags", fraud)
+
+    # 4. Severe Operating Cash Flow Burn
+    ocf = safe_float(raw_data.get("operating_cash_flow_ttm", 0.0))
+    # We might allow early stage software companies to burn cash, but for standard gates, negative OCF is a warning/fail.
+    # Let's enforce a soft threshold for now, or just log a warning unless it's extreme.
+    # The prompt says "Reject negative OCF".
+    is_financial = raw_data.get("is_financial", False)
+    if ocf < 0 and not is_financial:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Negative Operating Cash Flow", "operating_cash_flow_ttm", ocf)
+        return False, "Negative Operating Cash Flow"
+    else:
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Positive OCF or Financial", "operating_cash_flow_ttm", ocf)
+
+    # 5. Extreme Debt
+    debt_equity = safe_float(raw_data.get("debt_equity", 0.0))
+    if debt_equity > 3.0 and not is_financial:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Extreme Debt/Equity > 3.0", "debt_equity", debt_equity)
+        return False, "Extreme Debt"
+    else:
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Acceptable Debt", "debt_equity", debt_equity)
+
+    return passed, reason

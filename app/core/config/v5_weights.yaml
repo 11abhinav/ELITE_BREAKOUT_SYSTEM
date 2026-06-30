@@ -1,0 +1,57 @@
+# Elite Wealth System V5 Configuration Weights
+
+version: "1.0"
+
+# Sector-specific overrides for Composite Score
+sector_weights:
+  default:
+    quality: 30
+    growth: 20
+    financial_strength: 20
+    valuation: 20
+    market_structure: 10
+  
+  banking:
+    quality: 25
+    growth: 15
+    financial_strength: 30
+    valuation: 20
+    market_structure: 10
+
+  software:
+    quality: 35
+    growth: 25
+    financial_strength: 15
+    valuation: 15
+    market_structure: 10
+
+# Layer 2: Business Quality Engine Sub-weights
+quality_weights:
+  profitability: 0.30
+  moat: 0.20
+  capital_efficiency: 0.20
+  cash_conversion: 0.15
+  earnings_quality: 0.15
+
+# Layer 5: Valuation Engine Sub-weights
+valuation_weights:
+  dcf: 0.35
+  peer_relative: 0.25
+  graham: 0.15
+  earnings_power: 0.15
+  asset_value: 0.10
+
+# Classification Thresholds
+classification:
+  prime:
+    score: 80
+    confidence: 80
+    require_buy_zone: true
+  high_quality:
+    score: 65
+    confidence: 60
+    require_buy_zone: false
+  good_business:
+    score: 50
+    confidence: 50
+    require_buy_zone: false

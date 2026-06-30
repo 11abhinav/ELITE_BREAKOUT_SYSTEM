@@ -1,81 +1,138 @@
-from typing import Dict, Any, Optional
-from core.models import FinalScannerResult, ClassificationTier, ExitState
-from core.metric_engine import registry as metric_registry
+from typing import Dict, Any
+from datetime import datetime
+import yaml
+import os
+
+from core.models import InvestmentDecision
+from core.audit_engine import audit_engine
 from core.gate_engine import run_gates
-from core.score_engine import run_score_engine
-from core.improvement_engine import detect_improvements
-from core.emerging_engine import EmergingEngine
-from core.technical_engine import evaluate_technicals
+from core.quality_engine import run_quality_engine
+from core.growth_engine import run_growth_engine
+from core.financial_strength_engine import run_financial_strength_engine
+from core.valuation_engine import run_valuation_engine
+from core.market_structure_engine import run_market_structure_engine
+from core.technical_engine import run_buy_zone_engine
 
-emerging_engine = EmergingEngine()
+# Load Config Once
+config_path = os.path.join(os.path.dirname(__file__), 'config', 'v5_weights.yaml')
+with open(config_path, 'r') as f:
+    V5_CONFIG = yaml.safe_load(f)
 
-def determine_classification(static_score, emerging_score) -> ClassificationTier:
-    """Layer 6: Opportunity Classification"""
-    q = static_score.quality.score
-    g = static_score.growth.score
-    e = emerging_score.overall_score
-    
-    if q >= 75.0 and g >= 80.0 and e >= 85.0:
-        return ClassificationTier.TIER_A
-    elif q >= 85.0 and g >= 60.0:
-        return ClassificationTier.TIER_B
-    elif q < 60.0 and e >= 75.0:
-        return ClassificationTier.TIER_C
-    elif static_score.value.score >= 80.0 and e >= 70.0:
-        return ClassificationTier.TIER_D
-    else:
-        return ClassificationTier.TIER_E
-
-def run_pipeline_for_symbol(symbol: str, raw_fundamentals: Dict[str, Any], technicals: Dict[str, float]) -> FinalScannerResult:
+# Validate configuration on startup
+for s, w in V5_CONFIG.get('sector_weights', {}).items():
+    if abs(sum(w.values()) - 100) > 0.001:
+        raise ValueError(f"Startup Config Error: Weights for sector '{s}' must total 100, got {sum(w.values())}")
+def run_pipeline_for_symbol(symbol: str, raw_data: Dict[str, Any], technicals: Dict[str, Any] = None) -> InvestmentDecision:
     """
-    Executes Layers 2 through 7 for a single symbol.
-    Returns FinalScannerResult (tier is INVALIDATED if rejected by gates).
+    V5 Orchestrator Pipeline
+    Runs all 7 layers and outputs the final InvestmentDecision.
     """
+    # Merge technicals without mutating caller's dict
+    merged_data = {**raw_data, **(technicals or {})}
     
-    # Layer 2: Metric Engine
-    # Combines raw fundamentals with some technicals if needed
-    raw_data = {**raw_fundamentals, **technicals}
-    metrics_dict = metric_registry.execute_all(raw_data)
+    # Get sector overrides if applicable
+    sector = merged_data.get('sector', 'default').lower()
+    if sector not in V5_CONFIG['sector_weights']:
+        sector = 'default'
+    weights = V5_CONFIG['sector_weights'][sector]
+
+
+    # Layer 1: Gates
+    passed_gates, invalidation_reason = run_gates(symbol, merged_data)
+
+    # We run the rest of the pipeline even if gates fail, 
+    # to populate the data structure for debugging, 
+    # but we will mark it as Invalidated at the end.
+
+    # Layer 2: Business Quality
+    quality = run_quality_engine(symbol, merged_data, V5_CONFIG.get('quality_weights', {}))
     
-    # Layer 3: Gate Engine
-    passed, reject_reason = run_gates(raw_data)
-        
-    # Layer 4: Six Pillar Score
-    static_score = run_score_engine(metrics_dict)
+    # Layer 3: Growth & Capital Allocation
+    growth = run_growth_engine(symbol, merged_data)
     
-    # Layer 4.5: Improvement Detection
-    improvement = detect_improvements(raw_data)
+    # Layer 4: Financial Strength
+    financial = run_financial_strength_engine(symbol, merged_data)
     
-    # Layer 5: Emerging Engine
-    emerging_score = emerging_engine.compute_emerging_score(improvement, metrics_dict)
+    # Layer 5: Valuation
+    valuation = run_valuation_engine(symbol, merged_data, V5_CONFIG.get('valuation_weights', {}))
     
-    # Layer 6: Classification
-    if not passed:
-        tier = ClassificationTier.INVALIDATED
-    else:
-        tier = determine_classification(static_score, emerging_score)
+    # Layer 6: Market Structure
+    market = run_market_structure_engine(symbol, merged_data)
     
-    # Layer 7: Technical Entry
-    in_buy_zone, buy_zone_low, buy_zone_high, tech_reason = evaluate_technicals(technicals)
-    
-    # We assign an initial HOLD exit state since it's just scanned, not owned yet.
-    # The true Exit logic (Layer 9) runs separately on open positions.
-    
-    # Generate Audit Trail (End-User Facing Reason)
-    audit = reject_reason if not passed else tech_reason
-    
-    # Build final result
-    return FinalScannerResult(
-        symbol=symbol,
-        static_score=static_score,
-        improvement=improvement,
-        emerging_score=emerging_score,
-        classification=tier,
-        exit_state=ExitState.HOLD,
-        confidence=1.0, # Could be derived from metric coverages
-        freshness=0,
-        in_buy_zone=in_buy_zone,
-        buy_zone_low=buy_zone_low,
-        buy_zone_high=buy_zone_high,
-        audit_trail=audit
+    # Layer 7: Buy Zone (Technical Entry)
+    buy_zone = run_buy_zone_engine(symbol, merged_data)
+
+    # Composite Score Calculation
+    comp_score = (
+        (quality.score * (weights['quality'] / 100)) +
+        (growth.score * (weights['growth'] / 100)) +
+        (financial.score * (weights['financial_strength'] / 100)) +
+        (valuation.score * (weights['valuation'] / 100)) +
+        (market.score * (weights['market_structure'] / 100))
     )
+
+    # Composite Confidence Calculation
+    comp_confidence = (
+        (quality.confidence * (weights['quality'] / 100)) +
+        (growth.confidence * (weights['growth'] / 100)) +
+        (financial.confidence * (weights['financial_strength'] / 100)) +
+        (valuation.confidence * (weights['valuation'] / 100)) +
+        (market.confidence * (weights['market_structure'] / 100))
+    )
+
+    # Allow extensible confidence penalties based on data freshness
+    if merged_data.get('data_freshness') == 'STALE':
+        comp_confidence -= 20.0
+    
+    # Final clamping for safety
+    comp_score = max(0.0, min(100.0, comp_score))
+    comp_confidence = max(0.0, min(100.0, comp_confidence))
+    
+    raw_composite_score = comp_score
+
+    # Classification driven by v5_weights.yaml
+    c_config = V5_CONFIG.get('classification', {})
+    prime = c_config.get('prime', {'score': 80, 'confidence': 80, 'require_buy_zone': True})
+    high_q = c_config.get('high_quality', {'score': 65, 'confidence': 60, 'require_buy_zone': False})
+    good_b = c_config.get('good_business', {'score': 50, 'confidence': 50, 'require_buy_zone': False})
+
+    classification = "🟡 Watchlist"
+    if passed_gates:
+        if comp_score >= prime['score'] and comp_confidence >= prime['confidence'] and (buy_zone.in_buy_zone if prime['require_buy_zone'] else True):
+            classification = "🚀 Prime Multibagger"
+        elif comp_score >= high_q['score'] and comp_confidence >= high_q['confidence'] and (buy_zone.in_buy_zone if high_q['require_buy_zone'] else True):
+            classification = "💎 High Quality"
+        elif comp_score >= good_b['score'] and comp_confidence >= good_b['confidence'] and (buy_zone.in_buy_zone if good_b['require_buy_zone'] else True):
+            classification = "🏆 Good Business"
+    else:
+        classification = "Invalidated"
+        comp_score = 0.0 # Zero out the final score for invalid companies so they drop in rank
+
+    decision = InvestmentDecision(
+        symbol=symbol,
+        quality=quality,
+        growth=growth,
+        financial_strength=financial,
+        valuation=valuation,
+        market_structure=market,
+        buy_zone=buy_zone,
+        composite_score=round(comp_score, 2),
+        raw_composite_score=round(raw_composite_score, 2),
+        confidence=round(comp_confidence, 2),
+        classification=classification,
+        current_price=merged_data.get('price', 0.0),
+        is_invalidated=not passed_gates,
+        invalidation_reason=invalidation_reason,
+        audit_trail=audit_engine.export_trail(symbol) if hasattr(audit_engine, 'export_trail') else [],
+        engine_version="V5.0.0",
+        weights_profile=sector,
+        weights_version=V5_CONFIG.get('version', "1.0"),
+        valuation_version="1.0",
+        timestamp=datetime.now().isoformat()
+    )
+    
+    # Clear audit engine memory for this symbol after pipeline is complete
+    if hasattr(audit_engine, 'clear'):
+        audit_engine.clear(symbol)
+
+    return decision
