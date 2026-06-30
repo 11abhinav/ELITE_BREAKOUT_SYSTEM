@@ -836,7 +836,7 @@ def _start_wrapper(debug_limit: int = None):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT symbol FROM wealth_buy_alerts WHERE status = 'OPEN' AND engine_type = 'MULTIBAGGER'")
+                cur.execute("SELECT symbol FROM wealth_buy_alert WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER'")
                 open_symbols = {row[0] for row in cur.fetchall()}
     except Exception as e:
         logger.error(f"Failed to fetch open positions for shortlist injection: {e}")
