@@ -125,6 +125,14 @@ def safe_float(val, default=0.0):
 
 def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
+    if not os.path.exists(CACHE_PATH):
+        try:
+            from database import download_parquet_from_db
+            if download_parquet_from_db("multibagger_cache", CACHE_PATH):
+                logger.info("☁️ [CACHE] Restored multibagger fundamentals cache from Postgres DB")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to restore multibagger cache from DB: {e}")
+            
     if os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "r") as f:
@@ -140,6 +148,15 @@ def save_fundamentals_cache(cache_data: dict):
         with open(CACHE_PATH, "w") as f:
             json.dump(cache_data, f, indent=4)
         logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
+        
+        # Backup to Postgres DB so it survives Railway restarts
+        try:
+            from database import upload_parquet_to_db
+            upload_parquet_to_db("multibagger_cache", CACHE_PATH)
+            logger.info("☁️ [CACHE] Uploaded multibagger fundamentals cache to Postgres DB")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to backup multibagger cache to DB: {e}")
+            
     except Exception as e:
         logger.exception(f"❌ Failed to save fundamentals cache")
 
