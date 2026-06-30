@@ -637,9 +637,27 @@ def run_system_scheduler():
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
         try:
-            logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
-            from daily_builder import main as build_watchlist
-            build_watchlist()
+            import os
+            import pandas as pd
+            from config import WATCHLIST_PATH
+            
+            already_fresh = False
+            if os.path.exists(WATCHLIST_PATH):
+                try:
+                    df = pd.read_parquet(WATCHLIST_PATH)
+                    if "Scan Time" in df.columns and not df.empty:
+                        scan_date_str = str(df["Scan Time"].iloc[0])[:10]
+                        if datetime.strptime(scan_date_str, "%Y-%m-%d").date() >= datetime.now(IST).date():
+                            already_fresh = True
+                except Exception:
+                    pass
+            
+            if already_fresh:
+                logger.info("🕒 SCHEDULER | [1:00 AM] Watchlist already fresh for today. Skipping redundant build.")
+            else:
+                logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
+                from daily_builder import main as build_watchlist
+                build_watchlist()
             
             # Update memory cache
             from watchlist_cache import get_watchlist
