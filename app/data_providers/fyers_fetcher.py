@@ -278,9 +278,10 @@ class FyersFetcher(DataFetcher):
             except Exception as e:
                 error_str = str(e)
                 
-                # Record failure for circuit breaker
+                # Record failure for circuit breaker, but ignore expected validation errors
                 if "Bad request" in error_str or "error" in error_str.lower():
-                    _fyers_circuit_breaker.record_failure()
+                    if "invalid symbol" not in error_str.lower() and "invalid input" not in error_str.lower():
+                        _fyers_circuit_breaker.record_failure()
 
                 if "Could not authenticate the user" in error_str:
                     global _last_auth_notif_time
@@ -437,7 +438,9 @@ class FyersFetcher(DataFetcher):
                     # Trigger the 'Could not authenticate' handling below
                     raise ValueError("Could not authenticate the user")
                     
-                _fyers_circuit_breaker.record_failure()
+                if "invalid symbol" not in error_msg.lower():
+                    _fyers_circuit_breaker.record_failure()
+                    
                 try:
                     from data_fetch_status import mark_failure
                     mark_failure('fyers', f"Quote API error for {symbol}: {error_msg}")
@@ -448,7 +451,8 @@ class FyersFetcher(DataFetcher):
             error_str = str(e)
             # Record failure for circuit breaker
             if "error" in error_str.lower() or "request" in error_str.lower():
-                _fyers_circuit_breaker.record_failure()
+                if "invalid symbol" not in error_str.lower() and "invalid input" not in error_str.lower():
+                    _fyers_circuit_breaker.record_failure()
 
             if "Could not authenticate the user" in error_str:
                 global _last_auth_notif_time
