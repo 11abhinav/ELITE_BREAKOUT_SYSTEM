@@ -365,16 +365,14 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 if market_cap is None:
                     market_cap = fast_info.get("marketCap")
                     
-                if info and market_cap:
-                    fin = ticker.financials
-                    bs = ticker.balance_sheet
-                    cf = ticker.cashflow
-                else:
-                    fin = bs = cf = None
+                # Always fetch financials independently of info
+                fin = ticker.financials
+                bs = ticker.balance_sheet
+                cf = ticker.cashflow
             finally:
                 yf_release()
                 
-            if info and market_cap:
+            if market_cap:
                 
                 pat = safe_extract(fin, 'Net Income')
                 cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
@@ -407,15 +405,28 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     shares = market_cap / price
                 elif not shares:
                     shares = 1.0
+                    
+                eps = safe_float(info.get("trailingEps"))
+                if not eps and pat is not None:
+                    eps = pat / shares
+                    
+                bv = safe_float(info.get("bookValue"))
+                if not bv and assets and total_liab:
+                    bv = (assets - total_liab) / shares
+                    
+                fcf = info.get("freeCashflow")
+                if fcf is None and cfo is not None:
+                    capex = abs(safe_extract(cf, 'Capital Expenditure', default=0.0))
+                    fcf = cfo - capex
                 
                 fund = {
                     "symbol": symbol,
                     "sector": info.get("sector", "Unknown"),
                     "market_cap": market_cap,
                     "shares_outstanding": shares,
-                    "eps": safe_float(info.get("trailingEps")),
-                    "book_value_per_share": safe_float(info.get("bookValue")),
-                    "free_cash_flow": info.get("freeCashflow"),
+                    "eps": eps,
+                    "book_value_per_share": bv,
+                    "free_cash_flow": fcf,
                     "ebit": ebit,
                     "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
                     
@@ -423,7 +434,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     "gross_margin_stability": info.get("grossMargins", 0) * 0.1, # Proxy
                     "roce": roic,
                     "cfo_pat_ratio": cfo_pat,
-                    "fcf_margin": info.get("freeCashflow") / revenue if revenue else None,
+                    "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
                     
                     "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
                     "eps_cagr_3y": compute_cagr(fin, 'Net Income', 3),
