@@ -45,9 +45,11 @@ def load_cache() -> dict:
     return {}
 
 def save_cache(cache_data: dict, upload_to_db=False):
+    # Strip any None (null) values to prevent cache poisoning
+    clean_cache = {k: v for k, v in cache_data.items() if v is not None}
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     with open(CACHE_FILE, "w") as f:
-        json.dump(cache_data, f, indent=2)
+        json.dump(clean_cache, f, indent=2)
         
     if upload_to_db:
         try:
