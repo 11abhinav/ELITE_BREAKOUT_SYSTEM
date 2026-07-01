@@ -114,31 +114,19 @@ def _start_wrapper(run_once=False):
             all_ticker_data = fetch_watchlist_data(watchlist, "60d", "1h")
             if all_ticker_data is None:
                 all_ticker_data = {}
-            # Handle rate limit / partial data gracefully
-            # Continue with whatever data we got; empty data is 0, partial is >0, full is len(watchlist)
-            if not all_ticker_data:
-                logger.warning("⚠️ YFinance returned 0 data for 1H timeframe (likely rate-limited). Scan will be limited but continuing...")
+            fetched_count = len(all_ticker_data)
+            required_count = int(len(watchlist) * 0.70)
+            
+            if fetched_count < required_count:
+                logger.warning(f"⚠️ YFinance returned only {fetched_count}/{len(watchlist)} symbols. Minimum 70% required. Aborting scan.")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("1H", "DEGRADED", error_msg="Rate-limited: 0 symbols, using fallback", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
+                    upsert_scanner_health("1H", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                 except Exception:
                     pass
-                # Don't return/abort - continue with empty data; iteration logic will handle None gracefully
-            elif len(all_ticker_data) < len(watchlist) * 0.8:
-                logger.warning(f"⚠️ Only {len(all_ticker_data)}/{len(watchlist)} symbols fetched (80%+ required). Likely rate-limited. Continuing with partial data...")
-                try:
-                    from database import upsert_scanner_health
-                    upsert_scanner_health("1H", "DEGRADED", error_msg=f"Rate-limited: {len(all_ticker_data)}/{len(watchlist)} symbols", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
-                except Exception:
-                    pass
+                raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
             else:
-                logger.info(f"✅ Successfully fetched {len(all_ticker_data)}/{len(watchlist)} symbols for 1H scan")
-                try:
-                    from database import upsert_scanner_health
-                    # We will update OK at the end of the loop, no need to do it here
-
-                except Exception:
-                    pass
+                logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for 1H scan")
 
 
             rejection_counts = {k: 0 for k in [

@@ -461,7 +461,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
             return None
-        except Exception as e:
+        except BaseException as e:
             msg = str(e).lower()
             if "401" in msg or "crumb" in msg or "unauthorized" in msg:
                 import shutil, os

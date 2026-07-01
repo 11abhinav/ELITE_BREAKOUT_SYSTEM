@@ -582,13 +582,23 @@ def _run_wealth_scan_wrapper():
         all_historical_data = fetch_unified_historical(all_symbols, period="1y", interval="1d")
         
         # Handle rate limiting or fetch failures gracefully
-        # Return empty dict (not None) so thread logic can fallback to individual fetches
         if all_historical_data is None:
-            logger.warning(f"⚠️ Batch fetch returned None (rate-limited or API down). Threads will use fallback data.")
             all_historical_data = {}
         
         fetched_count = len(all_historical_data) if all_historical_data else 0
-        logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {fetched_count}/{len(df)} symbols have fresh data.")
+        required_count = int(len(df) * 0.70)
+        
+        if fetched_count < required_count:
+            logger.warning(f"⚠️ Batch fetch returned only {fetched_count}/{len(df)} symbols (70% minimum required). Aborting scan.")
+            import database
+            if not getattr(database, "DONT_SAVE_WEALTH", False):
+                try:
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(df)} symbols")
+                except Exception:
+                    pass
+            raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(df)} symbols (70% minimum required). Aborting to prevent stale data.")
+        else:
+            logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {fetched_count}/{len(df)} symbols have fresh data.")
 
 
         def process_symbol(idx, row, historical_cache=None):

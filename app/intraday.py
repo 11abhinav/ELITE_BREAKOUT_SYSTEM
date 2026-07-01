@@ -294,16 +294,16 @@ def _start_wrapper(run_once=False):
 
             fetched_15m = len(data_15m_raw) if data_15m_raw else 0
             fetched_5m  = len(data_5m_raw) if data_5m_raw else 0
-            threshold = len(watchlist) * 0.5
+            threshold = len(watchlist) * 0.70
 
             if fetched_15m < threshold or fetched_5m < threshold:
                 logger.warning(f"⚠️ YFinance returned partial data (15m: {fetched_15m}, 5m: {fetched_5m} vs {len(watchlist)} symbols). Forcing retry...")
                 try:
                     from database import upsert_scanner_health
-                    upsert_scanner_health("INTRADAY", "DEGRADED", error_msg=f"Rate-limited: 15m={fetched_15m}, 5m={fetched_5m}", scheduled_for="Every 15min (9:32 AM - 3:30 PM)")
+                    upsert_scanner_health("INTRADAY", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: 15m={fetched_15m}, 5m={fetched_5m}", scheduled_for="Every 15min (9:32 AM - 3:30 PM)")
                 except Exception:
                     pass
-                raise Exception(f"Data Provider Error: Only fetched {fetched_15m}/{len(watchlist)} 15m symbols and {fetched_5m}/{len(watchlist)} 5m symbols. Aborting run to trigger 5-minute retry loop.")
+                raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_15m}/{len(watchlist)} 15m symbols and {fetched_5m}/{len(watchlist)} 5m symbols (70% minimum required). Aborting to prevent stale data.")
             else:
                 logger.info(f"✅ Data downloaded | 15m: {fetched_15m} | 5m: {fetched_5m}")
                 pass

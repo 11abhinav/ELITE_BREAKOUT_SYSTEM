@@ -285,15 +285,15 @@ def _run_scan(force: bool = False):
     all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
 
     fetched_count = len(all_ticker_data) if all_ticker_data else 0
-    if fetched_count < len(watchlist) * 0.5:
+    if fetched_count < len(watchlist) * 0.70:
         logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
         if not is_test_mode:
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("REVERSAL", "DEGRADED", error_msg=f"Rate-limited: {fetched_count}/{len(watchlist)} symbols")
+                upsert_scanner_health("REVERSAL", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
             except Exception:
                 pass
-        raise Exception(f"Data Provider Error: Only fetched {fetched_count}/{len(watchlist)} symbols. Aborting run to trigger 5-minute retry loop.")
+        raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
     else:
         logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for Reversal scan")
         if not is_test_mode:

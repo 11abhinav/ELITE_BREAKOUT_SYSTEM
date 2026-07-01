@@ -65,12 +65,16 @@ def run_hourly_phase():
     
     # Handle rate limiting or fetch failures gracefully - continue with partial data
     if ticker_data is None:
-        logger.warning("⚠️ 1H data fetch returned None (rate-limited or API down). Continuing with empty data...")
         ticker_data = {}
-    elif not ticker_data:
-        logger.warning("⚠️ 1H data fetch returned 0 symbols (likely rate-limited). Continuing with partial data...")
+        
+    fetched_count = len(ticker_data)
+    required_count = int(len(watchlist) * 0.70)
+    
+    if fetched_count < required_count:
+        logger.warning(f"⚠️ 1H data fetch returned {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting Phase A.")
+        raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required)")
     else:
-        logger.info(f"✅ Successfully fetched {len(ticker_data)} symbols for 1H hourly phase")
+        logger.info(f"✅ Successfully fetched {fetched_count} symbols for 1H hourly phase")
         
     stale_count = 0
 
@@ -208,6 +212,17 @@ def run_lower_tf_phase(current_regime="BULL"):
     data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
     if data_5m is None:
         data_5m = {}
+        
+    def _check_fetch(data_dict, needed_list, tf_label):
+        if not needed_list: return
+        req_len = len(needed_list)
+        f_len = len(data_dict) if data_dict else 0
+        if f_len < int(req_len * 0.70):
+            raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {f_len}/{req_len} symbols for {tf_label} (70% minimum required)")
+
+    _check_fetch(data_30m, needs_30m, "30m")
+    _check_fetch(data_15m, needs_15m, "15m")
+    _check_fetch(data_5m, needs_5m, "5m")
 
     stale_count = 0
 
