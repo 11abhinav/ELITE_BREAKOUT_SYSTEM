@@ -140,7 +140,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 time.sleep(backoff)
             else:
                 logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error")
-                return None
+                return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
         
         # Multi-bagger enhancements extraction
         ocf = info.get("operatingCashflow")
