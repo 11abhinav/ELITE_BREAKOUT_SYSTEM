@@ -359,7 +359,13 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
             yf_acquire(context=f"Multibagger Scanner | {symbol}")
             try:
                 info = ticker.info
-                if info and "marketCap" in info:
+                fast_info = ticker.fast_info
+                
+                market_cap = info.get("marketCap")
+                if market_cap is None:
+                    market_cap = fast_info.get("marketCap")
+                    
+                if info and market_cap:
                     fin = ticker.financials
                     bs = ticker.balance_sheet
                     cf = ticker.cashflow
@@ -368,7 +374,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
             finally:
                 yf_release()
                 
-            if info and "marketCap" in info:
+            if info and market_cap:
                 
                 pat = safe_extract(fin, 'Net Income')
                 cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
@@ -395,7 +401,12 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
                 
                 # Map to V5 Engine Expected Keys
-                shares = info.get("sharesOutstanding") or (market_cap / info.get("currentPrice", 1))
+                price = info.get("currentPrice") or fast_info.get("lastPrice")
+                shares = info.get("sharesOutstanding")
+                if not shares and market_cap and price:
+                    shares = market_cap / price
+                elif not shares:
+                    shares = 1.0
                 
                 fund = {
                     "symbol": symbol,
@@ -425,13 +436,18 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     "altman_z": altman_z,
                     "current_ratio": info.get("currentRatio"),
                     
-                    "price": info.get("currentPrice"),
+                    "price": price,
                     "is_financial": is_financial_sector(info.get("sector")),
                     "data_freshness": "LIVE"
                 }
                 
                 return fund
-            time.sleep(1.0 + (2 ** attempt))
+                
+            # If we reach here, it's a SILENT rate limit (Yahoo returned empty dict)
+            from yf_rate_limiter import record_rate_limit, get_backoff_delay
+            record_rate_limit(context=f"Multibagger Scanner | {symbol} (Silent Empty Dict)")
+            time.sleep(get_backoff_delay(attempt))
+            
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
             return None
@@ -446,10 +462,28 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 ticker = yf.Ticker(f"{symbol}.NS")
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
                 record_rate_limit(context=f"Multibagger Scanner | {symbol}")
-                time.sleep(get_backoff_delay(attempt))
             else:
-                time.sleep(2 ** attempt)
-            
+                logger.warning(f"Error for {symbol}: {e}")
+                
+    # Fallback Alternative: If YF completely blocked fundamentals, salvage basic info
+    try:
+        fast = ticker.fast_info
+        fallback_mc = fast.get("marketCap")
+        fallback_price = fast.get("lastPrice")
+        if fallback_mc and fallback_price:
+            logger.info(f"🔄 Salvaging basic data for {symbol} via fast_info fallback.")
+            return {
+                "symbol": symbol,
+                "sector": "Unknown",
+                "market_cap": fallback_mc,
+                "shares_outstanding": fallback_mc / fallback_price,
+                "price": fallback_price,
+                "data_freshness": "FALLBACK",
+                "is_financial": False
+            }
+    except Exception:
+        pass
+        
     return None
 
 
