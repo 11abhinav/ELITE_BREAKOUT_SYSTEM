@@ -978,8 +978,12 @@ def _start_wrapper(debug_limit: int = None):
     try:
         nifty_df = yf.download("^NSEI", period="1y", interval="1d", progress=False)
         if not nifty_df.empty and len(nifty_df) >= 200:
-            nifty_close = float(nifty_df["Close"].iloc[-1])
-            nifty_sma200 = float(nifty_df["Close"].rolling(200).mean().iloc[-1])
+            import pandas as pd
+            close_col = nifty_df["Close"]
+            if isinstance(close_col, pd.DataFrame):
+                close_col = close_col.iloc[:, 0]
+            nifty_close = float(close_col.iloc[-1])
+            nifty_sma200 = float(close_col.rolling(200).mean().iloc[-1])
             if nifty_close > nifty_sma200:
                 market_regime = "BULL"
             else:
