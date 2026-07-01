@@ -1030,8 +1030,6 @@ def _start_wrapper(debug_limit: int = None):
             
         # 1. Pass the raw dictionary directly to the V5 Pipeline
         raw_fundamentals = f.copy()
-        raw_fundamentals["total_equity"] = None # Should be fetched in deep metrics
-        raw_fundamentals["promoter_pledge_pct"] = None # Fallback
         raw_fundamentals["auditor_flags"] = False
         
         technicals = {
