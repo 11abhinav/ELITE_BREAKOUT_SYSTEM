@@ -95,7 +95,18 @@ EOD_ADVANCED_CONFIG = {
     "MAX_DISTANCE_FROM_52W_HIGH_PCT": 15.0,
     "MAX_SINGLE_DAY_MOVE_PCT": 15.0,
     "MAX_GAP_FROM_PRIOR_HIGH_PCT": 3.0,
-    "GAP_LOOKBACK_BARS": 10
+    "GAP_LOOKBACK_BARS": 10,
+    
+    # ── Sustainability & Breakout Conviction ──
+    "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
+    "MIN_ATR_EXPANSION_RATIO": 1.2,
+    "MAX_BB_WIDTH_PCTILE": 0.20,
+    "MIN_OBV_SLOPE": 0.0,
+    
+    # ── Prior Context & Tight Bases ──
+    "PRE_BREAKOUT_LOOKBACK_BARS": 5,
+    "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
+    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.15
 }
 
 REVERSAL_CONFIG = {
@@ -158,7 +169,7 @@ MIN_BREAKOUT_MARGIN = {
 MIN_BREAKOUT_VOLUME_RATIO = 1.5
 
 # Reject if N prior candles are ALL bearish (no momentum build-up)
-MAX_PRE_BREAKOUT_RED_CANDLES = 2
+# Moved to EOD_ADVANCED_CONFIG["MAX_PRE_BREAKOUT_RED_CANDLES"]
 
 # BASE_WIDTH below this = tight consolidation = bonus-worthy setup
 BASE_TIGHTNESS_THRESHOLD = 1.5

@@ -262,14 +262,12 @@ def run_lower_tf_phase(current_regime="BULL"):
             if state_change_str:
                 try:
                     state_change_ts = datetime.strptime(state_change_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=IST)
-                    if (ist_now - state_change_ts).total_seconds() > 3600 * 4: # 4 hours expiry
-                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
-                        state = "HOURLY_APPROVED"
-                        logger.info(f"⏳ {symbol} {item['current_state']} expired (stale). Downgraded to HOURLY_APPROVED.")
                 except Exception:
-                    pass
+                    state_change_ts = None
+            else:
+                state_change_ts = None
 
-            # Decay check: if stock drifts >3% from resistance, reset to HOURLY_APPROVED
+            # Decay & Smart Expiry check
             df = data_30m.get(symbol)
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
@@ -280,10 +278,22 @@ def run_lower_tf_phase(current_regime="BULL"):
                 df = strip_forming_candle(df, 30, ist_now)
                 if df is not None and len(df) >= 2:
                     close = float(df["Close"].iloc[-1])
-                    if (breakout_level - close) / breakout_level > 0.03:
+                    drift = (breakout_level - close) / breakout_level
+                    
+                    is_expired = False
+                    if state_change_ts:
+                        age_seconds = (ist_now - state_change_ts).total_seconds()
+                        if age_seconds > 3600 * 4 and drift > 0.015:
+                            is_expired = True
+
+                    if drift > 0.03:
                         upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
                         state = "HOURLY_APPROVED"
                         logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
+                    elif is_expired:
+                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                        state = "HOURLY_APPROVED"
+                        logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")
 
         # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
         if state == "HOURLY_APPROVED":
@@ -356,7 +366,7 @@ def run_lower_tf_phase(current_regime="BULL"):
                 dist_to_breakout = (breakout_level - close) / breakout_level
 
                 # 15m must show micro-alignment: EMA9 > EMA20, price still near level
-                if e9_15 > e20_15 and (0.002 <= dist_to_breakout <= 0.015):
+                if e9_15 > e20_15 and (0.002 <= dist_to_breakout <= 0.02):
                     lower_funnel["ema15_pass"] += 1
                     ctx_json = json.dumps({
                         "last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S'),
@@ -604,7 +614,7 @@ def _start_wrapper(run_once=False):
             time.sleep(300)
             
         except Exception as e:
-            logger.exception(f"❌ MULTI-TF LADDER CRASHED: {e}")
+            logger.exception("❌ MULTI-TF LADDER CRASHED")
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
                     upsert_scanner_health(
@@ -614,10 +624,10 @@ def _start_wrapper(run_once=False):
                         scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                     )
                 except Exception as ex:
-                    logger.exception(f"Failed to update scanner health to DOWN: {ex}")
+                    logger.exception("Failed to update scanner health to DOWN")
 
             if run_once:
-                raise e
+                raise
             time.sleep(60)
 
 if __name__ == "__main__":

@@ -505,60 +505,6 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def should_trigger_alert(price_data: StockPriceData, scores) -> tuple:
-    price = price_data.price
-    
-    # Eligibility
-    if scores.business_quality_score < 18.0:
-        return False, f"Fails quality guard: BQS ({scores.business_quality_score:.1f}) < 18.0"
-        
-    if scores.reliability_score < 12.0:
-        return False, f"Fails reliability guard: Reliability ({scores.reliability_score:.1f}) < 12.0"
-        
-    if scores.composite_investment_score < 50.0:
-        return False, f"Fails overall fundamental check: CIS ({scores.composite_investment_score:.1f}/100) is too low."
-        
-    if price < price_data.sma_200:
-        return False, "Trend breakdown: Price < 200-DMA."
-        
-    if price < price_data.sma_50:
-        return False, "Waiting for trend confirmation: Price < 50-DMA."
-        
-    # Buy Zone
-    # The true technical buy zone is between the 200 SMA and 50 SMA (or just below 50 SMA).
-    # Since we already verified Price > 50-DMA and Price > 200-DMA in the above guards,
-    # wait... the above guards REJECT if price < 50-DMA!
-    # If we want a technical breakout system, we buy when it crosses UP the 50-DMA.
-    # Let's say if price > 50-DMA and price > 200-DMA, it's valid to buy.
-    
-    # We can just say any stock that passes the fundamental guards and is above 50-DMA is valid.
-    # However, to avoid buying too extended, we can cap it at 10% above the 50-DMA.
-    buy_zone_high = price_data.sma_50 * 1.10 if price_data.sma_50 > 0 else (price_data.sma_200 * 1.20)
-    
-    if price <= buy_zone_high:
-        return True, f"Value Breakout: inside technical buy zone, BQS={scores.business_quality_score:.1f}, Reliability={scores.reliability_score:.1f}"
-        
-    # High Growth Rerating (Extended buy zone for Prime Multibaggers)
-    if scores.business_quality_score >= 24.0 and scores.market_structure_score >= 10.0:
-        extended_buy_zone = price_data.sma_50 * 1.25 if price_data.sma_50 > 0 else (price_data.sma_200 * 1.40)
-        if price <= extended_buy_zone:
-            return True, f"GARP Rerating: strong growth & trend, allowing extended breakout entry."
-            
-    return False, f"Price (₹{price:.1f}) > Buy Zone High (₹{buy_zone_high:.1f})"
-        
-def get_label(cqs: float, pas: float) -> str:
-    """Return the output label category based on CQS and PAS."""
-    if cqs >= 21.0 and pas >= 21.0:
-        return "🚀 PRIME MULTIBAGGER CANDIDATE"
-    elif cqs >= 21.0 and 12.0 <= pas <= 18.0:
-        return "💎 HIGH QUALITY — FAIR ENTRY"
-    elif cqs >= 21.0 and pas < 12.0:
-        return "🏆 GREAT BUSINESS — WAIT FOR DIP"
-    elif 15.0 <= cqs <= 18.0 and pas >= 18.0:
-        return "💰 VALUE BUY — DECENT QUALITY"
-    elif 15.0 <= cqs <= 18.0 and 12.0 <= pas <= 15.0:
-        return "🟡 WATCHLIST CANDIDATE"
-    return None
 
 def save_watchlist_to_db(results: list):
     """Save watchlist candidates in bulk using psycopg2 execute_values."""
@@ -1030,7 +976,23 @@ def _start_wrapper(debug_limit: int = None):
             
         # 1. Pass the raw dictionary directly to the V5 Pipeline
         raw_fundamentals = f.copy()
-        raw_fundamentals["auditor_flags"] = False
+        
+        # [FIX] Issue #2: Use actual forensic_flags instead of hardcoded False
+        # forensic_flags >= 2 means auditor/accounting red flags detected
+        forensic_count = raw_fundamentals.get("forensic_flags", 0)
+        raw_fundamentals["auditor_flags"] = (forensic_count >= 2)
+        
+        # [FIX] Issue #3: Populate promoter_pledge_pct from pledge cache DB
+        # so Gate Engine Kill Gate #2 can actually catch high-pledge stocks
+        if "promoter_pledge_pct" not in raw_fundamentals or raw_fundamentals.get("promoter_pledge_pct") in (None, 0.0):
+            try:
+                from pledge_scraper import fetch_promoter_pledge
+                pledge_val = fetch_promoter_pledge(sym)
+                if pledge_val is not None:
+                    # Gate engine expects a ratio (0.0-1.0), not a percentage
+                    raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
+            except Exception:
+                pass  # Pledge data unavailable — gate defaults to 0.0 (pass)
         
         technicals = {
             "price": price_data.price,
@@ -1169,6 +1131,11 @@ def _start_wrapper(debug_limit: int = None):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
+    try:
+        from database import insert_notification
+        insert_notification("info", "✅ Multibagger Scan Completed", f"Successfully processed {len(results)} stocks.")
+    except Exception as e:
+        logger.error(f"Could not insert admin notification: {e}")
     
     alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
     return {

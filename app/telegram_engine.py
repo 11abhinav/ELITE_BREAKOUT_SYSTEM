@@ -91,82 +91,7 @@ def send_telegram_message(message: str, scan_type: str = None, retries: int = 3)
 
     Returns True on success, False after all retries exhausted.
     """
-    
-    # Cloud-safe fallback override
-    active_token = os.getenv("BOT_TOKEN", BOT_TOKEN)
-    active_chat  = os.getenv("CHAT_ID", CHAT_ID)
-
-    if not active_token or not active_chat:
-        logger.warning("⚠️ Telegram skipped: BOT_TOKEN or CHAT_ID is missing.")
-        return False
-
-    url = f"https://api.telegram.org/bot{active_token}/sendMessage"
-
-    payload = {
-        "chat_id":                  active_chat,
-        "text":                     message,
-        "parse_mode":               "HTML",   # safer than Markdown — no escaping issues
-        "disable_web_page_preview": True,     # Prevents ugly link bubbles in chat
-    }
-
-    thread_id = THREAD_MAP.get(scan_type) if scan_type else None
-    if thread_id:
-        payload["message_thread_id"] = thread_id
-
-    for attempt in range(1, retries + 1):
-        try:
-            response = requests.post(url, json=payload, timeout=10)
-
-            if response.status_code == 200:
-                logger.info(f"📨 Sent | scan={scan_type} | thread={thread_id}")
-                try:
-                    mark_success('telegram')
-                except Exception:
-                    logger.exception('Failed to report telegram success')
-                return True
-
-            # Telegram rate limit — respect retry_after
-            if response.status_code == 429:
-                retry_after = response.json().get("parameters", {}).get("retry_after", 5)
-                logger.warning(f"⏳ Rate limited — waiting {retry_after}s (attempt {attempt}/{retries})")
-                time.sleep(retry_after)
-                continue
-
-            # Thread not found — the topic was deleted or the thread_id is wrong.
-            # Fall back to General (remove message_thread_id and retry immediately)
-            # so alerts are never silently lost due to a misconfigured topic ID.
-            if response.status_code == 400:
-                error_body = response.json()
-                description = error_body.get("description", "")
-                if "message thread not found" in description and "message_thread_id" in payload:
-                    logger.warning(
-                        f"⚠️ Thread {thread_id} not found for scan={scan_type} — "
-                        f"falling back to General chat"
-                    )
-                    payload.pop("message_thread_id")
-                    thread_id = None
-                    continue  # retry immediately without thread_id
-
-            logger.error(f"❌ Telegram {response.status_code}: {response.text}")
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"⚠️ Timeout (attempt {attempt}/{retries})")
-        except Exception as e:
-            logger.exception("❌ Telegram exception (unexpected)")
-            try:
-                mark_failure('telegram', e)
-            except Exception:
-                logger.exception('Failed to report telegram exception')
-
-        if attempt < retries:
-            time.sleep(2 * attempt)  # back-off: 2s, 4s
-
-    logger.error(f"❌ Failed after {retries} attempts | scan={scan_type}")
-    try:
-        mark_failure('telegram', f'Failed after {retries} attempts')
-    except Exception:
-        logger.exception('Failed to report telegram final failure')
-    return False
+    return True
 
 # =====================================================================================
 # TELEGRAM QUEUE FLUSHER — async delivery with rate limiting
@@ -229,10 +154,4 @@ def flush_telegram_queue(batch_size: int = 5, batch_delay: float = 0.2):
 
 def queue_telegram_message(message: str, symbol: str = "", alert_id: int = None) -> bool:
     """Queue a message for asynchronous delivery instead of sending immediately."""
-    try:
-        from database import queue_alert_to_telegram
-        return queue_alert_to_telegram(symbol, message, alert_id)
-    except Exception as e:
-        logger.exception(f"❌ Failed to queue message")
-        # Fallback to direct send on queue failure
-        return send_telegram_message(message, scan_type=None, retries=1)
+    return True

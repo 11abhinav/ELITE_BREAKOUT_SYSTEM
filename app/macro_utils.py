@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from threading import Lock
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -41,7 +42,7 @@ def _get_daily_nifty() -> pd.DataFrame:
                 _cache.daily_data = df
                 _cache.daily_last_fetched = time.time()
             return df
-    except Exception as e:
+    except Exception:
         logger.exception(f"Failed to fetch Nifty daily macro data")
         
     return _cache.daily_data
@@ -61,31 +62,50 @@ def _get_intraday_nifty() -> pd.DataFrame:
                 _cache.intraday_data = df
                 _cache.intraday_last_fetched = time.time()
             return df
-    except Exception as e:
+    except Exception:
         logger.exception(f"Failed to fetch Nifty intraday macro data")
         
     return _cache.intraday_data
 
-def get_macro_regime() -> str:
-    """Calculate the market regime based on Nifty 20-day returns."""
+def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
+    """Calculate the market regime based on Nifty 20-day returns and ADX."""
     try:
         df = _get_daily_nifty()
         if df is not None and not df.empty and len(df) >= 20:
-            val_now = df["Close"].iloc[-1]
-            nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
-            val_ago = df["Close"].iloc[-20]
-            nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
+            if nifty_ret is None:
+                val_now = df["Close"].iloc[-1]
+                nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
+                val_ago = df["Close"].iloc[-20]
+                nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
+                
+                if nifty_ago > 0:
+                    nifty_ret = ((nifty_now - nifty_ago) / nifty_ago) * 100.0
             
-            if nifty_ago > 0:
-                ret = (nifty_now / nifty_ago) - 1
-                if ret < -0.05: return "BEAR"
-                if ret > 0.05: return "BULL"
+            if nifty_ret is not None:
+                ret = nifty_ret
+                
+                adx_val = 0.0
+                try:
+                    import ta
+                    adx_series = ta.trend.ADXIndicator(df['High'], df['Low'], df['Close'], window=14).adx()
+                    adx_val = float(adx_series.iloc[-1]) if pd.notna(adx_series.iloc[-1]) else 0.0
+                except Exception as e:
+                    logger.warning(f"Could not compute ADX for macro regime: {e}")
+                
+                if adx_val >= 20.0:
+                    if ret < -2.0: return "BEAR"
+                    if ret > 2.0:  return "BULL"
+                    return "NEUTRAL"
+                else:
+                    if ret < -5.0: return "BEAR"
+                    if ret > 5.0:  return "BULL"
+                    return "NEUTRAL"
     except Exception as e:
         logger.warning(f"Failed to compute macro regime: {e}")
-    return "SIDEWAYS"
+    return "NEUTRAL"
 
 def get_nifty_20d_return() -> float:
-    """Returns the 20-day percentage return of Nifty. Defaults to 5.0% if unavailable."""
+    """Returns the 20-day percentage return of Nifty. Defaults to 0.0% if unavailable."""
     try:
         df = _get_daily_nifty()
         if df is not None and not df.empty and len(df) >= 20:
@@ -97,9 +117,9 @@ def get_nifty_20d_return() -> float:
                 return (nifty_now - nifty_ago) / nifty_ago * 100.0
     except Exception as e:
         logger.warning(f"Failed to compute Nifty 20d return: {e}")
-    return 5.0  # Fallback assumption
+    return 0.0  # Fallback assumption
 
-def get_nifty_6m_state() -> tuple[float, float]:
+def get_nifty_6m_state() -> tuple[Optional[float], Optional[float]]:
     """
     Returns (ret_6m, dist_52w) for Nifty.
     Returns (None, None) if data is unavailable.
@@ -133,7 +153,12 @@ def get_nifty_intraday_drop() -> float:
         df = _get_intraday_nifty()
         if df is not None and not df.empty:
             today_str = datetime.now(IST).strftime('%Y-%m-%d')
-            today_data = df.loc[today_str] if today_str in df.index else df
+            
+            # Normalize index to avoid AttributeError if fetcher returns plain Index
+            df_safe = df.copy()
+            df_safe.index = pd.to_datetime(df_safe.index, errors="coerce")
+            today_data = df_safe[df_safe.index.notna() & (df_safe.index.strftime("%Y-%m-%d") == today_str)]
+            
             if not today_data.empty:
                 nifty_open = float(today_data['Open'].iloc[0])
                 nifty_current = float(today_data['Close'].iloc[-1])

@@ -147,8 +147,8 @@ def _score_reversal(
     if vol_ratio >= 5.0:   score += 15
     elif vol_ratio >= 3.5: score += 12
     elif vol_ratio >= 2.5: score += 9
-    elif vol_ratio >= 2.0: score += 5
-    # < 2.0 never reaches here (hard gate), but guarded for safety.
+    elif vol_ratio >= MIN_VOLUME_RATIO: score += 5
+    # < MIN_VOLUME_RATIO never reaches here (hard gate), but guarded for safety.
 
     # ── MACD momentum (15 pts) ──
     # [FIX 9] Normalization deferred — raw macd_hist retained intentionally.
@@ -183,9 +183,9 @@ def _score_reversal(
     #   >60%    => rejected earlier
     if 25.0 <= drop_pct <= 40.0:
         score += 5
-    elif 20.0 <= drop_pct < 25.0:
+    elif MIN_DROP_FROM_52W_HIGH <= drop_pct < 25.0:
         score += 3
-    elif 40.0 < drop_pct <= 45.0:
+    elif 40.0 < drop_pct <= MAX_DROP_FROM_52W_HIGH:
         score += 3
     # ── R:R quality (5 pts) ──
     if rr_ratio is not None:
@@ -358,9 +358,11 @@ def _run_scan(force: bool = False):
                 continue
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
-            # [FIX 7] Single clean fixed drop band (20–45%). Reject >45%.
-            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > 45.0:
-                # reject drawdowns > 45%
+            # [FIX 7] Single clean fixed drop band. Tightened lower bound to 20% (was 18%) to
+            #         avoid shallow, low-conviction pullbacks; capped at sweet-spot ceiling
+            #         (config-driven via MAX_DROP_FROM_52W_HIGH) to avoid deep falling knives.
+            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > MAX_DROP_FROM_52W_HIGH:
+                # reject drawdowns outside configured band
                 continue
 
             # ── QUALITY FILTER 1: minimum price ─────────────────────────────────────

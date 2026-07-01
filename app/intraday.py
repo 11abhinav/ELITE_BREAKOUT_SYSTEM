@@ -67,7 +67,8 @@ def strip_forming_candle(df, tf_minutes, ist_now):
         pass
     return df
 
-def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
+from typing import Optional
+def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> Optional[dict]:
     if df15 is None or len(df15) < 60:
         return None
 
@@ -136,7 +137,7 @@ def evaluate_15m_setup(df15: pd.DataFrame, ist_now: datetime) -> dict | None:
     }
 
 
-def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> dict | None:
+def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Optional[dict]:
     if df5 is None or len(df5) < 40:
         return None
 

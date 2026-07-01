@@ -728,9 +728,14 @@ def run_system_scheduler():
             logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
             run_wealth_scan()
             
-            logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
-            from multibagger import run_standalone_exit_monitor
-            run_standalone_exit_monitor()
+            # Run exit monitor in isolated try/except so a crash here
+            # does NOT mark Wealth Engine as DOWN (Issue #5 from audit)
+            try:
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
+                from multibagger import run_standalone_exit_monitor
+                run_standalone_exit_monitor()
+            except Exception as exit_err:
+                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed (Wealth Engine unaffected): {exit_err}")
             
             last_wealth_market_run = now
             # Mark success
@@ -1173,6 +1178,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                                   total_count=stats.get("total_count") if isinstance(stats, dict) else None,
                                   processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
                                   today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
+            
+            try:
+                from database import insert_notification
+                # We format a nice summary for the admin notification
+                summary = f"Total Scanned: {stats.get('total_count', 'N/A')}" if isinstance(stats, dict) else "Completed."
+                insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
+            except Exception:
+                pass
+                
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
         except RuntimeError as e:
             if "already actively running" in str(e).lower():
@@ -1181,10 +1195,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 logger.exception(f"❌ ADMIN MANUAL TRIGGER | {scanner_key} FAILED")
                 upsert_scanner_health(scanner_key, status="DOWN",
                                       error_msg=f"Manual trigger failed: {str(e)[:400]}")
+                try:
+                    from database import insert_notification
+                    insert_notification("scanner_down", f"🚨 {scanner_key} Manual Scan Failed", f"Error: {str(e)[:200]}")
+                except Exception:
+                    pass
         except Exception as e:
             logger.exception(f"❌ ADMIN MANUAL TRIGGER | {scanner_key} FAILED")
             upsert_scanner_health(scanner_key, status="DOWN",
                                   error_msg=f"Manual trigger failed: {str(e)[:400]}")
+            try:
+                from database import insert_notification
+                insert_notification("scanner_down", f"🚨 {scanner_key} Manual Scan Failed", f"Error: {str(e)[:200]}")
+            except Exception:
+                pass
     
     t = threading.Thread(target=_run, name=f"ManualTrigger-{scanner_key}", daemon=True)
     t.start()
