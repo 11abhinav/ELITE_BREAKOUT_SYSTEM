@@ -780,6 +780,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                     
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
+        raise e
 
 def run_standalone_exit_monitor():
     """Entry point for the 5-minute scheduler to check exits only"""
@@ -832,6 +833,7 @@ def run_standalone_exit_monitor():
         
     except Exception as e:
         logger.exception(f"Failed to run standalone exit monitor")
+        raise e
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
