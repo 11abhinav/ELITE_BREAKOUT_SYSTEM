@@ -200,7 +200,10 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
-    from core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
+    try:
+        from core.deprecated.core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
+    except ImportError:
+        from core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
     
     def _safe_float(val, default=0.0):
         if val is None: return default

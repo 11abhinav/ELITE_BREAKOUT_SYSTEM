@@ -6,7 +6,10 @@ from datetime import datetime
 # Setup
 os.environ["ELITE_MODE"] = "TEST"
 from multibagger import fetch_ticker_fundamentals
-from core_score_engine import PeerMetrics, CorePriceData, generate_core_scores
+try:
+    from core.deprecated.core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
+except ImportError:
+    from core_score_engine import PeerMetrics, CorePriceData, generate_core_scores
 from valuation_utils import fetch_full_universe_for_valuation, compute_peer_medians
 
 def run_stability_test():
