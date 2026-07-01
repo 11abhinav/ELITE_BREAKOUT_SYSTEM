@@ -1558,13 +1558,13 @@ def get_todays_alerts(today_str: str) -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT id, symbol, breakout_type, alert_time, scanner, category, entry_price,
-                        stop_loss, target_price, signals, score, status, seen_by_user, seen_by_admin
+                    SELECT id, symbol, breakout_type, alert_time::text as alert_time, scanner, category, entry_price,
+                        stop_loss, target_price, signals, score::int as score, status, seen_by_user, seen_by_admin
                     FROM alerts
                     WHERE alert_date = %s
                     UNION ALL
-                    SELECT id, symbol, breakout_type, alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
-                        NULL as stop_loss, NULL as target_price, entry_signal as signals, fm_score as score, 
+                    SELECT id, symbol, breakout_type, alert_time::text as alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
+                        NULL::real as stop_loss, NULL::real as target_price, entry_signal as signals, fm_score::int as score, 
                         CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin
                     FROM wealth_buy_alert
                     WHERE alert_date = %s
