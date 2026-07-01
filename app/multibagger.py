@@ -431,7 +431,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
                     
                     "operating_margin_ttm": info.get("operatingMargins"),
-                    "gross_margin_stability": info.get("grossMargins", 0) * 0.1, # Proxy
+                    "gross_margin_stability": (info.get("grossMargins") or 0.0) * 0.1, # Proxy
                     "roce": roic,
                     "cfo_pat_ratio": cfo_pat,
                     "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
@@ -439,10 +439,10 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
                     "eps_cagr_3y": compute_cagr(fin, 'Net Income', 3),
                     "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
-                    "reinvestment_rate": retained_earnings / assets if assets else 0,
+                    "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
                     
-                    "debt_equity": info.get("debtToEquity", 0) / 100.0,
-                    "interest_coverage_ratio": ebit / safe_extract(fin, 'Interest Expense') if safe_extract(fin, 'Interest Expense') else 100.0,
+                    "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
+                    "interest_coverage_ratio": (ebit or 0.0) / safe_extract(fin, 'Interest Expense') if safe_extract(fin, 'Interest Expense') else 100.0,
                     "debt_yoy_growth": 0.0, # Dummy for now
                     "altman_z": altman_z,
                     "current_ratio": info.get("currentRatio"),
