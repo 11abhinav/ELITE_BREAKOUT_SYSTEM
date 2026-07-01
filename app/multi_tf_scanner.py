@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import time
 
@@ -161,13 +161,20 @@ def run_hourly_phase():
         if ema_ok and adx_ok and dist_ok:
             funnel["dist_pass"] += 1
             # We have an hourly approved setup!
+            now_dt = datetime.now(IST)
+            end_of_session = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+            if now_dt > end_of_session:
+                end_of_session = now_dt
             upsert_breakout_watchlist(
                 symbol=symbol,
                 category=category,
                 current_state="HOURLY_APPROVED",
                 h1_status="PASSED",
                 breakout_level=prior_high,
-                trigger_level=prior_high
+                trigger_level=prior_high,
+                signal_timestamp=now_dt.isoformat(),
+                expires_at=end_of_session.isoformat(),
+                timeframe="1h"
             )
             funnel["approved"] += 1
             logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
@@ -227,6 +234,9 @@ def run_lower_tf_phase(current_regime="BULL"):
     stale_count = 0
 
     ist_now = datetime.now(IST)
+    end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
+    if ist_now > end_of_session:
+        end_of_session = ist_now
     
     # Funnel stats for Phase B/C/D
     lower_funnel = {"armed_candidates": 0, "bb_pass": 0, "armed": 0,
@@ -324,6 +334,8 @@ def run_lower_tf_phase(current_regime="BULL"):
                     ema20 = float(latest.get("EMA20", close))
                     
                     ctx_json = json.dumps({"last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S')})
+                    now_iso = ist_now.isoformat()
+                    expires_iso = min(ist_now + timedelta(minutes=60), end_of_session).isoformat()
                     
                     upsert_breakout_watchlist(
                         symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
@@ -332,7 +344,10 @@ def run_lower_tf_phase(current_regime="BULL"):
                         max_extension_atr=0.8,
                         buffer_pct=0.0015,
                         armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
-                        context_json=ctx_json
+                        context_json=ctx_json,
+                        signal_timestamp=now_iso,
+                        expires_at=expires_iso,
+                        timeframe="30m"
                     )
                     lower_funnel["armed"] += 1
                     state = "SETUP_ARMED"
@@ -373,10 +388,16 @@ def run_lower_tf_phase(current_regime="BULL"):
                         "15m_e9": round(e9_15, 2),
                         "15m_e20": round(e20_15, 2)
                     })
+                    now_iso = ist_now.isoformat()
+                    expires_iso = min(ist_now + timedelta(minutes=30), end_of_session).isoformat()
+                    
                     upsert_breakout_watchlist(
                         symbol=symbol, category=cat, current_state="ENTRY_READY",
                         m15_status="PASSED",
-                        context_json=ctx_json
+                        context_json=ctx_json,
+                        signal_timestamp=now_iso,
+                        expires_at=expires_iso,
+                        timeframe="15m"
                     )
                     lower_funnel["entry_ready"] += 1
                     state = "ENTRY_READY"
@@ -508,11 +529,17 @@ def run_lower_tf_phase(current_regime="BULL"):
                 f"15m_candidates={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
                 f"5m_candidates={lower_funnel['trigger_candidates']} → triggered={lower_funnel['triggered']}")
 
-    return {"fetched": max(len(data_30m), len(data_15m), len(data_5m)), "total": len(active_items), "stale": stale_count}
+    unique_needed = set(needs_30m) | set(needs_15m) | set(needs_5m)
+    unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
+    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_count}
 
 def run_sweeper():
-    sweep_stale_breakout_watchlist()
-    logger.info("🧹 Swept stale breakout watchlist setups.")
+    counts = sweep_stale_breakout_watchlist()
+    if counts:
+        counts_str = ", ".join(f"{k}: {v}" for k, v in counts.items())
+        logger.info(f"🧹 Swept stale breakout watchlist setups. Expired -> {counts_str}")
+    else:
+        logger.info("🧹 Swept stale breakout watchlist setups. No expirations.")
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multi_tf_scanner")
@@ -590,9 +617,14 @@ def _start_wrapper(run_once=False):
                 status = "DEGRADED"
                 error_msg = f"Stale Data: {total_stale}/{total_symbols} symbols"
                 
-            if metrics_a.get("fetched", 0) < metrics_a.get("total", 0) and metrics_a.get("total", 0) > 0:
+            total_fetched_a = metrics_a.get("fetched", 0)
+            total_fetched_b = metrics_b.get("fetched", 0)
+            total_expected_a = metrics_a.get("total", 0)
+            total_expected_b = metrics_b.get("total", 0)
+            
+            if (total_expected_a > 0 and total_fetched_a < total_expected_a) or (total_expected_b > 0 and total_fetched_b < total_expected_b):
                 status = "DEGRADED"
-                error_msg = f"Partial Fetch: {metrics_a.get('fetched')}/{metrics_a.get('total')} symbols"
+                error_msg = f"Partial Fetch: {total_fetched_a + total_fetched_b}/{total_expected_a + total_expected_b} symbols"
             
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:

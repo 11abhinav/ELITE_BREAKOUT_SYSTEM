@@ -168,7 +168,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "ATR_Pct": atr_pct,
                 "momentum_score": mom_score,
                 "momentum_confidence": mom_conf,
-                "data_quality": DataQuality.LIVE.value,
+                "data_quality": "STALE_INTRADAY" if is_stale else DataQuality.LIVE.value,
                 "is_stale": is_stale
             }
         except Exception as e:
@@ -550,14 +550,27 @@ def _run_wealth_scan_wrapper():
             from psycopg2.extras import RealDictCursor
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT DISTINCT symbol FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    cur.execute("""
+                        SELECT DISTINCT symbol
+                        FROM wealth_buy_alert
+                        WHERE is_closed = FALSE
+                        AND (status = 'ACTIVE' OR alert_date::date >= CURRENT_DATE - INTERVAL '30 days')
+                        AND status NOT IN ('EXPIRED', 'SUPERSEDED', 'INVALID')
+                    """)
                     open_symbols = [row['symbol'] for row in cur.fetchall()]
             
-            missing_symbols = [sym for sym in open_symbols if sym not in df["Stock"].values]
+            existing_symbols = set(df["Stock"].astype(str).tolist()) if "Stock" in df.columns else set()
+            missing_symbols = [sym for sym in open_symbols if sym not in existing_symbols]
+
             if missing_symbols:
-                logger.info(f"Injecting {len(missing_symbols)} orphaned open positions back into evaluation pipeline...")
+                logger.warning(
+                    f"Injecting {len(missing_symbols)} orphaned open positions into evaluation pipeline "
+                    f"(not present in current fundamental watchlist)."
+                )
                 missing_df = pd.DataFrame([{"Stock": sym} for sym in missing_symbols])
                 df = pd.concat([df, missing_df], ignore_index=True)
+
+            df = df.drop_duplicates(subset=["Stock"]).reset_index(drop=True)
         except Exception as e:
             logger.warning(f"Failed to fetch open positions for injection: {e}")
 
@@ -712,6 +725,44 @@ def _run_wealth_scan_wrapper():
 
         wealth_df = pd.merge(df, tech_df, on="Stock", how="left")
 
+        # ── RECONCILIATION: ensure all open positions were evaluated ──
+        reconciliation_missing = []
+        try:
+            from database import get_connection
+            from psycopg2.extras import RealDictCursor
+            
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT DISTINCT symbol
+                        FROM wealth_buy_alert
+                        WHERE is_closed = FALSE
+                    """)
+                    db_open_symbols = {row["symbol"] for row in cur.fetchall()}
+
+            evaluated_symbols = set(wealth_df["Stock"].astype(str).tolist()) if "Stock" in wealth_df.columns else set()
+            reconciliation_missing = sorted(db_open_symbols - evaluated_symbols)
+
+            if reconciliation_missing:
+                logger.critical(
+                    f"🚨 RECONCILIATION FAILURE: {len(reconciliation_missing)} open positions "
+                    f"were NOT evaluated: {reconciliation_missing[:20]}"
+                )
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health(
+                        "Wealth Engine",
+                        "DEGRADED",
+                        error_msg=f"Reconciliation failure: {len(reconciliation_missing)} open positions missed"
+                    )
+                except Exception:
+                    pass
+            else:
+                logger.info("✅ Reconciliation passed: all open positions were included in this run.")
+                
+        except Exception as e:
+            logger.exception(f"Failed open-position reconciliation check: {e}")
+
         # ── PEER VALUATION PRECOMPUTE ──
         from valuation_utils import compute_peer_medians
         symbols_to_val = wealth_df["Stock"].tolist() if not wealth_df.empty else []
@@ -737,33 +788,34 @@ def _run_wealth_scan_wrapper():
             logger.warning("Using NO Nifty benchmark — macro gates suppressed")
             
         # ── MACRO SUPPRESSION & BEAR-MARKET VALUE ADD ──
-        GLOBAL_BUY_SUPPRESSED = False
+        BUY_GATE_ACTIVE = False
         suppression_reason = None
         
         degraded = rejection_counts.get("stale_data", 0) + rejection_counts.get("no_data", 0)
         fresh_ratio = 1.0 - (degraded / max(len(df), 1))
-        breadth_df = wealth_df.dropna(subset=["cmp", "sma_200"])
-        breadth_df = breadth_df[breadth_df["sma_200"] > 0]
-        breadth_pct = ((breadth_df["cmp"] > breadth_df["sma_200"]).sum() / len(breadth_df) * 100) if len(breadth_df) else None
         
-        if breadth_pct is not None and 30 <= breadth_pct <= 40:
+        breadth_pct = None
+        if not tech_df.empty and "above_sma200" in tech_df.columns:
+            total_eval = len(tech_df)
+            above_200 = tech_df["above_sma200"].sum()
+            breadth_pct = (above_200 / total_eval) * 100
             logger.warning(f"⚠️ Market Breadth Caution: Only {breadth_pct:.1f}% stocks above SMA200")
             
         if nifty_dist_52w is not None and nifty_dist_52w > 20:
-            GLOBAL_BUY_SUPPRESSED = True
+            BUY_GATE_ACTIVE = True
             suppression_reason = f"Nifty {nifty_dist_52w:.1f}% below 52W high"
         elif nifty_6m_ret is not None and nifty_6m_ret < -15:
-            GLOBAL_BUY_SUPPRESSED = True
+            BUY_GATE_ACTIVE = True
             suppression_reason = f"Nifty 6M return {nifty_6m_ret:.1f}%"
         elif breadth_pct is not None and breadth_pct < 30:
-            GLOBAL_BUY_SUPPRESSED = True
+            BUY_GATE_ACTIVE = True
             suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
         elif fresh_ratio < 0.70 and degraded >= 3:
-            GLOBAL_BUY_SUPPRESSED = True
+            BUY_GATE_ACTIVE = True
             suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
             
-        if GLOBAL_BUY_SUPPRESSED:
-            logger.warning(f"🚨 GLOBAL BUY SUPPRESSED: {suppression_reason}")
+        if BUY_GATE_ACTIVE:
+            logger.warning(f"🚨 BUY GATE ACTIVE: {suppression_reason}")
 
         # Load manual portfolio and active buy alerts to securely inject entry_price for drawdown protection
         portfolio_dict = {}
@@ -773,19 +825,52 @@ def _run_wealth_scan_wrapper():
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     # 1. Manual portfolio (lowest priority)
-                    cur.execute("SELECT symbol, entry_price, added_at::date::text as entry_date FROM manual_portfolio")
+                    cur.execute("""
+                        SELECT
+                            symbol,
+                            entry_price,
+                            added_at::date AS entry_date
+                        FROM manual_portfolio
+                    """)
                     for r in cur.fetchall():
-                        portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
+                        portfolio_dict[r["symbol"]] = {
+                            "entry_price": r["entry_price"],
+                            "entry_date": r["entry_date"]
+                        }
                     
                     # 2. Wealth system active alerts (overrides manual)
-                    cur.execute("SELECT symbol, alert_price as entry_price, alert_date::text as entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    cur.execute("""
+                        SELECT
+                            symbol,
+                            alert_price AS entry_price,
+                            alert_date::date AS entry_date
+                        FROM wealth_buy_alert
+                        WHERE is_closed = FALSE
+                    """)
                     for r in cur.fetchall():
-                        portfolio_dict[r['symbol']] = {'entry_price': r['entry_price'], 'entry_date': r['entry_date']}
+                        portfolio_dict[r["symbol"]] = {
+                            "entry_price": r["entry_price"],
+                            "entry_date": r["entry_date"]
+                        }
         except Exception as e:
             logger.warning(f"Failed to load active portfolio prices: {e}")
 
         # Inject entry_price into the dataframe BEFORE evaluation
         wealth_df["entry_price"] = wealth_df["Stock"].map(lambda s: portfolio_dict.get(s, {}).get("entry_price", 0.0))
+
+        def _coerce_to_date(value):
+            from datetime import date, datetime
+            import pandas as pd
+            if value is None:
+                return None
+            if isinstance(value, date) and not isinstance(value, datetime):
+                return value
+            if isinstance(value, datetime):
+                return value.date()
+            try:
+                return pd.to_datetime(value).date()
+            except Exception:
+                return None
 
         def apply_hold_score_with_tax(r):
             base_hold_score = calculate_hold_score(r)
@@ -793,8 +878,9 @@ def _run_wealth_scan_wrapper():
             if sym in portfolio_dict:
                 p = portfolio_dict[sym]
                 try:
-                    from datetime import datetime
-                    entry_date = datetime.strptime(p['entry_date'], "%Y-%m-%d").date()
+                    entry_date = _coerce_to_date(p.get("entry_date"))
+                    if entry_date is None:
+                        return base_hold_score
                     cmp_price = r.get("cmp", p['entry_price']) or p['entry_price']
                     pnl_pct = ((cmp_price - p['entry_price']) / p['entry_price']) * 100 if p['entry_price'] > 0 else 0
                     tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
@@ -844,8 +930,9 @@ def _run_wealth_scan_wrapper():
             if sym in portfolio_dict:
                 p = portfolio_dict[sym]
                 try:
-                    from datetime import datetime
-                    entry_date = datetime.strptime(p['entry_date'], "%Y-%m-%d").date()
+                    entry_date = _coerce_to_date(p.get("entry_date"))
+                    if entry_date is None:
+                        return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Entry date unavailable"})
                     cmp_price = r.get("cmp", p['entry_price']) or p['entry_price']
                     pnl_pct = ((cmp_price - p['entry_price']) / p['entry_price']) * 100 if p['entry_price'] > 0 else 0
                     tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
@@ -857,7 +944,7 @@ def _run_wealth_scan_wrapper():
             # 3. Macro Suppression & Bear-Market Value-Add Logic
             bucket = str(r.get("Portfolio_Bucket", ""))
             
-            if GLOBAL_BUY_SUPPRESSED:
+            if BUY_GATE_ACTIVE:
                 if "Quality-On-Sale" in bucket:
                     cons_score = r.get("Consistency_Score", 0)
                     val_score = r.get("Valuation_Score", 0)
@@ -951,6 +1038,10 @@ def _run_wealth_scan_wrapper():
                 # HARD DEPLOYMENT GUARD: Never persist a BUY if it was somehow generated from fallback data
                 if row.get("used_fallback_data", False):
                     logger.warning(f"🛡️ Deployment Guard Blocked persistence of BUY for {row.get('Stock')} due to used_fallback_data=True")
+                    continue
+                    
+                if not allow_new_admissions:
+                    logger.warning(f"Admission blocked for {row.get('Stock')}: upstream manifest does not allow new buys.")
                     continue
                     
                 symbol = row.get("Stock")
@@ -1079,11 +1170,27 @@ def _run_wealth_scan_wrapper():
         
         import database
         if not getattr(database, "DONT_SAVE_WEALTH", False):
-            if GLOBAL_BUY_SUPPRESSED:
-                health_status = "DEGRADED" if fresh_ratio < 0.70 else "OK"
-                upsert_scanner_health("Wealth Engine", health_status, last_success=datetime.now(IST).isoformat(), today_alerts=buy_count, total_count=len(df), error_msg=f"BUY SUPPRESSED: {suppression_reason}")
-            else:
-                upsert_scanner_health("Wealth Engine", "OK", last_success=datetime.now(IST).isoformat(), today_alerts=buy_count, total_count=len(df))
+            final_health_status = "OK"
+            final_error_msg = None
+
+            if reconciliation_missing:
+                final_health_status = "DEGRADED_RECONCILIATION"
+                final_error_msg = f"Missed {len(reconciliation_missing)} open positions during evaluation"
+            elif BUY_GATE_ACTIVE:
+                final_health_status = "MACRO_GATED" if fresh_ratio >= 0.70 else "DEGRADED_STALE_DATA"
+                final_error_msg = f"MACRO GATED: {suppression_reason}" if fresh_ratio >= 0.70 else f"MACRO GATED + Fresh data only {fresh_ratio*100:.1f}%"
+            elif fresh_ratio < 0.70:
+                final_health_status = "DEGRADED_STALE_DATA"
+                final_error_msg = f"Fresh data only {fresh_ratio*100:.1f}%"
+
+            upsert_scanner_health(
+                "Wealth Engine",
+                final_health_status,
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=buy_count,
+                total_count=len(df),
+                error_msg=final_error_msg
+            )
 
         # Weekly Telegram Alert removed (2026-06-17)
 

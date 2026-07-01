@@ -320,6 +320,9 @@ def init_db():
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS max_extension_atr REAL")
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS buffer_pct REAL")
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS armed_at TIMESTAMPTZ")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS signal_timestamp TIMESTAMPTZ")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS timeframe TEXT")
 
 
                 # ── Score Weight Log (Bayesian Versioning) ─────────────────────────
@@ -596,6 +599,24 @@ def init_db():
                         updated_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
                         content TEXT NOT NULL,
                         reason TEXT DEFAULT ''
+                    )
+                """)
+                
+                # ── Build Manifest table (Authoritative Daily Certification) ─────────────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS build_manifest (
+                        id SERIAL PRIMARY KEY,
+                        run_date DATE UNIQUE NOT NULL,
+                        status TEXT NOT NULL,
+                        input_universe_count INTEGER,
+                        qualified_count INTEGER,
+                        used_fallback BOOLEAN DEFAULT FALSE,
+                        fallback_source TEXT,
+                        build_source_date DATE,
+                        scanner_version TEXT,
+                        checksum TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        completed_at TIMESTAMPTZ
                     )
                 """)
 
@@ -1052,6 +1073,24 @@ def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) 
 
 
 # ── Public API ────────────────────────────────────────────────────────────────────────
+
+def delete_todays_alerts_for_scanner(scanner_name: str, trade_date: str) -> int:
+    """Idempotently delete today's alerts for a specific scanner before saving new ones."""
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM alerts
+                    WHERE scanner = %s
+                      AND alert_date = %s
+                """, (scanner_name, trade_date))
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
+    except Exception as e:
+        logger.exception(f"❌ Failed to delete today's alerts for {scanner_name}")
+        return 0
 
 def save_alert_if_new(
     symbol: str,
@@ -3068,27 +3107,42 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
             return False
 
 
-def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
-    """Retrieve wealth buy alerts, optionally filtered by symbol."""
+def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date: str = None, days_back: int = None) -> list:
+    """Unified internal helper for fetching wealth_buy_alert records."""
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = "SELECT * FROM wealth_buy_alert WHERE 1=1"
+                params = []
+
+                if is_closed is not None:
+                    query += " AND is_closed = %s"
+                    params.append(is_closed)
+                
                 if symbol:
-                    cur.execute("""
-                        SELECT * FROM wealth_buy_alert 
-                        WHERE symbol = %s 
-                          AND alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
-                          AND is_closed = FALSE
-                        ORDER BY alert_date DESC, alert_time DESC
-                    """, (symbol, days_back))
+                    query += " AND symbol = %s"
+                    params.append(symbol)
+                
+                if trade_date:
+                    query += " AND alert_date = %s"
+                    params.append(trade_date)
+                elif days_back is not None:
+                    # Depending on whether we want open or closed positions, we filter on the appropriate date
+                    if is_closed is True:
+                        query += " AND exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
+                    else:
+                        query += " AND alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
+                    params.append(days_back)
+                
+                if is_closed is True:
+                    query += " ORDER BY exit_date DESC, exit_time DESC"
                 else:
-                    cur.execute("""
-                        SELECT * FROM wealth_buy_alert 
-                        WHERE alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
-                          AND is_closed = FALSE
-                        ORDER BY alert_date DESC, alert_time DESC
-                    """, (days_back,))
+                    query += " ORDER BY alert_date DESC, alert_time DESC"
+                    
+                cur.execute(query, tuple(params))
                 rows = [dict(row) for row in cur.fetchall()]
+                
+                # Coalesce dynamic display fields uniformly
                 for row in rows:
                     if row.get('current_price') is None:
                         row['current_price'] = row.get('alert_price')
@@ -3096,55 +3150,39 @@ def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
                         row['current_score'] = row.get('fm_score')
                 return rows
     except Exception as e:
-        logger.exception(f"❌ Failed to fetch wealth buy alerts")
+        logger.exception(f"❌ Failed to fetch wealth positions from _get_wealth_positions")
         return []
 
+def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
+    """Retrieve wealth buy alerts, optionally filtered by symbol."""
+    return _get_wealth_positions(is_closed=False, symbol=symbol, days_back=days_back)
 
 def update_wealth_alert_status(alert_id: int, status: str, current_price: float = None) -> bool:
-    """Update the status of a wealth buy alert."""
+    """
+    [LEGACY] Update the string status of a wealth buy alert.
+    NOTE: This is a metadata-only operation and does NOT control lifecycle (is_closed).
+    Use close_position() for actual exits.
+    """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE wealth_buy_alert 
-                    SET status = %s, current_price = %s, status_updated_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                    SET status = %s, current_price = COALESCE(%s, current_price), status_updated_at = NOW()
                     WHERE id = %s
                 """, (status, current_price, alert_id))
                 conn.commit()
-        logger.info(f"✅ Wealth alert {alert_id} status updated to {status}")
         return True
     except Exception as e:
-        logger.exception(f"❌ Failed to update wealth alert status")
+        logger.exception(f"❌ Failed to update legacy wealth alert status")
         return False
 
-
 def get_today_wealth_alerts() -> list:
-    """Get all wealth buy alerts for today."""
+    """Get all open wealth buy alerts for today."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
     ist_today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
-    
-    try:
-        with get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT * FROM wealth_buy_alert 
-                    WHERE alert_date = %s
-                      AND is_closed = FALSE
-                    ORDER BY alert_time DESC
-                """, (ist_today,))
-                rows = [dict(row) for row in cur.fetchall()]
-                for row in rows:
-                    if row.get('current_price') is None:
-                        row['current_price'] = row.get('alert_price')
-                    if row.get('current_score') is None:
-                        row['current_score'] = row.get('fm_score')
-                return rows
-    except Exception as e:
-        logger.exception(f"❌ Failed to fetch today's wealth alerts")
-        return []
-
-
+    return _get_wealth_positions(is_closed=False, trade_date=ist_today)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # POSITION LIFECYCLE TRACKING (Open/Closed Positions)
@@ -3152,41 +3190,11 @@ def get_today_wealth_alerts() -> list:
 
 def get_open_positions() -> list:
     """Get all open positions (where is_closed=FALSE)."""
-    try:
-        with get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT * FROM wealth_buy_alert 
-                    WHERE is_closed = FALSE
-                    ORDER BY alert_date DESC, alert_time DESC
-                """)
-                rows = [dict(row) for row in cur.fetchall()]
-                for row in rows:
-                    if row.get('current_price') is None:
-                        row['current_price'] = row.get('alert_price')
-                    if row.get('current_score') is None:
-                        row['current_score'] = row.get('fm_score')
-                return rows
-    except Exception as e:
-        logger.exception(f"❌ Failed to fetch open positions")
-        return []
-
+    return _get_wealth_positions(is_closed=False)
 
 def get_closed_positions(days_back: int = 30) -> list:
     """Get closed positions from last N days."""
-    try:
-        with get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT * FROM wealth_buy_alert 
-                    WHERE is_closed = TRUE 
-                    AND exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')
-                    ORDER BY exit_date DESC, exit_time DESC
-                """, (days_back,))
-                return [dict(row) for row in cur.fetchall()]
-    except Exception as e:
-        logger.exception(f"❌ Failed to fetch closed positions")
-        return []
+    return _get_wealth_positions(is_closed=True, days_back=days_back)
 
 
 def close_position(symbol: str, exit_price: float, exit_signal: str = None, force_close: bool = False) -> bool:
@@ -3574,7 +3582,10 @@ def upsert_breakout_watchlist(
     max_extension_atr: float = None,
     buffer_pct: float = None,
     armed_at: str = None,
-    context_json: str = None
+    context_json: str = None,
+    signal_timestamp: str = None,
+    expires_at: str = None,
+    timeframe: str = None
 ):
     if DONT_SAVE_ALERTS:
         return
@@ -3588,9 +3599,10 @@ def upsert_breakout_watchlist(
                         symbol, category, current_state,
                         h1_status, m30_status, m15_status, m5_status,
                         breakout_level, support_level, trigger_level, invalidation_level, 
-                        max_extension_atr, buffer_pct, armed_at, session_date, context_json, last_updated
+                        max_extension_atr, buffer_pct, armed_at, session_date, context_json, last_updated,
+                        signal_timestamp, expires_at, timeframe
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s
                     )
                     ON CONFLICT (symbol) DO UPDATE SET
                         category = EXCLUDED.category,
@@ -3608,10 +3620,13 @@ def upsert_breakout_watchlist(
                         armed_at = COALESCE(EXCLUDED.armed_at, breakout_watchlist.armed_at),
                         session_date = EXCLUDED.session_date,
                         context_json = COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json),
+                        signal_timestamp = COALESCE(EXCLUDED.signal_timestamp, breakout_watchlist.signal_timestamp),
+                        expires_at = COALESCE(EXCLUDED.expires_at, breakout_watchlist.expires_at),
+                        timeframe = COALESCE(EXCLUDED.timeframe, breakout_watchlist.timeframe),
                         last_updated = NOW()
                 """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
                     breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
-                    buffer_pct, armed_at, session_date, context_json))
+                    buffer_pct, armed_at, session_date, context_json, signal_timestamp, expires_at, timeframe))
                 conn.commit()
 
     except Exception as e:
@@ -3629,6 +3644,7 @@ def get_active_breakout_watchlist() -> list:
                     WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
                     AND (cooldown_until IS NULL OR cooldown_until < NOW())
                     AND (invalidated_at IS NULL OR invalidated_at > NOW())
+                    AND (expires_at IS NULL OR expires_at > NOW())
                 """)
                 columns = [desc[0] for desc in cur.description]
                 return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -3654,26 +3670,48 @@ def mark_breakout_watchlist_cooldown(symbol: str, state: str, hours: int = 24):
         logger.exception(f"❌ Failed to cooldown {symbol}: {e}")
 
 def sweep_stale_breakout_watchlist():
-    """Removes or demotes stale setups."""
+    """Removes or demotes stale setups based on explicit TTL / expires_at."""
+    counts = {}
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # If a stock was confirmed or ready but didn't execute by end of session, downgrade it
+                # 1. Sweep explicit expirations
+                cur.execute("""
+                    WITH expired AS (
+                        SELECT symbol, current_state
+                        FROM breakout_watchlist
+                        WHERE expires_at IS NOT NULL AND expires_at < NOW()
+                        AND current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'ENTRY_READY')
+                    ),
+                    updated AS (
+                        UPDATE breakout_watchlist
+                        SET current_state = 'FAILED', invalidated_at = NOW()
+                        WHERE symbol IN (SELECT symbol FROM expired)
+                    )
+                    SELECT current_state, COUNT(*) FROM expired GROUP BY current_state
+                """)
+                for row in cur.fetchall():
+                    counts[row[0]] = row[1]
+                
+                # 2. Legacy fallback for old rows without explicit expiry: end of session sweep
                 cur.execute("""
                     UPDATE breakout_watchlist
                     SET current_state = 'SETUP_ARMED', m15_status = 'PENDING', m5_status = 'PENDING', last_updated = NOW()
                     WHERE current_state IN ('BREAKOUT_CONFIRMED', 'ENTRY_READY')
                     AND session_date < CURRENT_DATE::TEXT
                 """)
-                # If an hourly approved setup hasn't triggered after 2 days, drop it
+                
+                # 3. Legacy fallback for old rows: Drop hourly setups older than 2 days
                 cur.execute("""
                     UPDATE breakout_watchlist
                     SET current_state = 'FAILED', invalidated_at = NOW()
                     WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED')
                     AND last_updated < NOW() - interval '2 days'
                 """)
+                conn.commit()
     except Exception as e:
         logger.exception(f"❌ Failed to sweep breakout_watchlist: {e}")
+    return counts
 
 def reject_alert(alert_id: int):
     """Marks an alert as rejected and refunds its allocated capital."""
@@ -4236,4 +4274,68 @@ def insert_fundamental_snapshot(symbol, sector, pe, pb, roe, eps, bvps, div_yiel
                 conn.commit()
     except Exception as e:
         logger.exception(f"Failed to insert fundamental snapshot for {symbol}")
+
+# ==========================================
+# BUILD MANIFEST (DAILY BUILDER)
+# ==========================================
+
+def upsert_build_manifest(
+    run_date: str,
+    status: str,
+    input_universe_count: int = None,
+    qualified_count: int = None,
+    used_fallback: bool = False,
+    fallback_source: str = None,
+    build_source_date: str = None,
+    scanner_version: str = None,
+    checksum: str = None
+):
+    init_db()
+    try:
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO build_manifest (
+                            run_date, status, input_universe_count, qualified_count,
+                            used_fallback, fallback_source, build_source_date,
+                            scanner_version, checksum
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        )
+                        ON CONFLICT (run_date) DO UPDATE SET
+                            status = EXCLUDED.status,
+                            input_universe_count = COALESCE(EXCLUDED.input_universe_count, build_manifest.input_universe_count),
+                            qualified_count = COALESCE(EXCLUDED.qualified_count, build_manifest.qualified_count),
+                            used_fallback = COALESCE(EXCLUDED.used_fallback, build_manifest.used_fallback),
+                            fallback_source = COALESCE(EXCLUDED.fallback_source, build_manifest.fallback_source),
+                            build_source_date = COALESCE(EXCLUDED.build_source_date, build_manifest.build_source_date),
+                            scanner_version = COALESCE(EXCLUDED.scanner_version, build_manifest.scanner_version),
+                            checksum = COALESCE(EXCLUDED.checksum, build_manifest.checksum),
+                            completed_at = CASE WHEN EXCLUDED.status IN ('SUCCESS', 'FALLBACK_SUCCESS', 'FAILED') THEN NOW() ELSE build_manifest.completed_at END
+                    """, (run_date, status, input_universe_count, qualified_count, used_fallback, fallback_source, build_source_date, scanner_version, checksum))
+                conn.commit()
+    except Exception as e:
+        logger.exception(f"❌ Failed to upsert build manifest for date {run_date}")
+
+
+def get_latest_build_manifest(date: str = None) -> dict:
+    """Gets the build manifest for the specified date, or today if None."""
+    init_db()
+    from datetime import datetime
+    if not date:
+        date = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
+        
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM build_manifest WHERE run_date = %s", (date,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        logger.exception("❌ Failed to fetch build manifest")
+        return None
+
+# Alias for get_connection
+getconnection = get_connection
 

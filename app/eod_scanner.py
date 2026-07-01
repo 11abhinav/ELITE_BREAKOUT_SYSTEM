@@ -110,6 +110,10 @@ def _start_wrapper(force: bool = False):
             logger.info("🛡️ EOD Scanner | Universe is empty (no stocks passed Wealth Engine BUY signals). Exiting cleanly.")
             return 0
 
+        # We do NOT purge here yet.
+        # Purge only after upstream validation and fetch sufficiency checks succeed.
+        today_str = ist_now.strftime("%Y-%m-%d")
+
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
 
@@ -132,12 +136,36 @@ def _start_wrapper(force: bool = False):
             logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
             if not is_test_mode:
                 try:
-                    upsert_scanner_health("EOD", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
+                    upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
                 except Exception:
                     pass
             raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
         else:
             logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
+
+        # IMPORTANT:
+        # Fetch cooldown state BEFORE deleting today's rows, otherwise reruns lose same-day duplicate memory.
+        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
+
+        today_str = ist_now.strftime("%Y-%m-%d")
+
+        # ── IDEMPOTENT PARTITION OVERWRITE ──
+        # EOD writes to `alerts` via save_alert_if_new(), so cleanup must target `alerts`.
+        if not is_test_mode:
+            try:
+                from database import getconnection
+                with getconnection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "DELETE FROM alerts WHERE scanner = %s AND alert_date = %s",
+                            ("EOD", today_str)
+                        )
+                        if cur.rowcount > 0:
+                            logger.info(f"🧹 Cleaned up {cur.rowcount} previous EOD alerts for {today_str} to ensure idempotency.")
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to cleanup today's EOD alerts from alerts table: {e}")
+                raise
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
         # If today's file returned empty, fall back to the most recent available trading day.
@@ -164,8 +192,6 @@ def _start_wrapper(force: bool = False):
             "no_structural_breakout", "no_atr_expansion", "base_too_wide",
             "missing_atr"
         ]}
-
-        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
         
         market_regime = get_macro_regime(nifty_ret_20d)
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
@@ -664,7 +690,7 @@ def _start_wrapper(force: bool = False):
         logger.exception("❌ CRITICAL EOD SCAN ERROR")
         if not is_test_mode:
             try:
-                upsert_scanner_health("EOD", "DOWN", error_msg=str(e))
+                upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=str(e))
             except Exception:
                 pass
         raise  # re-raise so caller can send Telegram crash alert

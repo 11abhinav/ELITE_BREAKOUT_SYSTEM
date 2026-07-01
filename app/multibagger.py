@@ -637,6 +637,21 @@ def run_scanner():
     
     # Ensure tables and functions are created
     init_db()
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
+    
+    # ── VALIDATE UPSTREAM MANIFEST ──
+    try:
+        from database import get_latest_build_manifest
+        manifest = get_latest_build_manifest(today_str)
+        if not manifest or manifest.get("status") not in ("SUCCESS", "FALLBACK_SUCCESS"):
+            logger.error(f"🛑 [MULTIBAGGER] Aborting run: No successful upstream build manifest found for {today_str}.")
+            upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=f"Upstream manifest invalid/missing for {today_str}")
+            return
+    except Exception as e:
+        logger.warning(f"⚠️ [MULTIBAGGER] Failed to validate upstream manifest: {e}. Proceeding cautiously.")
     
     # Clean up any existing alerts for today to ensure a fresh, idempotent run
     from datetime import datetime

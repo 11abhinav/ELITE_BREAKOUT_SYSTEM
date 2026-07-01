@@ -802,6 +802,11 @@ def _main_wrapper(force_rebuild: bool = False):
         logger.exception("❌ CRITICAL ERROR in daily builder")
         try:
             upsert_scanner_health("DAILY_BUILDER", "DOWN", error_msg=str(exc)[:500])
+            from database import upsert_build_manifest
+            upsert_build_manifest(
+                run_date=str(datetime.now(IST).date()),
+                status="FAILED"
+            )
         except Exception:
             pass
         raise
@@ -842,6 +847,16 @@ def _main_impl(force_rebuild: bool = False):
                 return
         except Exception as e:
             logger.warning(f"⚠️ DB re-run guard check failed: {e}. Proceeding with daily builder scan.")
+
+    # ── INIT BUILD MANIFEST ──
+    try:
+        from database import upsert_build_manifest
+        upsert_build_manifest(
+            run_date=str(datetime.now(IST).date()),
+            status="RUNNING"
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to init build manifest: {e}")
 
     state = load_checkpoint()
 
@@ -964,8 +979,74 @@ def _main_impl(force_rebuild: bool = False):
             except Exception as e:
                 logger.warning(f"⚠️ Failed to upload exclusion log to Postgres: {e}")
 
+        # Fallback Logic: check if today's build is materially degraded compared to yesterday's
+        is_fallback_triggered = False
+        fallback_reason = ""
+        
+        try:
+            from database import download_parquet_from_db
+            import tempfile
+            
+            # Use a temporary file to download the last known good parquet
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                
+            # Attempt to download the last known good (will get the most recent one available)
+            if download_parquet_from_db("daily_builder", tmp_path):
+                # Fetch build_source_date
+                build_source_date = None
+                try:
+                    from database import get_connection
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT date FROM parquet_cache WHERE name = 'daily_builder' ORDER BY date DESC LIMIT 1")
+                            row = cur.fetchone()
+                            if row: build_source_date = row[0]
+                except Exception:
+                    pass
+
+                last_good_df = pd.read_parquet(tmp_path)
+                last_good_count = len(last_good_df)
+                current_count = len(winners)
+                
+                # Material degradation check: if today's count is less than 50% of the last known good,
+                # OR if it's completely empty.
+                if current_count == 0:
+                    is_fallback_triggered = True
+                    fallback_reason = "Empty watchlist generated."
+                elif last_good_count > 0 and current_count < (last_good_count * 0.5):
+                    is_fallback_triggered = True
+                    fallback_reason = f"Material degradation: {current_count} vs {last_good_count} stocks."
+                
+                if is_fallback_triggered:
+                    logger.warning(f"🚨 [FALLBACK TRIGGERED] {fallback_reason} Restoring last-known-good universe.")
+                    
+                    # Instead of failing, we restore the last good dataframe as our 'winners'
+                    winners = last_good_df.to_dict(orient="records")
+                    
+                    # Append metadata to mark provenance
+                    for w in winners:
+                        w["source_status"] = "fallback"
+                        
+                    # Attempt to restore the exclusion log as well
+                    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_excl:
+                        if download_parquet_from_db("daily_builder_excluded", tmp_excl.name):
+                            try:
+                                fallback_excluded = pd.read_csv(tmp_excl.name)
+                                fallback_excluded.to_csv(EXCLUSION_CSV, index=False)
+                            except Exception:
+                                pass
+            else:
+                # If there's no backup in the DB and we're empty, we must fail.
+                if not winners:
+                    logger.warning("❌ No qualifying stocks and NO FALLBACK BACKUP AVAILABLE in DB.")
+        except Exception as e:
+            logger.error(f"Fallback check failed: {e}")
+            if not winners:
+                pass # let the next block handle the failure
+                
         if not winners:
-            logger.warning("❌ No qualifying stocks after classification")
+            logger.warning("❌ No qualifying stocks after classification (and fallback failed/unavailable)")
             logger.info("\n" + "=" * 80)
             logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (EMPTY) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
             logger.info("=" * 80 + "\n")
@@ -974,11 +1055,11 @@ def _main_impl(force_rebuild: bool = False):
                 insert_notification(
                     notif_type="scanner_down",
                     title="🚨 DAILY BUILDER CRITICAL ALERT",
-                    message="The Daily Builder finished scanning but produced an EMPTY watchlist! This usually indicates a yfinance rate limit or API failure."
+                    message="The Daily Builder finished scanning but produced an EMPTY watchlist, and no fallback was available!"
                 )
             except Exception:
                 pass
-            raise RuntimeError("Daily Builder generated an empty watchlist. Failing to alert admin and scheduler.")
+            raise RuntimeError("Daily Builder generated an empty watchlist and fallback failed. Failing to alert admin and scheduler.")
 
         final_df = (
             pd.DataFrame(winners)
@@ -988,6 +1069,26 @@ def _main_impl(force_rebuild: bool = False):
             )
             .reset_index(drop=True)
         )
+
+        import hashlib
+        checksum = hashlib.md5(pd.util.hash_pandas_object(final_df, index=True).values).hexdigest()
+        
+        # --- UPDATE BUILD MANIFEST SUCCESS ---
+        try:
+            from database import upsert_build_manifest
+            upsert_build_manifest(
+                run_date=str(datetime.now(IST).date()),
+                status="FALLBACK_SUCCESS" if is_fallback_triggered else "SUCCESS",
+                input_universe_count=len(universe_df) if 'universe_df' in locals() else None,
+                qualified_count=len(final_df),
+                used_fallback=is_fallback_triggered,
+                fallback_source="parquet_cache" if is_fallback_triggered else None,
+                build_source_date=build_source_date if is_fallback_triggered else None,
+                scanner_version="v3.1",
+                checksum=checksum
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update build manifest success: {e}")
 
         # --- AI CONCALL INTEGRATION ---
         # Moved entirely to wealth_engine.py to prevent split-brain scoring.

@@ -208,41 +208,14 @@ def _score_reversal(
 
 # [FIX 1] FAILED-REVERSAL COOLDOWN HELPER ──────────────────────────────────────────────
 def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
-    """
-    Return True if `symbol` had a recent REVERSAL alert that stopped out or failed
-    follow-through within the last `cooldown_days` trading days, and should therefore
-    be suppressed.
-
-    Implementation is defensive: it tries the richest DB helper available and
-    gracefully degrades. If no outcome-tracking helper exists, it falls back to a
-    plain time-based suppression of any prior REVERSAL alert.
-    """
-    # Preferred: an outcome-aware helper that knows about stop-outs/failures.
     try:
         from database import is_symbol_in_failed_reversal_cooldown
         return bool(is_symbol_in_failed_reversal_cooldown(symbol, cooldown_days))
     except (ImportError, AttributeError, ModuleNotFoundError):
-        pass
+        logger.warning(f"⚠️ Outcome tracking helper missing for {symbol}; cooldown protection weakened.")
+        return False
     except Exception:
         logger.exception(f"cooldown check (outcome-aware) failed for {symbol}")
-
-    # Fallback: time-window suppression on prior REVERSAL alerts for this symbol.
-    # 1 trading day ≈ calendar coverage of cooldown_days * (7/5) to be safe.
-    try:
-        from database import get_last_failed_reversal_outcome
-        outcome = get_last_failed_reversal_outcome(symbol)  # expects dict or None
-        if not outcome:
-            return False
-        status = str(outcome.get("status", "")).upper()
-        days_since = int(outcome.get("trading_days_since", 10_000))
-        if status in ("STOPPED_OUT", "FAILED", "SL_HIT") and days_since < cooldown_days:
-            return True
-        return False
-    except (ImportError, AttributeError, ModuleNotFoundError):
-        # No outcome tracking available at all — do not block (avoid false suppression).
-        return False
-    except Exception:
-        logger.exception(f"cooldown check (fallback) failed for {symbol}")
         return False
 # ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -290,7 +263,7 @@ def _run_scan(force: bool = False):
         if not is_test_mode:
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("REVERSAL", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
+                upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
             except Exception:
                 pass
         raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
@@ -299,12 +272,46 @@ def _run_scan(force: bool = False):
         if not is_test_mode:
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("REVERSAL", "RUNNING", error_msg=None)
+                upsert_scanner_health(scanner_name="REVERSAL", status="RUNNING", error_msg=None)
             except Exception:
                 pass
 
     total_alerts = 0
     cooldown_skips = 0   # [FIX 1] observability for cooldown suppression
+    shortlisted_alerts = []
+    rejected = {
+        "no_data": 0,
+        "insufficient_bars": 0,
+        "stale_data": 0,
+        "cooldown": 0,
+        "failed_pattern": 0,
+        "drop_band": 0,
+        "low_price": 0,
+        "low_liquidity": 0,
+        "fundamental_filter": 0,
+        "ema_filter": 0,
+        "not_above_sma50": 0,
+        "low_volume": 0,
+        "no_macd_cross": 0,
+        "low_score": 0,
+        "climax_top": 0,
+        "thin_spread": 0
+    }
+    today_str = ist_now.strftime("%Y-%m-%d")
+
+    # ── MAKE EXPORT IDEMPOTENT ──
+    try:
+        import os, csv
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_dir = os.path.join(base_dir, "data")
+        export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
+        if os.path.exists(export_path):
+            df_export = pd.read_csv(export_path)
+            if 'date' in df_export.columns:
+                df_export = df_export[df_export['date'] != today_str]
+                df_export.to_csv(export_path, index=False)
+    except Exception as e:
+        logger.warning(f"Could not clean up today's export rows: {e}")
 
     from database import get_recent_alerts_for_scanner
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
@@ -323,14 +330,19 @@ def _run_scan(force: bool = False):
             # Suppress symbols that recently stopped out / failed follow-through.
             if _is_symbol_in_reversal_cooldown(symbol, REVERSAL_COOLDOWN_TRADING_DAYS):
                 cooldown_skips += 1
-                logger.debug(f"  ⊘ {symbol} in failed-reversal cooldown — skipping")
+                rejected["cooldown"] += 1
+                logger.info(f"[REVERSAL] {symbol} skipped: failed reversal cooldown active")
                 continue
 
             if symbol not in all_ticker_data or all_ticker_data[symbol] is None or all_ticker_data[symbol].empty:
+                logger.warning(f"[REVERSAL] {symbol} rejected: no historical data")
+                rejected["no_data"] += 1
                 continue
 
             ticker = all_ticker_data[symbol].copy()
             if getattr(ticker, 'attrs', {}).get('is_stale'):
+                logger.warning(f"[REVERSAL] {symbol} rejected: stale historical data")
+                rejected["stale_data"] += 1
                 continue
 
             if isinstance(ticker.columns, pd.MultiIndex):
@@ -338,23 +350,29 @@ def _run_scan(force: bool = False):
             ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
             if len(ticker) < 100:
+                logger.warning(f"[REVERSAL] {symbol} rejected: insufficient bars ({len(ticker)} < 100)")
+                rejected["insufficient_bars"] += 1
                 continue
 
             ticker = apply_indicators(ticker, timeframe="1d")
             if ticker is None or ticker.empty:
+                rejected["no_data"] += 1
                 continue
 
             latest   = ticker.iloc[-1]
             required = ["Close", "High", "Low", "Open", "Volume", "RSI", "EMA20", "EMA50", "SMA50", "SMA200", "MACD", "MACD_SIGNAL", "MACD_HIST", "HIGH_52W", "ATR", "ATR_PCT", "SWING_LOW", "SWING_HIGH"]
             if not all(col in ticker.columns for col in required):
+                rejected["no_data"] += 1
                 continue
             if pd.isna(latest["RSI"]) or pd.isna(latest["MACD"]):
+                rejected["no_data"] += 1
                 continue
 
             close_price = float(latest["Close"])
             high_52w    = float(latest["HIGH_52W"])
 
             if high_52w <= 0:
+                rejected["no_data"] += 1
                 continue
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
@@ -363,15 +381,18 @@ def _run_scan(force: bool = False):
             #         (config-driven via MAX_DROP_FROM_52W_HIGH) to avoid deep falling knives.
             if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > MAX_DROP_FROM_52W_HIGH:
                 # reject drawdowns outside configured band
+                rejected["drop_band"] += 1
                 continue
 
             # ── QUALITY FILTER 1: minimum price ─────────────────────────────────────
             if close_price < MIN_STOCK_PRICE:
+                rejected["low_price"] += 1
                 continue
 
             # ── QUALITY FILTER 2: minimum liquidity ─────────────────────────────────
             avg_vol_20d = float(ticker["Volume"].iloc[-21:-1].mean())
             if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
+                rejected["low_liquidity"] += 1
                 continue
 
             # ── QUALITY FILTER 3: not a falling knife — must be within x% of SMA200 ─
@@ -381,6 +402,7 @@ def _run_scan(force: bool = False):
                 if sma200 > 0:
                     pct_below_sma200 = (sma200 - close_price) / sma200 * 100
                     if pct_below_sma200 > MAX_DROP_BELOW_SMA200:
+                        rejected["drop_band"] += 1
                         continue
 
             # ── QUALITY FILTER 4: fundamentals (from watchlist columns) ─────────────
@@ -389,12 +411,14 @@ def _run_scan(force: bool = False):
             if roe is not None and not pd.isna(roe):
                 try:
                     if float(roe) < MIN_ROE:
+                        rejected["fundamental_filter"] += 1
                         continue
                 except (ValueError, TypeError):
                     pass
             if yoy_rev is not None and not pd.isna(yoy_rev):
                 try:
                     if float(yoy_rev) < MIN_YOY_REVENUE_GROWTH:
+                        rejected["fundamental_filter"] += 1
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -403,15 +427,18 @@ def _run_scan(force: bool = False):
             current_rsi = float(latest["RSI"])
             recent_rsi = ticker["RSI"].dropna().iloc[-11:-1]
             if len(recent_rsi) < 5:
+                rejected["insufficient_bars"] += 1
                 continue
             past_10_rsi = recent_rsi.min()
 
             if current_rsi < RSI_CURL_MIN or past_10_rsi > RSI_OVERSOLD_THRESHOLD:
+                rejected["failed_pattern"] += 1
                 continue
 
             # ── Must be holding above 20 EMA (immediate momentum) ───────────────────
             ema20 = float(latest["EMA20"])
             if close_price < ema20:
+                rejected["ema_filter"] += 1
                 continue
 
             # Require EMA20 to be trending or above EMA50. This removes weak bounces.
@@ -432,6 +459,7 @@ def _run_scan(force: bool = False):
             # If neither EMA20 > EMA50 nor EMA20 slope positive, skip
             if not (ema20_gt_ema50 or ema20_slope_pos):
                 logger.debug(f"  ⊘ {symbol} EMA20 trend filter failed — skipping")
+                rejected["ema_filter"] += 1
                 continue
 
             # ── [FIX 2] TREND STRUCTURE — STRICT close > SMA50 IS NOW MANDATORY ──────
@@ -450,27 +478,32 @@ def _run_scan(force: bool = False):
             # (we cannot confirm recovery structure without it).
             if above_sma50 is not True:
                 logger.debug(f"  ⊘ {symbol} not above SMA50 (no recovery structure) — skipping")
+                rejected["not_above_sma50"] += 1
                 continue
 
             # ── Volume confirmation — single threshold (FIX 4) ──────────────────────
             vol_now = float(latest["Volume"])
             if avg_vol_20d <= 0:
+                rejected["low_liquidity"] += 1
                 continue
 
             vol_ratio = vol_now / avg_vol_20d
             if vol_ratio < MIN_VOLUME_RATIO:   # [FIX 4] the ONLY volume gate now
+                rejected["low_volume"] += 1
                 continue
 
-            # ── MACD bullish cross ──────────────────────────────────────────────────
-            # [FIX 8] Removed the non-portable `macd > 2.0` hard cap (stock-scale
-            #         dependent). Only the cross direction matters here.
-            macd     = float(latest["MACD"])
-            macd_sig = float(latest["MACD_SIGNAL"])
-            prev_macd = float(ticker["MACD"].iloc[-2]) if len(ticker) >= 2 else macd
-            prev_macd_sig = float(ticker["MACD_SIGNAL"].iloc[-2]) if len(ticker) >= 2 else macd_sig
-            
-            # Requires a fresh bullish crossover (was below, now above)
-            if not (macd > macd_sig and prev_macd <= prev_macd_sig):
+            # ── [FIX 8] FRESH MACD BULLISH CROSSOVER ON CLOSED BAR ──────────────────────
+            macd_bullish_cross_closed_bar = False
+            if len(ticker) >= 3:
+                macd_now = float(ticker["MACD"].iloc[-2])
+                signal_now = float(ticker["MACD_SIGNAL"].iloc[-2])
+                macd_prev = float(ticker["MACD"].iloc[-3])
+                signal_prev = float(ticker["MACD_SIGNAL"].iloc[-3])
+                macd_bullish_cross_closed_bar = (macd_now > signal_now) and (macd_prev <= signal_prev)
+
+            if not macd_bullish_cross_closed_bar:
+                logger.debug(f"  ⊘ {symbol} no fresh MACD cross on closed bar — skipping")
+                rejected["no_macd_cross"] += 1
                 continue
 
             reversal_signals = [
@@ -484,9 +517,10 @@ def _run_scan(force: bool = False):
 
             signal_str = "Reversal"
             today_str  = ist_now.strftime("%Y-%m-%d")
-            dedup_key  = f"{category}|{symbol}|{today_str}|REVERSAL"
+            breakout_type = "REVERSAL"
+            dedup_key  = f"{category}|{symbol}|{today_str}|{breakout_type}"
 
-            if (symbol, dedup_key) in cooldown_alerts:
+            if (symbol, breakout_type) in cooldown_alerts:
                 continue
 
             candle_range   = float(latest["High"]) - float(latest["Low"])
@@ -509,6 +543,7 @@ def _run_scan(force: bool = False):
                         logger.debug(
                             f"  ⊘ {symbol} climax top on reversal candle — skipping"
                         )
+                        rejected["climax_top"] += 1
                         continue
 
             # ── v5: THIN SPREAD TRAP ─────────────────────────────────────────────
@@ -519,6 +554,7 @@ def _run_scan(force: bool = False):
                     logger.debug(
                         f"  ⊘ {symbol} thin spread reversal ({range_pct:.3%}) — skipping"
                     )
+                    rejected["thin_spread"] += 1
                     continue
 
             # ── Dynamic S/R and Indicator-based SL + Target (REVERSAL mode) ───────
@@ -585,6 +621,7 @@ def _run_scan(force: bool = False):
 
             if reversal_score < MIN_REVERSAL_SCORE:
                 logger.debug(f"  ⊘ {symbol} reversal score {reversal_score} < {MIN_REVERSAL_SCORE} — skipping")
+                rejected["low_score"] += 1
                 continue
 
             # Compute trend_score for export/analysis (same logic as scorer's trend block)
@@ -626,30 +663,20 @@ def _run_scan(force: bool = False):
                 }
             }
 
-            if not is_test_mode:
-                saved, cap_alloc, shares = save_alert_if_new(
-                    symbol,
-                    dedup_key,
-                    ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                    scanner="REVERSAL",
-                    category=category,
-                    entry_price=round(close_price, 2),
-                    signals=signal_str,
-                    score=reversal_score,
-                    rsi=round(current_rsi, 1),
-                    volume_ratio=round(vol_ratio, 2),
-                    stop_loss=suggested_stop,
-                    target_price=target_price,
-                    context=context,
-                    model_version="v6",                 # FIX 10: bumped version
-                    bayesian_regime="NEUTRAL",
-                    bayesian_weights=None,
-                )
-            else:
-                saved, cap_alloc, shares = True, 0.0, 0
-                
-            if not saved and not is_test_mode:
-                continue
+            shortlisted_alerts.append({
+                "symbol": symbol,
+                "dedup_key": dedup_key,
+                "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                "category": category,
+                "entry_price": round(close_price, 2),
+                "signals": signal_str,
+                "score": reversal_score,
+                "rsi": round(current_rsi, 1),
+                "volume_ratio": round(vol_ratio, 2),
+                "stop_loss": suggested_stop,
+                "target_price": target_price,
+                "context": context
+            })
 
             # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
             try:
@@ -688,49 +715,105 @@ def _run_scan(force: bool = False):
             except Exception:
                 logger.exception(f"Failed to export reversal alert for {symbol}")
 
-            total_alerts += 1
 
         except Exception as e:
             logger.exception(f'❌ Error processing {symbol}')
             upsert_fetch_error('yfinance', 'REVERSAL', symbol, '1d', 'processing_error', str(e))
 
-    if total_alerts > 0:
-        pass  # Telegram notifications removed (2026-06-17)
+    logger.info(
+        f"[REVERSAL] rejection summary: "
+        f"no_data={rejected.get('no_data', 0)}, "
+        f"insufficient_bars={rejected.get('insufficient_bars', 0)}, "
+        f"stale_data={rejected.get('stale_data', 0)}, "
+        f"cooldown={rejected.get('cooldown', 0)}, "
+        f"failed_pattern={rejected.get('failed_pattern', 0)}, "
+        f"drop_band={rejected.get('drop_band', 0)}, "
+        f"low_price={rejected.get('low_price', 0)}, "
+        f"low_liquidity={rejected.get('low_liquidity', 0)}, "
+        f"fundamental_filter={rejected.get('fundamental_filter', 0)}, "
+        f"ema_filter={rejected.get('ema_filter', 0)}, "
+        f"not_above_sma50={rejected.get('not_above_sma50', 0)}, "
+        f"low_volume={rejected.get('low_volume', 0)}, "
+        f"no_macd_cross={rejected.get('no_macd_cross', 0)}, "
+        f"low_score={rejected.get('low_score', 0)}, "
+        f"climax_top={rejected.get('climax_top', 0)}, "
+        f"thin_spread={rejected.get('thin_spread', 0)}"
+    )
 
-    # [FIX 1] log cooldown suppression count for tuning visibility
-    elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
-    logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks. "
-                f"(Cooldown-suppressed: {cooldown_skips})")
+    # ── VALIDATION COMPLETE: IDEMPOTENT CLEANUP ──
+    try:
+        from database import delete_todays_alerts_for_scanner
+        deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
+        logger.info(f"REVERSAL cleanup complete: removed {deleted_count} existing alerts for {today_str}")
+    except Exception as e:
+        logger.exception("Failed to delete today's alerts for REVERSAL before persistence")
 
-    # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
-    from database import upsert_scanner_health, verify_alerts_saved_today
-    if total_alerts > 0 and not is_test_mode:
-        if not verify_alerts_saved_today("REVERSAL", total_alerts):
-            logger.critical(f"🚨 CRITICAL ERROR: Reversal generated {total_alerts} alerts but save failed!")
-            upsert_scanner_health(
-                scanner_name="REVERSAL",
-                status="DOWN",
-                error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
-            )
-            raise RuntimeError("Alert save verification failed - database connectivity issue")
-
-    if not is_test_mode:
+    # ── PERSISTENCE ───────────────────────────────────────────────────────────
+    total_alerts = 0
+    if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
         try:
+            for alert in shortlisted_alerts:
+                inserted, _, _ = database.save_alert_if_new(
+                    alert["symbol"],
+                    alert["dedup_key"],
+                    alert["alert_time"],
+                    scanner="REVERSAL",
+                    category=alert["category"],
+                    entry_price=alert["entry_price"],
+                    signals=alert["signals"],
+                    score=alert["score"],
+                    rsi=alert["rsi"],
+                    volume_ratio=alert["volume_ratio"],
+                    stop_loss=alert["stop_loss"],
+                    target_price=alert["target_price"],
+                    context=alert["context"],
+                    model_version="v6",
+                    bayesian_regime="NEUTRAL",
+                    bayesian_weights=None,
+                )
+                if inserted:
+                    total_alerts += 1
+
+            if total_alerts > 0:
+                from database import verify_alerts_saved_today, upsert_scanner_health
+                if not verify_alerts_saved_today("REVERSAL", total_alerts):
+                    logger.critical(f"🚨 CRITICAL ERROR: Reversal generated {total_alerts} alerts but save verification failed!")
+                    upsert_scanner_health(
+                        scanner_name="REVERSAL",
+                        status="DOWN",
+                        error_msg="CRITICAL: Alerts failed to save to database"
+                    )
+                    return total_alerts
+                    
+            from database import upsert_scanner_health
             upsert_scanner_health(
                 scanner_name="REVERSAL",
                 status="OK",
                 last_success=ist_now.isoformat(),
                 today_alerts=total_alerts,
-                total_count=len(watchlist)
+                total_count=len(watchlist),
+                error_msg=None
             )
-        except Exception:
-            logger.exception("❌ Failed to update scanner health for REVERSAL")
+        except Exception as e:
+            logger.exception("Failed to save REVERSAL alerts")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    scanner_name="REVERSAL",
+                    status="DOWN",
+                    error_msg=f"Persistence failure: {e}"
+                )
+            except Exception:
+                pass
             
-        try:
-            from database import insert_notification
-            insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
-        except Exception:
-            pass
+    elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+    logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks.")
+            
+    try:
+        from database import insert_notification
+        insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+    except Exception:
+        pass
     return total_alerts
 
 
@@ -769,7 +852,7 @@ def _start_wrapper(force: bool = False) -> int:
         if not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("REVERSAL", "DOWN", error_msg=str(e))
+                upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(e))
             except Exception:
                 pass
         raise
