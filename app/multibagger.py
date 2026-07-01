@@ -959,6 +959,18 @@ def _start_wrapper(debug_limit: int = None):
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
     
+    # Enforce minimum 70% data integrity before proceeding
+    total_expected = len(shortlist)
+    total_fetched = len(fundamentals_list)
+    
+    if total_expected > 0:
+        fetch_ratio = total_fetched / total_expected
+        logger.info(f"📊 Data Integrity: {total_fetched}/{total_expected} ({fetch_ratio:.1%}) fundamentals loaded.")
+        if fetch_ratio < 0.70:
+            error_msg = f"Incomplete data error: Only {total_fetched}/{total_expected} ({fetch_ratio:.1%}) stocks fetched. Minimum 70% required."
+            logger.error(f"❌ {error_msg}")
+            raise RuntimeError(error_msg)
+    
     # Check Market Regime (Explicitly fetch Nifty)
     market_regime = "BULL" # Defaulting for now
     try:
