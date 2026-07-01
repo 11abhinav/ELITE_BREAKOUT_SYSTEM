@@ -1130,7 +1130,7 @@ def _start_wrapper(debug_limit: int = None):
             
             # Group only non-invalidated stocks for Telegram
             if status != "INVALIDATED":
-                label = pipeline_result.classification.value
+                label = pipeline_result.classification
                 if label not in categorized_stocks:
                     categorized_stocks[label] = []
                     
