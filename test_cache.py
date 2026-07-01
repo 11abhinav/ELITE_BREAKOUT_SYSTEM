@@ -1,13 +1,13 @@
 import json
-from multibagger import get_cached_fundamentals
-from core_score_engine import CoreFundamentals
+from datetime import datetime
+IST = __import__('zoneinfo').ZoneInfo("Asia/Kolkata")
+with open("data/fundamentals_cache.json") as f:
+    data = json.load(f)
 
-cache = json.load(open('../data/fundamentals_cache.json'))
-data = cache['RELIANCE']
-print(data.keys())
-try:
-    f = CoreFundamentals(**{k: v for k, v in data.items() if k != "fetched_at"})
-    print("SUCCESS")
-except Exception as e:
-    import traceback
-    traceback.print_exc()
+for k, v in list(data.items())[:10]:
+    if v:
+        entry_date = datetime.strptime(v["date"], "%Y-%m-%d").date()
+        days_old = (datetime.now(IST).date() - entry_date).days
+        print(f"{k}: date={v['date']}, days_old={days_old}")
+    else:
+        print(f"{k}: null")

@@ -629,6 +629,31 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         
     return messages
 
+def run_scanner():
+    """Main execution orchestrator for Multibagger Scanner V5."""
+    logger.info("=================================================================")
+    logger.info("🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0")
+    logger.info("=================================================================")
+    
+    # Ensure tables and functions are created
+    init_db()
+    
+    # Clean up any existing alerts for today to ensure a fresh, idempotent run
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM wealth_buy_alert WHERE breakout_type = 'MULTIBAGGER' AND alert_date = %s", (today_str,))
+                if cur.rowcount > 0:
+                    logger.info(f"🧹 Cleaned up {cur.rowcount} previous multibagger alerts for today.")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to cleanup today's alerts: {e}")
+        
+    upsert_scanner_health("MULTIBAGGER", "RUNNING")
+
 def run_exit_monitor(price_data_map: dict, cache: dict):
     """
     Evaluates open MULTIBAGGER positions in the database for exit signals.
@@ -1026,7 +1051,8 @@ def _start_wrapper(debug_limit: int = None):
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
         # Check alerts based on technicals and V5 validity
-        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated)
+        is_worthy = pipeline_result.classification in ["🚀 Prime Multibagger", "💎 High Quality", "🏆 Good Business"]
+        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated) and is_worthy
         
         if pipeline_result.is_invalidated:
             status = "INVALIDATED"
