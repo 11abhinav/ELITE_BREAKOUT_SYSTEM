@@ -454,9 +454,10 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 
                 return fund
                 
-            # If we reach here, it's a SILENT rate limit (Yahoo returned empty dict)
-            record_rate_limit(context=f"Multibagger Scanner | {symbol} (Silent Empty Dict)")
-            time.sleep(get_backoff_delay(attempt))
+            # If we reach here, YF returned data but lacked market_cap (either obscure stock or silent block)
+            # DO NOT call record_rate_limit here as it penalizes the whole system for obscure stocks!
+            logger.debug(f"Multibagger Scanner | {symbol} returned empty fundamental data. Trying fallback.")
+            break
             
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
