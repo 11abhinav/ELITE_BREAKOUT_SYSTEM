@@ -1163,3 +1163,10 @@ def _start_wrapper(debug_limit: int = None):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
+    
+    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
+    return {
+        "total_count": total_symbols,
+        "processed_count": len(results),
+        "today_alerts": alerts_count
+    }

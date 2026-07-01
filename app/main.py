@@ -994,7 +994,7 @@ def run_multibagger_scanner():
             if now.weekday() == 6 and now.hour == 15 and now.minute >= 0 and not multibagger_ran:
                 logger.info(f"🚀 MULTIBAGGER SCAN | Starting Sunday scan at {now.strftime('%H:%M:%S IST')}...")
                 import multibagger
-                multibagger.start()
+                stats = multibagger.start() or {}
                 multibagger_ran = True
                 
                 # Mark success in health table
@@ -1003,7 +1003,10 @@ def run_multibagger_scanner():
                     "MULTIBAGGER",
                     status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Sunday 15:00 IST"
+                    scheduled_for="Sunday 15:00 IST",
+                    total_count=stats.get("total_count"),
+                    processed_count=stats.get("processed_count"),
+                    today_alerts=stats.get("today_alerts", 0)
                 )
                 logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
             
@@ -1163,10 +1166,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     def _run():
         try:
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
-            fn()
+            stats = fn() or {}
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
-                                  error_msg=None)
+                                  error_msg=None,
+                                  total_count=stats.get("total_count") if isinstance(stats, dict) else None,
+                                  processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
+                                  today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
         except RuntimeError as e:
             if "already actively running" in str(e).lower():
@@ -1217,7 +1223,7 @@ def _trigger_live_scanner():
 
 def _trigger_multibagger():
     import multibagger
-    multibagger.start()
+    return multibagger.start()
 
 
 # ENTRY POINT
