@@ -419,6 +419,12 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     capex = abs(safe_extract(cf, 'Capital Expenditure', default=0.0))
                     fcf = cfo - capex
                 
+                total_equity = safe_extract(bs, 'Stockholders Equity') or safe_extract(bs, 'Total Stockholder Equity')
+                if not total_equity and assets and total_liab:
+                    total_equity = assets - total_liab
+                if not total_equity and bv and shares:
+                    total_equity = bv * shares
+                
                 fund = {
                     "symbol": symbol,
                     "sector": info.get("sector", "Unknown"),
@@ -449,7 +455,8 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     
                     "price": price,
                     "is_financial": is_financial_sector(info.get("sector")),
-                    "data_freshness": "LIVE"
+                    "data_freshness": "LIVE",
+                    "total_equity": total_equity
                 }
                 
                 return fund

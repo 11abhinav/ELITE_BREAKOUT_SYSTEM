@@ -18,12 +18,16 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
     reason = ""
 
     # 1. Negative Equity
-    equity = safe_float(raw_data.get("total_equity", 0.0))
-    if "total_equity" in raw_data and equity <= 0:
-        audit_engine.log(symbol, "Kill Gates", "Failed", "Negative Equity", "total_equity", equity)
-        return False, "Negative Equity"
+    raw_equity = raw_data.get("total_equity")
+    if raw_equity is not None:
+        equity = safe_float(raw_equity)
+        if equity <= 0:
+            audit_engine.log(symbol, "Kill Gates", "Failed", "Negative Equity", "total_equity", equity)
+            return False, "Negative Equity"
+        else:
+            audit_engine.log(symbol, "Kill Gates", "Passed", "Positive Equity", "total_equity", equity)
     else:
-        audit_engine.log(symbol, "Kill Gates", "Passed", "Positive Equity", "total_equity", equity)
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Equity Data Missing", "total_equity", "None")
 
     # 2. Promoter Pledge > 50%
     pledge = safe_float(raw_data.get("promoter_pledge_pct", 0.0))
