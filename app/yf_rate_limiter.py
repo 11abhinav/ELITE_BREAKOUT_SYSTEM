@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 # Concurrency & throttling tuning via env
 _MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
-_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "0.15"))  # minimal spacing between calls
+_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "0.30"))  # minimal spacing between calls
 _RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
-_RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "5"))      # trip circuit if >= in window
-_COOLDOWN_SCHEDULE_S = [5 * 60, 10 * 60, 15 * 60]
+_RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "3"))      # trip circuit if >= in window
+_COOLDOWN_SCHEDULE_S = list(range(30, 330, 30)) # [30, 60, 90, 120, ... 300]
 _current_cooldown_idx = 0
 
 _semaphore = threading.BoundedSemaphore(_MAX_CONCURRENCY)
@@ -92,7 +92,7 @@ def record_success() -> None:
     global _current_cooldown_idx, _rate_count
     with _lock:
         if _current_cooldown_idx > 0:
-            logger.info("YF rate-limit cooldown reset to 5 minutes after successful fetch.")
+            logger.info("YF rate-limit cooldown reset to 30 seconds after successful fetch.")
         _current_cooldown_idx = 0
         _rate_count = 0
 

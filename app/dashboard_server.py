@@ -1606,7 +1606,7 @@ def api_scanner_status():
             result[sc] = {
                     "status":        row["status"],
                     "last_success":  row["last_success"],
-                    "today_alerts":  row["today_alerts"],
+                    "today_alerts":  len(today_trades),
                     "error":         row["error_msg"],
                     "updated_at":    row["updated_at"],
                     "is_acknowledged": row["is_acknowledged"],

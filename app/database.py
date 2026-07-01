@@ -1520,16 +1520,29 @@ def get_scanner_today_trades(scanner_name: str, today_str: str) -> list[dict]:
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
-                cur.execute("""
-                    SELECT
-                        symbol, category, signals, entry_price, alert_time,
-                        stop_loss, target_price, pnl_pct, status, score,
-                        exit_price, closed_at
-                    FROM alerts
-                    WHERE scanner    = %s
-                    AND alert_date = %s
-                    ORDER BY alert_time DESC
-                """, (scanner_name, today_str))
+                if scanner_name.upper() == 'MULTIBAGGER':
+                    cur.execute("""
+                        SELECT
+                            symbol, portfolio_bucket as category, entry_signal as signals, alert_price as entry_price, alert_time,
+                            NULL as stop_loss, NULL as target_price, pnl_pct, 
+                            CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, fm_score as score,
+                            exit_price, exit_time as closed_at
+                        FROM wealth_buy_alert
+                        WHERE breakout_type = 'MULTIBAGGER'
+                        AND alert_date = %s
+                        ORDER BY alert_time DESC
+                    """, (today_str,))
+                else:
+                    cur.execute("""
+                        SELECT
+                            symbol, category, signals, entry_price, alert_time,
+                            stop_loss, target_price, pnl_pct, status, score,
+                            exit_price, closed_at
+                        FROM alerts
+                        WHERE scanner    = %s
+                        AND alert_date = %s
+                        ORDER BY alert_time DESC
+                    """, (scanner_name, today_str))
                 return [dict(row) for row in cur.fetchall()]
             except Exception:
                 logger.exception(f"❌ get_scanner_today_trades failed for {scanner_name}")
@@ -1549,8 +1562,14 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                         stop_loss, target_price, signals, score, status, seen_by_user, seen_by_admin
                     FROM alerts
                     WHERE alert_date = %s
+                    UNION ALL
+                    SELECT id, symbol, breakout_type, alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
+                        NULL as stop_loss, NULL as target_price, entry_signal as signals, fm_score as score, 
+                        CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin
+                    FROM wealth_buy_alert
+                    WHERE alert_date = %s
                     ORDER BY alert_time DESC
-                """, (today_str,))
+                """, (today_str, today_str))
                 return [dict(row) for row in cur.fetchall()]
             except Exception:
                 logger.exception("❌ get_todays_alerts failed")
