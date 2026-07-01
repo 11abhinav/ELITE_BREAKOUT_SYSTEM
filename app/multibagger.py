@@ -455,7 +455,6 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 return fund
                 
             # If we reach here, it's a SILENT rate limit (Yahoo returned empty dict)
-            from yf_rate_limiter import record_rate_limit, get_backoff_delay
             record_rate_limit(context=f"Multibagger Scanner | {symbol} (Silent Empty Dict)")
             time.sleep(get_backoff_delay(attempt))
             
