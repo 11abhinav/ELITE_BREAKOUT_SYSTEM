@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Concurrency & throttling tuning via env
 _MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
-_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "0.30"))  # minimal spacing between calls
+_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "1.25"))  # minimal spacing between calls
 _RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
 _RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "3"))      # trip circuit if >= in window
 _COOLDOWN_SCHEDULE_S = list(range(30, 330, 30)) # [30, 60, 90, 120, ... 300]
@@ -62,22 +62,31 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
             time.sleep(sleep_time)
             continue # Try again after sleeping
             
+        # Try to acquire semaphore
+        ok = _semaphore.acquire(timeout=timeout)
+        if not ok:
+            return False
+            
+        # We got the semaphore. Check circuit one more time in case it tripped while we waited.
         with _lock:
             now = _now()
-            # Enforce minimal interval
+            if _circuit_tripped_until and now < _circuit_tripped_until:
+                _semaphore.release()
+                continue
+                
+            # Enforce global minimal interval
             since = now - _last_call_ts
             sleep_for = 0
             if since < _MIN_INTERVAL_S:
                 sleep_for = _MIN_INTERVAL_S - since
-            if sleep_for > 0:
-                time.sleep(sleep_for)
-            break # Exit the while True loop!
-        # Acquire semaphore (may block)
-    ok = _semaphore.acquire(timeout=timeout)
-    if ok:
-        with _lock:
-            _last_call_ts = _now()
-    return ok
+                _last_call_ts = now + sleep_for
+            else:
+                _last_call_ts = now
+                
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+            
+        return True
 
 
 def release() -> None:
