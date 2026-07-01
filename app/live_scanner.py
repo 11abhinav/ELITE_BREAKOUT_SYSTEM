@@ -472,6 +472,10 @@ def _start_wrapper(run_once=False):
                 upsert_scanner_health("1H", "DOWN", error_msg=str(e), scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
             except Exception:
                 pass
+            
+            if run_once:
+                raise e
+                
             elapsed    = (datetime.now(IST) - scan_start).total_seconds()
             sleep_time = max(0, 300 - elapsed)
 

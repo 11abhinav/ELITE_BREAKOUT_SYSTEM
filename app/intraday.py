@@ -514,6 +514,6 @@ def _start_wrapper(run_once=False):
                 pass
             
             if run_once:
-                break
+                raise e
                 
             time.sleep(seconds_to_next_15m(datetime.now(IST)))

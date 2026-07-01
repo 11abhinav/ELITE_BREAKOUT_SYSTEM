@@ -602,7 +602,7 @@ def _start_wrapper(run_once=False):
                     logger.exception(f"Failed to update scanner health to DOWN: {ex}")
 
             if run_once:
-                break
+                raise e
             time.sleep(60)
 
 if __name__ == "__main__":
