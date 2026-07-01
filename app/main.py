@@ -1157,7 +1157,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             pass
     
     # Mark as running
-    upsert_scanner_health(scanner_key, status="OK", error_msg="⏳ Manual trigger in progress...")
+    upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
     
     # Run in background thread so the API returns immediately
     def _run():

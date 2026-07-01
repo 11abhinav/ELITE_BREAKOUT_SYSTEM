@@ -861,14 +861,24 @@ def _start_wrapper(debug_limit: int = None):
     
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {}
+        cached_count = 0
         for p in shortlist:
             sym = p.symbol
             cached = get_cached_fundamentals(sym, cache)
             if cached:
-                logger.debug(f"💾 Cache hit for fundamentals of {sym}")
+                cached_count += 1
                 fundamentals_list.append(cached)
             else:
                 futures[executor.submit(fetch_ticker_fundamentals, sym)] = sym
+                
+        if cached_count > 0:
+            logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} stocks directly from DB cache.")
+            
+        fetch_total = len(futures)
+        if fetch_total > 0:
+            logger.info(f"📥 Fetching fresh fundamentals for the remaining {fetch_total} stocks via Yahoo Finance...")
+        else:
+            logger.info("✅ All fundamentals were loaded from cache. No fetching required!")
                 
         fetched_count = 0
         for future in as_completed(futures):
@@ -882,12 +892,17 @@ def _start_wrapper(debug_limit: int = None):
                     cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
                     fetched_count += 1
                     
+                    if fetched_count % 10 == 0 or fetched_count == fetch_total:
+                        logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
+                    
                     # Save in chunks to prevent data loss if restarted
                     if fetched_count % 50 == 0:
-                        logger.info(f"💾 Intermediary save: saving {fetched_count} newly fetched fundamentals to DB...")
+                        logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
                         save_fundamentals_cache(cache)
+                else:
+                    logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
             except Exception as e:
-                logger.exception(f"Error fetching fundamentals for {sym}")
+                logger.error(f"❌ Error fetching fundamentals for {sym}: {e}")
                 
         if fetched_count > 0:
             logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")
