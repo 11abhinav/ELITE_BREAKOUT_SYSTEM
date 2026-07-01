@@ -142,55 +142,55 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error")
                 return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
         
-        # Multi-bagger enhancements extraction
-        ocf = info.get("operatingCashflow")
-        net_income = info.get("netIncomeToCommon")
-        if net_income is None:
-            try:
-                net_income = fin.loc["Net Income"].iloc[0] if "Net Income" in fin.index else None
-            except Exception:
-                net_income = None
-                
-        # Calculate CFO/PAT ratio
-        cfo_pat_ratio = None
-        if ocf is not None and net_income is not None and net_income > 0:
-            cfo_pat_ratio = ocf / net_income
-            
-        # Dividends / Retention
-        payout_ratio = info.get("payoutRatio")
-        retention_ratio = 1.0 - payout_ratio if payout_ratio is not None else None
-        
-        # Insider holding
-        insider_hold = info.get("heldPercentInsiders")
-        
-        # Forensics (Asset Quality & Accruals)
-        forensic_flags = 0
+    # Multi-bagger enhancements extraction
+    ocf = info.get("operatingCashflow")
+    net_income = info.get("netIncomeToCommon")
+    if net_income is None:
         try:
-            revenue = fin.loc["Total Revenue"] if "Total Revenue" in fin.index else None
-            total_assets = bs.loc["Total Assets"] if "Total Assets" in bs.index else None
-            
-            if revenue is not None and len(revenue) >= 2 and total_assets is not None and len(total_assets) >= 2:
-                rev_growth = (revenue.iloc[0] - revenue.iloc[1]) / abs(revenue.iloc[1]) if revenue.iloc[1] != 0 else 0
-                asset_growth = (total_assets.iloc[0] - total_assets.iloc[1]) / abs(total_assets.iloc[1]) if total_assets.iloc[1] != 0 else 0
-                if asset_growth > 0 and rev_growth > 0 and asset_growth > (2.0 * rev_growth):
-                    forensic_flags += 1
-                    
-            if net_income is not None and ocf is not None and revenue is not None and len(revenue) >= 1:
-                rev_curr = revenue.iloc[0]
-                if rev_curr > 0:
-                    if (net_income - ocf) > (0.1 * rev_curr):
-                        forensic_flags += 1
+            net_income = fin.loc["Net Income"].iloc[0] if "Net Income" in fin.index else None
         except Exception:
-            pass
+            net_income = None
+            
+    # Calculate CFO/PAT ratio
+    cfo_pat_ratio = None
+    if ocf is not None and net_income is not None and net_income > 0:
+        cfo_pat_ratio = ocf / net_income
+        
+    # Dividends / Retention
+    payout_ratio = info.get("payoutRatio")
+    retention_ratio = 1.0 - payout_ratio if payout_ratio is not None else None
+    
+    # Insider holding
+    insider_hold = info.get("heldPercentInsiders")
+    
+    # Forensics (Asset Quality & Accruals)
+    forensic_flags = 0
+    try:
+        revenue = fin.loc["Total Revenue"] if "Total Revenue" in fin.index else None
+        total_assets = bs.loc["Total Assets"] if "Total Assets" in bs.index else None
+        
+        if revenue is not None and len(revenue) >= 2 and total_assets is not None and len(total_assets) >= 2:
+            rev_growth = (revenue.iloc[0] - revenue.iloc[1]) / abs(revenue.iloc[1]) if revenue.iloc[1] != 0 else 0
+            asset_growth = (total_assets.iloc[0] - total_assets.iloc[1]) / abs(total_assets.iloc[1]) if total_assets.iloc[1] != 0 else 0
+            if asset_growth > 0 and rev_growth > 0 and asset_growth > (2.0 * rev_growth):
+                forensic_flags += 1
+                
+        if net_income is not None and ocf is not None and revenue is not None and len(revenue) >= 1:
+            rev_curr = revenue.iloc[0]
+            if rev_curr > 0:
+                if (net_income - ocf) > (0.1 * rev_curr):
+                    forensic_flags += 1
+    except Exception:
+        pass
 
-        return {
-            "score": score, 
-            "date": str(datetime.now(IST).date()),
-            "cfo_pat_ratio": cfo_pat_ratio,
-            "retention_ratio": retention_ratio,
-            "insider_hold": insider_hold,
-            "forensic_flags": forensic_flags
-        }
+    return {
+        "score": score, 
+        "date": str(datetime.now(IST).date()),
+        "cfo_pat_ratio": cfo_pat_ratio,
+        "retention_ratio": retention_ratio,
+        "insider_hold": insider_hold,
+        "forensic_flags": forensic_flags
+    }
 
 
 def get_tier(market_cap_cr: float) -> str:
