@@ -17,8 +17,19 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
     passed = True
     reason = ""
 
-    # 1. Negative Equity
+    # 0. Data Completeness
+    freshness = raw_data.get("data_freshness", "LIVE")
+    if freshness == "FALLBACK":
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Incomplete Data (Fallback)", "data_freshness", freshness)
+        return False, "Incomplete Data"
+        
     raw_equity = raw_data.get("total_equity")
+    market_cap = raw_data.get("market_cap")
+    if raw_equity is None and market_cap is None:
+        audit_engine.log(symbol, "Kill Gates", "Failed", "Incomplete Data (Missing Equity & Market Cap)", "total_equity", "None")
+        return False, "Incomplete Data"
+
+    # 1. Negative Equity
     if raw_equity is not None:
         equity = safe_float(raw_equity)
         if equity <= 0:
@@ -27,7 +38,7 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
         else:
             audit_engine.log(symbol, "Kill Gates", "Passed", "Positive Equity", "total_equity", equity)
     else:
-        audit_engine.log(symbol, "Kill Gates", "Passed", "Equity Data Missing", "total_equity", "None")
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Equity Data Missing (Fallback to Market Cap)", "total_equity", "None")
 
     # 2. Promoter Pledge > 50%
     pledge = safe_float(raw_data.get("promoter_pledge_pct", 0.0))

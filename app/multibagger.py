@@ -1173,7 +1173,7 @@ def _start_wrapper(debug_limit: int = None):
     
     alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
     return {
-        "total_count": total_symbols,
+        "total_count": len(fundamentals_list),
         "processed_count": len(results),
         "today_alerts": alerts_count
     }
