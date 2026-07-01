@@ -1090,6 +1090,7 @@ def _start_wrapper(debug_limit: int = None):
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
             
             # Queue telegram summary using V5 metrics
+            from core.multibagger_pipeline import V5_CONFIG
             if V5_CONFIG.get("enable_telegram_alerts", True):
                 msg = (
                     f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
