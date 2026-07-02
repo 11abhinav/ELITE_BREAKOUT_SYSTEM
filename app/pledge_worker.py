@@ -179,17 +179,27 @@ def worker_loop():
                     res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
                     if res.status_code == 200:
                         pledge_val = None
-                        match = re.search(r'pledge[^\d]{1,30}?(\d+\.?\d*)\s*%', res.text, re.IGNORECASE)
-                        if match:
-                            pledge_val = float(match.group(1))
-                        else:
-                            soup = BeautifulSoup(res.text, 'html.parser')
-                            for div in soup.find_all(['div', 'span', 'td']):
-                                if 'pledge' in div.text.lower() and '%' in div.text:
-                                    m = re.search(r'(\d+\.?\d*)\s*%', div.text)
-                                    if m:
-                                        pledge_val = float(m.group(1))
-                                        break
+                        import html
+                        decoded_html = html.unescape(res.text)
+                        
+                        # Strategy 1: Extract from structured JSON blob `data-companyinsights`
+                        json_match = re.search(r"\'parameter\'\:\s*\'Promoter Pledges?\'[^\}]+?\'value\'\:\s*Decimal\(\'(\d+\.?\d*)\'\)", decoded_html)
+                        if json_match:
+                            pledge_val = float(json_match.group(1))
+                        
+                        # Strategy 2: Fallback to loose regex on raw HTML
+                        if pledge_val is None:
+                            match = re.search(r'pledge[^\d]{1,30}?(\d+\.?\d*)\s*%', res.text, re.IGNORECASE)
+                            if match:
+                                pledge_val = float(match.group(1))
+                            else:
+                                soup = BeautifulSoup(res.text, 'html.parser')
+                                for div in soup.find_all(['div', 'span', 'td', 'p']):
+                                    if 'pledge' in div.text.lower() and '%' in div.text:
+                                        m = re.search(r'(\d+\.?\d*)\s*%', div.text)
+                                        if m:
+                                            pledge_val = float(m.group(1))
+                                            break
                         if pledge_val is not None:
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
