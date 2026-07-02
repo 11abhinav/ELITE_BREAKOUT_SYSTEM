@@ -3063,6 +3063,18 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                 success = False
                 try:
                     with conn.cursor() as cur:
+                        if breakout_type == 'MULTIBAGGER' or portfolio_bucket == 'MULTIBAGGER':
+                            cur.execute("""
+                                SELECT 1 FROM wealth_buy_alert 
+                                WHERE symbol = %s 
+                                AND (breakout_type = 'MULTIBAGGER' OR portfolio_bucket = 'MULTIBAGGER')
+                                AND status = 'ACTIVE'
+                                AND is_closed = FALSE
+                            """, (symbol,))
+                            if cur.fetchone():
+                                logger.info(f"⏭️  BUY alert skipped for {symbol}: Already has an active MULTIBAGGER position.")
+                                return False
+
                         # New alert - insert it with position sizing data and explicit IST time (Atomic DO NOTHING)
                         cur.execute("""
                             INSERT INTO wealth_buy_alert 

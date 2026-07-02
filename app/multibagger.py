@@ -1172,13 +1172,12 @@ def _start_wrapper(debug_limit: int = None):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
+    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
     try:
         from database import insert_notification
-        insert_notification("info", "✅ Multibagger Scan Completed", f"Successfully processed {len(results)} stocks.")
+        insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks.")
     except Exception as e:
         logger.error(f"Could not insert admin notification: {e}")
-    
-    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
     return {
         "total_count": len(fundamentals_list),
         "processed_count": len(results),
