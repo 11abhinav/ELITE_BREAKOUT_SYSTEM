@@ -63,8 +63,9 @@ def discover_trendlyne_url(symbol: str) -> str:
                 if "trendlyne.com/equity/" in href and clean_symbol.upper() in href.upper():
                     # Extract from google redirect format
                     actual_url = href.split("q=")[-1].split("&")[0] if "/url?q=" in href else href
-                    logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
-                    return actual_url
+                    if actual_url.startswith("http"):
+                        logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
+                        return actual_url
     except Exception as e:
         logger.warning(f"Google search fallback failed for {clean_symbol}: {e}")
 
