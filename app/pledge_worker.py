@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from functools import lru_cache
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import json
 from database import get_connection, upsert_scanner_health, init_db
 from data_fetch_status import mark_success, mark_failure
