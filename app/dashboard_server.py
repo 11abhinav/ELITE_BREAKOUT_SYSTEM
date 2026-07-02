@@ -1488,6 +1488,33 @@ def api_trigger_scanner(scanner_name):
         logger.exception(f"❌ /api/admin/trigger_scanner failed for {scanner_name}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/admin/pledge_worker/mode", methods=["GET", "POST"])
+@admin_required
+def api_pledge_worker_mode():
+    try:
+        from pledge_worker import get_worker_mode, set_worker_mode
+        if request.method == "GET":
+            mode = get_worker_mode()
+            return jsonify({"mode": mode})
+        else:
+            data = request.json or {}
+            new_mode = data.get("mode")
+            if new_mode in ["auto", "manual_start", "manual_stop"]:
+                set_worker_mode(new_mode)
+                
+                if new_mode == "manual_stop":
+                    from database import upsert_scanner_health
+                    from zoneinfo import ZoneInfo
+                    from datetime import datetime
+                    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+                    upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=0, error_msg="Stopped by Admin")
+                
+                return jsonify({"status": "success", "mode": new_mode})
+            return jsonify({"status": "error", "message": "Invalid mode"}), 400
+    except Exception as e:
+        logger.exception("❌ /api/admin/pledge_worker/mode failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/wealth")
 @login_required
 def route_wealth():

@@ -1811,6 +1811,17 @@
             <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading errors...</div>
           </div>
 
+          <!-- PLEDGE WORKER CONTROL -->
+          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Pledge Worker Control</span>
+            <div style="font-size:12px; color:var(--muted);" id="pledgeWorkerModeDisplay">Loading mode...</div>
+          </div>
+          <div class="card" style="margin-bottom:28px; display:flex; gap:12px; flex-wrap:wrap;">
+            <button class="btn btn-outline" onclick="setPledgeWorkerMode('auto')" style="border-color:var(--accent); color:var(--accent);">⏱️ Resume Auto-Schedule (6 AM - 8 AM)</button>
+            <button class="btn btn-outline" onclick="setPledgeWorkerMode('manual_start')" style="border-color:#b266ff; color:#b266ff;">🚀 Force Start Now</button>
+            <button class="btn btn-outline" onclick="setPledgeWorkerMode('manual_stop')" style="border-color:var(--warn); color:var(--warn);">🛑 Stop Completely</button>
+          </div>
+
           <!-- API HEALTH PANEL -->
           <div id="apiHealthContainer" style="margin-bottom:20px;"></div>
 
@@ -2076,6 +2087,38 @@
           renderApiHealth(apiHealth);
         }
       } catch (e) { console.error('Failed to load API health', e); }
+
+      // 6. Pledge Worker Mode
+      loadPledgeWorkerMode();
+    }
+
+    async function loadPledgeWorkerMode() {
+      try {
+        const res = await fetch('/api/admin/pledge_worker/mode');
+        if(res.ok) {
+          const data = await res.json();
+          const display = document.getElementById('pledgeWorkerModeDisplay');
+          if(display) display.innerText = `Current Mode: ${data.mode.toUpperCase()}`;
+        }
+      } catch (e) { console.error('Failed to load pledge worker mode', e); }
+    }
+
+    async function setPledgeWorkerMode(mode) {
+      if(!confirm(`Are you sure you want to change Pledge Worker mode to: ${mode}?`)) return;
+      try {
+        const res = await fetch('/api/admin/pledge_worker/mode', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ mode })
+        });
+        if(res.ok) {
+          loadPledgeWorkerMode();
+          setTimeout(() => loadDiagnostics(), 1000);
+        } else {
+          const err = await res.json();
+          alert('Failed to set mode: ' + (err.message || 'Unknown error'));
+        }
+      } catch(e) { console.error('Failed to set mode', e); }
     }
 
     async function loadScannerStatus() {

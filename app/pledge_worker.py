@@ -9,9 +9,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import json
 from database import get_connection, upsert_scanner_health, init_db
 from data_fetch_status import mark_success, mark_failure
-from config import WATCHLIST_PATH
+from config import WATCHLIST_PATH, DATA_DIR
 from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
 
 # Setup logging
@@ -20,7 +21,30 @@ logger = logging.getLogger(__name__)
 
 IST_ZONE = ZoneInfo("Asia/Kolkata")
 
+CONFIG_PATH = os.path.join(DATA_DIR, "pledge_config.json")
 
+def get_worker_mode() -> str:
+    """Returns 'auto', 'manual_start', or 'manual_stop'."""
+    if not os.path.exists(CONFIG_PATH):
+        return 'auto'
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            data = json.load(f)
+            return data.get("mode", "auto")
+    except Exception:
+        return 'auto'
+
+def set_worker_mode(mode: str):
+    """Sets the worker mode."""
+    if mode not in ['auto', 'manual_start', 'manual_stop']:
+        return
+    
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump({"mode": mode}, f)
+    except Exception as e:
+        logger.error(f"Failed to set worker mode: {e}")
 
 def discover_trendlyne_url(symbol: str) -> str:
     """Try to find the correct Trendlyne URL dynamically."""
@@ -81,7 +105,19 @@ def worker_loop():
         return
 
     while True:
-
+        mode = get_worker_mode()
+        now = datetime.now(IST_ZONE)
+        
+        if mode == 'manual_stop':
+            upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=0, error_msg="Stopped by Admin")
+            time.sleep(60)
+            continue
+            
+        if mode == 'auto':
+            if not (6 <= now.hour < 8):
+                upsert_scanner_health("Pledge Worker", "WAITING", last_success=now.isoformat(), today_alerts=0, error_msg="Waiting for 06:00 - 08:00 IST Window")
+                time.sleep(300)
+                continue
 
         try:
             if not get_scraper_api_key() and not os.getenv("BRIGHTDATA_URL"):
@@ -159,6 +195,10 @@ def worker_loop():
             processed_base = total_watch - len(stale_symbols)
 
             if not stale_symbols:
+                if get_worker_mode() == 'manual_start':
+                    logger.info("Manual start completed. Reverting to auto mode.")
+                    set_worker_mode('auto')
+                    
                 sleep_secs = 3600 # Check every hour
                 logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
                 upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, error_msg=f"All processed | Total: {total_watch}")
@@ -260,12 +300,12 @@ def worker_loop():
                                     conn.commit()
                             logger.info(f"✅ Saved pledge for {sym}: {pledge_val}%")
                         else:
-                            logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Assuming 0.0%")
+                            logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Saving -1.0 (Not Found)")
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
                                     cur.execute("""
                                         INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, 0.0, NOW())
+                                        VALUES (%s, -1.0, NOW())
                                         ON CONFLICT (symbol) DO UPDATE 
                                         SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW()
                                     """, (sym,))
@@ -282,8 +322,8 @@ def worker_loop():
                                     INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
                                     VALUES (%s, %s, NOW() - INTERVAL '27 days')
                                     ON CONFLICT (symbol) DO UPDATE 
-                                    SET updated_at = NOW() - INTERVAL '27 days'
-                                """, (sym, 0.0))
+                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '27 days'
+                                """, (sym, -1.0))
                                 conn.commit()
                         return "404"
                     else:

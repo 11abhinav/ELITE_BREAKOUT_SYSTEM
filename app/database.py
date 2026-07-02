@@ -1739,7 +1739,7 @@ def get_promoter_pledge_stats() -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache")
+                cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0")
                 total_row = cur.fetchone()
                 total = total_row[0] if total_row else 0
                 cur.execute("SELECT symbol, updated_at FROM promoter_pledge_cache ORDER BY updated_at DESC LIMIT 1")
