@@ -84,8 +84,8 @@ def worker_loop():
 
 
         try:
-            if not get_scraper_api_key():
-                logger.warning("🚨 All API keys are exhausted. Pausing scraping daemon for 1 hour.")
+            if not get_scraper_api_key() and not os.getenv("BRIGHTDATA_URL"):
+                logger.warning("🚨 All Scraper API keys are exhausted and no BrightData URL provided. Pausing scraping daemon for 1 hour.")
                 time.sleep(3600)
                 continue
                 
