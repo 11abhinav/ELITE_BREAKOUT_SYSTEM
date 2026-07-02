@@ -987,7 +987,7 @@ from pledge_worker import worker_loop as run_pledge_loop
 def run_multibagger_scanner():
     """
     Multibagger Scanner:
-    - Runs on Sundays at 3:00 PM IST (15:00 IST).
+    - Runs Daily at 7:00 PM IST (19:00 IST).
     - Scans dynamically fetched index constituents.
     - Updates watchlist and buy alerts.
     """
@@ -995,9 +995,9 @@ def run_multibagger_scanner():
     while True:
         try:
             now = datetime.now(IST)
-            # Sunday only, 3:00 PM IST
-            if now.weekday() == 6 and now.hour == 15 and now.minute >= 0 and not multibagger_ran:
-                logger.info(f"🚀 MULTIBAGGER SCAN | Starting Sunday scan at {now.strftime('%H:%M:%S IST')}...")
+            # Daily at 7:00 PM IST
+            if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
+                logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
                 import multibagger
                 stats = multibagger.start() or {}
                 multibagger_ran = True
@@ -1008,15 +1008,15 @@ def run_multibagger_scanner():
                     "MULTIBAGGER",
                     status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Sunday 15:00 IST",
+                    scheduled_for="Daily 19:00 IST",
                     total_count=stats.get("total_count"),
                     processed_count=stats.get("processed_count"),
                     today_alerts=stats.get("today_alerts", 0)
                 )
                 logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
             
-            # Reset flag outside Sunday 3 PM window
-            if now.weekday() != 6 or now.hour != 15:
+            # Reset flag outside 7 PM window
+            if now.hour != 19:
                 multibagger_ran = False
                 
         except Exception as e:
