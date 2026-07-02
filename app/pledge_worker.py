@@ -307,14 +307,14 @@ def worker_loop():
                                     conn.commit()
                             logger.info(f"✅ Saved pledge for {sym}: {pledge_val}%")
                         else:
-                            logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Saving -1.0 (Not Found)")
+                            logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Saving -1.0 (Not Found) - retrying in 7 days")
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
                                     cur.execute("""
                                         INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, -1.0, NOW())
+                                        VALUES (%s, -1.0, NOW() - INTERVAL '21 days')
                                         ON CONFLICT (symbol) DO UPDATE 
-                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW()
+                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days'
                                     """, (sym,))
                                     conn.commit()
                         mark_success('scraperapi')
@@ -322,14 +322,14 @@ def worker_loop():
                     elif res.status_code == 404:
                         logger.warning(f"❌ 404 Not Found for {sym} at {target_url}")
                         mark_failure('scraperapi', f"404 Not Found: {target_url}")
-                        # Cache the 404 temporarily so we don't spam it, retry tomorrow
+                        # Cache the 404 temporarily so we don't spam it, retry in 7 days
                         with get_connection() as conn:
                             with conn.cursor() as cur:
                                 cur.execute("""
                                     INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                    VALUES (%s, %s, NOW() - INTERVAL '27 days')
+                                    VALUES (%s, %s, NOW() - INTERVAL '21 days')
                                     ON CONFLICT (symbol) DO UPDATE 
-                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '27 days'
+                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days'
                                 """, (sym, -1.0))
                                 conn.commit()
                         return "404"
