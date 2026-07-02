@@ -1630,10 +1630,12 @@ def api_scanner_status():
                     
                     total_needed = len(symbols_set)
                     from database import get_ai_concall_stats, get_promoter_pledge_stats
+                    
+                    symbol_list = list(symbols_set)
                     if sc == 'AI Worker':
-                        stats = get_ai_concall_stats()
+                        stats = get_ai_concall_stats(symbol_list)
                     else:
-                        stats = get_promoter_pledge_stats()
+                        stats = get_promoter_pledge_stats(symbol_list)
                     
                     row["total_count"] = total_needed
                     row["processed_count"] = stats.get('total_cached', 0)
