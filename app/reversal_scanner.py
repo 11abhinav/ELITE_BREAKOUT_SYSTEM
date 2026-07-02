@@ -811,7 +811,7 @@ def _run_scan(force: bool = False):
             
     try:
         from database import insert_notification
-        insert_notification("info", f"✅ Reversal Scan Completed", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+        insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new reversal alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
     except Exception:
         pass
     return total_alerts

@@ -674,7 +674,7 @@ def _start_wrapper(force: bool = False):
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for EOD")
-            if status == "OK" and total_alerts > 0:
+            if status == "OK":
                 try:
                     insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
                 except Exception:
