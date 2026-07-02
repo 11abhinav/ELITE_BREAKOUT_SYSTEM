@@ -182,6 +182,7 @@ def worker_loop():
                     return "QUOTA_EXHAUSTED"
                     
                 res = None
+                brightdata_failed = False
                 
                 # 1. Try Bright Data first (if available)
                 if brightdata_url:
@@ -191,12 +192,16 @@ def worker_loop():
                         import urllib3
                         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                         res = requests.get(target_url, proxies=proxies, verify=False, timeout=45)
+                        if res.status_code in (401, 403, 407, 429):
+                            logger.warning(f"BrightData proxy returned {res.status_code} for {sym}. May be blocked or quota exceeded.")
+                            brightdata_failed = True
                     except Exception as e:
-                        logger.warning(f"BrightData proxy failed for {sym}: {e}")
+                        logger.error(f"BrightData proxy critically failed for {sym}: {e}")
                         res = None
+                        brightdata_failed = True
                 
                 # 2. Fallback to Scraper API
-                if not res or res.status_code not in (200, 404):
+                if not res or brightdata_failed or res.status_code not in (200, 404):
                     if api_key:
                         payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
                         try:
@@ -205,11 +210,17 @@ def worker_loop():
                                 logger.warning(f"❌ HTTP {res.status_code} quota exceeded for ScraperAPI key")
                                 mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
                                 mark_key_exhausted_today(api_key)
-                                return "ERROR"
+                                return "ERROR" # Returning ERROR here allows the loop to retry the next key on the next iteration
                         except Exception as e:
                             logger.warning(f"ScraperAPI failed for {sym}: {e}")
+                    else:
+                        # If Scraper API key is missing/exhausted AND BrightData failed, we must stop the loop!
+                        if brightdata_failed or not brightdata_url:
+                            logger.error(f"🚨 Both BrightData (failed) and SCRAPERAPI_KEY (exhausted) are unavailable. Stopping.")
+                            return "QUOTA_EXHAUSTED"
                             
                 if not res:
+                    logger.error(f"❌ No valid response received for {sym}")
                     return "ERROR"
                 
                 try:
