@@ -20,18 +20,7 @@ logger = logging.getLogger(__name__)
 
 IST_ZONE = ZoneInfo("Asia/Kolkata")
 
-def is_in_window() -> bool:
-    """Check if current time is between 7 PM IST and 7 AM IST."""
-    now = datetime.now(IST_ZONE)
-    return now.hour >= 19 or now.hour < 7
 
-def wait_until_next_window() -> float:
-    """Calculate seconds until the next 7 PM IST."""
-    now = datetime.now(IST_ZONE)
-    target = now.replace(hour=19, minute=0, second=0, microsecond=0)
-    if now >= target:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
 
 def discover_trendlyne_url(symbol: str) -> str:
     """Try to find the correct Trendlyne URL dynamically."""
@@ -91,13 +80,7 @@ def worker_loop():
         return
 
     while True:
-        # Check active scheduling window (7 PM - 7 AM IST)
-        if not is_in_window():
-            sleep_secs = wait_until_next_window()
-            logger.info(f"🕒 [PLEDGE WORKER] Outside active window (7 PM - 7 AM IST). Sleeping {sleep_secs:.1f}s until 7 PM IST...")
-            upsert_scanner_health("Pledge Worker", "IDLE", today_alerts=0, error_msg="Outside active window (7 PM - 7 AM IST)")
-            time.sleep(sleep_secs)
-            continue
+
 
         try:
             symbols_set = set()
@@ -140,8 +123,8 @@ def worker_loop():
             total_watch = len(symbols)
             logger.info(f"📋 Loaded {watchlist_count} (watchlist) + {excluded_count} (excluded) = {total_watch} total symbols")
             
-            # 2. Check DB for stale pledges (refresh every 60-90 days = 2-3 months)
-            # This ensures data freshness while not overloading the API
+            # 2. Check DB for stale pledges (refresh every 28 days = ~1 month)
+            # This ensures data freshness while not overloading the API and syncing with Live Scanner
             stale_symbols = []
             with get_connection() as conn:
                 with conn.cursor() as cur:
@@ -150,7 +133,7 @@ def worker_loop():
                             SELECT updated_at 
                             FROM promoter_pledge_cache 
                             WHERE symbol = %s 
-                              AND updated_at >= NOW() - INTERVAL '75 days'
+                              AND updated_at >= NOW() - INTERVAL '28 days'
                         """, (sym,))
                         if not cur.fetchone():
                             stale_symbols.append(sym)
@@ -158,8 +141,8 @@ def worker_loop():
             processed_base = total_watch - len(stale_symbols)
 
             if not stale_symbols:
-                sleep_secs = wait_until_next_window()
-                logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs:.1f}s until tomorrow 7 PM IST...")
+                sleep_secs = 3600 # Check every hour
+                logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
                 upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, error_msg=f"All processed | Total: {total_watch}")
                 time.sleep(sleep_secs)
                 continue
@@ -226,9 +209,9 @@ def worker_loop():
                             with conn.cursor() as cur:
                                 cur.execute("""
                                     INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                    VALUES (%s, %s, NOW() - INTERVAL '74 days')
+                                    VALUES (%s, %s, NOW() - INTERVAL '27 days')
                                     ON CONFLICT (symbol) DO UPDATE 
-                                    SET updated_at = NOW() - INTERVAL '74 days'
+                                    SET updated_at = NOW() - INTERVAL '27 days'
                                 """, (sym, 0.0))
                                 conn.commit()
                         return True # Don't retry 404s
@@ -273,9 +256,9 @@ def worker_loop():
                                 with conn.cursor() as cur:
                                     cur.execute("""
                                         INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, 0.0, NOW() - INTERVAL '74 days')
+                                        VALUES (%s, 0.0, NOW() - INTERVAL '27 days')
                                         ON CONFLICT (symbol) DO UPDATE 
-                                        SET updated_at = NOW() - INTERVAL '74 days'
+                                        SET updated_at = NOW() - INTERVAL '27 days'
                                     """, (sym,))
                                     conn.commit()
                             logger.info(f"⚠️ Saved temporary failure negative cache for {sym}")

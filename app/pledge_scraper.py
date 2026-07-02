@@ -4,10 +4,13 @@ import logging
 from bs4 import BeautifulSoup
 import re
 import random
+import json
+from datetime import datetime
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt, wait_exponential
 from database import get_connection, init_db
 from data_fetch_status import mark_success, mark_failure
+from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +36,36 @@ def get_scraper_api_key() -> str:
     keys = [k.strip() for k in keys_str.split(',') if k.strip()]
     return random.choice(keys) if keys else ""
 
+def _get_fail_file():
+    return os.path.join(DATA_DIR, "pledge_failures.json")
+
+def _is_failed_today(symbol: str) -> bool:
+    try:
+        fail_file = _get_fail_file()
+        if not os.path.exists(fail_file): return False
+        with open(fail_file, 'r') as f:
+            data = json.load(f)
+        today = datetime.now().strftime("%Y-%m-%d")
+        return data.get(symbol) == today
+    except Exception:
+        return False
+
+def _mark_failed_today(symbol: str):
+    try:
+        fail_file = _get_fail_file()
+        data = {}
+        if os.path.exists(fail_file):
+            with open(fail_file, 'r') as f:
+                data = json.load(f)
+        today = datetime.now().strftime("%Y-%m-%d")
+        data[symbol] = today
+        # Clean up old entries to prevent file from growing indefinitely
+        data = {k: v for k, v in data.items() if v == today}
+        with open(fail_file, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.debug(f"Failed to write pledge failure cache: {e}")
+
 @lru_cache(maxsize=5000)
 def fetch_promoter_pledge(symbol: str):
     """
@@ -41,6 +74,10 @@ def fetch_promoter_pledge(symbol: str):
     Makes ONE quick fallback attempt if cache is missing.
     """
     init_db()
+
+    # 0. Check Daily Negative Cache
+    if _is_failed_today(symbol):
+        return 0.0
 
     # 1. Check DB Cache
     try:
@@ -90,9 +127,19 @@ def fetch_promoter_pledge(symbol: str):
                 mark_success('scraperapi')
             except Exception:
                 pass
-        else:
+            
+            if pledge_val is None:
+                _mark_failed_today(symbol)
+                
+        elif res.status_code == 404:
             try:
                 mark_failure('scraperapi', f'Fast fetch 404/Failed for {symbol} URL={target_url}')
+            except Exception:
+                pass
+            _mark_failed_today(symbol)
+        else:
+            try:
+                mark_failure('scraperapi', f'HTTP {res.status_code} for {symbol} URL={target_url}')
             except Exception:
                 pass
     except Exception as e:
@@ -104,4 +151,6 @@ def fetch_promoter_pledge(symbol: str):
 
     # We DO NOT save to the database here. 
     # That is the sole responsibility of pledge_worker.py to prevent race conditions.
+    if pledge_val is None:
+        return 0.0
     return pledge_val
