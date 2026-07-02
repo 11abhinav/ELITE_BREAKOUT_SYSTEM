@@ -915,16 +915,20 @@ def _run_wealth_scan_wrapper():
             rs = r.get("rs_6m", 0) or 0
             sym = r.get("Stock")
             used_fallback = r.get("used_fallback_data", False)
+            
             # 1. Exit Logic & Catastrophic Breakdown (Highest Precedence)
-            hold_trend = r.get("hold_trend", "Stable")
-            if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
-                return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": hold_trend})
-            if hold_score < 45:
-                return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": f"Hold Score: {hold_score}/100"})
-            if rs < -40:
-                return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic RS Breakdown"})
-            if sma > 0 and cmp > 0 and cmp < (0.75 * sma):
-                return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic Trend Collapse"})
+            # CRITICAL FIX: Only evaluate exits if we have valid or stale data. If completely missing, ignore.
+            data_quality = r.get("data_quality")
+            if cmp > 0 and data_quality != "MISSING_PARTIAL":
+                hold_trend = r.get("hold_trend", "Stable")
+                if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
+                    return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": hold_trend})
+                if hold_score < 45:
+                    return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": f"Hold Score: {hold_score}/100"})
+                if rs < -40:
+                    return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic RS Breakdown"})
+                if sma > 0 and cmp < (0.75 * sma):
+                    return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic Trend Collapse"})
                 
             # 2. Check for Tax-Loss Harvesting signal (HOLD overrides BUY/neutral)
             if sym in portfolio_dict:

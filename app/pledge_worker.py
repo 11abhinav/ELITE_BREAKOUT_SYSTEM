@@ -174,14 +174,45 @@ def worker_loop():
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
                 
+                brightdata_url = os.getenv("BRIGHTDATA_URL", "")
                 api_key = get_scraper_api_key()
-                if not api_key:
-                    logger.error(f"❌ SCRAPERAPI_KEY exhausted or missing during processing {sym}")
+                
+                if not brightdata_url and not api_key:
+                    logger.error(f"❌ Both BrightData and SCRAPERAPI_KEY exhausted or missing during processing {sym}")
                     return "QUOTA_EXHAUSTED"
                     
-                payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
+                res = None
+                
+                # 1. Try Bright Data first (if available)
+                if brightdata_url:
+                    proxies = {"http": brightdata_url, "https": brightdata_url}
+                    try:
+                        # Disable warnings for unverified HTTPS requests when using BrightData proxy
+                        import urllib3
+                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                        res = requests.get(target_url, proxies=proxies, verify=False, timeout=45)
+                    except Exception as e:
+                        logger.warning(f"BrightData proxy failed for {sym}: {e}")
+                        res = None
+                
+                # 2. Fallback to Scraper API
+                if not res or res.status_code not in (200, 404):
+                    if api_key:
+                        payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
+                        try:
+                            res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
+                            if res and res.status_code in (401, 403, 429):
+                                logger.warning(f"❌ HTTP {res.status_code} quota exceeded for ScraperAPI key")
+                                mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
+                                mark_key_exhausted_today(api_key)
+                                return "ERROR"
+                        except Exception as e:
+                            logger.warning(f"ScraperAPI failed for {sym}: {e}")
+                            
+                if not res:
+                    return "ERROR"
+                
                 try:
-                    res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
                     if res.status_code == 200:
                         pledge_val = None
                         import html
@@ -243,11 +274,6 @@ def worker_loop():
                                 """, (sym, 0.0))
                                 conn.commit()
                         return "404"
-                    elif res.status_code in (401, 403, 429):
-                        logger.warning(f"❌ HTTP {res.status_code} quota exceeded for key")
-                        mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
-                        mark_key_exhausted_today(api_key)
-                        return "ERROR"
                     else:
                         logger.warning(f"❌ HTTP {res.status_code} for {sym}")
                         mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")

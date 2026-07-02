@@ -748,7 +748,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                     exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
                     
             # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
-            if not exit_triggered and fund:
+            # Skip if we hit a rate limit and only have fallback data
+            is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
+            
+            if not exit_triggered and fund and not is_fallback:
                 if cqs < 15.0:
                     exit_triggered = True
                     exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
