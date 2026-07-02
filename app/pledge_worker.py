@@ -303,6 +303,12 @@ def worker_loop():
             error_count = 0
             total_stale = len(stale_symbols)
             
+            try:
+                public_ip = requests.get("https://api.ipify.org", timeout=10).text
+                logger.info(f"🌐 Railway Server Public IP Address: {public_ip} (Whitelist this in Bright Data!)")
+            except Exception as e:
+                pass
+            
             for i, sym in enumerate(stale_symbols):
                 status_res = process_symbol(sym, i+1)
                 
