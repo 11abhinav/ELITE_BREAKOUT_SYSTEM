@@ -171,8 +171,8 @@ def worker_loop():
                 
                 api_key = get_scraper_api_key()
                 if not api_key:
-                    logger.error(f"❌ SCRAPERAPI_KEY not found during processing {sym}")
-                    return False
+                    logger.error(f"❌ SCRAPERAPI_KEY exhausted or missing during processing {sym}")
+                    return "QUOTA_EXHAUSTED"
                     
                 payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
                 try:
@@ -264,6 +264,10 @@ def worker_loop():
             for i, sym in enumerate(stale_symbols):
                 status_res = process_symbol(sym, i+1)
                 
+                if status_res == "QUOTA_EXHAUSTED":
+                    logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for today.")
+                    break
+                    
                 if status_res == "FOUND": found_count += 1
                 elif status_res == "MISSING": missing_count += 1
                 elif status_res == "404": fail_404_count += 1
@@ -290,6 +294,10 @@ def worker_loop():
                 time.sleep(10) # Brief pause before retries
                 for sym in failed_queue:
                     status_res = process_symbol(sym, 0, is_retry=True)
+                    if status_res == "QUOTA_EXHAUSTED":
+                        logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for today.")
+                        break
+                    
                     if status_res != "ERROR":
                         successful_in_first_pass += 1
                     else:

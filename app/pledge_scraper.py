@@ -27,8 +27,8 @@ def get_scraper_api_key() -> str:
         if not _is_key_exhausted_today(k):
             return k
             
-    # If all are exhausted, just fallback to the first one
-    return keys[0] if keys else ""
+    # If all are exhausted, return empty string so the worker knows to stop
+    return ""
 
 def _get_exhausted_keys_file():
     return os.path.join(DATA_DIR, "exhausted_keys.json")
