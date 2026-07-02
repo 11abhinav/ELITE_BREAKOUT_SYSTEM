@@ -3,6 +3,7 @@ import requests
 import logging
 from bs4 import BeautifulSoup
 import re
+import random
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt, wait_exponential
 from database import get_connection, init_db
@@ -23,6 +24,14 @@ def _fetch_pledge_from_api(api_key: str, target_url: str) -> requests.Response:
         'render': 'false'
     }
     return requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
+
+def get_scraper_api_key() -> str:
+    """Parse comma-separated SCRAPERAPI_KEY env var and return a random one."""
+    keys_str = os.getenv("SCRAPERAPI_KEY", "")
+    if not keys_str:
+        return ""
+    keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+    return random.choice(keys) if keys else ""
 
 @lru_cache(maxsize=5000)
 def fetch_promoter_pledge(symbol: str):
@@ -51,7 +60,7 @@ def fetch_promoter_pledge(symbol: str):
 
     # 2. Fast Fallback Attempt (One-Time)
     # The pledge_worker will properly resolve broken URLs asynchronously.
-    api_key = os.getenv("SCRAPERAPI_KEY")
+    api_key = get_scraper_api_key()
     if not api_key:
         return 0.0
 

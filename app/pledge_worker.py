@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from database import get_connection, upsert_scanner_health, init_db
 from data_fetch_status import mark_success, mark_failure
 from config import WATCHLIST_PATH
+from pledge_scraper import get_scraper_api_key
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -32,7 +33,7 @@ def wait_until_next_window() -> float:
         target += timedelta(days=1)
     return (target - now).total_seconds()
 
-def discover_trendlyne_url(symbol: str, api_key: str) -> str:
+def discover_trendlyne_url(symbol: str) -> str:
     """Try to find the correct Trendlyne URL dynamically."""
     clean_symbol = symbol.replace('.NS', '')
     
@@ -45,6 +46,10 @@ def discover_trendlyne_url(symbol: str, api_key: str) -> str:
         
     fast_url = f"https://trendlyne.com/stock/{clean_symbol}/"
     
+    api_key = get_scraper_api_key()
+    if not api_key:
+        return fast_url
+
     # 1. Attempt fast HEAD request
     payload = {'api_key': api_key, 'url': fast_url, 'render': 'false'}
     try:
@@ -81,8 +86,7 @@ def worker_loop():
     logger.info("🚀 Starting Pledge Worker Daemon")
     init_db()
     
-    api_key = os.getenv("SCRAPERAPI_KEY")
-    if not api_key:
+    if not get_scraper_api_key():
         logger.error("❌ SCRAPERAPI_KEY not found. Exiting.")
         return
 
@@ -165,10 +169,15 @@ def worker_loop():
             
             def process_symbol(sym, i_total, is_retry=False):
                 """Returns True if successful or definitive failure (like 404), False if should retry."""
-                target_url = discover_trendlyne_url(sym, api_key)
+                target_url = discover_trendlyne_url(sym)
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
                 
+                api_key = get_scraper_api_key()
+                if not api_key:
+                    logger.error(f"❌ SCRAPERAPI_KEY not found during processing {sym}")
+                    return False
+                    
                 payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
                 try:
                     res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
