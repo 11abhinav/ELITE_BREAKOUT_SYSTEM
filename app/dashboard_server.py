@@ -1601,12 +1601,12 @@ def api_scanner_status():
                 if sc in ("AI Worker", "Pledge Worker"):
                     # Compute total watchlist size (included + excluded)
                     import pandas as pd
-                    total_needed = 0
+                    symbols_set = set()
                     from config import DATA_DIR
                     try:
                         parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
                         if os.path.exists(parquet_path):
-                            total_needed += pd.read_parquet(parquet_path)['Stock'].dropna().shape[0]
+                            symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
                     except Exception:
                         pass
                     
@@ -1618,9 +1618,17 @@ def api_scanner_status():
                             if os.path.exists(f):
                                 dfw = pd.read_csv(f)
                                 if 'Stock' in dfw.columns:
-                                    total_needed += dfw['Stock'].dropna().shape[0]
+                                    symbols_set.update(dfw['Stock'].dropna().tolist())
                         except Exception:
                             pass
+                    
+                    try:
+                        from multibagger import fetch_constituents
+                        symbols_set.update(fetch_constituents())
+                    except Exception:
+                        pass
+                    
+                    total_needed = len(symbols_set)
                     from database import get_ai_concall_stats, get_promoter_pledge_stats
                     if sc == 'AI Worker':
                         stats = get_ai_concall_stats()
