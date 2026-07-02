@@ -2414,12 +2414,21 @@
           let dismissBtn = "";
           
           if (data.total_count != null) {
-              alertLabel = "Alerts / Scanned";
-              const proc = data.processed_count != null ? data.processed_count : data.today_alerts;
-              alertHtml = `
+              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED') {
+                  alertLabel = "Watchlist / Scanned";
+                  const proc = data.processed_count != null ? data.processed_count : data.today_alerts;
+                  alertHtml = `
         <div class="scanner-alert-count ${proc === 0 ? 'zero' : ''}" style="display:flex; align-items:baseline; gap:4px;">
           ${proc} <span style="font-size:13px;color:var(--muted);font-weight:400">/ ${data.total_count}</span>
         </div>`;
+              } else {
+                  alertLabel = "Alerts / Scanned";
+                  const alerts = data.today_alerts || 0;
+                  alertHtml = `
+        <div class="scanner-alert-count ${alerts === 0 ? 'zero' : ''}" style="display:flex; align-items:baseline; gap:4px;">
+          ${alerts} <span style="font-size:13px;color:var(--muted);font-weight:400">/ ${data.total_count}</span>
+        </div>`;
+              }
           }
 
           // CRITICAL ERROR: Show warning with dismiss button
