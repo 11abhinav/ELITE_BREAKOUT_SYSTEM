@@ -151,7 +151,7 @@ def worker_loop():
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, error_msg=f"Last: Starting... | Total: {total_watch}")
             
             def process_symbol(sym, i_total, is_retry=False):
-                """Returns True if successful or definitive failure (like 404), False if should retry."""
+                """Returns 'FOUND', 'MISSING', '404', or 'ERROR'."""
                 target_url = discover_trendlyne_url(sym)
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
@@ -200,7 +200,7 @@ def worker_loop():
                                     """, (sym,))
                                     conn.commit()
                         mark_success('scraperapi')
-                        return True
+                        return "FOUND" if pledge_val is not None else "MISSING"
                     elif res.status_code == 404:
                         logger.warning(f"❌ 404 Not Found for {sym} at {target_url}")
                         mark_failure('scraperapi', f"404 Not Found: {target_url}")
@@ -214,25 +214,41 @@ def worker_loop():
                                     SET updated_at = NOW() - INTERVAL '27 days'
                                 """, (sym, 0.0))
                                 conn.commit()
-                        return True # Don't retry 404s
+                        return "404"
                     else:
                         logger.warning(f"❌ HTTP {res.status_code} for {sym}")
                         mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
-                        return False
+                        return "ERROR"
                 except Exception as e:
                     logger.exception(f"Exception scraping {sym}: {e}")
                     mark_failure('scraperapi', str(e))
-                    return False
+                    return "ERROR"
 
             failed_queue = []
             successful_in_first_pass = 0
             
+            found_count = 0
+            missing_count = 0
+            fail_404_count = 0
+            error_count = 0
+            total_stale = len(stale_symbols)
+            
             for i, sym in enumerate(stale_symbols):
-                success = process_symbol(sym, i+1)
-                if success:
+                status_res = process_symbol(sym, i+1)
+                
+                if status_res == "FOUND": found_count += 1
+                elif status_res == "MISSING": missing_count += 1
+                elif status_res == "404": fail_404_count += 1
+                else: error_count += 1
+                
+                if status_res != "ERROR":
                     successful_in_first_pass += 1
                 else:
                     failed_queue.append(sym)
+                    
+                processed = i + 1
+                pending = total_stale - processed
+                logger.info(f"📊 PROGRESS: {processed}/{total_stale} Processed | {pending} Pending to fetch | {found_count} Found | {missing_count} Missing | {fail_404_count} Not Found (404) | {error_count} Errors")
                     
                 # Update health with processed count
                 now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -245,8 +261,8 @@ def worker_loop():
                 logger.info(f"Retrying {len(failed_queue)} failed symbols...")
                 time.sleep(10) # Brief pause before retries
                 for sym in failed_queue:
-                    success = process_symbol(sym, 0, is_retry=True)
-                    if success:
+                    status_res = process_symbol(sym, 0, is_retry=True)
+                    if status_res != "ERROR":
                         successful_in_first_pass += 1
                     else:
                         final_error_count += 1
