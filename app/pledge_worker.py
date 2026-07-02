@@ -302,6 +302,7 @@ def worker_loop():
             fail_404_count = 0
             error_count = 0
             total_stale = len(stale_symbols)
+            quota_exhausted = False
             
             try:
                 public_ip = requests.get("https://api.ipify.org", timeout=10).text
@@ -313,7 +314,8 @@ def worker_loop():
                 status_res = process_symbol(sym, i+1)
                 
                 if status_res == "QUOTA_EXHAUSTED":
-                    logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for today.")
+                    logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for now.")
+                    quota_exhausted = True
                     break
                     
                 if status_res == "FOUND": found_count += 1
