@@ -92,9 +92,15 @@ def discover_trendlyne_url(symbol: str) -> str:
                 href = a['href']
                 # Check if it looks like a trendlyne equity link and contains the symbol
                 if "trendlyne.com/equity/" in href and clean_symbol.upper() in href.upper():
-                    # Extract from google redirect format
                     actual_url = href.split("q=")[-1].split("&")[0] if "/url?q=" in href else href
                     if actual_url.startswith("https://trendlyne.com"):
+                        # If Google returns a sub-page (e.g. /equity/asm-status/1415/... or /equity/financials/...) 
+                        # We must strip out the sub-page path to hit the main equity page where the pledge text lives.
+                        import re
+                        m = re.search(r'(https://trendlyne\.com/equity/)(?:[a-z\-]+/)?(\d+/[^/]+/[^/]+/?)', actual_url)
+                        if m:
+                            actual_url = m.group(1) + m.group(2)
+                            
                         logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
                         return actual_url
     except Exception as e:
