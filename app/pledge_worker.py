@@ -76,14 +76,19 @@ def worker_loop():
     logger.info("🚀 Starting Pledge Worker Daemon")
     init_db()
     
-    if not get_scraper_api_key():
-        logger.error("❌ SCRAPERAPI_KEY not found. Exiting.")
+    if not os.getenv("SCRAPERAPI_KEY"):
+        logger.error("❌ SCRAPERAPI_KEY env var not set. Exiting.")
         return
 
     while True:
 
 
         try:
+            if not get_scraper_api_key():
+                logger.warning("🚨 All API keys are exhausted. Pausing scraping daemon for 1 hour.")
+                time.sleep(3600)
+                continue
+                
             symbols_set = set()
             watchlist_count = 0
             if os.path.exists(WATCHLIST_PATH):
