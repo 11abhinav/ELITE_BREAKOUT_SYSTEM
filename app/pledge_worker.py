@@ -391,9 +391,10 @@ def worker_loop():
             upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=current_processed, error_msg=err_msg)
             
             if quota_exhausted:
-                logger.info("⏳ Quota exhausted or BrightData blocked. Sleeping for 60 seconds before retrying... (Add the IP above to Bright Data!)")
-                time.sleep(60)
-                logger.info("⏰ Woke up from 60s sleep! Retrying scraper loop now...")
+                logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")
+                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), error_msg="Quota Exhausted - Waiting 1h")
+                time.sleep(3600)
+                logger.info("⏰ Woke up from 1-hour sleep! Retrying scraper loop now...")
                 continue
                 
             # Sleep for 5 minutes before rechecking (allows watchlist updates)
