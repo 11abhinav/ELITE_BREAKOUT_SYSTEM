@@ -1657,9 +1657,6 @@ def api_scanner_status():
                         for t in today_trades
                     ],
                 }
-            # Merge extras if present
-            if extra:
-                result[sc].update(extra)
         return jsonify(serialize_datetimes(result))
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
