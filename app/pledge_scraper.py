@@ -14,27 +14,7 @@ from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=5),
-    reraise=True
-)
-def _fetch_pledge_from_api(target_url: str) -> requests.Response:
-    """Fetch pledge data from ScraperAPI with retry logic."""
-    api_key = get_scraper_api_key()
-    if not api_key:
-        raise ValueError("No SCRAPERAPI_KEY available")
-        
-    payload = {
-        'api_key': api_key,
-        'url': target_url,
-        'render': 'false'
-    }
-    res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
-    if res.status_code in (401, 403, 429):
-        mark_key_exhausted_today(api_key)
-        res.raise_for_status() # Force tenacity to retry, which will fetch the next available key
-    return res
+
 
 def get_scraper_api_key() -> str:
     """Parse comma-separated SCRAPERAPI_KEY env var and return the first non-exhausted one."""
@@ -138,62 +118,7 @@ def fetch_promoter_pledge(symbol: str):
     except Exception as e:
         logger.warning(f"Database error checking pledge cache for {symbol}: {e}")
 
-    # 2. Fast Fallback Attempt (One-Time)
-    # The pledge_worker will properly resolve broken URLs asynchronously.
-    api_key = get_scraper_api_key()
-    if not api_key:
-        return 0.0
-
-    fallback_urls = {
-        'HINDCOPPER': 'https://trendlyne.com/equity/551/HINDCOPPER/hindustan-copper-ltd/'
-    }
-    
-    target_url = fallback_urls.get(symbol, f"https://trendlyne.com/stock/{symbol}/")
-    
-    pledge_val = None
-    try:
-        # Use retry-decorated API call for robustness
-        res = _fetch_pledge_from_api(target_url)
-        if res.status_code == 200:
-            match = re.search(r'pledge[^\d]{1,30}?(\d+\.?\d*)\s*%', res.text, re.IGNORECASE)
-            if match:
-                pledge_val = float(match.group(1))
-            else:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                for div in soup.find_all(['div', 'span', 'td']):
-                    if 'pledge' in div.text.lower() and '%' in div.text:
-                        m = re.search(r'(\d+\.?\d*)\s*%', div.text)
-                        if m:
-                            pledge_val = float(m.group(1))
-                            break
-            try:
-                mark_success('scraperapi')
-            except Exception:
-                pass
-            
-            if pledge_val is None:
-                _mark_failed_today(symbol)
-                
-        elif res.status_code == 404:
-            try:
-                mark_failure('scraperapi', f'Fast fetch 404/Failed for {symbol} URL={target_url}')
-            except Exception:
-                pass
-            _mark_failed_today(symbol)
-        else:
-            try:
-                mark_failure('scraperapi', f'HTTP {res.status_code} for {symbol} URL={target_url}')
-            except Exception:
-                pass
-    except Exception as e:
-        logger.debug(f"Fast pledge fetch failed for {symbol}: {e}")
-        try:
-            mark_failure('scraperapi', f"Fast fetch Exception: {e} URL={target_url}")
-        except Exception:
-            pass
-
-    # We DO NOT save to the database here. 
-    # That is the sole responsibility of pledge_worker.py to prevent race conditions.
-    if pledge_val is None:
-        return 0.0
-    return pledge_val
+    # 2. Return 0.0 if not in database
+    # We DO NOT fallback to hitting the API synchronously because it halts the scanner.
+    # The pledge_worker daemon will pick up the missing stock tonight.
+    return 0.0
