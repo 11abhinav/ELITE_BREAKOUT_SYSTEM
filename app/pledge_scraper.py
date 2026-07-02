@@ -19,22 +19,65 @@ logger = logging.getLogger(__name__)
     wait=wait_exponential(multiplier=1, min=1, max=5),
     reraise=True
 )
-def _fetch_pledge_from_api(api_key: str, target_url: str) -> requests.Response:
+def _fetch_pledge_from_api(target_url: str) -> requests.Response:
     """Fetch pledge data from ScraperAPI with retry logic."""
+    api_key = get_scraper_api_key()
+    if not api_key:
+        raise ValueError("No SCRAPERAPI_KEY available")
+        
     payload = {
         'api_key': api_key,
         'url': target_url,
         'render': 'false'
     }
-    return requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
+    res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
+    if res.status_code in (401, 403, 429):
+        mark_key_exhausted_today(api_key)
+        res.raise_for_status() # Force tenacity to retry, which will fetch the next available key
+    return res
 
 def get_scraper_api_key() -> str:
-    """Parse comma-separated SCRAPERAPI_KEY env var and return a random one."""
+    """Parse comma-separated SCRAPERAPI_KEY env var and return the first non-exhausted one."""
     keys_str = os.getenv("SCRAPERAPI_KEY", "")
     if not keys_str:
         return ""
     keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-    return random.choice(keys) if keys else ""
+    
+    for k in keys:
+        if not _is_key_exhausted_today(k):
+            return k
+            
+    # If all are exhausted, just fallback to the first one
+    return keys[0] if keys else ""
+
+def _get_exhausted_keys_file():
+    return os.path.join(DATA_DIR, "exhausted_keys.json")
+
+def _is_key_exhausted_today(key: str) -> bool:
+    try:
+        fpath = _get_exhausted_keys_file()
+        if not os.path.exists(fpath): return False
+        with open(fpath, 'r') as f:
+            data = json.load(f)
+        today = datetime.now().strftime("%Y-%m-%d")
+        return data.get(key) == today
+    except Exception:
+        return False
+
+def mark_key_exhausted_today(key: str):
+    try:
+        fpath = _get_exhausted_keys_file()
+        data = {}
+        if os.path.exists(fpath):
+            with open(fpath, 'r') as f:
+                data = json.load(f)
+        today = datetime.now().strftime("%Y-%m-%d")
+        data[key] = today
+        data = {k: v for k, v in data.items() if v == today}
+        with open(fpath, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.debug(f"Failed to write exhausted keys cache: {e}")
 
 def _get_fail_file():
     return os.path.join(DATA_DIR, "pledge_failures.json")
@@ -110,7 +153,7 @@ def fetch_promoter_pledge(symbol: str):
     pledge_val = None
     try:
         # Use retry-decorated API call for robustness
-        res = _fetch_pledge_from_api(api_key, target_url)
+        res = _fetch_pledge_from_api(target_url)
         if res.status_code == 200:
             match = re.search(r'pledge[^\d]{1,30}?(\d+\.?\d*)\s*%', res.text, re.IGNORECASE)
             if match:

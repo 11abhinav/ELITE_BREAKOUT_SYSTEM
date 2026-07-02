@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from database import get_connection, upsert_scanner_health, init_db
 from data_fetch_status import mark_success, mark_failure
 from config import WATCHLIST_PATH
-from pledge_scraper import get_scraper_api_key
+from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -215,6 +215,11 @@ def worker_loop():
                                 """, (sym, 0.0))
                                 conn.commit()
                         return "404"
+                    elif res.status_code in (401, 403, 429):
+                        logger.warning(f"❌ HTTP {res.status_code} quota exceeded for key")
+                        mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
+                        mark_key_exhausted_today(api_key)
+                        return "ERROR"
                     else:
                         logger.warning(f"❌ HTTP {res.status_code} for {sym}")
                         mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
