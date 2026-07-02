@@ -345,7 +345,8 @@ def worker_loop():
                 for sym in failed_queue:
                     status_res = process_symbol(sym, 0, is_retry=True)
                     if status_res == "QUOTA_EXHAUSTED":
-                        logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for today.")
+                        logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for now.")
+                        quota_exhausted = True
                         break
                     
                     if status_res != "ERROR":
