@@ -1603,9 +1603,16 @@ def api_scanner_status():
                     import pandas as pd
                     total_needed = 0
                     from config import DATA_DIR
+                    try:
+                        parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
+                        if os.path.exists(parquet_path):
+                            total_needed += pd.read_parquet(parquet_path)['Stock'].dropna().shape[0]
+                    except Exception:
+                        pass
+                    
                     for f in [
-                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist.csv'),
                         os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
+                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist-excluded.csv'),
                     ]:
                         try:
                             if os.path.exists(f):
