@@ -201,12 +201,12 @@ def worker_loop():
                         brightdata_failed = True
                 
                 # 2. Fallback to Scraper API
-                if not res or brightdata_failed or res.status_code not in (200, 404):
+                if res is None or brightdata_failed or res.status_code not in (200, 404):
                     if api_key:
                         payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
                         try:
                             res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
-                            if res and res.status_code in (401, 403, 429):
+                            if res is not None and res.status_code in (401, 403, 429):
                                 logger.warning(f"❌ HTTP {res.status_code} quota exceeded for ScraperAPI key")
                                 mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
                                 mark_key_exhausted_today(api_key)
@@ -219,7 +219,7 @@ def worker_loop():
                             logger.error(f"🚨 Both BrightData (failed) and SCRAPERAPI_KEY (exhausted) are unavailable. Stopping.")
                             return "QUOTA_EXHAUSTED"
                             
-                if not res:
+                if res is None:
                     logger.error(f"❌ No valid response received for {sym}")
                     return "ERROR"
                 
