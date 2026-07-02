@@ -1597,8 +1597,6 @@ def api_scanner_status():
                     pass
 
             # Enrich AI/Pledge workers with progress metrics
-            # Enrich AI/Pledge workers with progress metrics
-            extra = {}
             try:
                 if sc in ("AI Worker", "Pledge Worker"):
                     # Compute total watchlist size (included + excluded)
@@ -1621,12 +1619,13 @@ def api_scanner_status():
                         stats = get_ai_concall_stats()
                     else:
                         stats = get_promoter_pledge_stats()
-                    extra = {
-                        'progress': stats.get('total_cached', 0),
-                        'total_needed': total_needed,
-                        'last_processed_symbol': stats.get('last_symbol'),
-                        'last_processed_at': stats.get('last_updated')
-                    }
+                    
+                    row["total_count"] = total_needed
+                    row["processed_count"] = stats.get('total_cached', 0)
+                    
+                    if stats.get('last_symbol'):
+                        if not row.get("error_msg") or row["error_msg"] == "system healthy":
+                            row["error_msg"] = f"Last processed: {stats['last_symbol']}"
             except Exception:
                 logger.exception('Failed to compute worker progress metrics')
     

@@ -1811,17 +1811,6 @@
             <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading errors...</div>
           </div>
 
-          <!-- PLEDGE WORKER CONTROL -->
-          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>Pledge Worker Control</span>
-            <div style="font-size:12px; color:var(--muted);" id="pledgeWorkerModeDisplay">Loading mode...</div>
-          </div>
-          <div class="card" style="margin-bottom:28px; display:flex; gap:12px; flex-wrap:wrap;">
-            <button class="btn btn-outline" onclick="setPledgeWorkerMode('auto')" style="border-color:var(--accent); color:var(--accent);">⏱️ Resume Auto-Schedule (6 AM - 8 AM)</button>
-            <button class="btn btn-outline" onclick="setPledgeWorkerMode('manual_start')" style="border-color:#b266ff; color:#b266ff;">🚀 Force Start Now</button>
-            <button class="btn btn-outline" onclick="setPledgeWorkerMode('manual_stop')" style="border-color:var(--warn); color:var(--warn);">🛑 Stop Completely</button>
-          </div>
-
           <!-- API HEALTH PANEL -->
           <div id="apiHealthContainer" style="margin-bottom:20px;"></div>
 
@@ -2457,8 +2446,8 @@
           let dismissBtn = "";
           
           if (data.total_count != null) {
-              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED') {
-                  alertLabel = "Watchlist / Scanned";
+              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED' || sc === 'Pledge Worker' || sc === 'AI Worker') {
+                  alertLabel = "Processed / Watchlist";
                   const proc = data.processed_count != null ? data.processed_count : data.today_alerts;
                   alertHtml = `
         <div class="scanner-alert-count ${proc === 0 ? 'zero' : ''}" style="display:flex; align-items:baseline; gap:4px;">
@@ -2492,18 +2481,6 @@
             <div class="sat-empty" style="color:#ff4d6d; text-align:left; white-space:pre-wrap; cursor:pointer;" onclick="alert('Error: ' + '${(data.error || '').replace(/'/g, "\\'")}')">${data.error}</div>
           </div>` : '';
             }
-          } else if (isProgressWorker) {
-            // Prefer structured progress fields from the server
-            const prog = data.progress != null ? data.progress : (data.today_alerts || 0);
-            const totalNeeded = data.total_needed != null ? data.total_needed : '—';
-            const lastSym = data.last_processed_symbol || data.last_processed || '';
-            alertLabel = "Processed";
-            alertHtml = `
-        <div class="scanner-alert-count" style="color: #6366f1;">
-          ${prog} <span style="font-size:13px;color:var(--muted);font-weight:400">/ ${totalNeeded}</span>
-        </div>`;
-            alertSub = lastSym ? `${lastSym}` : "Stocks cached";
-            tooltipHtml = '';
           } else if (isApi) {
             const fails = data.today_alerts;
             alertLabel = "Failures";
@@ -2518,6 +2495,13 @@
           let triggerBtnHtml = '';
           if (ALLOWED_SCANNERS.includes(sc)) {
             triggerBtnHtml = `<button onclick="triggerScanner(event, '${sc}')" style="margin-left: 8px; background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.1)'; this.style.color='var(--accent)';">▶ Run Now</button>`;
+          } else if (sc === 'Pledge Worker') {
+            triggerBtnHtml = `
+              <div style="display:flex; gap:4px; margin-left:8px;">
+                <button onclick="event.stopPropagation(); setPledgeWorkerMode('manual_start')" style="background: rgba(178,102,255,0.1); color: #b266ff; border: 1px solid #b266ff; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Force Start">▶</button>
+                <button onclick="event.stopPropagation(); setPledgeWorkerMode('manual_stop')" style="background: rgba(255,77,109,0.1); color: var(--warn); border: 1px solid var(--warn); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Stop">🛑</button>
+                <button onclick="event.stopPropagation(); setPledgeWorkerMode('auto')" style="background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Auto (6-8AM)">⏱️</button>
+              </div>`;
           }
 
           el.innerHTML += `

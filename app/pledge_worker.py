@@ -7,8 +7,6 @@ from bs4 import BeautifulSoup
 from functools import lru_cache
 import pandas as pd
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
 import json
 from database import get_connection, upsert_scanner_health, init_db
 from data_fetch_status import mark_success, mark_failure
@@ -45,6 +43,14 @@ def set_worker_mode(mode: str):
             json.dump({"mode": mode}, f)
     except Exception as e:
         logger.error(f"Failed to set worker mode: {e}")
+
+def sleep_with_mode_check(seconds: int):
+    """Sleep for X seconds, but wake up immediately if mode changes to manual_start."""
+    end_time = time.time() + seconds
+    while time.time() < end_time:
+        if get_worker_mode() == 'manual_start':
+            return
+        time.sleep(5)
 
 def discover_trendlyne_url(symbol: str) -> str:
     """Try to find the correct Trendlyne URL dynamically."""
@@ -110,13 +116,13 @@ def worker_loop():
         
         if mode == 'manual_stop':
             upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=0, error_msg="Stopped by Admin")
-            time.sleep(60)
+            sleep_with_mode_check(60)
             continue
             
         if mode == 'auto':
             if not (6 <= now.hour < 8):
                 upsert_scanner_health("Pledge Worker", "WAITING", last_success=now.isoformat(), today_alerts=0, error_msg="Waiting for 06:00 - 08:00 IST Window")
-                time.sleep(300)
+                sleep_with_mode_check(300)
                 continue
 
         try:
@@ -202,7 +208,7 @@ def worker_loop():
                 sleep_secs = 3600 # Check every hour
                 logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
                 upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, error_msg=f"All processed | Total: {total_watch}")
-                time.sleep(sleep_secs)
+                sleep_with_mode_check(sleep_secs)
                 logger.info("⏰ Woke up from daily sleep! Starting fresh scan...")
                 continue
                 
