@@ -163,6 +163,7 @@ def worker_loop():
                 logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
                 upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, error_msg=f"All processed | Total: {total_watch}")
                 time.sleep(sleep_secs)
+                logger.info("⏰ Woke up from daily sleep! Starting fresh scan...")
                 continue
                 
             logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
@@ -389,6 +390,12 @@ def worker_loop():
             
             upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=current_processed, error_msg=err_msg)
             
+            if quota_exhausted:
+                logger.info("⏳ Quota exhausted or BrightData blocked. Sleeping for 60 seconds before retrying... (Add the IP above to Bright Data!)")
+                time.sleep(60)
+                logger.info("⏰ Woke up from 60s sleep! Retrying scraper loop now...")
+                continue
+                
             # Sleep for 5 minutes before rechecking (allows watchlist updates)
             time.sleep(300)
             
