@@ -115,14 +115,26 @@ def worker_loop():
             if excluded_count == 0:
                 logger.warning("⚠️ No excluded stocks loaded — will only process watchlist")
 
+            
+            constituents_count = 0
+            try:
+                from multibagger import fetch_constituents
+                idx_symbols = fetch_constituents()
+                if idx_symbols:
+                    symbols_set.update(idx_symbols)
+                    constituents_count = len(idx_symbols)
+                    logger.info(f"📋 Loaded {constituents_count} stocks from NSE constituents.")
+            except Exception as e:
+                logger.warning(f"Could not fetch NSE constituents: {e}")
+
             if not symbols_set:
-                logger.warning(f"No symbols found in watchlist or excluded list. Sleeping 60s...")
+                logger.warning(f"No symbols found in watchlist, excluded list, or constituents. Sleeping 60s...")
                 time.sleep(60)
                 continue
                 
             symbols = sorted(list(symbols_set))
             total_watch = len(symbols)
-            logger.info(f"📋 Loaded {watchlist_count} (watchlist) + {excluded_count} (excluded) = {total_watch} total symbols")
+            logger.info(f"📋 Loaded {watchlist_count} (watchlist) + {excluded_count} (excluded) + {constituents_count} (constituents) = {total_watch} unique symbols")
             
             # 2. Check DB for stale pledges (refresh every 28 days = ~1 month)
             # This ensures data freshness while not overloading the API and syncing with Live Scanner
