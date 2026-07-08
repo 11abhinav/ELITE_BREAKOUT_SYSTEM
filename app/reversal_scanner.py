@@ -142,7 +142,8 @@ def _score_reversal(
         elif pct_below_sma200 <= 20.0: score += 3
         # > 20% below SMA200: no bonus (falling knife territory)
     else:
-        score += 0  # no SMA200 data — neutral
+        # [VERSION: REVERSAL_PATCH_v1.1] Give baseline 7 pts when SMA200 is unavailable (newer stocks) to prevent scoring bucket wipeout
+        score += 7  # baseline points for unavailable SMA200
 
     # ── Volume confirmation (15 pts) ──
     # [FIX 5] REDUCED from 25 → 15. Volume now confirms, it does not drive.
