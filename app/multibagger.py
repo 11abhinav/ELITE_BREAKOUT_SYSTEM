@@ -682,7 +682,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Query only open alerts with breakout_type = 'MULTIBAGGER'
                 cur.execute("""
-                    SELECT id, symbol, alert_price, alert_date
+                    SELECT id, symbol, alert_price
                     FROM wealth_buy_alert 
                     WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER';
                 """)
@@ -699,27 +699,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
             entry_price = float(pos["alert_price"])
             alert_id = pos["id"]
             
-            # ── MINIMUM HOLDING PERIOD GUARD ─────────────────────────────────────
-            # Fundamental exits must NOT trigger within 7 days of entry.
-            # Price-based exits (20% drawdown, 200-DMA breakdown) are still active.
-            holding_days = 0
-            try:
-                from datetime import date
-                alert_date = pos.get("alert_date")
-                if alert_date:
-                    if hasattr(alert_date, 'date'):
-                        alert_date = alert_date.date()
-                    elif isinstance(alert_date, str):
-                        alert_date = date.fromisoformat(alert_date[:10])
-                    holding_days = (date.today() - alert_date).days
-            except Exception:
-                holding_days = 0
-            MIN_HOLD_DAYS = 7
-            fundamental_exit_allowed = holding_days >= MIN_HOLD_DAYS
-            if not fundamental_exit_allowed:
-                logger.info(f"[EXIT MONITOR] {symbol} held for {holding_days}d — fundamental exit suppressed (min {MIN_HOLD_DAYS}d).")
-            # ─────────────────────────────────────────────────────────────────────
-
             price_data = price_data_map.get(symbol)
             if not price_data:
                 continue
@@ -743,8 +722,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                 is_invalid = decision.is_invalidated
                 invalidation_reason = decision.invalidation_reason or ""
             else:
-                cqs = 15.0  # No data — do NOT exit, just note
-                is_invalid = False  # No data != deterioration. Never exit on missing data.
+                # No data available — NEVER exit a position just because Yahoo Finance
+                # returned nothing. Missing data is NOT a sign of deterioration.
+                logger.warning(f"[EXIT MONITOR] {symbol}: no fundamental data available — skipping fundamental exit check.")
+                cqs = 15.0
+                is_invalid = False
                 invalidation_reason = ""
             exit_triggered = False
             exit_reason = ""
@@ -771,22 +753,22 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
                     exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
                     
             # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
-            # Guards:
-            #  - Only trigger if minimum holding period has passed (7 days)
-            #  - Skip if data_freshness is FALLBACK (incomplete data from Yahoo)
-            #  - Skip if invalidation_reason is data-related ("Incomplete Data")
-            #    because a missing field in Yahoo Finance is NOT a real deterioration
+            # CRITICAL RULE: Never exit on missing/incomplete data.
+            # Only exit when we have REAL data confirming genuine deterioration.
+            # - Skip if no fund data at all (handled above: is_invalid=False)
+            # - Skip if data_freshness is FALLBACK (rate-limited, only basic fields)
+            # - Skip if invalidation_reason is data-related ("Incomplete Data")
             is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
             is_data_error_invalidation = "incomplete data" in invalidation_reason.lower() if is_invalid else False
             
-            if not exit_triggered and fund and not is_fallback and fundamental_exit_allowed and not is_data_error_invalidation:
+            if not exit_triggered and fund and not is_fallback and not is_data_error_invalidation:
                 if cqs < 15.0:
                     exit_triggered = True
                     exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
                 elif is_invalid:
                     exit_triggered = True
                     exit_reason = f"Fundamental failure: fails Layer 1 Kill Gates ({invalidation_reason})"
-            elif is_data_error_invalidation and fundamental_exit_allowed:
+            elif is_data_error_invalidation:
                 logger.warning(f"[EXIT MONITOR] {symbol} failed gates due to INCOMPLETE DATA — NOT exiting. Will retry next scan.")
                     
             # Handle triggered exit
