@@ -900,7 +900,7 @@ def _start_wrapper(debug_limit: int = None):
     symbols = fetch_constituents()
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
-        return
+        return {}
         
     if debug_limit:
         logger.info(f"🧪 [DEBUG MODE] Limiting scan universe to {debug_limit} symbols.")
@@ -910,7 +910,7 @@ def _start_wrapper(debug_limit: int = None):
     price_data_map = batch_download_market_data(symbols)
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
-        return
+        return {}
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
@@ -1046,6 +1046,7 @@ def _start_wrapper(debug_limit: int = None):
     log_date = datetime.now().strftime('%Y-%m-%d')
     rejection_log_path = f"logs/rejections_{log_date}.jsonl"
     os.makedirs("logs", exist_ok=True)
+    unverified_pledge_count = 0
     
     for f in fundamentals_list:
         sym = f.get("symbol")
@@ -1070,7 +1071,10 @@ def _start_wrapper(debug_limit: int = None):
                 if pledge_val is not None:
                     # Gate engine expects a ratio (0.0-1.0), not a percentage
                     raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
+                else:
+                    unverified_pledge_count += 1
             except Exception:
+                unverified_pledge_count += 1
                 pass  # Pledge data unavailable — gate defaults to 0.0 (pass)
         
         technicals = {
@@ -1202,7 +1206,9 @@ def _start_wrapper(debug_limit: int = None):
             change_pct=price_data.change_pct
         )
         results.append(res)
-
+        
+    if unverified_pledge_count > 0:
+        logger.warning(f"⚠️ Telemetry: {unverified_pledge_count} stocks passed Kill Gate #2 with UNVERIFIED pledge data (scraper fallback).")
             
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
