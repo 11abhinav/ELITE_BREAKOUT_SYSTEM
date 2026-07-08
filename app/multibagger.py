@@ -1178,20 +1178,23 @@ def _start_wrapper(debug_limit: int = None):
                     momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
                 )
                 
-                # Group only non-invalidated stocks for Telegram
-                if status != "INVALIDATED":
-                    label = pipeline_result.classification
-                    if label not in categorized_stocks:
-                        categorized_stocks[label] = []
-                        
-                    categorized_stocks[label].append({
-                        'symbol': sym,
-                        'price': price_data.price,
-                        'cqs': cqs,
-                        'pas': pas,
-                        'total': total,
-                        'status': status
-                    })
+            # Group only non-invalidated stocks for Telegram
+            if status != "INVALIDATED":
+                label = pipeline_result.classification
+                if skip_alert:
+                    label = f"🛡️ {label} (Currently Held)"
+                
+                if label not in categorized_stocks:
+                    categorized_stocks[label] = []
+                    
+                categorized_stocks[label].append({
+                    'symbol': sym,
+                    'price': price_data.price,
+                    'cqs': cqs,
+                    'pas': pas,
+                    'total': total,
+                    'status': status
+                })
                 
         res = ScreenerResult(
             symbol=sym,
