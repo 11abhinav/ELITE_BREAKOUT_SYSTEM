@@ -409,7 +409,18 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and opm >= 10.0 and yoy_profit > 10.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
-        if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.0 and fcf_ok:
+    diamond_hold = False
+    if rev_5y is not None and eps_5y is not None:
+        fcf_ok = (fcf_margin is None) or (fcf_margin > 0)
+        # [VERSION: DAILY_BUILDER_PATCH_v1.3] Separated lt_peg and raised to 2.0
+        lt_peg = None
+        if pe is not None and pe > 0 and eps_5y > 0:
+            lt_peg = pe / eps_5y
+            
+        if (rev_5y >= 12.0
+                and eps_5y >= 15.0
+                and (lt_peg is None or lt_peg <= 2.0)
+                and fcf_ok):
             diamond_hold = True
 
     # MOMENTUM-QUALITY catch-all: allows stocks with decent fundamentals + strong momentum
