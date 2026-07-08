@@ -72,7 +72,8 @@ REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 # ── REVERSAL SCORE THRESHOLDS ────────────────────────────────────────────────────────
-MIN_REVERSAL_SCORE = 72   # minimum to generate an alert (out of 100)
+# [VERSION: REVERSAL_PATCH_v1.0] Lowered threshold to accommodate partial (SMA50-only) recoveries
+MIN_REVERSAL_SCORE = 67   # minimum to generate an alert (out of 100)
 
 # =====================================================================================
 # REVERSAL-SPECIFIC SCORING (v6 — re-weighted)
@@ -507,20 +508,20 @@ def _run_scan(force: bool = False):
                 rejected["low_volume"] += 1
                 continue
 
-            # ── [FIX 8] FRESH MACD BULLISH CROSSOVER ON CLOSED BAR ──────────────────────
-            macd_bullish_cross_closed_bar = False
+            # ── [VERSION: REVERSAL_PATCH_v1.0] FRESH MACD BULLISH CROSSOVER (TODAY OR YESTERDAY) ──────────
+            macd_bullish_cross_recent = False
             if len(ticker) >= 3:
                 try:
-                    macd_now = float(ticker["MACD"].iloc[-2])
-                    signal_now = float(ticker["MACD_SIGNAL"].iloc[-2])
-                    macd_prev = float(ticker["MACD"].iloc[-3])
-                    signal_prev = float(ticker["MACD_SIGNAL"].iloc[-3])
-                    macd_bullish_cross_closed_bar = (macd_now > signal_now) and (macd_prev <= signal_prev)
+                    macd_bullish_cross_recent = any(
+                        float(ticker["MACD"].iloc[-i]) > float(ticker["MACD_SIGNAL"].iloc[-i]) and
+                        float(ticker["MACD"].iloc[-i-1]) <= float(ticker["MACD_SIGNAL"].iloc[-i-1])
+                        for i in [1, 2]
+                    )
                 except (KeyError, TypeError, ValueError):
                     pass  # MACD columns missing or invalid
 
-            if not macd_bullish_cross_closed_bar:
-                logger.debug(f"  ⊘ {symbol} no fresh MACD cross on closed bar — skipping")
+            if not macd_bullish_cross_recent:
+                logger.debug(f"  ⊘ {symbol} no fresh MACD cross (last 2 bars) — skipping")
                 rejected["no_macd_cross"] += 1
                 continue
 
@@ -538,7 +539,8 @@ def _run_scan(force: bool = False):
             breakout_type = "REVERSAL"
             dedup_key  = f"{category}|{symbol}|{today_str}|{breakout_type}"
 
-            if (symbol, breakout_type) in cooldown_alerts:
+            # [VERSION: REVERSAL_PATCH_v1.0] Fixed dedup_key mapping for early-exit duplicate suppression
+            if (symbol, dedup_key) in cooldown_alerts:
                 continue
 
             candle_range   = float(latest["High"]) - float(latest["Low"])
