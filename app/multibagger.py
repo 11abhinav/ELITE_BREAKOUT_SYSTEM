@@ -496,7 +496,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
             return None
-        except BaseException as e:
+        except Exception as e:
             msg = str(e).lower()
             if "401" in msg or "crumb" in msg or "unauthorized" in msg:
                 import shutil, os
@@ -656,7 +656,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         
     return messages
 
-def run_scanner():
+def run_scanner(debug_limit: int = None):
     """Main execution orchestrator for Multibagger Scanner V5."""
     logger.info("=================================================================")
     logger.info("🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0")
@@ -676,7 +676,7 @@ def run_scanner():
         if not manifest or manifest.get("status") not in ("SUCCESS", "FALLBACK_SUCCESS"):
             logger.error(f"🛑 [MULTIBAGGER] Aborting run: No successful upstream build manifest found for {today_str}.")
             upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=f"Upstream manifest invalid/missing for {today_str}")
-            return
+            return {}
     except Exception as e:
         logger.warning(f"⚠️ [MULTIBAGGER] Failed to validate upstream manifest: {e}. Proceeding cautiously.")
     
@@ -695,6 +695,9 @@ def run_scanner():
         logger.error(f"Failed to cleanup today's alerts: {e}")
         
     upsert_scanner_health("MULTIBAGGER", "RUNNING")
+    
+    # Delegate to the actual scanning logic
+    return _start_wrapper(debug_limit)
 
 def run_exit_monitor(price_data_map: dict, cache: dict):
     """
@@ -878,7 +881,7 @@ def start(debug_limit: int = None):
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")
     try:
-        return _start_wrapper(debug_limit)
+        return run_scanner(debug_limit)
     finally:
         _scan_lock.release()
 
@@ -1035,13 +1038,7 @@ def _start_wrapper(debug_limit: int = None):
     peer_medians = compute_peer_medians(symbols_to_val)
             
     results = []
-    categorized_stocks = {
-        "🚀 PRIME MULTIBAGGER CANDIDATE": [],
-        "💎 HIGH QUALITY — FAIR ENTRY": [],
-        "🏆 GREAT BUSINESS — WAIT FOR DIP": [],
-        "💰 VALUE BUY — DECENT QUALITY": [],
-        "🟡 WATCHLIST CANDIDATE": []
-    }
+    categorized_stocks = {}
     
 
     
@@ -1130,6 +1127,10 @@ def _start_wrapper(debug_limit: int = None):
                 notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
             
         if alert_triggered:
+            if sym in open_symbols:
+                logger.info(f"⏭️ Skipping alert generation for {sym} - already an open MULTIBAGGER position.")
+                continue
+                
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
             
             # Queue telegram summary using V5 metrics
