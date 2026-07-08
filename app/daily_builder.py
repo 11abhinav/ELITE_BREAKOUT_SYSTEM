@@ -199,7 +199,6 @@ def fetch_universe() -> pd.DataFrame:
             col("market_cap_basic")             >= MIN_MARKET_CAP,
             col("earnings_per_share_basic_ttm") >  0,
             col("return_on_equity_fy")          >= MIN_ROE,
-            col("operating_margin")             >= 0,
         )
         .limit(5000)
     )
