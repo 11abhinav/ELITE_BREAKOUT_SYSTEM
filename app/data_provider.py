@@ -63,11 +63,12 @@ class YFinanceFetcher(DataFetcher):
                             start_date = range_from
                             end_dt = datetime.strptime(range_to, "%Y-%m-%d") + timedelta(days=1)
                             end_date = end_dt.strftime("%Y-%m-%d")
-                            df = yf.download(ns_sym, interval=interval, start=start_date, end=end_date, progress=False, auto_adjust=True, threads=False)
+                            # [VERSION: EOD_PATCH_v1.1] [BUG FIX 7 REGRESSION FIX] Added timeout=60 to yfinance calls to prevent thread hangs
+                            df = yf.download(ns_sym, interval=interval, start=start_date, end=end_date, progress=False, auto_adjust=True, threads=False, timeout=60)
                         except Exception as e:
-                            df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False)
+                            df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False, timeout=60)
                     else:
-                        df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False)
+                        df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False, timeout=60)
                 finally:
                     yf_release()
 

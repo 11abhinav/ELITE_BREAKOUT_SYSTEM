@@ -129,11 +129,14 @@ def _start_wrapper(force: bool = False):
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        # [VERSION: EOD_PATCH_v1.1] [BUG FIX 7 REGRESSION FIX] Explicit shutdown(wait=False) to prevent 'with' block from hanging
+        pool = ThreadPoolExecutor(max_workers=2)
+        try:
             future_delivery = pool.submit(fetch_delivery_data, ist_now.date())
             # Keep "2y" for EOD - needs 2 years of volume data for delivery analysis
             # EOD has separate cache key (1d, 2y) but still benefits from TTL extensions
             future_prices   = pool.submit(fetch_watchlist_data, watchlist, "2y", "1d")
+            
             try:
                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 7] Add timeout to ThreadPoolExecutor to prevent hanging indefinitely
                 for future in as_completed([future_delivery, future_prices], timeout=120):
@@ -143,7 +146,10 @@ def _start_wrapper(force: bool = False):
                         all_ticker_data = future.result()
             except TimeoutError:
                 logger.error("❌ Data fetch timed out after 120s (likely API hung)")
+                pool.shutdown(wait=False)
                 raise Exception("TIMEOUT: Fetch operation exceeded 120 seconds")
+        finally:
+            pool.shutdown(wait=True, timeout=5)
 
         # Rate-limit safety net
         # If we failed to fetch data for more than 50% of the watchlist, we must throw an error 
@@ -310,21 +316,36 @@ def _start_wrapper(force: bool = False):
                 if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                     continue
 
-                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 8] Proper column safeguard and exception logging for stale data checks
+                # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
                 _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
-                if not _stale_col:
-                    logger.debug(f"⏭️ {symbol} stale-data check skipped (no Date/Datetime column)")
-                    rejection_counts["stale_data"] += 1
-                    continue
-                try:
-                    _last_ts = pd.to_datetime(latest[_stale_col])
-                    if _last_ts.tzinfo is not None:
-                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                    if _last_ts.date() != ist_now.date():
+                if _stale_col:
+                    try:
+                        _last_ts = pd.to_datetime(latest[_stale_col])
+                        if _last_ts.tzinfo is not None:
+                            _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                        if _last_ts.date() != ist_now.date():
+                            rejection_counts["stale_data"] += 1
+                            continue
+                    except Exception as e:
+                        logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
                         rejection_counts["stale_data"] += 1
                         continue
-                except Exception as e:
-                    logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
+                elif isinstance(ticker.index, pd.DatetimeIndex):
+                    try:
+                        _last_ts = pd.Timestamp(ticker.index[-1])
+                        if _last_ts.tzinfo is not None:
+                            _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                        else:
+                            _last_ts = _last_ts.tz_localize("UTC").tz_convert("Asia/Kolkata")
+                        if _last_ts.date() != ist_now.date():
+                            rejection_counts["stale_data"] += 1
+                            continue
+                    except Exception as e:
+                        logger.debug(f"⏭️ {symbol} stale-data check failed (index): {e}")
+                        rejection_counts["stale_data"] += 1
+                        continue
+                else:
+                    logger.debug(f"⏭️ {symbol} no timestamp available (neither column nor DatetimeIndex)")
                     rejection_counts["stale_data"] += 1
                     continue
 
