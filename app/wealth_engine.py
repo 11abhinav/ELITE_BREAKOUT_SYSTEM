@@ -997,12 +997,21 @@ def _run_wealth_scan_wrapper():
                 if sym in port_map:
                     r["Hold_Score"] = port_map[sym]["Hold_Score"]
                     r["hold_trend"] = port_map[sym]["hold_trend"]
-                    if not r.get("Signal_Code"):
+                    # Priority: Exit signals > Entry signals
+                    if port_map[sym].get("Exit_Code"):
                         r["Signal_Code"] = port_map[sym]["Exit_Code"]
                         r["Signal_Reason"] = port_map[sym]["Exit_Reason"]
                         r["Signal"] = f"{r['Signal_Code']} ({r['Signal_Reason']})" if r['Signal_Reason'] else r['Signal_Code']
                 return r
             wealth_df = wealth_df.apply(map_port, axis=1)
+            
+            # Append orphaned holdings back into wealth_df for dashboard visibility
+            orphan_df = portfolio_df[~portfolio_df["Stock"].isin(wealth_df["Stock"])].copy()
+            if not orphan_df.empty:
+                orphan_df["Signal_Code"] = orphan_df["Exit_Code"]
+                orphan_df["Signal_Reason"] = orphan_df["Exit_Reason"]
+                orphan_df["Signal"] = orphan_df.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x.get('Signal_Reason') else x.get('Signal_Code', ''), axis=1)
+                wealth_df = pd.concat([wealth_df, orphan_df], ignore_index=True)
             
             # Fetch REAL-TIME prices for open positions
             try:
