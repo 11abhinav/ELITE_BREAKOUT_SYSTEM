@@ -300,7 +300,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     fcf_margin  = fv("free_cash_flow_margin_ttm")
     div_yield   = fv("dividend_yield_recent")
     _raw_roce   = fv("return_on_invested_capital_fq")
-    roce        = _raw_roce if _raw_roce is not None else 0.0
+    # [VERSION: DAILY_BUILDER_PATCH_v1.7] Preserve None for missing ROCE (don't collapse to 0.0)
+    roce        = _raw_roce
 
     missing = [
         name for name, val in [
@@ -388,7 +389,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # NEW: High Reinvestment
     # [VERSION: DAILY_BUILDER_PATCH_v1.6] Use correctly initialized roce (line 300-301) and
     # retention_ratio from fund_data (line 275) — do NOT overwrite with crude estimates.
-    _hr_roce = roce if roce > 0 else roe  # Only fallback to ROE if ROCE is genuinely 0.0
+    # [VERSION: DAILY_BUILDER_PATCH_v1.7] Handle roce=None explicitly
+    _hr_roce = roce if roce is not None else roe  # Fallback to ROE only if ROCE is genuinely missing
     _hr_retention = retention_ratio  # From fund_data.get("retention_ratio") — accounting value
     high_reinvestment = (_hr_roce >= 18.0 and _hr_retention is not None and _hr_retention >= 0.6 and yoy_sales > 0.0)
 
@@ -505,7 +507,8 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     div_yield   = fv("dividend_yield_recent")
     fcf_margin  = fv("free_cash_flow_margin_ttm")
     _raw_roce   = fv("return_on_invested_capital_fq")
-    roce        = _raw_roce if _raw_roce is not None else 0.0
+    # [VERSION: DAILY_BUILDER_PATCH_v1.7] Preserve None for missing ROCE
+    roce        = _raw_roce
 
     missing = [
         name for name, val in [
@@ -726,7 +729,7 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
 # ROW BUILDER (shared)
 # =====================================================================================
 
-def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=0.0, fcf_margin=None, rev_5y=None, eps_5y=None) -> dict:
+def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=None, fcf_margin=None, rev_5y=None, eps_5y=None) -> dict:
     desc_list = [CAT_DESCRIPTIONS.get(c, "") for c in cats]
     cat_desc = " | ".join(filter(None, desc_list))
 
@@ -740,7 +743,8 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "Market Cap Cr":        round(market_cap / 10_000_000, 2),
         "PEG Ratio":            round(peg, 2) if peg is not None else None,
         "ROE %":                round(roe, 2),
-        "ROCE %":               round(roce, 2),
+        # [VERSION: DAILY_BUILDER_PATCH_v1.7] Emit None when ROCE is missing instead of 0.00
+        "ROCE %":               round(roce, 2) if roce is not None else None,
         "ROA %":                round(roa, 2) if roa is not None else None,
         "OPM %":                round(opm, 2) if opm is not None else None,
         "FCF Margin %":         round(fcf_margin, 2) if fcf_margin is not None else None,
@@ -1166,6 +1170,12 @@ def _main_impl(force_rebuild: bool = False):
         # Moved entirely to wealth_engine.py to prevent split-brain scoring.
         # daily_builder now only exports pure, unweighted fundamentals.
 
+        # [VERSION: DAILY_BUILDER_PATCH_v1.7] Add provenance metadata to ALL builds (not just fallback)
+        if "source_status" not in final_df.columns:
+            final_df["source_status"] = "live"
+        final_df["build_date"] = str(datetime.now(IST).date())
+        logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
+
         tmp_csv = OUTPUT_CSV + ".tmp"
         final_df.to_csv(tmp_csv, index=False)
         os.replace(tmp_csv, OUTPUT_CSV)
@@ -1173,7 +1183,7 @@ def _main_impl(force_rebuild: bool = False):
         tmp_parquet = OUTPUT_PARQUET + ".tmp"
         final_df.to_parquet(tmp_parquet, index=False)
         os.replace(tmp_parquet, OUTPUT_PARQUET)
-        logger.info(f"💾 [SAVE] Final watchlist saved to CSV ({OUTPUT_CSV}) and Parquet ({OUTPUT_PARQUET})")
+        logger.info(f"💾 [SAVE] Final watchlist saved: {len(final_df)} stocks (source: {final_df['source_status'].iloc[0]})")
 
         # Backup to Database to survive server restarts
         try:
