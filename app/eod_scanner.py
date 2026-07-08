@@ -149,7 +149,8 @@ def _start_wrapper(force: bool = False):
                 pool.shutdown(wait=False)
                 raise Exception("TIMEOUT: Fetch operation exceeded 120 seconds")
         finally:
-            pool.shutdown(wait=True, timeout=5)
+            # [VERSION: EOD_PATCH_v1.2] [BUG FIX 7 REGRESSION FIX] Removed invalid timeout arg from shutdown to prevent TypeError
+            pool.shutdown(wait=False)
 
         # Rate-limit safety net
         # If we failed to fetch data for more than 50% of the watchlist, we must throw an error 
