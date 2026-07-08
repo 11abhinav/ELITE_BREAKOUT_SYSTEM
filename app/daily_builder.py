@@ -302,8 +302,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         name for name, val in [
             ("close", close_price), ("average_volume_30d_calc", avg_volume),
             ("market_cap_basic", market_cap), ("return_on_equity_fy", roe),
-            ("operating_margin", opm), ("gross_profit_yoy_growth_ttm", yoy_sales),
-            ("gross_profit_qoq_growth_fq", qoq_sales),
+            ("operating_margin", opm), ("total_revenue_yoy_growth_ttm", yoy_sales),
+            ("total_revenue_qoq_growth_fq", qoq_sales),
             ("earnings_per_share_diluted_yoy_growth_ttm", yoy_profit),
             ("earnings_per_share_diluted_qoq_growth_fq", qoq_profit),
         ] if val is None
@@ -409,7 +409,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # MOMENTUM-QUALITY catch-all: allows stocks with decent fundamentals + strong momentum
     # to reach the Wealth Engine even if they don't fit any classic category.
     # SAFETY: Requires low_debt (D/E <= 1.0) to prevent junk from sneaking in.
-    speculative_momentum = (roe >= 10 and opm >= 8 and yoy_profit > 0 and yoy_sales >= 0.0 and low_debt and market_cap >= 20_000_000_000)
+    speculative_momentum = (roe >= 10 and opm >= 8 and yoy_profit > 5.0 and yoy_sales > -5.0 and low_debt and market_cap >= 20_000_000_000)
 
     if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, speculative_momentum, high_reinvestment, market_share_gainer, small_cap_compounder]):
         return skip(f"No category — YoY Sales={yoy_sales:.1f}%, YoY Profit={yoy_profit:.1f}%")
@@ -478,7 +478,6 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     qoq_rev    = fv("total_revenue_qoq_growth_fq")
     yoy_profit = fv("net_income_yoy_growth_ttm")
     qoq_profit = fv("net_income_qoq_growth_fq")
-    eps_yoy    = fv("earnings_per_share_diluted_yoy_growth_ttm")
 
     pe          = fv("price_earnings_ttm")
     rev_5y      = fv("total_revenue_5y_growth")
@@ -628,10 +627,16 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     if capital_efficient: score += 5
     
     # NEW: Long-Term & FCF Scoring
-    if diamond_hold: score += 5
+    if diamond_hold: score += 20
     if rev_5y is not None and rev_5y >= 15.0: score += 5
     if eps_5y is not None and eps_5y >= 15.0: score += 5
-    if fcf_margin is not None and fcf_margin > 0: score += 5
+    
+    if fcf_margin is not None:
+        if fcf_margin >= 15:   score += 15
+        elif fcf_margin >= 8:  score += 10
+        elif fcf_margin >= 3:  score += 5
+        elif fcf_margin > 0:   score += 2
+        elif fcf_margin < -5:  score -= 5
     
     return score
 
@@ -928,7 +933,6 @@ def _main_impl(force_rebuild: bool = False):
         except Exception:
             logger.info("✅ [FETCH] Universe fetched successfully from TradingView")
 
-        import os
         tmp_univ = "data/temp_universe.parquet.tmp"
         universe_df.to_parquet(tmp_univ)
         os.replace(tmp_univ, "data/temp_universe.parquet")
@@ -996,6 +1000,7 @@ def _main_impl(force_rebuild: bool = False):
                 logger.warning(f"⚠️ Failed to upload exclusion log to Postgres: {e}")
 
         # Fallback Logic: check if today's build is materially degraded compared to yesterday's
+        build_source_date = None
         is_fallback_triggered = False
         fallback_reason = ""
         
@@ -1010,7 +1015,6 @@ def _main_impl(force_rebuild: bool = False):
             # Attempt to download the last known good (will get the most recent one available)
             if download_parquet_from_db("daily_builder", tmp_path):
                 # Fetch build_source_date
-                build_source_date = None
                 try:
                     from database import get_connection
                     with get_connection() as conn:
@@ -1110,7 +1114,6 @@ def _main_impl(force_rebuild: bool = False):
         # Moved entirely to wealth_engine.py to prevent split-brain scoring.
         # daily_builder now only exports pure, unweighted fundamentals.
 
-        import os
         tmp_csv = OUTPUT_CSV + ".tmp"
         final_df.to_csv(tmp_csv, index=False)
         os.replace(tmp_csv, OUTPUT_CSV)
