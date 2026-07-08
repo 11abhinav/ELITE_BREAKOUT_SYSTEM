@@ -363,11 +363,11 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # Missing D/E → low_debt = False (uncertain, can't confirm low debt).
     # Categories that require low_debt (Wealth Compounder, Blue Chip Stable) won't
     # falsely include stocks with unknown debt levels.
-    low_debt = (not debt_missing) and (debt_equity <= 1.0)
+    low_debt = (not debt_missing) and (debt_equity <= (2.5 if "Utilities" in sector else 1.0))
 
     high_growth = (yoy_sales > HIGH_GROWTH_YOY and yoy_profit > HIGH_GROWTH_YOY and yoy_margin_expanding)
     elite_compounder = (yoy_sales > COMPOUNDER_YOY and yoy_profit > COMPOUNDER_YOY and roe >= 15 and opm >= 12 and low_debt)
-    mature_quality = (roe >= 15 and low_debt and market_cap >= 50_000_000_000 and (opm >= 15 or is_mega_cap))
+    mature_quality = (roe >= 15 and (low_debt or (is_mega_cap and debt_missing)) and market_cap >= 50_000_000_000 and (opm >= 15 or is_mega_cap))
     steady_compounder = (yoy_sales >= STEADY_YOY and yoy_profit >= STEADY_YOY and roe >= 14 and opm >= 10)
 
     # NEW: Safest wealth creators
@@ -386,14 +386,14 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     high_reinvestment = (roce >= 18.0 and retention_ratio is not None and retention_ratio >= 0.6)
 
     # NEW: Market Share Gainer
-    sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
+    sec_median = _SECTOR_MEDIANS.get(sector)
     market_share_gainer = False
-    if _SECTOR_MEDIANS and yoy_sales is not None:
+    if sec_median is not None and sec_median > 0 and yoy_sales is not None:
         market_share_gainer = (yoy_sales > (sec_median * 1.2) and qoq_margin_expanding)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
-    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and opm >= 12 and low_debt and rev_5y is not None and rev_5y >= 15.0)
+    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and opm >= 12 and low_debt and (rev_5y is None or rev_5y >= 15.0) and yoy_sales >= 20.0)
 
     # NEW: Institutional Accumulation
     deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
@@ -410,7 +410,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # MOMENTUM-QUALITY catch-all: allows stocks with decent fundamentals + strong momentum
     # to reach the Wealth Engine even if they don't fit any classic category.
     # SAFETY: Requires low_debt (D/E <= 1.0) to prevent junk from sneaking in.
-    speculative_momentum = (roe >= 10 and opm >= 8 and yoy_profit > 0 and low_debt and market_cap >= 20_000_000_000)
+    speculative_momentum = (roe >= 10 and opm >= 8 and yoy_profit > 0 and yoy_sales >= 0.0 and low_debt and market_cap >= 20_000_000_000)
 
     if not any([high_growth, elite_compounder, mature_quality, turnaround, steady_compounder, diamond_hold, debt_free_cash, undervalued_growth, capital_efficient, high_yield_dividend, inst_accumulation, speculative_momentum, high_reinvestment, market_share_gainer, small_cap_compounder]):
         return skip(f"No category — YoY Sales={yoy_sales:.1f}%, YoY Profit={yoy_profit:.1f}%")
@@ -435,7 +435,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if not cats:
         return skip(f"No categories assigned despite passing initial gates")
 
-    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient, sector, debt_missing=debt_missing)
+    score = _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin_expanding, qoq_margin_expanding, mature_quality, elite_compounder, turnaround, debt_free_cash, undervalued_growth, capital_efficient, sector, debt_missing=debt_missing, diamond_hold=diamond_hold, rev_5y=rev_5y, eps_5y=eps_5y, fcf_margin=fcf_margin)
     if inst_accumulation: score += 5
     if insider_hold is not None and insider_hold > 0.50: score += 5
 
@@ -524,8 +524,8 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         return skip(f"JUNK BLOCKED (FIN): Structural collapse Rev={yoy_rev:.1f}% Profit={yoy_profit:.1f}%")
 
     peg = None
-    if pe is not None and pe > 0 and eps_yoy is not None and eps_yoy > 0:
-        peg = pe / eps_yoy
+    if pe is not None and pe > 0 and yoy_profit is not None and yoy_profit > 0:
+        peg = pe / yoy_profit
 
     yoy_margin_expanding = (yoy_profit >= yoy_rev)
 
@@ -554,14 +554,14 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 
     # NEW: Market Share Gainer
     sector = str(row.get("sector", ""))
-    sec_median = _SECTOR_MEDIANS.get(sector, 0.0)
+    sec_median = _SECTOR_MEDIANS.get(sector)
     market_share_gainer = False
-    if _SECTOR_MEDIANS:
+    if sec_median is not None and sec_median > 0 and yoy_rev is not None:
         market_share_gainer = (yoy_rev > (sec_median * 1.2) and yoy_margin_expanding)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
-    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and roa >= 1.5 and rev_5y is not None and rev_5y >= 15.0 and yoy_margin_expanding)
+    small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and roa >= 1.5 and (rev_5y is None or rev_5y >= 15.0) and yoy_rev >= 20.0 and yoy_margin_expanding)
 
     if not any([fin_high_growth, fin_compounder, fin_mature_quality, fin_turnaround, diamond_hold, efficient_lender, dividend_aristocrat, inst_accumulation, market_share_gainer, small_cap_compounder]):
         return skip(f"No financial category — YoY NII={yoy_rev:.1f}%, YoY Profit={yoy_profit:.1f}%")
@@ -595,7 +595,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 # SCORING
 # =====================================================================================
 
-def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False, sector="", debt_missing=False) -> int:
+def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_equity, yoy_margin, qoq_margin, mature_quality, elite_compounder, turnaround, debt_free_cash=False, undervalued_growth=False, capital_efficient=False, sector="", debt_missing=False, diamond_hold=False, rev_5y=None, eps_5y=None, fcf_margin=None) -> int:
     score = 0
     if yoy_sales >= 20: score += 20
     elif yoy_sales >= 10: score += 10
@@ -627,6 +627,13 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     if debt_free_cash: score += 5
     if undervalued_growth: score += 5
     if capital_efficient: score += 5
+    
+    # NEW: Long-Term & FCF Scoring
+    if diamond_hold: score += 5
+    if rev_5y is not None and rev_5y >= 15.0: score += 5
+    if eps_5y is not None and eps_5y >= 15.0: score += 5
+    if fcf_margin is not None and fcf_margin > 0: score += 5
+    
     return score
 
 
@@ -704,6 +711,13 @@ SYMBOL_CORRECTIONS = {
 
 def normalize_symbol(symbol: str) -> str:
     """Convert TradingView symbol names to Yahoo Finance compatible format."""
+    # Strip any trailing .NS or .BO if they accidentally came through
+    if symbol.endswith(".NS") or symbol.endswith(".BO"):
+        symbol = symbol[:-3]
+        
+    # Replace & with -
+    symbol = symbol.replace("&", "-").replace(" ", "-")
+
     # First check explicit corrections
     if symbol in SYMBOL_CORRECTIONS:
         return SYMBOL_CORRECTIONS[symbol]
@@ -915,7 +929,10 @@ def _main_impl(force_rebuild: bool = False):
         except Exception:
             logger.info("✅ [FETCH] Universe fetched successfully from TradingView")
 
-        universe_df.to_parquet("data/temp_universe.parquet")
+        import os
+        tmp_univ = "data/temp_universe.parquet.tmp"
+        universe_df.to_parquet(tmp_univ)
+        os.replace(tmp_univ, "data/temp_universe.parquet")
         save_checkpoint({**state, "universe_fetched": True})
         state = load_checkpoint()
     else:
@@ -1094,8 +1111,14 @@ def _main_impl(force_rebuild: bool = False):
         # Moved entirely to wealth_engine.py to prevent split-brain scoring.
         # daily_builder now only exports pure, unweighted fundamentals.
 
-        final_df.to_csv(OUTPUT_CSV, index=False)
-        final_df.to_parquet(OUTPUT_PARQUET, index=False)
+        import os
+        tmp_csv = OUTPUT_CSV + ".tmp"
+        final_df.to_csv(tmp_csv, index=False)
+        os.replace(tmp_csv, OUTPUT_CSV)
+        
+        tmp_parquet = OUTPUT_PARQUET + ".tmp"
+        final_df.to_parquet(tmp_parquet, index=False)
+        os.replace(tmp_parquet, OUTPUT_PARQUET)
         logger.info(f"💾 [SAVE] Final watchlist saved to CSV ({OUTPUT_CSV}) and Parquet ({OUTPUT_PARQUET})")
 
         # Backup to Database to survive server restarts
