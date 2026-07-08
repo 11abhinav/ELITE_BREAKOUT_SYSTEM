@@ -86,7 +86,7 @@ CAT_DESCRIPTIONS = {
     "Blue Chip Stable":         "Large cap (₹5000Cr+) with consistent returns and low risk.",
     "Recovery Play":            "Recovering from downturn with expanding margins and improving ROE.",
     "Consistent Performer":     "Steady 10%+ growth with stable ROE and healthy margins.",
-    "Long Term Compounder":     "💎 5Y+ consistent revenue & earnings growth, fair valuation (PEG ≤ 1.5), cash flow positive.",
+    "Long Term Compounder":     "💎 5Y+ consistent revenue & earnings growth, fair valuation (PEG ≤ 2.0), cash flow positive.",  # [VERSION: DAILY_BUILDER_PATCH_v1.6] Updated PEG threshold
     "Debt-Free Cash Generator": "Zero debt, large cap, and generating high cash flow with strong ROE.",
     "Undervalued Growth":       "Growing fast (>15% YoY) but trading at a deep discount (PEG < 1.0).",
     "Capital Efficient":        "Asset-light business model with exceptional ROE (≥25%).",
@@ -200,7 +200,9 @@ def fetch_universe() -> pd.DataFrame:
             col("market_cap_basic")             >= MIN_MARKET_CAP,
             col("earnings_per_share_basic_ttm") >  0,
             col("return_on_equity_fy")          >= MIN_ROE,
-            col("operating_margin")             >= 0,  # [VERSION: DAILY_BUILDER_PATCH_v1.3]
+            # [VERSION: DAILY_BUILDER_PATCH_v1.6] Removed col("operating_margin") >= 0
+            # Rationale: Python junk gates (opm < 0, roa < 0.8) handle filtering.
+            # Keeps financial names (banks/NBFCs) that may have null OPM in the universe.
         )
         .limit(5000)
     )
@@ -384,10 +386,11 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     high_yield_dividend = (div_val >= 3.0 and roe >= 15.0 and low_debt and market_cap >= 50_000_000_000)
 
     # NEW: High Reinvestment
-    roce = fv("return_on_invested_capital_fq") or roe
-    retention_ratio = 1.0 - (div_yield / 100.0) if div_yield else 1.0
-    # [VERSION: DAILY_BUILDER_PATCH_v1.3] Added yoy_sales > 0.0 floor
-    high_reinvestment = (roce >= 18.0 and retention_ratio is not None and retention_ratio >= 0.6 and yoy_sales > 0.0)
+    # [VERSION: DAILY_BUILDER_PATCH_v1.6] Use correctly initialized roce (line 300-301) and
+    # retention_ratio from fund_data (line 275) — do NOT overwrite with crude estimates.
+    _hr_roce = roce if roce > 0 else roe  # Only fallback to ROE if ROCE is genuinely 0.0
+    _hr_retention = retention_ratio  # From fund_data.get("retention_ratio") — accounting value
+    high_reinvestment = (_hr_roce >= 18.0 and _hr_retention is not None and _hr_retention >= 0.6 and yoy_sales > 0.0)
 
     # NEW: Market Share Gainer
     sec_median = _SECTOR_MEDIANS.get(sector)
@@ -403,9 +406,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     small_cap_compounder = (market_cap < MID_CAP_FLOOR and yoy_profit >= 25 and roe >= 18 and opm >= 12 and low_debt and (rev_5y is None or rev_5y >= 15.0) and yoy_sales >= 20.0)
 
     # NEW: Institutional Accumulation
-    deliv_per = float(row.get("delivery_percent", 0.0))
-    inst_buyers = row.get("institutional_buyers", [])
-    # [VERSION: DAILY_BUILDER_PATCH_v1.3] Raised yoy_profit > 10.0
+    # [VERSION: DAILY_BUILDER_PATCH_v1.6] Wire to module-level globals, not row (TV row lacks these columns)
+    deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
+    inst_buyers = _INST_BUYS.get(symbol, [])
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and opm >= 10.0 and yoy_profit > 10.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
@@ -557,8 +560,9 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     dividend_aristocrat = (div_val >= 3.0 and roe >= 15.0 and market_cap >= 50_000_000_000)
 
     # NEW: Institutional Accumulation
-    deliv_per = float(row.get("delivery_percent", 0.0))
-    inst_buyers = row.get("institutional_buyers", [])
+    # [VERSION: DAILY_BUILDER_PATCH_v1.6] Wire to module-level globals, not row (TV row lacks these columns)
+    deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
+    inst_buyers = _INST_BUYS.get(symbol, [])
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and roa >= 1.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
@@ -705,6 +709,16 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
     # Sector Tailwinds
     if sector in HIGH_TAILWIND_SECTORS: score += 12
     elif sector in MEDIUM_TAILWIND_SECTORS: score += 6
+
+    # [VERSION: DAILY_BUILDER_PATCH_v1.6] Append long-term & FCF scoring (mirrors _score_nonfin)
+    if diamond_hold: score += 20
+    if rev_5y is not None and rev_5y >= 15.0: score += 5
+    if eps_5y is not None and eps_5y >= 15.0: score += 5
+    if fcf_margin is not None:
+        if fcf_margin >= 10:   score += 10   # Banks with positive FCF are genuinely rare
+        elif fcf_margin >= 3:  score += 5
+        elif fcf_margin > 0:   score += 2
+        elif fcf_margin < -5:  score -= 5
 
     return score
 
