@@ -1,5 +1,6 @@
 # =====================================================================================
 # app/daily_builder.py  —  v4 (Ultimate Long-Term & Momentum Hybrid)
+# [VERSION: DAILY_BUILDER_PATCH_v1.2]
 # SILENT EXECUTION + EMAIL DISPATCH WITH TELEGRAM FALLBACK + FORENSIC ACCOUNTING
 # =====================================================================================
 
