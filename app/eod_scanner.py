@@ -5,7 +5,7 @@
 
 import pandas as pd
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from zoneinfo import ZoneInfo
 from datetime import datetime
@@ -100,8 +100,14 @@ def _start_wrapper(force: bool = False):
             logger.info(f"🛡️ EOD Scanner running on full fundamental watchlist: {len(watchlist)} stocks")
                 
         except Exception as e:
+            # [VERSION: EOD_PATCH_v1.0] [BUG FIX 1] Remove 5-min sleep inside the lock. Let the scheduler handle backoff.
             logger.exception("❌ Failed to load watchlist")
-            time.sleep(300)
+            if not is_test_mode:
+                try:
+                    from database import upsert_scanner_health
+                    upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
+                except Exception:
+                    pass
             return 0
 
         if watchlist.empty:
@@ -117,6 +123,7 @@ def _start_wrapper(force: bool = False):
 
         # We do NOT purge here yet.
         # Purge only after upstream validation and fetch sufficiency checks succeed.
+        # [VERSION: EOD_PATCH_v1.0] [BUG FIX 5] Compute today_str once here and reuse it throughout to avoid duplication
         today_str = ist_now.strftime("%Y-%m-%d")
 
         delivery_map: dict[str, float] = {}
@@ -127,11 +134,16 @@ def _start_wrapper(force: bool = False):
             # Keep "2y" for EOD - needs 2 years of volume data for delivery analysis
             # EOD has separate cache key (1d, 2y) but still benefits from TTL extensions
             future_prices   = pool.submit(fetch_watchlist_data, watchlist, "2y", "1d")
-            for future in as_completed([future_delivery, future_prices]):
-                if future is future_delivery:
-                    delivery_map = future.result()
-                else:
-                    all_ticker_data = future.result()
+            try:
+                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 7] Add timeout to ThreadPoolExecutor to prevent hanging indefinitely
+                for future in as_completed([future_delivery, future_prices], timeout=120):
+                    if future is future_delivery:
+                        delivery_map = future.result()
+                    else:
+                        all_ticker_data = future.result()
+            except TimeoutError:
+                logger.error("❌ Data fetch timed out after 120s (likely API hung)")
+                raise Exception("TIMEOUT: Fetch operation exceeded 120 seconds")
 
         # Rate-limit safety net
         # If we failed to fetch data for more than 50% of the watchlist, we must throw an error 
@@ -148,7 +160,7 @@ def _start_wrapper(force: bool = False):
         else:
             logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
 
-        today_str = ist_now.strftime("%Y-%m-%d")
+        # today_str already computed above
 
         # ── IDEMPOTENT PARTITION OVERWRITE ──
         # EOD writes to `alerts` via save_alert_if_new(), so cleanup must target `alerts`.
@@ -195,7 +207,7 @@ def _start_wrapper(force: bool = False):
             "gap_day", "extended_breakout", "gap_extended", "low_score", "duplicate", "stale_data",
             "prior_red_candles", "obv_divergence", 
             "no_structural_breakout", "no_atr_expansion", "base_too_wide",
-            "missing_atr"
+            "missing_atr", "zero_avg_volume", "zero_candle_range"
         ]}
         
         market_regime = get_macro_regime(nifty_ret_20d)
@@ -298,22 +310,30 @@ def _start_wrapper(force: bool = False):
                 if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                     continue
 
+                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 8] Proper column safeguard and exception logging for stale data checks
                 _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
-                if _stale_col:
-                    try:
-                        _last_ts = pd.to_datetime(latest[_stale_col])
-                        if _last_ts.tzinfo is not None:
-                            _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                        if _last_ts.date() != ist_now.date():
-                            rejection_counts["stale_data"] += 1
-                            continue
-                    except Exception:
-                        pass
+                if not _stale_col:
+                    logger.debug(f"⏭️ {symbol} stale-data check skipped (no Date/Datetime column)")
+                    rejection_counts["stale_data"] += 1
+                    continue
+                try:
+                    _last_ts = pd.to_datetime(latest[_stale_col])
+                    if _last_ts.tzinfo is not None:
+                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                    if _last_ts.date() != ist_now.date():
+                        rejection_counts["stale_data"] += 1
+                        continue
+                except Exception as e:
+                    logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
+                    rejection_counts["stale_data"] += 1
+                    continue
 
                 latest_volume = float(latest["Volume"])
                 avg_volume    = float(ticker["Volume"].iloc[-21:-1].mean())
 
                 if avg_volume <= 0:
+                    # [VERSION: EOD_PATCH_v1.0] [BUG FIX 3] Rejection counters updated for zero volume and candle range
+                    rejection_counts["zero_avg_volume"] += 1
                     continue
 
                 volume_ratio = latest_volume / avg_volume
@@ -327,6 +347,7 @@ def _start_wrapper(force: bool = False):
                 upper_wick   = candle_high - candle_close
 
                 if candle_range <= 0:
+                    rejection_counts["zero_candle_range"] += 1
                     continue
 
                 body_ratio     = candle_body / candle_range
@@ -360,30 +381,38 @@ def _start_wrapper(force: bool = False):
                     continue
 
                 # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
-                if "PRIOR_20D_HIGH" in ticker.columns and not pd.isna(latest.get("PRIOR_20D_HIGH")):
-                    prior_high = float(latest["PRIOR_20D_HIGH"])
-                    if prior_high > 0 and candle_close <= prior_high:
-                        rejection_counts["no_structural_breakout"] += 1
-                        continue
-                        
-                    # Not Extended
-                    if "ATR20" in ticker.columns and not pd.isna(latest.get("ATR20")):
-                        atr20 = float(latest["ATR20"])
-                        if atr20 > 0:
-                            if (candle_close - prior_high) > EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5) * atr20:
-                                rejection_counts["extended_breakout"] += 1
-                                continue
-                            
-                            # ATR Expansion
-                            if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2):
-                                rejection_counts["no_atr_expansion"] += 1
-                                continue
-                        else:
-                            rejection_counts["missing_atr"] += 1
-                            continue
-                    else:
-                        rejection_counts["missing_atr"] += 1
-                        continue
+                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
+                if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
+                    rejection_counts["missing_atr"] += 1
+                    continue
+
+                prior_high = float(latest["PRIOR_20D_HIGH"])
+                if prior_high <= 0:
+                    rejection_counts["no_structural_breakout"] += 1
+                    continue
+
+                if candle_close <= prior_high:
+                    rejection_counts["no_structural_breakout"] += 1
+                    continue
+
+                # Not Extended
+                if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
+                    rejection_counts["missing_atr"] += 1
+                    continue
+
+                atr20 = float(latest["ATR20"])
+                if atr20 <= 0:
+                    rejection_counts["missing_atr"] += 1
+                    continue
+
+                if (candle_close - prior_high) > EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5) * atr20:
+                    rejection_counts["extended_breakout"] += 1
+                    continue
+                
+                # ATR Expansion
+                if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2):
+                    rejection_counts["no_atr_expansion"] += 1
+                    continue
 
                 if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
                     bb_width_pctile = float(latest["BB_WIDTH_PCTILE"])
@@ -540,13 +569,14 @@ def _start_wrapper(force: bool = False):
 
                 above_ema20  = bool(candle_close >= float(latest["EMA20"])) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
                 above_sma50  = bool(candle_close >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
-                golden_cross = bool(float(latest["SMA50"]) >= float(latest["SMA200"])) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
+                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
+                above_golden_cross = bool(float(latest["SMA50"]) >= float(latest["SMA200"])) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
 
                 context = {
                     "technicals": {
                         "above_ema20":      above_ema20,
                         "above_sma50":      above_sma50,
-                        "golden_cross":     golden_cross,
+                        "above_golden_cross":     above_golden_cross,
                         "body_ratio":       round(body_ratio * 100, 2),
                         "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
                         "rsi":              round(rsi_val, 1),
@@ -615,7 +645,7 @@ def _start_wrapper(force: bool = False):
                     "score":            score,
                     "above_ema20":      above_ema20,
                     "above_sma50":      above_sma50,
-                    "golden_cross":     golden_cross,
+                    "above_golden_cross":     above_golden_cross,
                     "atr_stop":         suggested_stop,
                     "target_price":     target_price,
                     "target_2":         sl_result.get("target_2"),
@@ -634,13 +664,16 @@ def _start_wrapper(force: bool = False):
                 })
                 total_alerts += 1
 
-            except (KeyError, IndexError, ValueError, TypeError) as e:
-                logger.warning(f"⚠️ Data/Indicator error processing {symbol}: {e}")
+            # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
+            except Exception as e:
+                error_type = type(e).__name__
+                logger.warning(f"⚠️ Exception ({error_type}) processing {symbol}: {str(e)[:100]}")
                 rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
-                try:
-                    upsert_fetch_error('yfinance', 'EOD', symbol, '1d', 'processing_error', str(e))
-                except Exception:
-                    logger.exception(f'Failed to upsert fetch error for {symbol}')
+                if not is_test_mode:
+                    try:
+                        upsert_fetch_error('yfinance', 'EOD', symbol, '1d', f'processing_error_{error_type}', str(e)[:500])
+                    except Exception:
+                        logger.exception(f'Failed to upsert fetch error for {symbol}')
                 continue
 
         # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
