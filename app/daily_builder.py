@@ -562,10 +562,17 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and roa >= 1.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
+    # [VERSION: DAILY_BUILDER_PATCH_v1.5] Aligned fin path to use lt_peg = pe / eps_5y with <= 2.0
     diamond_hold = False
-    if rev_5y is not None and eps_5y is not None and peg is not None:
+    if rev_5y is not None and eps_5y is not None:
         fcf_ok = (fcf_margin is None) or (fcf_margin > 0)
-        if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.0 and fcf_ok:
+        lt_peg = None
+        if pe is not None and pe > 0 and eps_5y > 0:
+            lt_peg = pe / eps_5y
+        if (rev_5y >= 12.0
+                and eps_5y >= 15.0
+                and (lt_peg is None or lt_peg <= 2.0)
+                and fcf_ok):
             diamond_hold = True
 
     # NEW: Market Share Gainer
