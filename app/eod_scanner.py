@@ -139,16 +139,19 @@ def _start_wrapper(force: bool = False):
             future_prices   = pool.submit(fetch_watchlist_data, watchlist, "2y", "1d")
             
             try:
-                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 7] Add timeout to ThreadPoolExecutor to prevent hanging indefinitely
-                for future in as_completed([future_delivery, future_prices], timeout=120):
+                # [VERSION: EOD_PATCH_v1.4] Dynamic timeout based on watchlist size (~1.5s per symbol, min 180s)
+                # Previous 120s was too tight for 300+ symbol watchlists fetched in 30-symbol batches
+                _fetch_timeout = max(180, int(len(watchlist) * 1.5))
+                logger.info(f"⏱️ Fetch timeout set to {_fetch_timeout}s for {len(watchlist)} symbols")
+                for future in as_completed([future_delivery, future_prices], timeout=_fetch_timeout):
                     if future is future_delivery:
                         delivery_map = future.result()
                     else:
                         all_ticker_data = future.result()
             except TimeoutError:
-                logger.error("❌ Data fetch timed out after 120s (likely API hung)")
+                logger.error(f"❌ Data fetch timed out after {_fetch_timeout}s (likely API hung)")
                 pool.shutdown(wait=False)
-                raise Exception("TIMEOUT: Fetch operation exceeded 120 seconds")
+                raise Exception(f"TIMEOUT: Fetch operation exceeded {_fetch_timeout} seconds")
         finally:
             # [VERSION: EOD_PATCH_v1.2] [BUG FIX 7 REGRESSION FIX] Removed invalid timeout arg from shutdown to prevent TypeError
             pool.shutdown(wait=False)
