@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
 
-from database import get_connection, save_wealth_buy_alert, close_position
+from database import get_connection, save_wealth_buy_alert, close_position, init_db
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 from core.multibagger_pipeline import run_pipeline_for_symbol
@@ -888,7 +888,6 @@ def start(debug_limit: int = None):
 def _start_wrapper(debug_limit: int = None):
     """Main scanning wrapper."""
     logger.info("🚀 Multibagger Scanner execution started...")
-    from database import init_db
     init_db()
     from valuation_utils import seed_universe_if_empty
     seed_universe_if_empty()

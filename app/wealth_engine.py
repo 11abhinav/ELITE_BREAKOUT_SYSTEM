@@ -169,7 +169,8 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "momentum_score": mom_score,
                 "momentum_confidence": mom_conf,
                 "data_quality": "STALE_INTRADAY" if is_stale else DataQuality.LIVE.value,
-                "is_stale": is_stale
+                "is_stale": is_stale,
+                "above_sma200": bool(cmp >= float(last_row['sma_200'])) if not pd.isna(last_row['sma_200']) else False
             }
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")
@@ -495,6 +496,219 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("wealth_engine")
 
+import pandas as pd
+from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
+
+# =====================================================================================
+# LAYER 1: CANDIDATE SELECTION
+# =====================================================================================
+def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
+    """Evaluates core fundamentals and technicals for candidates, omitting entry logic."""
+    if wealth_df.empty:
+        return wealth_df
+
+    if "rs_6m" in wealth_df.columns:
+        wealth_df["RS_Rating"] = wealth_df["rs_6m"].rank(pct=True, ascending=True) * 100
+    else:
+        wealth_df["RS_Rating"] = 0
+
+    scores_df = wealth_df.apply(lambda r: apply_core_engine_scores(r, sector_stats), axis=1)
+    wealth_df["FM_Score"] = scores_df["CIS"]
+    wealth_df["Valuation_Score"] = scores_df["RVS"]
+    wealth_df["Consistency_Score"] = scores_df["BQS"]
+    wealth_df["Reliability"] = scores_df["Reliability"]
+    wealth_df["Base_FV"] = scores_df["Base_FV"]
+    wealth_df["Bull_FV"] = scores_df["Bull_FV"]
+    
+    wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
+
+    def check_completeness(r):
+        mand_cols = ["ROE %", "YOY Revenue %", "YOY Profit %", "Debt/Equity", "cmp", "sma_200", "rs_6m", "FM_Score", "Valuation_Score", "Consistency_Score", "data_quality", "momentum_confidence"]
+        for col in mand_cols:
+            if pd.isna(r.get(col)): return False
+            
+        path = r.get("Path", "")
+        if path == "Financial":
+            if pd.isna(r.get("ROA %")): return False
+        else:
+            if pd.isna(r.get("ROCE %")) or pd.isna(r.get("FCF Margin %")): return False
+            
+        if pd.isna(r.get("P/E Ratio")) and pd.isna(r.get("P/B Ratio")): return False
+        return True
+        
+    wealth_df["candidate_complete_for_buy"] = wealth_df.apply(check_completeness, axis=1)
+    
+    return wealth_df
+
+
+# =====================================================================================
+# LAYER 2: ENTRY TIMING
+# =====================================================================================
+def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
+    """Decides whether a candidate should be bought, suppressed, or watched."""
+    if candidate_df.empty:
+        return candidate_df
+        
+    def _get_entry_signal(r):
+        score = r.get("FM_Score", 0)
+        cmp = r.get("cmp", 0) or 0
+        sma = r.get("sma_200", 0) or 0
+        rs = r.get("rs_6m", 0) or 0
+        used_fallback = r.get("used_fallback_data", False)
+        bucket = str(r.get("Portfolio_Bucket", ""))
+        is_complete = r.get("candidate_complete_for_buy", False)
+        
+        if not is_complete:
+            return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": "Incomplete Fundamentals/Technicals"})
+            
+        if used_fallback:
+            return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": "Stale Data — Prevented Fake Buy"})
+            
+        if buy_gate_active:
+            if "Quality-On-Sale" in bucket:
+                cons_score = r.get("Consistency_Score", 0)
+                val_score = r.get("Valuation_Score", 0)
+                roce = r.get("ROCE %", 0) or 0
+                fcf_margin = r.get("FCF Margin %")
+                path = r.get("Path", "")
+                mom_conf = r.get("momentum_confidence", "")
+                
+                fcf_ok = True if path == "Financial" else (fcf_margin is not None and fcf_margin > 0)
+                
+                if (score >= 78 and cons_score >= 18 and val_score >= 15 and
+                    cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
+                    rs > -10 and roce >= 15 and fcf_ok and mom_conf != "LOW"):
+                    return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
+            return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
+            
+        if score >= 82 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 9 and cmp > sma and sma > 0:
+            if r.get("momentum_confidence", "") == "LOW":
+                return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
+            return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score}, Consistency: {r.get('Consistency_Score', 0)}"})
+            
+        from wealth_mean_reversion import get_mean_reversion_signal
+        mr_code, mr_reason = get_mean_reversion_signal(r)
+        if mr_code:
+            return pd.Series({"Signal_Code": mr_code, "Signal_Reason": mr_reason})
+            
+        return pd.Series({"Signal_Code": "", "Signal_Reason": ""})
+
+    entry_signals = candidate_df.apply(_get_entry_signal, axis=1)
+    candidate_df["Signal_Code"] = entry_signals["Signal_Code"]
+    candidate_df["Signal_Reason"] = entry_signals["Signal_Reason"]
+    candidate_df["Signal"] = entry_signals.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x['Signal_Code'] and x['Signal_Reason'] else x['Signal_Code'], axis=1)
+    
+    def calculate_position_sizing(r):
+        if r.get("Signal_Code", "") != "BUY":
+            r["position_pct"] = None
+            r["position_amount"] = None
+            r["position_shares"] = None
+            r["alloc_category"] = "NONE"
+            return r
+            
+        cmp = r.get("cmp", 0)
+        atr_pct = r.get("ATR_Pct", 0)
+        used_fallback = r.get("used_fallback_data", False)
+        momentum_score = r.get("momentum_score", 0)
+        
+        if used_fallback or cmp == 0:
+            r["position_pct"] = 0.0
+            r["position_amount"] = 0.0
+            r["position_shares"] = 0
+            r["alloc_category"] = "SUPPRESSED"
+            return r
+            
+        from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
+        sizing = calculate_risk_adjusted_sizing(cmp, atr_pct, momentum_score)
+        
+        r["position_pct"] = sizing["Position_Pct"]
+        r["position_amount"] = sizing["Position_Amount"]
+        r["position_shares"] = int(sizing["Position_Amount"] / cmp) if cmp > 0 else 0
+        r["alloc_category"] = sizing["Alloc_Category"]
+        return r
+
+    candidate_df = candidate_df.apply(calculate_position_sizing, axis=1)
+    
+    # Core bucket Sector Caps
+    core_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Core", max_stocks=15)
+    core_symbols = set(core_capped["Stock"].tolist()) if not core_capped.empty else set()
+    candidate_df["Core_Selected"] = candidate_df["Stock"].apply(lambda s: s in core_symbols)
+    
+    return candidate_df
+
+# =====================================================================================
+# LAYER 3: PORTFOLIO MANAGEMENT
+# =====================================================================================
+def evaluate_open_positions(portfolio_df, portfolio_dict):
+    """Generates HOLD/SELL/SELL_REVIEW/TLH signals for independently fetched open positions."""
+    if portfolio_df.empty:
+        return portfolio_df
+
+    def _coerce_to_date(value):
+        from datetime import date, datetime
+        import pandas as pd
+        if value is None: return None
+        if isinstance(value, date) and not isinstance(value, datetime): return value
+        if isinstance(value, datetime): return value.date()
+        try: return pd.to_datetime(value).date()
+        except Exception: return None
+
+    def _generate_exit_signal(r):
+        base_hold_score = calculate_hold_score(r)
+        sym = r.get("Stock")
+        
+        final_hold_score = base_hold_score
+        tax_info = {}
+        try:
+            entry_date = _coerce_to_date(r.get("entry_date"))
+            entry_price = r.get("entry_price", 0) or 0
+            cmp_price = r.get("cmp", entry_price) or entry_price
+            pnl_pct = ((cmp_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+            if entry_date:
+                tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
+                final_hold_score = min(100, base_hold_score + tax_info.get('bonus', 0))
+        except Exception:
+            pass
+            
+        r["Hold_Score"] = final_hold_score
+        
+        from wealth_hold_tracking import HoldScoreTrendAnalyzer
+        trend = HoldScoreTrendAnalyzer.analyze_trend(sym)
+        hold_trend = trend["reason"] if trend["action"] != "HOLD" else "Stable"
+        r["hold_trend"] = hold_trend
+
+        cmp = r.get("cmp", 0) or 0
+        sma = r.get("sma_200", 0) or 0
+        rs = r.get("rs_6m", 0) or 0
+        data_quality = r.get("data_quality")
+        
+        exit_code = ""
+        exit_reason = ""
+        
+        if cmp > 0 and data_quality != "MISSING_PARTIAL":
+            if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
+                exit_code, exit_reason = "SELL_REVIEW", hold_trend
+            elif final_hold_score < 45:
+                exit_code, exit_reason = "SELL_REVIEW", f"Hold Score: {final_hold_score}/100"
+            elif rs < -40:
+                exit_code, exit_reason = "SELL", "Catastrophic RS Breakdown"
+            elif sma > 0 and cmp < (0.75 * sma):
+                exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse"
+                
+        if not exit_code and tax_info.get("harvest_signal"):
+            exit_code, exit_reason = "TLH", f"Tax-Loss Harvest Opportunity: {pnl_pct:.1f}%"
+            
+        r["Exit_Code"] = exit_code
+        r["Exit_Reason"] = exit_reason
+        return r
+
+    return portfolio_df.apply(_generate_exit_signal, axis=1)
+
+# =====================================================================================
+# MAIN PIPELINE WRAPPERS
+# =====================================================================================
 def run_wealth_scan():
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")
@@ -504,12 +718,16 @@ def run_wealth_scan():
         _scan_lock.release()
 
 def _run_wealth_scan_wrapper():
-    """Runs a single iteration of the Wealth Engine scan."""
-    from config import WATCHLIST_PATH, DATA_DIR, MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
+    from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    import os
 
     WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-    logger.info("💰 Fund Manager Wealth Engine v2 Started Scan.")
+    logger.info("💰 Fund Manager Wealth Engine v3 Started Scan (Strict Layered).")
+    
     import database
     if not getattr(database, "DONT_SAVE_WEALTH", False):
         upsert_scanner_health("Wealth Engine", "IDLE", last_success=None, today_alerts=0)
@@ -522,15 +740,11 @@ def _run_wealth_scan_wrapper():
                 build_watchlist()
             except Exception as e:
                 logger.exception(f"❌ Wealth Engine failed to build watchlist")
-                import database
                 if not getattr(database, "DONT_SAVE_WEALTH", False):
                     upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Watchlist build failed")
                 return
 
-
-        from database import download_parquet_from_db, upload_parquet_to_db
-        
-        # If cold boot (no local file), try to restore from DB instantly so dashboard isn't blank
+        from database import download_parquet_from_db
         if not os.path.exists(WEALTH_PATH):
             download_parquet_from_db("wealth_engine", WEALTH_PATH)
 
@@ -539,43 +753,43 @@ def _run_wealth_scan_wrapper():
             try:
                 prev_wealth_df = pd.read_parquet(WEALTH_PATH)
             except Exception as e:
-                logger.exception(f"Failed to load prev_wealth_df")
+                logger.exception("Failed to load prev_wealth_df")
 
+        # ── PREP LAYER 1 (Candidates) ──
         df = pd.read_parquet(WATCHLIST_PATH)
+        df = df.drop_duplicates(subset=["Stock"]).reset_index(drop=True)
+        candidate_symbols = set(df["Stock"].astype(str).tolist()) if "Stock" in df.columns else set()
 
-        # INJECT ORPHANED OPEN POSITIONS: If a stock is currently held but fell out of the fundamental watchlist,
-        # we MUST still evaluate it so it can trigger a SELL signal.
+        # ── PREP LAYER 3 (Orphan Open Positions) ──
+        portfolio_dict = {}
         try:
             from database import get_connection
             from psycopg2.extras import RealDictCursor
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT DISTINCT symbol
+                        SELECT symbol, entry_price, added_at::date AS entry_date
+                        FROM manual_portfolio
+                    """)
+                    for r in cur.fetchall():
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+                    
+                    cur.execute("""
+                        SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date
                         FROM wealth_buy_alert
                         WHERE is_closed = FALSE
-                        AND (status = 'ACTIVE' OR alert_date::date >= CURRENT_DATE - INTERVAL '30 days')
-                        AND status NOT IN ('EXPIRED', 'SUPERSEDED', 'INVALID')
                     """)
-                    open_symbols = [row['symbol'] for row in cur.fetchall()]
-            
-            existing_symbols = set(df["Stock"].astype(str).tolist()) if "Stock" in df.columns else set()
-            missing_symbols = [sym for sym in open_symbols if sym not in existing_symbols]
-
-            if missing_symbols:
-                logger.warning(
-                    f"Injecting {len(missing_symbols)} orphaned open positions into evaluation pipeline "
-                    f"(not present in current fundamental watchlist)."
-                )
-                missing_df = pd.DataFrame([{"Stock": sym} for sym in missing_symbols])
-                df = pd.concat([df, missing_df], ignore_index=True)
-
-            df = df.drop_duplicates(subset=["Stock"]).reset_index(drop=True)
+                    for r in cur.fetchall():
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
         except Exception as e:
-            logger.warning(f"Failed to fetch open positions for injection: {e}")
+            logger.warning(f"Failed to load active portfolio prices: {e}")
+            
+        open_symbols = list(portfolio_dict.keys())
+        orphan_symbols = [sym for sym in open_symbols if sym not in candidate_symbols]
 
-        logger.info(f"💰 [WEALTH ENGINE] Calculating Fund Manager v2 metrics for {len(df)} elite stocks...")
+        logger.info(f"💰 [WEALTH ENGINE] Candidates: {len(df)} | Orphans: {len(orphan_symbols)}")
 
+        # ── DATA FETCH (Candidates + Orphans) ──
         nifty_6m_ret, nifty_dist_52w = fetch_nifty_macro_state()
         if nifty_6m_ret is None:
             logger.info("Nifty Macro: UNAVAILABLE — suppressing macro gates")
@@ -584,43 +798,32 @@ def _run_wealth_scan_wrapper():
 
         clear_price_cache()
         rejection_counts = {}
+        import threading
         _rejection_lock = threading.Lock()
 
-        # 🔧 CRITICAL FIX: Fetch ALL watchlist symbols in one batch BEFORE threading
-        # This prevents cache pollution where subsequent threads get incomplete cache hits
-        # and fallback to stale data from yesterday.
-        logger.info(f"💰 [WEALTH ENGINE] Batch fetching 1D data for {len(df)} symbols...")
-        all_symbols = df["Stock"].tolist()
+        all_symbols_to_fetch = list(candidate_symbols.union(set(orphan_symbols)))
+        logger.info(f"💰 [WEALTH ENGINE] Batch fetching 1D data for {len(all_symbols_to_fetch)} symbols...")
         from price_cache import fetch_unified_historical
-        all_historical_data = fetch_unified_historical(all_symbols, period="1y", interval="1d")
+        all_historical_data = fetch_unified_historical(all_symbols_to_fetch, period="1y", interval="1d")
         
-        # Handle rate limiting or fetch failures gracefully
         if all_historical_data is None:
             all_historical_data = {}
         
-        fetched_count = len(all_historical_data) if all_historical_data else 0
+        fetched_count = len(all_historical_data)
         required_count = int(len(df) * 0.70)
         
         if fetched_count < required_count:
-            logger.warning(f"⚠️ Batch fetch returned only {fetched_count}/{len(df)} symbols (70% minimum required). Aborting scan.")
-            import database
+            logger.warning(f"⚠️ Batch fetch returned {fetched_count}/{len(df)} candidates. Aborting.")
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
-                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(df)} symbols")
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"INCOMPLETE DATA: Fetched {fetched_count}")
                 except Exception:
                     pass
-            raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(df)} symbols (70% minimum required). Aborting to prevent stale data.")
-        else:
-            logger.info(f"💰 [WEALTH ENGINE] Batch fetch complete. {fetched_count}/{len(df)} symbols have fresh data.")
-
-
-        def process_symbol(idx, row, historical_cache=None):
+            raise Exception(f"INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. Aborting.")
+            
+        def process_symbol(idx, sym, historical_cache=None):
             try:
-                sym = row["Stock"]
-                # Use pre-fetched historical data instead of fetching single symbol in thread
                 tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=historical_cache)
-                
-                # Fallback if Yahoo Finance fails
                 if tech.get("cmp") is None and not prev_wealth_df.empty and sym in prev_wealth_df["Stock"].values:
                     prev_row = prev_wealth_df[prev_wealth_df["Stock"] == sym].iloc[0]
                     tech["cmp"] = prev_row.get("cmp")
@@ -629,18 +832,13 @@ def _run_wealth_scan_wrapper():
                     tech["rs_6m"] = prev_row.get("rs_6m")
                     tech["dist_52w_high"] = prev_row.get("dist_52w_high")
                     tech["liquidity"] = prev_row.get("liquidity", 0.0)
-                    
-                    # New derived technicals
                     tech["RSI"] = prev_row.get("RSI", 50.0)
                     tech["ATR_Pct"] = prev_row.get("ATR_Pct", 0.0)
                     tech["momentum_score"] = prev_row.get("momentum_score", 0)
                     tech["momentum_confidence"] = prev_row.get("momentum_confidence", "LOW")
-                    
-                    # Explicit flag so signal logic can downgrade new buys
                     tech["used_fallback_data"] = True
-                    tech["data_quality"] = DataQuality.CACHED_PREV_DAY.value
+                    tech["data_quality"] = "CACHED_PREV_DAY"
                     tech["fallback_timestamp"] = prev_row.get("fallback_timestamp", datetime.now(IST).isoformat())
-                    
                     with _rejection_lock:
                         rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
                 elif tech.get("is_stale"):
@@ -649,561 +847,225 @@ def _run_wealth_scan_wrapper():
                     tech["fallback_timestamp"] = datetime.now(IST).isoformat()
                     with _rejection_lock:
                         rejection_counts["stale_data"] = rejection_counts.get("stale_data", 0) + 1
-                    try:
-                        from database import upsert_fetch_error
-                        upsert_fetch_error('yfinance', 'WEALTH', sym, '1d', 'stale_data', 'using_yesterdays_cache')
-                    except Exception:
-                        pass
-                    logger.warning(f"⚠️ YFinance failed for {sym}, using cached technicals from yesterday.")
                 elif tech.get("cmp") is None:
                     with _rejection_lock:
                         rejection_counts["no_data"] = rejection_counts.get("no_data", 0) + 1
-                    try:
-                        from database import upsert_fetch_error
-                        upsert_fetch_error('yfinance', 'WEALTH', sym, '1d', 'no_data', 'missing_data_no_fallback')
-                    except Exception:
-                        pass
                     return {"Stock": sym}
                 else:
                     tech["used_fallback_data"] = False
                     tech["fallback_timestamp"] = None
                     
                 tech["Stock"] = sym
-                # PLEDGE SCRAPER DISABLED PER USER REQUEST
-                # Note: The pledge dimension is currently intentionally inactive.
-                # Any hold-score bonus or kill-gate relying on clean pledge is structurally neutralized.
                 tech["Promoter_Pledge"] = None
                 
-                # Extract AI Concall Confidence
                 try:
                     concall = get_recent_concall_analysis(sym)
-                    if concall and isinstance(concall, dict) and "management_confidence" in concall:
-                        tech["AI_Confidence"] = int(concall["management_confidence"])
-                    else:
-                        tech["AI_Confidence"] = 0
-                except Exception as e:
-                    logger.warning(f"AI Concall fetch failed for {sym}: {e}")
+                    tech["AI_Confidence"] = int(concall["management_confidence"]) if concall and "management_confidence" in concall else 0
+                except Exception:
                     tech["AI_Confidence"] = 0
-
                 return tech
             except Exception as e:
-                logger.exception(f"❌ Error processing {row['Stock']}")
-                try:
-                    from database import upsert_fetch_error
-                    upsert_fetch_error('yfinance', 'WEALTH', row.get('Stock', 'UNKNOWN'), '1d', 'processing_error', str(e))
-                except Exception as e:
-                    logger.exception(f"Failed to process {row['Stock']}: {e}")
-                
                 with _rejection_lock:
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
-                return {"Stock": row.get("Stock", "UNKNOWN")}
+                return {"Stock": sym}
 
         technicals = []
+        import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-            futures = {executor.submit(process_symbol, i, row, all_historical_data): i for i, row in df.iterrows()}
+            futures = {executor.submit(process_symbol, i, sym, all_historical_data): i for i, sym in enumerate(all_symbols_to_fetch)}
             completed = 0
             for future in concurrent.futures.as_completed(futures):
                 try:
                     technicals.append(future.result())
-                except Exception as e:
-                    logger.exception(f"Worker failed unexpectedly: {e}")
-                    # skip or append minimal row handled inside process_symbol
+                except Exception:
+                    pass
                 completed += 1
-                if completed % 50 == 0 or completed == len(df):
-                    logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(df)} stocks processed...")
+                if completed % 50 == 0 or completed == len(all_symbols_to_fetch):
+                    logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(all_symbols_to_fetch)} stocks processed...")
 
         tech_df = pd.DataFrame(technicals)
+        
         if not tech_df.empty and "cmp" in tech_df.columns and (tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
-            logger.error("❌ YFinance returned 0 prices. API might be down or rate-limited. Aborting this scan cycle.")
-            import database
+            logger.error("❌ API returned 0 prices. Rate limited.")
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
-                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg="CRITICAL: YFinance returned 0 prices. Rate limited.")
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg="CRITICAL: API rate limited.")
                 except Exception:
                     pass
             return
-
-        wealth_df = pd.merge(df, tech_df, on="Stock", how="left")
-
-        # ── RECONCILIATION: ensure all open positions were evaluated ──
-        reconciliation_missing = []
-        try:
-            from database import get_connection
-            from psycopg2.extras import RealDictCursor
             
-            with get_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT DISTINCT symbol
-                        FROM wealth_buy_alert
-                        WHERE is_closed = FALSE
-                    """)
-                    db_open_symbols = {row["symbol"] for row in cur.fetchall()}
-
-            evaluated_symbols = set(wealth_df["Stock"].astype(str).tolist()) if "Stock" in wealth_df.columns else set()
-            reconciliation_missing = sorted(db_open_symbols - evaluated_symbols)
-
-            if reconciliation_missing:
-                logger.critical(
-                    f"🚨 RECONCILIATION FAILURE: {len(reconciliation_missing)} open positions "
-                    f"were NOT evaluated: {reconciliation_missing[:20]}"
-                )
-                try:
-                    from database import upsert_scanner_health
-                    upsert_scanner_health(
-                        "Wealth Engine",
-                        "DEGRADED",
-                        error_msg=f"Reconciliation failure: {len(reconciliation_missing)} open positions missed"
-                    )
-                except Exception:
-                    pass
-            else:
-                logger.info("✅ Reconciliation passed: all open positions were included in this run.")
-                
-        except Exception as e:
-            logger.exception(f"Failed open-position reconciliation check: {e}")
-
-        # ── PEER VALUATION PRECOMPUTE ──
-        from valuation_utils import compute_peer_medians
-        symbols_to_val = wealth_df["Stock"].tolist() if not wealth_df.empty else []
-        sector_stats = compute_peer_medians(symbols_to_val)
-
-        if "rs_6m" in wealth_df.columns:
-            wealth_df["RS_Rating"] = wealth_df["rs_6m"].rank(pct=True, ascending=True) * 100
-        else:
-            wealth_df["RS_Rating"] = 0
-
-        # Apply Unified Core Engine Scores
-        scores_df = wealth_df.apply(lambda r: apply_core_engine_scores(r, sector_stats), axis=1)
-        wealth_df["FM_Score"] = scores_df["CIS"]
-        wealth_df["Valuation_Score"] = scores_df["RVS"]
-        wealth_df["Consistency_Score"] = scores_df["BQS"]  # Mapped to BQS for dashboard
-        wealth_df["Reliability"] = scores_df["Reliability"]
-        wealth_df["Base_FV"] = scores_df["Base_FV"]
-        wealth_df["Bull_FV"] = scores_df["Bull_FV"]
+        # =====================================================================================
+        # EXECUTE LAYER 1: CANDIDATE SELECTION
+        # =====================================================================================
+        # wealth_df consists ONLY of the fundamental watchlist candidates joined with technicals
+        candidate_tech = tech_df[tech_df["Stock"].isin(candidate_symbols)]
+        wealth_df = pd.merge(df, candidate_tech, on="Stock", how="left")
         
-        wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
-
-        if nifty_dist_52w is None:
-            logger.warning("Using NO Nifty benchmark — macro gates suppressed")
-            
-        # ── MACRO SUPPRESSION & BEAR-MARKET VALUE ADD ──
+        from valuation_utils import compute_peer_medians
+        sector_stats = compute_peer_medians(wealth_df["Stock"].tolist() if not wealth_df.empty else [])
+        
+        wealth_df = evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w)
+        
+        # =====================================================================================
+        # EXECUTE LAYER 2: ENTRY TIMING
+        # =====================================================================================
         BUY_GATE_ACTIVE = False
         suppression_reason = None
         
         degraded = rejection_counts.get("stale_data", 0) + rejection_counts.get("no_data", 0)
-        fresh_ratio = 1.0 - (degraded / max(len(df), 1))
+        fresh_ratio = 1.0 - (degraded / max(len(candidate_symbols), 1))
         
         breadth_pct = None
-        if not tech_df.empty and "above_sma200" in tech_df.columns:
-            total_eval = len(tech_df)
-            above_200 = tech_df["above_sma200"].sum()
+        if not candidate_tech.empty and "above_sma200" in candidate_tech.columns:
+            total_eval = len(candidate_tech)
+            above_200 = candidate_tech["above_sma200"].sum()
             breadth_pct = (above_200 / total_eval) * 100
-            logger.warning(f"⚠️ Market Breadth Caution: Only {breadth_pct:.1f}% stocks above SMA200")
             
         if nifty_dist_52w is not None and nifty_dist_52w > 20:
-            BUY_GATE_ACTIVE = True
-            suppression_reason = f"Nifty {nifty_dist_52w:.1f}% below 52W high"
+            BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty {nifty_dist_52w:.1f}% below 52W high"
         elif nifty_6m_ret is not None and nifty_6m_ret < -15:
-            BUY_GATE_ACTIVE = True
-            suppression_reason = f"Nifty 6M return {nifty_6m_ret:.1f}%"
+            BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty 6M return {nifty_6m_ret:.1f}%"
         elif breadth_pct is not None and breadth_pct < 30:
-            BUY_GATE_ACTIVE = True
-            suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
+            BUY_GATE_ACTIVE = True; suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
         elif fresh_ratio < 0.70 and degraded >= 3:
-            BUY_GATE_ACTIVE = True
-            suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
+            BUY_GATE_ACTIVE = True; suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
             
-        if BUY_GATE_ACTIVE:
-            logger.warning(f"🚨 BUY GATE ACTIVE: {suppression_reason}")
-
-        # Load manual portfolio and active buy alerts to securely inject entry_price for drawdown protection
-        portfolio_dict = {}
-        try:
-            from database import get_connection
-            from psycopg2.extras import RealDictCursor
-            with get_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # 1. Manual portfolio (lowest priority)
-                    cur.execute("""
-                        SELECT
-                            symbol,
-                            entry_price,
-                            added_at::date AS entry_date
-                        FROM manual_portfolio
-                    """)
-                    for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {
-                            "entry_price": r["entry_price"],
-                            "entry_date": r["entry_date"]
-                        }
-                    
-                    # 2. Wealth system active alerts (overrides manual)
-                    cur.execute("""
-                        SELECT
-                            symbol,
-                            alert_price AS entry_price,
-                            alert_date::date AS entry_date
-                        FROM wealth_buy_alert
-                        WHERE is_closed = FALSE
-                    """)
-                    for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {
-                            "entry_price": r["entry_price"],
-                            "entry_date": r["entry_date"]
-                        }
-        except Exception as e:
-            logger.warning(f"Failed to load active portfolio prices: {e}")
-
-        # Inject entry_price into the dataframe BEFORE evaluation
-        wealth_df["entry_price"] = wealth_df["Stock"].map(lambda s: portfolio_dict.get(s, {}).get("entry_price", 0.0))
-
-        def _coerce_to_date(value):
-            from datetime import date, datetime
-            import pandas as pd
-            if value is None:
-                return None
-            if isinstance(value, date) and not isinstance(value, datetime):
-                return value
-            if isinstance(value, datetime):
-                return value.date()
-            try:
-                return pd.to_datetime(value).date()
-            except Exception:
-                return None
-
-        def apply_hold_score_with_tax(r):
-            base_hold_score = calculate_hold_score(r)
-            sym = r.get("Stock")
-            if sym in portfolio_dict:
-                p = portfolio_dict[sym]
-                try:
-                    entry_date = _coerce_to_date(p.get("entry_date"))
-                    if entry_date is None:
-                        return base_hold_score
-                    cmp_price = r.get("cmp", p['entry_price']) or p['entry_price']
-                    pnl_pct = ((cmp_price - p['entry_price']) / p['entry_price']) * 100 if p['entry_price'] > 0 else 0
-                    tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
-                    return min(100, base_hold_score + tax_info['bonus'])
-                except Exception:
-                    pass
-            return base_hold_score
-
-        # Apply Hold Score evaluation
-        wealth_df["Hold_Score"] = wealth_df.apply(apply_hold_score_with_tax, axis=1)
-
-        # Apply Hold Trend Analysis for open positions
-        def get_hold_trend(r):
-            sym = r.get("Stock")
-            if sym in portfolio_dict:
-                from wealth_hold_tracking import HoldScoreTrendAnalyzer
-                trend = HoldScoreTrendAnalyzer.analyze_trend(sym)
-                # If the trend analyzer flags a warning or sell, we can surface it
-                if trend["action"] != "HOLD":
-                    return trend["reason"]
-                return "Stable"
-            return "Not Held"
-
-        wealth_df["hold_trend"] = wealth_df.apply(get_hold_trend, axis=1)
-
-        # Buy/Sell Signals
-        def get_signal(r):
-            score = r.get("FM_Score", 0)
-            hold_score = r.get("Hold_Score", 0)
-            cmp = r.get("cmp", 0) or 0
-            sma = r.get("sma_200", 0) or 0
-            rs = r.get("rs_6m", 0) or 0
-            sym = r.get("Stock")
-            used_fallback = r.get("used_fallback_data", False)
-            
-            # 1. Exit Logic & Catastrophic Breakdown (Highest Precedence)
-            # CRITICAL FIX: Only evaluate exits if we have valid or stale data. If completely missing, ignore.
-            data_quality = r.get("data_quality")
-            if cmp > 0 and data_quality != "MISSING_PARTIAL":
-                hold_trend = r.get("hold_trend", "Stable")
-                if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
-                    return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": hold_trend})
-                if hold_score < 45:
-                    return pd.Series({"Signal_Code": "SELL_REVIEW", "Signal_Reason": f"Hold Score: {hold_score}/100"})
-                if rs < -40:
-                    return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic RS Breakdown"})
-                if sma > 0 and cmp < (0.75 * sma):
-                    return pd.Series({"Signal_Code": "SELL", "Signal_Reason": "Catastrophic Trend Collapse"})
-                
-            # 2. Check for Tax-Loss Harvesting signal (HOLD overrides BUY/neutral)
-            if sym in portfolio_dict:
-                p = portfolio_dict[sym]
-                try:
-                    entry_date = _coerce_to_date(p.get("entry_date"))
-                    if entry_date is None:
-                        return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Entry date unavailable"})
-                    cmp_price = r.get("cmp", p['entry_price']) or p['entry_price']
-                    pnl_pct = ((cmp_price - p['entry_price']) / p['entry_price']) * 100 if p['entry_price'] > 0 else 0
-                    tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
-                    if tax_info.get("harvest_signal"):
-                        return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": f"Tax-Loss Harvest Opportunity: {pnl_pct:.1f}%"})
-                except Exception:
-                    pass
-
-            # 3. Macro Suppression & Bear-Market Value-Add Logic
-            bucket = str(r.get("Portfolio_Bucket", ""))
-            
-            if BUY_GATE_ACTIVE:
-                if "Quality-On-Sale" in bucket:
-                    cons_score = r.get("Consistency_Score", 0)
-                    val_score = r.get("Valuation_Score", 0)
-                    roce = r.get("ROCE %", 0) or 0
-                    fcf_margin = r.get("FCF Margin %")
-                    path = r.get("Path", "")
-                    mom_conf = r.get("momentum_confidence", "")
-                    
-                    fcf_ok = True if path == "Financial" else (fcf_margin is not None and fcf_margin > 0)
-                    
-                    if (
-                        score >= 78 and
-                        cons_score >= 18 and
-                        val_score >= 15 and
-                        cmp > 0 and sma > 0 and
-                        cmp >= 0.95 * sma and
-                        rs > -10 and
-                        not used_fallback and
-                        roce >= 15 and
-                        fcf_ok and
-                        mom_conf != "LOW"
-                    ):
-                        return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
-                return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
-                
-            # 4. Normal Market Accumulation (Stricter Gate)
-            if score >= 82 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 9 and cmp > sma and sma > 0:
-                if used_fallback:
-                    return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": "Stale Data — Prevented Fake Buy"})
-                if r.get("momentum_confidence", "") == "LOW":
-                    return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
-                return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score}, Consistency: {r.get('Consistency_Score', 0)}"})
-                
-            # Mean Reversion Check (Only if not already a standard breakout BUY)
-            if not used_fallback:
-                from wealth_mean_reversion import get_mean_reversion_signal
-                mr_code, mr_reason = get_mean_reversion_signal(r)
-                if mr_code:
-                    return pd.Series({"Signal_Code": mr_code, "Signal_Reason": mr_reason})
-                
-            return pd.Series({"Signal_Code": "", "Signal_Reason": ""})
-
-        signal_df = wealth_df.apply(get_signal, axis=1)
-        wealth_df["Signal_Code"] = signal_df["Signal_Code"]
-        wealth_df["Signal_Reason"] = signal_df["Signal_Reason"]
-        wealth_df["Signal"] = signal_df.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x['Signal_Code'] and x['Signal_Reason'] else x['Signal_Code'], axis=1)
+        wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason)
         
-        # Calculate position sizing for all BUY signals
-        def calculate_position_sizing(r):
-            sig_code = r.get("Signal_Code", "")
-            if sig_code != "BUY":
-                r["position_pct"] = None
-                r["position_amount"] = None
-                r["position_shares"] = None
-                r["alloc_category"] = "NONE"
-                return r
-                
-            cmp = r.get("cmp", 0)
-            atr_pct = r.get("ATR_Pct", 0)
-            used_fallback = r.get("used_fallback_data", False)
-            momentum_score = r.get("momentum_score", 0)
-            
-            if used_fallback or cmp == 0:
-                r["position_pct"] = 0.0
-                r["position_amount"] = 0.0
-                r["position_shares"] = 0
-                r["alloc_category"] = "SUPPRESSED"
-                return r
-                
-            from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
-            sizing = calculate_risk_adjusted_sizing(cmp, atr_pct, momentum_score)
-            
-            r["position_pct"] = sizing["Position_Pct"]
-            r["position_amount"] = sizing["Position_Amount"]
-            r["position_shares"] = int(sizing["Position_Amount"] / cmp) if cmp > 0 else 0
-            r["alloc_category"] = sizing["Alloc_Category"]
-            return r
-
-        wealth_df = wealth_df.apply(calculate_position_sizing, axis=1)
-
-        # Apply sector caps to Core bucket for the dashboard
-        core_capped = apply_sector_cap(wealth_df, "Portfolio_Bucket", "Core", max_stocks=15)
-        core_symbols = set(core_capped["Stock"].tolist()) if not core_capped.empty else set()
-        wealth_df["Core_Selected"] = wealth_df["Stock"].apply(lambda s: s in core_symbols)
-
-        # Save BUY signals to wealth_buy_alert table for historical tracking
+        # Persist BUY Signals
         try:
-            from database import save_wealth_buy_alert, close_position, update_position_real_time_prices, DONT_SAVE_WEALTH
+            from database import save_wealth_buy_alert, DONT_SAVE_WEALTH
             buy_signals = wealth_df[wealth_df["Signal_Code"] == "BUY"]
             for _, row in buy_signals.iterrows():
-                # HARD DEPLOYMENT GUARD: Never persist a BUY if it was somehow generated from fallback data
-                if row.get("used_fallback_data", False):
-                    logger.warning(f"🛡️ Deployment Guard Blocked persistence of BUY for {row.get('Stock')} due to used_fallback_data=True")
+                if row.get("used_fallback_data", False) or not row.get("candidate_complete_for_buy", False):
                     continue
-                    
+                try:
+                    from config import get_wealth_admission_state
+                    allow_new_admissions = get_wealth_admission_state()
+                except Exception:
+                    allow_new_admissions = True
                 if not allow_new_admissions:
-                    logger.warning(f"Admission blocked for {row.get('Stock')}: upstream manifest does not allow new buys.")
                     continue
                     
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
-                fm_score = row.get("FM_Score")
-                breakout = "Strength" if row.get("dist_52w_high", 100) > 5 else "Value"
-                position_pct = row.get("position_pct")
-                position_amount = row.get("position_amount")
-                portfolio_bucket = row.get("Portfolio_Bucket", "Unknown")
-                valuation_score = row.get("Valuation_Score", 0)
-                position_shares = int(position_amount / cmp) if cmp and cmp > 0 and position_amount else 0
-                if symbol and cmp:
-                    if not DONT_SAVE_WEALTH:
-                        save_wealth_buy_alert(
-                            symbol, 
-                            cmp, 
-                            breakout_type=breakout, 
-                            fm_score=fm_score,
-                            position_pct=position_pct,
-                            position_amount=position_amount,
-                            position_shares=position_shares,
-                            portfolio_bucket=portfolio_bucket,
-                            valuation_score=valuation_score,
-                            momentum_score=row.get("momentum_score"),
-                            momentum_confidence=row.get("momentum_confidence"),
-                            data_quality=row.get("data_quality"),
-                            fallback_timestamp=row.get("fallback_timestamp")
-                        )
+                if symbol and cmp and not DONT_SAVE_WEALTH:
+                    save_wealth_buy_alert(
+                        symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value", 
+                        fm_score=row.get("FM_Score"), position_pct=row.get("position_pct"),
+                        position_amount=row.get("position_amount"), position_shares=int(row.get("position_amount", 0) / cmp) if cmp > 0 else 0,
+                        portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
+                        momentum_score=row.get("momentum_score"), momentum_confidence=row.get("momentum_confidence"),
+                        data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp")
+                    )
+        except Exception: pass
+
+        # =====================================================================================
+        # EXECUTE LAYER 3: PORTFOLIO MANAGEMENT
+        # =====================================================================================
+        # Extract open positions into a separate dataframe
+        portfolio_rows = []
+        for sym, p_info in portfolio_dict.items():
+            if sym in wealth_df["Stock"].values:
+                row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict()
+            elif sym in tech_df["Stock"].values:
+                row = tech_df[tech_df["Stock"] == sym].iloc[0].to_dict()
+            else:
+                row = {"Stock": sym}
+            row["entry_price"] = p_info["entry_price"]
+            row["entry_date"] = p_info["entry_date"]
+            portfolio_rows.append(row)
             
-            # Fetch REAL-TIME prices for all open positions (for accurate P&L calculation)
+        portfolio_df = pd.DataFrame(portfolio_rows)
+        portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
+        
+        if not portfolio_df.empty:
+            # Auto-close positions when SELL signal detected
+            sell_signals = portfolio_df[portfolio_df["Exit_Code"] == "SELL"]
+            for _, row in sell_signals.iterrows():
+                symbol = row.get("Stock")
+                cmp = row.get("cmp")
+                exit_reason = row.get("Exit_Reason")
+                if symbol and cmp and not getattr(database, "DONT_SAVE_WEALTH", False):
+                    from database import close_position
+                    close_position("wealth_buy_alert", symbol, cmp, exit_reason)
+
+            # Map Portfolio outputs back into wealth_df for Dashboard display
+            port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
+            def map_port(r):
+                sym = r["Stock"]
+                if sym in port_map:
+                    r["Hold_Score"] = port_map[sym]["Hold_Score"]
+                    r["hold_trend"] = port_map[sym]["hold_trend"]
+                    if not r.get("Signal_Code"):
+                        r["Signal_Code"] = port_map[sym]["Exit_Code"]
+                        r["Signal_Reason"] = port_map[sym]["Exit_Reason"]
+                        r["Signal"] = f"{r['Signal_Code']} ({r['Signal_Reason']})" if r['Signal_Reason'] else r['Signal_Code']
+                return r
+            wealth_df = wealth_df.apply(map_port, axis=1)
+            
+            # Fetch REAL-TIME prices for open positions
             try:
-                # ONLY FETCH OPEN POSITIONS to prevent rate-limiting and timeouts!
-                open_symbols = list(portfolio_dict.keys())
                 realtime_metrics = {}
                 if open_symbols:
-                    logger.info(f"🔄 Fetching real-time prices for {len(open_symbols)} open positions...")
-                    from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
+                    import yfinance as yf
+                    from yf_rate_limiter import acquire as yf_acquire, release as yf_release
                     yf_syms = [f"{s.replace('_', '-')}.NS" for s in open_symbols]
-                    
                     try:
                         yf_acquire()
                         try:
-                            # Batch fetch
                             batch_data = yf.download(yf_syms, period="1d", progress=False)
                             closes = batch_data['Close'] if not batch_data.empty and 'Close' in batch_data else None
                         finally:
                             yf_release()
-                    except CircuitOpenError as ce:
-                        logger.error(f"YFinance circuit open; abort realtime batch fetch: {ce}")
-                        closes = None
-                    except Exception as e:
-                        msg = str(e).lower()
-                        if 'too many requests' in msg or 'rate limit' in msg:
-                            record_rate_limit()
-                        logger.warning(f"Batch real-time fetch failed for open positions: {e}")
-                        closes = None
+                    except Exception: closes = None
 
                     for i, symbol in enumerate(open_symbols):
                         yf_sym = yf_syms[i]
                         current_price = None
                         if closes is not None:
-                            if isinstance(closes, pd.Series):
-                                if not pd.isna(closes.iloc[-1]):
-                                    current_price = float(closes.iloc[-1])
-                            elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]):
-                                current_price = float(closes[yf_sym].iloc[-1])
+                            if isinstance(closes, pd.Series) and not pd.isna(closes.iloc[-1]): current_price = float(closes.iloc[-1])
+                            elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]): current_price = float(closes[yf_sym].iloc[-1])
                         
-                        symbol_row = wealth_df[wealth_df["Stock"] == symbol]
-                        current_score = None
-                        if not symbol_row.empty:
-                            r = symbol_row.iloc[0]
-                            val = r.get("Hold_Score")
-                            if pd.notna(val):
-                                current_score = float(val)
+                        sym_info = port_map.get(symbol, {})
+                        current_score = sym_info.get("Hold_Score")
                                 
-                            # Save hold score history for tracking trends
-                            if not DONT_SAVE_WEALTH:
-                                from database import save_hold_score_history
-                                save_hold_score_history(
-                                    symbol=symbol,
-                                    hold_score=current_score,
-                                    fm_score=float(r.get("FM_Score", 0)),
-                                    rs_6m=float(r.get("rs_6m", 0)),
-                                    cmp=current_price or float(r.get("cmp", 0)),
-                                    sma_200=float(r.get("sma_200", 0))
-                                )
+                        if not getattr(database, "DONT_SAVE_WEALTH", False):
+                            from database import save_hold_score_history
+                            p_row = portfolio_df[portfolio_df["Stock"] == symbol].iloc[0]
+                            save_hold_score_history(
+                                symbol=symbol, hold_score=current_score, fm_score=float(p_row.get("FM_Score", 0)),
+                                rs_6m=float(p_row.get("rs_6m", 0)), cmp=current_price or float(p_row.get("cmp", 0)), sma_200=float(p_row.get("sma_200", 0))
+                            )
 
-                        if current_price and current_price > 0:
-                            realtime_metrics[symbol] = {"price": float(current_price), "score": current_score}
+                        if current_price and current_price > 0: realtime_metrics[symbol] = {"price": float(current_price), "score": current_score}
                     
-                    if realtime_metrics:
-                        if not DONT_SAVE_WEALTH:
-                            update_position_real_time_prices(realtime_metrics)
-            except Exception as e:
-                logger.warning(f"⚠️  Could not fetch real-time prices: {e}")
-            
-            # Auto-close positions when SELL signal detected
-            sell_signals = wealth_df[wealth_df["Signal_Code"] == "SELL"]
-            for _, row in sell_signals.iterrows():
-                symbol = row.get("Stock")
-                cmp = row.get("cmp")
-                signal_text = row.get("Signal")
-                if symbol and cmp:
-                    if not DONT_SAVE_WEALTH:
-                        close_position(symbol, cmp, signal_text)
-        except Exception as e:
-            logger.warning(f"⚠️  Could not process buy/sell alerts: {e}")
+                    if realtime_metrics and not getattr(database, "DONT_SAVE_WEALTH", False):
+                        from database import update_position_real_time_prices
+                        update_position_real_time_prices(realtime_metrics)
+            except Exception: pass
 
-        # Persist wealth dataframe unless dry-run mode is active
-        from database import DONT_SAVE_WEALTH
-        if not DONT_SAVE_WEALTH:
-            wealth_df.to_parquet(WEALTH_PATH, index=False)
-            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
-        else:
-            logger.info("🧪 DONT_SAVE_WEALTH enabled — skipping parquet save and DB upload")
-
-        if "used_fallback_data" in wealth_df.columns:
-            fallback_mask = wealth_df["used_fallback_data"].fillna(False).astype(bool)
-            valid_buys = wealth_df[(wealth_df["Signal_Code"] == "BUY") & ~fallback_mask]
-        else:
-            valid_buys = wealth_df[wealth_df["Signal_Code"] == "BUY"]
-        buy_count = len(valid_buys)
-        
-        core_count = len(core_capped)
-        logger.info(f"✅ [WEALTH ENGINE] Updated | Core: {core_count} | Buys: {buy_count} | Total: {len(wealth_df)}")
-        
-        import database
+        # Final Dashboard Export
         if not getattr(database, "DONT_SAVE_WEALTH", False):
-            final_health_status = "OK"
-            final_error_msg = None
-
-            if reconciliation_missing:
-                final_health_status = "DEGRADED_RECONCILIATION"
-                final_error_msg = f"Missed {len(reconciliation_missing)} open positions during evaluation"
-            elif BUY_GATE_ACTIVE:
-                final_health_status = "MACRO_GATED" if fresh_ratio >= 0.70 else "DEGRADED_STALE_DATA"
-                final_error_msg = f"MACRO GATED: {suppression_reason}" if fresh_ratio >= 0.70 else f"MACRO GATED + Fresh data only {fresh_ratio*100:.1f}%"
-            elif fresh_ratio < 0.70:
-                final_health_status = "DEGRADED_STALE_DATA"
-                final_error_msg = f"Fresh data only {fresh_ratio*100:.1f}%"
-
-            upsert_scanner_health(
-                "Wealth Engine",
-                final_health_status,
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=buy_count,
-                total_count=len(df),
-                error_msg=final_error_msg
-            )
-
-        # Weekly Telegram Alert removed (2026-06-17)
+            try:
+                from database import upload_parquet_to_db
+                cols = ['Stock', 'Sector', 'FM_Score', 'Consistency_Score', 'Valuation_Score', 'Reliability', 'Base_FV', 'Bull_FV', 'Portfolio_Bucket', 'Signal', 'Hold_Score', 'hold_trend', 'Core_Selected']
+                for c in cols:
+                    if c not in wealth_df.columns: wealth_df[c] = None
+                wealth_df.to_parquet(WEALTH_PATH)
+                upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                    today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df)
+                )
+            except Exception: pass
 
     except Exception as e:
-        logger.exception(f"❌ [WEALTH ENGINE] Scan crashed: {e}")
+        logger.exception("❌ CRITICAL ERROR in Wealth Engine")
         import database
         if not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
+                from database import upsert_scanner_health
                 upsert_scanner_health("Wealth Engine", "DOWN", error_msg=str(e))
-            except Exception:
-                pass
-        raise e
+            except Exception: pass
