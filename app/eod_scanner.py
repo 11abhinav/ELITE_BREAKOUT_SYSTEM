@@ -105,7 +105,6 @@ def _start_wrapper(force: bool = False):
             logger.exception("❌ Failed to load watchlist")
             if not is_test_mode:
                 try:
-                    from database import upsert_scanner_health
                     upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
                 except Exception:
                     pass
@@ -115,7 +114,6 @@ def _start_wrapper(force: bool = False):
             logger.info("🛡️ EOD Scanner | Universe is empty (no stocks passed Wealth Engine BUY signals). Exiting cleanly.")
             if not is_test_mode:
                 try:
-                    from database import insert_notification, upsert_scanner_health
                     insert_notification("admin", "🚀 EOD Scanner ran successfully. Found 0 new breakout alerts.", "Generated 0 alerts. The fundamental watchlist universe is currently empty.")
                     upsert_scanner_health("EOD", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
                 except Exception:
@@ -177,8 +175,8 @@ def _start_wrapper(force: bool = False):
         # EOD writes to `alerts` via save_alert_if_new(), so cleanup must target `alerts`.
         if not is_test_mode:
             try:
-                from database import getconnection
-                with getconnection() as conn:
+                from database import get_connection
+                with get_connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
                             "DELETE FROM alerts WHERE scanner = %s AND alert_date = %s",
