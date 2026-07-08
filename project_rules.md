@@ -14,3 +14,4 @@ The following rules must be strictly adhered to by any AI assistants or develope
 7. **Permission to Push:** At the end of the task, ASK PERMISSION to push to Git.
 8. **Stale Changes:** Before starting anything new, ask the admin to confirm whether to push old changes (if there are any uncommitted) before starting fresh.
 9. **Git Commits:** Make sure to add full, comprehensive details in the Git commit message. The commit message MUST include the same UNIQUE VERSION NAME that was added in the code comments.
+10. **Git Branching:** ALWAYS PUSH CHANGES TO MAIN BRANCH.
