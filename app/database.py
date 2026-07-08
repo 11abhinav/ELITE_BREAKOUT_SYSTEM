@@ -3605,7 +3605,8 @@ def upsert_breakout_watchlist(
     context_json: str = None,
     signal_timestamp: str = None,
     expires_at: str = None,
-    timeframe: str = None
+    timeframe: str = None,
+    clear_context: bool = False
 ):
     if DONT_SAVE_ALERTS:
         return
@@ -3613,6 +3614,14 @@ def upsert_breakout_watchlist(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                if clear_context:
+                    # [VERSION: MULTI_TF_PATCH_v1.0] Explicitly clear stale context on downgrade so COALESCE doesn't retain old values
+                    cur.execute("""
+                        UPDATE breakout_watchlist 
+                        SET armed_at = NULL, context_json = NULL, expires_at = NULL 
+                        WHERE symbol = %s
+                    """, (symbol,))
+                
                 session_date = datetime.now(IST).strftime("%Y-%m-%d")
                 cur.execute("""
                     INSERT INTO breakout_watchlist (

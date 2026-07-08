@@ -162,7 +162,8 @@ def run_hourly_phase():
         # AND price must be within 0.5% to 3.0% of the breakout level
         ema_ok = e9 > e20 and e20 > s50 and close > s200
         adx_ok = adx_val > 20
-        dist_ok = 0.00 <= dist_to_breakout <= 0.05
+        # [VERSION: MULTI_TF_PATCH_v1.1] Tightened distance gate to match intended funnel criteria
+        dist_ok = 0.005 <= dist_to_breakout <= 0.03
         
         if ema_ok:
             funnel["ema_pass"] += 1
@@ -251,7 +252,7 @@ def run_lower_tf_phase(current_regime="BULL"):
     # Funnel stats for Phase B/C/D
     lower_funnel = {"armed_candidates": 0, "bb_pass": 0, "armed": 0,
                     "entry_candidates": 0, "ema15_pass": 0, "entry_ready": 0,
-                    "trigger_candidates": 0, "triggered": 0}
+                    "trigger_candidates": 0, "triggered": 0, "demoted": 0}
 
     for item in active_items:
         symbol = item["symbol"]
@@ -289,6 +290,8 @@ def run_lower_tf_phase(current_regime="BULL"):
 
             # Decay & Smart Expiry check
             df = data_30m.get(symbol)
+            if df is None:
+                logger.debug(f"⏭️ {symbol} Decay check: no data returned from fetch")
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (30m decay check) due to stale data.")
@@ -307,18 +310,22 @@ def run_lower_tf_phase(current_regime="BULL"):
                             is_expired = True
 
                     if drift > 0.03:
-                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
                         state = "HOURLY_APPROVED"
+                        lower_funnel["demoted"] += 1
                         logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
                     elif is_expired:
-                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED")
+                        upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
                         state = "HOURLY_APPROVED"
+                        lower_funnel["demoted"] += 1
                         logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")
 
         # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
         if state == "HOURLY_APPROVED":
             lower_funnel["armed_candidates"] += 1
             df = data_30m.get(symbol)
+            if df is None:
+                logger.debug(f"⏭️ {symbol} Phase B: no data returned from fetch")
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (30m upgrade check) due to stale data.")
@@ -371,6 +378,8 @@ def run_lower_tf_phase(current_regime="BULL"):
         if state == "SETUP_ARMED":
             lower_funnel["entry_candidates"] += 1
             df = data_15m.get(symbol)
+            if df is None:
+                logger.debug(f"⏭️ {symbol} Phase C: no data returned from fetch")
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (15m entry check) due to stale data.")
@@ -427,9 +436,12 @@ def run_lower_tf_phase(current_regime="BULL"):
         if state == "ENTRY_READY":
             lower_funnel["trigger_candidates"] += 1
             df = data_5m.get(symbol)
+            if df is None:
+                logger.debug(f"⏭️ {symbol} Phase D: no data returned from fetch")
             if df is not None:
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (5m trigger check) due to stale data.")
+                    stale_count += 1
                     continue
 
                 # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
@@ -487,9 +499,9 @@ def run_lower_tf_phase(current_regime="BULL"):
                         is_ready = True
                         trigger_type = "thrust"
                     
-                # Pullback Trigger
+                # [VERSION: MULTI_TF_PATCH_v1.1] Decoupled Pullback Trigger from Thrust Trigger
                 # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
-                elif low <= max(trigger_level, e9):
+                if not is_ready and low <= max(trigger_level, e9):
                     if close >= trigger_level and close > float(prev["High"]) and close > open_px and vol_ratio > 1.0:
                         if close_position >= 0.6:  # strong interaction/engulfing
                             is_ready = True
