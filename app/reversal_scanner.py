@@ -35,6 +35,7 @@ from config import (
 )
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
+from macro_utils import get_nifty_20d_return, get_macro_regime
 
 
 logger = logging.getLogger(__name__)
@@ -222,7 +223,6 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
 
 def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
-    init_db()
 
     ist_now = datetime.now(IST)
     scan_start = datetime.now(IST)
@@ -242,7 +242,17 @@ def _run_scan(force: bool = False):
     if is_test_mode:
         logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
 
-    prev_delivery_map = fetch_previous_day_delivery()
+    try:
+        prev_delivery_map = fetch_previous_day_delivery()
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to fetch delivery data: {e}. Reverting to empty map (no delivery bonus).")
+        prev_delivery_map = {}
+        
+    try:
+        nifty_ret = get_nifty_20d_return()
+        reversal_regime = get_macro_regime(nifty_ret)
+    except Exception:
+        reversal_regime = "NEUTRAL"
 
     try:
         watchlist = get_watchlist()
@@ -252,6 +262,13 @@ def _run_scan(force: bool = False):
 
     if watchlist.empty:
         logger.info("🛡️ Reversal Scanner | Watchlist is empty. Exiting cleanly.")
+        if not is_test_mode:
+            try:
+                from database import insert_notification, upsert_scanner_health
+                insert_notification("admin", "🚀 Reversal Scanner ran successfully. Found 0 new reversal alerts.", "Generated 0 alerts. The fundamental watchlist universe is currently empty.")
+                upsert_scanner_health("REVERSAL", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
+            except Exception:
+                pass
         return 0
 
     # Pulling 1y data to ensure we catch the 52W High correctly
@@ -277,7 +294,6 @@ def _run_scan(force: bool = False):
                 pass
 
     total_alerts = 0
-    cooldown_skips = 0   # [FIX 1] observability for cooldown suppression
     shortlisted_alerts = []
     rejected = {
         "no_data": 0,
@@ -329,7 +345,6 @@ def _run_scan(force: bool = False):
             # [FIX 1] FAILED-REVERSAL COOLDOWN — earliest cheap gate after blacklist.
             # Suppress symbols that recently stopped out / failed follow-through.
             if _is_symbol_in_reversal_cooldown(symbol, REVERSAL_COOLDOWN_TRADING_DAYS):
-                cooldown_skips += 1
                 rejected["cooldown"] += 1
                 logger.info(f"[REVERSAL] {symbol} skipped: failed reversal cooldown active")
                 continue
@@ -457,7 +472,7 @@ def _run_scan(force: bool = False):
                 ema20_slope_pos = None
 
             # If neither EMA20 > EMA50 nor EMA20 slope positive, skip
-            if not (ema20_gt_ema50 or ema20_slope_pos):
+            if ema20_gt_ema50 is not True and ema20_slope_pos is not True:
                 logger.debug(f"  ⊘ {symbol} EMA20 trend filter failed — skipping")
                 rejected["ema_filter"] += 1
                 continue
@@ -495,11 +510,14 @@ def _run_scan(force: bool = False):
             # ── [FIX 8] FRESH MACD BULLISH CROSSOVER ON CLOSED BAR ──────────────────────
             macd_bullish_cross_closed_bar = False
             if len(ticker) >= 3:
-                macd_now = float(ticker["MACD"].iloc[-2])
-                signal_now = float(ticker["MACD_SIGNAL"].iloc[-2])
-                macd_prev = float(ticker["MACD"].iloc[-3])
-                signal_prev = float(ticker["MACD_SIGNAL"].iloc[-3])
-                macd_bullish_cross_closed_bar = (macd_now > signal_now) and (macd_prev <= signal_prev)
+                try:
+                    macd_now = float(ticker["MACD"].iloc[-2])
+                    signal_now = float(ticker["MACD_SIGNAL"].iloc[-2])
+                    macd_prev = float(ticker["MACD"].iloc[-3])
+                    signal_prev = float(ticker["MACD_SIGNAL"].iloc[-3])
+                    macd_bullish_cross_closed_bar = (macd_now > signal_now) and (macd_prev <= signal_prev)
+                except (KeyError, TypeError, ValueError):
+                    pass  # MACD columns missing or invalid
 
             if not macd_bullish_cross_closed_bar:
                 logger.debug(f"  ⊘ {symbol} no fresh MACD cross on closed bar — skipping")
@@ -768,7 +786,7 @@ def _run_scan(force: bool = False):
                     target_price=alert["target_price"],
                     context=alert["context"],
                     model_version="v6",
-                    bayesian_regime="NEUTRAL",
+                    bayesian_regime=reversal_regime,
                     bayesian_weights=None,
                 )
                 if inserted:

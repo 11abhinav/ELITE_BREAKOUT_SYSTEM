@@ -34,6 +34,7 @@ from config import (
     ALERT_COOLDOWN_MINUTES,
     ADX_MIN_THRESHOLD,
     MIN_STOCK_PRICE,
+    SCORE_THRESHOLDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,6 @@ MAX_RSI                 = EOD_CONFIG["MAX_RSI"]
 
 # MIN_STOCK_PRICE imported from config (₹100)
 MAX_DISTANCE_FROM_52W_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH_PCT"]
-MAX_SINGLE_DAY_MOVE_PCT     = EOD_ADVANCED_CONFIG["MAX_SINGLE_DAY_MOVE_PCT"]
-MAX_GAP_FROM_PRIOR_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_GAP_FROM_PRIOR_HIGH_PCT"]
-GAP_LOOKBACK_BARS           = EOD_ADVANCED_CONFIG["GAP_LOOKBACK_BARS"]
-
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
@@ -68,6 +65,7 @@ def start(force: bool = False):
         _scan_lock.release()
 
 def _start_wrapper(force: bool = False):
+    is_test_mode = True  # Safe default
     init_db()
     
     force_refresh_blacklist()
@@ -108,6 +106,13 @@ def _start_wrapper(force: bool = False):
 
         if watchlist.empty:
             logger.info("🛡️ EOD Scanner | Universe is empty (no stocks passed Wealth Engine BUY signals). Exiting cleanly.")
+            if not is_test_mode:
+                try:
+                    from database import insert_notification, upsert_scanner_health
+                    insert_notification("admin", "🚀 EOD Scanner ran successfully. Found 0 new breakout alerts.", "Generated 0 alerts. The fundamental watchlist universe is currently empty.")
+                    upsert_scanner_health("EOD", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
+                except Exception:
+                    pass
             return 0
 
         # We do NOT purge here yet.
@@ -143,10 +148,6 @@ def _start_wrapper(force: bool = False):
         else:
             logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
 
-        # IMPORTANT:
-        # Fetch cooldown state BEFORE deleting today's rows, otherwise reruns lose same-day duplicate memory.
-        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
-
         today_str = ist_now.strftime("%Y-%m-%d")
 
         # ── IDEMPOTENT PARTITION OVERWRITE ──
@@ -166,6 +167,10 @@ def _start_wrapper(force: bool = False):
             except Exception as e:
                 logger.error(f"Failed to cleanup today's EOD alerts from alerts table: {e}")
                 raise
+
+        # IMPORTANT:
+        # Fetch cooldown state AFTER deleting today's rows, so it reflects a clean state.
+        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
         # If today's file returned empty, fall back to the most recent available trading day.
@@ -187,7 +192,7 @@ def _start_wrapper(force: bool = False):
             "weak_body", "bearish_candle", "weak_close_pos", "upper_wick", "low_volume",
             "low_avg_volume", "penny_stock", "rsi_range", "below_ema20",
             "below_sma50", "weak_adx", "far_from_52w_high",
-            "gap_day", "extended_breakout", "low_score", "duplicate", "stale_data",
+            "gap_day", "extended_breakout", "gap_extended", "low_score", "duplicate", "stale_data",
             "prior_red_candles", "obv_divergence", 
             "no_structural_breakout", "no_atr_expansion", "base_too_wide",
             "missing_atr"
@@ -212,6 +217,14 @@ def _start_wrapper(force: bool = False):
                     logger.exception("❌ Failed to update scanner health for EOD early return")
             return 0
 
+
+        # Compute threshold outside loop
+        BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
+        # Single threshold for all regimes (BEAR already skipped above)
+        # In strong markets, good setups flow. In neutral, only best setups pass.
+        global_min_score = BASE_SCORE_THRESHOLD
+        
+        logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
         for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
             symbol = "UNKNOWN"
@@ -374,7 +387,7 @@ def _start_wrapper(force: bool = False):
 
                 if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
                     bb_width_pctile = float(latest["BB_WIDTH_PCTILE"])
-                    if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.20):
+                    if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
                         rejection_counts["base_too_wide"] += 1
                         continue
 
@@ -409,16 +422,19 @@ def _start_wrapper(force: bool = False):
                     prev_close = float(ticker["Close"].iloc[-2])
                     if prev_close > 0:
                         single_move_pct = abs(candle_close - prev_close) / prev_close * 100
-                        if single_move_pct > MAX_SINGLE_DAY_MOVE_PCT:
+                        max_single_day_move_pct = EOD_ADVANCED_CONFIG.get("MAX_SINGLE_DAY_MOVE_PCT", 15.0)
+                        if single_move_pct > max_single_day_move_pct:
                             rejection_counts["gap_day"] += 1
                             continue
 
-                if len(ticker) >= GAP_LOOKBACK_BARS + 1:
-                    prior_high = float(ticker["High"].iloc[-(GAP_LOOKBACK_BARS + 1):-1].max())
-                    if prior_high > 0:
-                        gap_pct = (candle_open - prior_high) / prior_high * 100
-                        if gap_pct > MAX_GAP_FROM_PRIOR_HIGH_PCT:
-                            rejection_counts["extended_breakout"] += 1
+                gap_lookback_bars = EOD_ADVANCED_CONFIG.get("GAP_LOOKBACK_BARS", 10)
+                max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
+                if len(ticker) >= gap_lookback_bars + 1:
+                    gap_reference_high = float(ticker["High"].iloc[-(gap_lookback_bars + 1):-1].max())
+                    if gap_reference_high > 0:
+                        gap_pct = (candle_open - gap_reference_high) / gap_reference_high * 100
+                        if gap_pct > max_gap_pct:
+                            rejection_counts["gap_extended"] += 1
                             continue
 
                 delivery_pct = delivery_map.get(symbol, None)
@@ -426,7 +442,7 @@ def _start_wrapper(force: bool = False):
                 # ── v5: PREVIOUS CANDLE CONTEXT FILTER ─────────────────────────────
                 lookback = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
                 max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
-                tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.15)
+                tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
                 
                 if len(ticker) >= (lookback + 1):
                     red_count = 0
@@ -483,12 +499,7 @@ def _start_wrapper(force: bool = False):
                         pass
 
                 # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
-                if market_regime == "NEUTRAL":
-                    min_score_required = 80
-                else:
-                    min_score_required = 70
-                    
-                if score < min_score_required:
+                if score < global_min_score:
                     rejection_counts["low_score"] += 1
                     continue
 

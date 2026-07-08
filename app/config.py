@@ -100,20 +100,25 @@ EOD_ADVANCED_CONFIG = {
     # ── Sustainability & Breakout Conviction ──
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
     "MIN_ATR_EXPANSION_RATIO": 1.2,
-    "MAX_BB_WIDTH_PCTILE": 0.20,
     "MIN_OBV_SLOPE": 0.0,
     
     # ── Prior Context & Tight Bases ──
     "PRE_BREAKOUT_LOOKBACK_BARS": 5,
     "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
-    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.15
+    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.35,
+    
+    # ── [FIX] Structural Breakout Constraint Relaxation ──
+    # Previously 0.20, which contradicted the fact that Bollinger Bands expand upon breakout.
+    "MAX_BB_WIDTH_PCTILE": 0.80
 }
 
 REVERSAL_CONFIG = {
     "MIN_DROP_FROM_52W_HIGH": 20.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
-    "RSI_OVERSOLD_THRESHOLD": 35,
-    "RSI_CURL_MIN": 40,
+    # ── [FIX] Reversal RSI Constraint Relaxation ──
+    # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
+    "RSI_OVERSOLD_THRESHOLD": 45,
+    "RSI_CURL_MIN": 50,
     "MIN_VOLUME_RATIO": 2.0,
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,

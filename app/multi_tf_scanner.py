@@ -152,7 +152,7 @@ def run_hourly_phase():
         # AND price must be within 0.5% to 3.0% of the breakout level
         ema_ok = e9 > e20 and e20 > s50 and close > s200
         adx_ok = adx_val > 20
-        dist_ok = 0.005 <= dist_to_breakout <= 0.03
+        dist_ok = 0.00 <= dist_to_breakout <= 0.05
         
         if ema_ok:
             funnel["ema_pass"] += 1
