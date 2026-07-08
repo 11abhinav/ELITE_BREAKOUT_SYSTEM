@@ -1544,6 +1544,9 @@ def api_download_shortlist():
     except Exception as e:
         logger.exception(f"Failed to generate shortlist CSV")
         return "Server Error", 500
+# [VERSION: DASHBOARD_PATCH_v1.2] Define cache variables at module level to fix IDE compile warnings
+_cached_worker_symbols = set()
+_cached_worker_symbols_time = 0
 
 @app.route("/api/scanner_status")
 @login_required
@@ -1563,11 +1566,7 @@ def api_scanner_status():
         health_rows = get_all_scanner_health()
         result = {}
         
-        # [VERSION: DASHBOARD_PATCH_v1.1] Cache the total needed symbols to prevent live NSE scraping on every poll
         global _cached_worker_symbols, _cached_worker_symbols_time
-        if '_cached_worker_symbols' not in globals():
-            _cached_worker_symbols = set()
-            _cached_worker_symbols_time = 0
             
         for row in health_rows:
             sc = row["scanner_name"]
@@ -1601,7 +1600,7 @@ def api_scanner_status():
                                 "score": wrow.get("FM_Score", 0)
                             })
                 except Exception as e:
-                    pass
+                    logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
 
             # Enrich AI/Pledge workers with progress metrics
             try:
@@ -1615,8 +1614,8 @@ def api_scanner_status():
                             parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
                             if os.path.exists(parquet_path):
                                 symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"⚠️ Failed to read elite_fundamental_watchlist.parquet: {e}")
                         
                         for f in [
                             os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
@@ -1627,14 +1626,14 @@ def api_scanner_status():
                                     dfw = pd.read_csv(f)
                                     if 'Stock' in dfw.columns:
                                         symbols_set.update(dfw['Stock'].dropna().tolist())
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to read excluded csv: {e}")
                         
                         try:
                             from multibagger import fetch_constituents
                             symbols_set.update(fetch_constituents())
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"⚠️ Failed to fetch NSE constituents for progress calculation: {e}")
                             
                         _cached_worker_symbols = symbols_set
                         _cached_worker_symbols_time = time.time()
