@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
 def strip_forming_candle(df, tf_minutes, ist_now):
+    """Remove the forming (incomplete) candle from dataframe if it's still being built.
+    
+    Returns DataFrame with last row removed if incomplete, or original df if complete.
+    CALLER MUST ALWAYS CHECK: if df is None or df.empty
+    """
     import pandas as pd
     if df is None or df.empty:
         return df
@@ -44,7 +49,7 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     return df
 
 
-from macro_utils import get_macro_regime
+from macro_utils import get_macro_regime, get_nifty_20d_return
 
 def run_hourly_phase():
     """
@@ -64,6 +69,7 @@ def run_hourly_phase():
     ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
     
     # Handle rate limiting or fetch failures gracefully - continue with partial data
+    # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 7] Standardized missing data fallback if fetch_watchlist_data fails
     if ticker_data is None:
         ticker_data = {}
         
@@ -119,12 +125,16 @@ def run_hourly_phase():
         # Extract indicators safely — NaN = indicator not ready, hard skip
         def _safe_val(series_val):
             """Return float or None if value is missing/NaN."""
-            if series_val is None:
+            # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 4] Wrapped in try/except to catch ValueError on unparseable string data
+            try:
+                if series_val is None:
+                    return None
+                v = float(series_val)
+                if math.isnan(v) or v == 0.0:
+                    return None
+                return v
+            except (TypeError, ValueError):
                 return None
-            v = float(series_val)
-            if math.isnan(v) or v == 0.0:
-                return None
-            return v
         
         e9 = _safe_val(latest.get("EMA9"))
         e20 = _safe_val(latest.get("EMA20"))
@@ -315,11 +325,15 @@ def run_lower_tf_phase(current_regime="BULL"):
                     stale_count += 1
                     continue
 
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Added defensive checks on strip_forming_candle return value
                 df = strip_forming_candle(df, 30, ist_now)
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                 if df is None or df.empty or len(df) < 2:
+                    logger.debug(f"⏭️ {symbol} phase B: insufficient 30m data")
                     continue
                 df = apply_indicators(df, timeframe="30m")
                 if df.empty:
+                    logger.debug(f"⏭️ {symbol} phase B: indicators failed to compute")
                     continue
                 latest = df.iloc[-1]
                 bb_pctile = float(latest.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
@@ -363,11 +377,15 @@ def run_lower_tf_phase(current_regime="BULL"):
                     stale_count += 1
                     continue
 
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
                 df = strip_forming_candle(df, 15, ist_now)
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                 if df is None or df.empty or len(df) < 2:
+                    logger.debug(f"⏭️ {symbol} phase C: insufficient 15m data")
                     continue
                 df = apply_indicators(df, timeframe="15m")
                 if df.empty:
+                    logger.debug(f"⏭️ {symbol} phase C: indicators failed to compute")
                     continue
 
                 latest = df.iloc[-1]
@@ -414,11 +432,15 @@ def run_lower_tf_phase(current_regime="BULL"):
                     logger.debug(f"⏭️ Skipping {symbol} (5m trigger check) due to stale data.")
                     continue
 
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
                 df = strip_forming_candle(df, 5, ist_now)
+                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                 if df is None or df.empty or len(df) < 2:
+                    logger.debug(f"⏭️ {symbol} phase D: insufficient 5m data")
                     continue
                 df = apply_indicators(df, timeframe="5m")
                 if df.empty or "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
+                    logger.debug(f"⏭️ {symbol} phase D: missing required 5m indicators")
                     continue
                     
                 latest = df.iloc[-1]
@@ -591,7 +613,13 @@ def _start_wrapper(run_once=False):
                 pass
                 
             # Cache regime once per cycle
-            current_regime = get_macro_regime()
+            # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 1] Pass nifty_ret explicitly to get_macro_regime to avoid redundant API calls
+            try:
+                nifty_ret = get_nifty_20d_return()
+                current_regime = get_macro_regime(nifty_ret)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to BULL.")
+                current_regime = "BULL"
             
             # 1. Sweep old states
             run_sweeper()
