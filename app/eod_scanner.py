@@ -5,6 +5,7 @@
 
 import pandas as pd
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from zoneinfo import ZoneInfo
@@ -718,6 +719,10 @@ def _start_wrapper(force: bool = False):
 
         status = "OK"
         error_msg = None
+        
+        # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
+        active_threads = threading.active_count()
+        logger.info(f"🧵 Final Active Thread Count: {active_threads}")
         
         stale_pct = rejection_counts["stale_data"] / len(watchlist) if len(watchlist) > 0 else 0
         if stale_pct > 0.1:
