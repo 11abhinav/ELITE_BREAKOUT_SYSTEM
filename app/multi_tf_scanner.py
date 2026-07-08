@@ -680,7 +680,7 @@ def _start_wrapper(run_once=False):
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")
             
             if run_once:
-                break
+                return {"total_count": total_symbols}
                 
             logger.info("💤 Sleeping 5 minutes before next Multi-TF ladder run...")
             time.sleep(300)
