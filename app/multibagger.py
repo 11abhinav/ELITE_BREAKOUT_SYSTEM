@@ -1131,65 +1131,67 @@ def _start_wrapper(debug_limit: int = None):
                 notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
             
         if alert_triggered:
+            skip_alert = False
             if sym in open_symbols:
                 logger.info(f"⏭️ Skipping alert generation for {sym} - already an open MULTIBAGGER position.")
-                continue
+                skip_alert = True
                 
-            logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
-            
-            # Queue telegram summary using V5 metrics
-            from core.multibagger_pipeline import V5_CONFIG
-            if V5_CONFIG.get("enable_telegram_alerts", True):
-                msg = (
-                    f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
-                    f"----------------------------------------\n"
-                    f"• Price: ₹{price_data.price:.1f}\n"
-                    f"• Classification: <b>{pipeline_result.classification}</b>\n"
-                    f"• Composite Score: {pipeline_result.composite_score:.1f}/100\n"
-                    f"• Confidence: {pipeline_result.confidence:.0f}%\n"
-                    f"• Fair Value: ₹{pipeline_result.valuation.fair_value:.1f} (MoS: {pipeline_result.valuation.margin_of_safety:.1f}%)\n"
-                    f"• Buy Zone: ₹{pipeline_result.buy_zone.buy_zone_low:.1f} - ₹{pipeline_result.buy_zone.buy_zone_high:.1f}\n"
-                    f"• Sector: {raw_fundamentals.get('sector', 'Unknown')}\n"
-                    f"\n<i>System V5 Architecture</i>"
+            if not skip_alert:
+                logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
+                
+                # Queue telegram summary using V5 metrics
+                from core.multibagger_pipeline import V5_CONFIG
+                if V5_CONFIG.get("enable_telegram_alerts", True):
+                    msg = (
+                        f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
+                        f"----------------------------------------\n"
+                        f"• Price: ₹{price_data.price:.1f}\n"
+                        f"• Classification: <b>{pipeline_result.classification}</b>\n"
+                        f"• Composite Score: {pipeline_result.composite_score:.1f}/100\n"
+                        f"• Confidence: {pipeline_result.confidence:.0f}%\n"
+                        f"• Fair Value: ₹{pipeline_result.valuation.fair_value:.1f} (MoS: {pipeline_result.valuation.margin_of_safety:.1f}%)\n"
+                        f"• Buy Zone: ₹{pipeline_result.buy_zone.buy_zone_low:.1f} - ₹{pipeline_result.buy_zone.buy_zone_high:.1f}\n"
+                        f"• Sector: {raw_fundamentals.get('sector', 'Unknown')}\n"
+                        f"\n<i>System V5 Architecture</i>"
+                    )
+                    queue_telegram_message(msg, symbol=sym)
+                
+                scaled_score = int(total)
+                
+                # Compute position sizing (total is 0-100 natively)
+                momentum_for_sizing = int(total)
+                sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
+                pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
+                
+                save_wealth_buy_alert(
+                    symbol=sym,
+                    alert_price=price_data.price,
+                    breakout_type="MULTIBAGGER",
+                    fm_score=scaled_score,
+                    notes=notes,
+                    position_pct=round(sizing["Position_Pct"] * 100, 2),
+                    position_amount=sizing["Position_Amount"],
+                    position_shares=pos_shares,
+                    portfolio_bucket="MULTIBAGGER",
+                    valuation_score=pas,
+                    momentum_score=int(trend),
+                    momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
                 )
-                queue_telegram_message(msg, symbol=sym)
-            
-            scaled_score = int(total)
-            
-            # Compute position sizing (total is 0-100 natively)
-            momentum_for_sizing = int(total)
-            sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
-            pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
-            
-            save_wealth_buy_alert(
-                symbol=sym,
-                alert_price=price_data.price,
-                breakout_type="MULTIBAGGER",
-                fm_score=scaled_score,
-                notes=notes,
-                position_pct=round(sizing["Position_Pct"] * 100, 2),
-                position_amount=sizing["Position_Amount"],
-                position_shares=pos_shares,
-                portfolio_bucket="MULTIBAGGER",
-                valuation_score=pas,
-                momentum_score=int(trend),
-                momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
-            )
-            
-            # Group only non-invalidated stocks for Telegram
-            if status != "INVALIDATED":
-                label = pipeline_result.classification
-                if label not in categorized_stocks:
-                    categorized_stocks[label] = []
-                    
-                categorized_stocks[label].append({
-                    'symbol': sym,
-                    'price': price_data.price,
-                    'cqs': cqs,
-                    'pas': pas,
-                    'total': total,
-                    'status': status
-                })
+                
+                # Group only non-invalidated stocks for Telegram
+                if status != "INVALIDATED":
+                    label = pipeline_result.classification
+                    if label not in categorized_stocks:
+                        categorized_stocks[label] = []
+                        
+                    categorized_stocks[label].append({
+                        'symbol': sym,
+                        'price': price_data.price,
+                        'cqs': cqs,
+                        'pas': pas,
+                        'total': total,
+                        'status': status
+                    })
                 
         res = ScreenerResult(
             symbol=sym,
