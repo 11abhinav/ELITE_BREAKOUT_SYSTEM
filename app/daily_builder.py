@@ -200,7 +200,7 @@ def fetch_universe() -> pd.DataFrame:
             col("market_cap_basic")             >= MIN_MARKET_CAP,
             col("earnings_per_share_basic_ttm") >  0,
             col("return_on_equity_fy")          >= MIN_ROE,
-            col("operating_margin")             >= 0,
+            col("operating_margin")             >= 0,  # [VERSION: DAILY_BUILDER_PATCH_v1.3]
         )
         .limit(5000)
     )
@@ -386,13 +386,17 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # NEW: High Reinvestment
     roce = fv("return_on_invested_capital_fq") or roe
     retention_ratio = 1.0 - (div_yield / 100.0) if div_yield else 1.0
+    # [VERSION: DAILY_BUILDER_PATCH_v1.3] Added yoy_sales > 0.0 floor
     high_reinvestment = (roce >= 18.0 and retention_ratio is not None and retention_ratio >= 0.6 and yoy_sales > 0.0)
 
     # NEW: Market Share Gainer
     sec_median = _SECTOR_MEDIANS.get(sector)
     market_share_gainer = False
     if sec_median is not None and sec_median > 0 and yoy_sales is not None:
-        market_share_gainer = (yoy_sales > (sec_median * 1.2) and qoq_margin_expanding)
+        # [VERSION: DAILY_BUILDER_PATCH_v1.3] Added QoQ null safety fallback
+        qoq_available = (qoq_profit is not None and qoq_sales is not None)
+        margin_signal = qoq_margin_expanding if qoq_available else yoy_margin_expanding
+        market_share_gainer = (yoy_sales > (sec_median * 1.2) and margin_signal)
 
     # NEW: Early Stage Compounder
     MID_CAP_FLOOR = 50_000_000_000
@@ -401,12 +405,10 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # NEW: Institutional Accumulation
     deliv_per = float(row.get("delivery_percent", 0.0))
     inst_buyers = row.get("institutional_buyers", [])
+    # [VERSION: DAILY_BUILDER_PATCH_v1.3] Raised yoy_profit > 10.0
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and opm >= 10.0 and yoy_profit > 10.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
-    diamond_hold = False
-    if rev_5y is not None and eps_5y is not None and peg is not None:
-        fcf_ok = (fcf_margin is None) or (fcf_margin > 0)
         if rev_5y >= 12.0 and eps_5y >= 15.0 and peg <= 1.0 and fcf_ok:
             diamond_hold = True
 
@@ -548,6 +550,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     inst_buyers = row.get("institutional_buyers", [])
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and roa >= 1.0)
 
+    # ── DIAMOND HOLD (LONG TERM) LOGIC ──
     diamond_hold = False
     if rev_5y is not None and eps_5y is not None and peg is not None:
         fcf_ok = (fcf_margin is None) or (fcf_margin > 0)
@@ -585,6 +588,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         return skip(f"No categories assigned despite passing initial gates")
 
     # ── SCORING (Financial) ──────────────────────────────────────────────────
+    # [VERSION: DAILY_BUILDER_PATCH_v1.3] Passed long-term params to _score_fin
     score = _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
                        yoy_margin_expanding, fin_mature_quality, fin_compounder,
                        dividend_aristocrat, sector,
@@ -652,6 +656,7 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     return score
 
 
+# [VERSION: DAILY_BUILDER_PATCH_v1.3] Added long-term parameters
 def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, 
                yoy_margin, fin_mature, fin_compounder, 
                dividend_aristocrat=False, sector="",
