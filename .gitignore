@@ -39,3 +39,4 @@ Thumbs.db
 # ── Stale artifacts ──
 1cd
 .npm_cache/
+archive/
