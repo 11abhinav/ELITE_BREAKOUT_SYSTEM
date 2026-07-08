@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Optional
 
 from technical_indicators import apply_indicators
-from database import init_db, save_alert_if_new, upsert_fetch_error
+from database import init_db, save_alert_if_new, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 from config import (
@@ -266,8 +266,7 @@ def _run_scan(force: bool = False):
         logger.info("🛡️ Reversal Scanner | Watchlist is empty. Exiting cleanly.")
         if not is_test_mode:
             try:
-                from database import insert_notification, upsert_scanner_health
-                insert_notification("admin", "🚀 Reversal Scanner ran successfully. Found 0 new reversal alerts.", "Generated 0 alerts. The fundamental watchlist universe is currently empty.")
+                from database import insert_notification
                 upsert_scanner_health("REVERSAL", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
             except Exception:
                 pass
@@ -281,7 +280,6 @@ def _run_scan(force: bool = False):
         logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
         if not is_test_mode:
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
             except Exception:
                 pass
@@ -290,7 +288,6 @@ def _run_scan(force: bool = False):
         logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for Reversal scan")
         if not is_test_mode:
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health(scanner_name="REVERSAL", status="RUNNING", error_msg=None)
             except Exception:
                 pass
@@ -796,9 +793,8 @@ def _run_scan(force: bool = False):
                     total_alerts += 1
 
             if total_alerts > 0:
-                from database import verify_alerts_saved_today, upsert_scanner_health
                 if not verify_alerts_saved_today("REVERSAL", total_alerts):
-                    logger.critical(f"🚨 CRITICAL ERROR: Reversal generated {total_alerts} alerts but save verification failed!")
+                    logger.critical(f"🚨 CRITICAL ERROR: REVERSAL scanner generated {total_alerts} alerts but save failed!")
                     upsert_scanner_health(
                         scanner_name="REVERSAL",
                         status="DOWN",
@@ -806,7 +802,6 @@ def _run_scan(force: bool = False):
                     )
                     return total_alerts
                     
-            from database import upsert_scanner_health
             upsert_scanner_health(
                 scanner_name="REVERSAL",
                 status="OK",
@@ -818,7 +813,6 @@ def _run_scan(force: bool = False):
         except Exception as e:
             logger.exception("Failed to save REVERSAL alerts")
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health(
                     scanner_name="REVERSAL",
                     status="DOWN",
@@ -872,7 +866,6 @@ def _start_wrapper(force: bool = False) -> int:
         import database
         if not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(e))
             except Exception:
                 pass

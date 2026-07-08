@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from datetime import datetime, time as dt_time
 
 from technical_indicators import apply_indicators
-from database import init_db, save_alert_if_new, upsert_fetch_error
+from database import init_db, save_alert_if_new, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
 from price_cache import fetch_watchlist_data 
 from watchlist_cache import get_watchlist
 
@@ -91,7 +91,6 @@ def _start_wrapper(run_once=False):
         if not is_active_window:
             logger.info("⏰ Outside 1H window. Scanner pausing until next market session...")
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health("1H", "IDLE", last_success=datetime.now(IST).isoformat(), scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
             except Exception:
                 pass
@@ -120,7 +119,6 @@ def _start_wrapper(run_once=False):
             if fetched_count < required_count:
                 logger.warning(f"⚠️ YFinance returned only {fetched_count}/{len(watchlist)} symbols. Minimum 70% required. Aborting scan.")
                 try:
-                    from database import upsert_scanner_health
                     upsert_scanner_health("1H", "DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                 except Exception:
                     pass
@@ -149,7 +147,6 @@ def _start_wrapper(run_once=False):
                 except Exception as e:
                     logger.warning(f"Failed to fetch market regime: {e}")
                     try:
-                        from database import upsert_scanner_health
                         upsert_scanner_health("1H", "DEGRADED", error_msg=f"Regime fetch failed: {str(e)[:100]}", scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
                     except:
                         pass
@@ -410,7 +407,6 @@ def _start_wrapper(run_once=False):
             logger.info(f"✅ [COMPLETE] 1H SCAN DONE | {elapsed:.2f}s | Alerts={total_alerts}/{len(watchlist)} | Status=OK")
             logger.info("=" * 80)
             # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
-            from database import upsert_scanner_health, verify_alerts_saved_today
             if total_alerts > 0 and is_active_window:
                 if not verify_alerts_saved_today("1H", total_alerts):
                     logger.critical(f"🚨 CRITICAL ERROR: 1H scanner generated {total_alerts} alerts but save failed!")
@@ -456,7 +452,6 @@ def _start_wrapper(run_once=False):
                 break
             logger.exception("❌ CRITICAL 1H SCAN ERROR — will retry next cycle")
             try:
-                from database import upsert_scanner_health
                 upsert_scanner_health("1H", "DOWN", error_msg=str(e), scheduled_for="Every 5min (10:17 AM - 3:30 PM)")
             except Exception:
                 pass
