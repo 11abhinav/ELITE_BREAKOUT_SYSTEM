@@ -1562,6 +1562,13 @@ def api_scanner_status():
 
         health_rows = get_all_scanner_health()
         result = {}
+        
+        # [VERSION: DASHBOARD_PATCH_v1.1] Cache the total needed symbols to prevent live NSE scraping on every poll
+        global _cached_worker_symbols, _cached_worker_symbols_time
+        if '_cached_worker_symbols' not in globals():
+            _cached_worker_symbols = set()
+            _cached_worker_symbols_time = 0
+            
         for row in health_rows:
             sc = row["scanner_name"]
             today_trades = get_scanner_today_trades(sc, today_str)
@@ -1599,39 +1606,43 @@ def api_scanner_status():
             # Enrich AI/Pledge workers with progress metrics
             try:
                 if sc in ("AI Worker", "Pledge Worker"):
-                    # Compute total watchlist size (included + excluded)
-                    import pandas as pd
-                    symbols_set = set()
-                    from config import DATA_DIR
-                    try:
-                        parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
-                        if os.path.exists(parquet_path):
-                            symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
-                    except Exception:
-                        pass
-                    
-                    for f in [
-                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
-                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist-excluded.csv'),
-                    ]:
+                    if time.time() - _cached_worker_symbols_time > 3600:
+                        # Rebuild cache once per hour max
+                        import pandas as pd
+                        symbols_set = set()
+                        from config import DATA_DIR
                         try:
-                            if os.path.exists(f):
-                                dfw = pd.read_csv(f)
-                                if 'Stock' in dfw.columns:
-                                    symbols_set.update(dfw['Stock'].dropna().tolist())
+                            parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
+                            if os.path.exists(parquet_path):
+                                symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
                         except Exception:
                             pass
+                        
+                        for f in [
+                            os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
+                            os.path.join(DATA_DIR, 'elite_fundamental_watchlist-excluded.csv'),
+                        ]:
+                            try:
+                                if os.path.exists(f):
+                                    dfw = pd.read_csv(f)
+                                    if 'Stock' in dfw.columns:
+                                        symbols_set.update(dfw['Stock'].dropna().tolist())
+                            except Exception:
+                                pass
+                        
+                        try:
+                            from multibagger import fetch_constituents
+                            symbols_set.update(fetch_constituents())
+                        except Exception:
+                            pass
+                            
+                        _cached_worker_symbols = symbols_set
+                        _cached_worker_symbols_time = time.time()
                     
-                    try:
-                        from multibagger import fetch_constituents
-                        symbols_set.update(fetch_constituents())
-                    except Exception:
-                        pass
-                    
-                    total_needed = len(symbols_set)
+                    total_needed = len(_cached_worker_symbols)
                     from database import get_ai_concall_stats, get_promoter_pledge_stats
                     
-                    symbol_list = list(symbols_set)
+                    symbol_list = list(_cached_worker_symbols)
                     if sc == 'AI Worker':
                         stats = get_ai_concall_stats(symbol_list)
                     else:
