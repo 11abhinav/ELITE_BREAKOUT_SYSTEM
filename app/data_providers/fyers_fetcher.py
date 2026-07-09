@@ -37,8 +37,9 @@ class RateLimiter:
             self.last_call = time.time()
 
 # Shared rate limiter across Fyers fetcher instances. 
-# Fyers limit is often ~200/minute. We use 2.5 to stay around 150/min.
-_fyers_rate_limiter = RateLimiter(max_per_second=2.5)
+# Fyers limit is often ~200/minute, but some users have stricter tiers (100/min).
+# We use 1.5 (90/min) to stay safely below the limit.
+_fyers_rate_limiter = RateLimiter(max_per_second=1.5)
 
 # Circuit breaker for Fyers API to auto-fallback on repeated failures
 class FyersCircuitBreaker:
@@ -380,8 +381,13 @@ class FyersFetcher(DataFetcher):
                     return None
                     
                 # Add larger exponential backoff to handle rate limits gracefully
+                import random
                 if "request limit reached" in error_str:
-                    logger.info(f"⏳ Rate limited by Fyers for {ns_symbol}. Backing off... (Attempt {attempt+1}/{retries})")
+                    # Fyers usually has minute-level buckets for rate limits.
+                    # A small 2-3s backoff is useless; we need to wait 20-30s for the bucket to reset.
+                    backoff_time = 20.0 + random.uniform(0.0, 10.0)
+                    logger.info(f"⏳ Rate limited by Fyers for {ns_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
+                    time.sleep(backoff_time)
                 else:
                     # Log the failed payload and full error response to help debug "Bad request" cases
                     try:
@@ -390,9 +396,7 @@ class FyersFetcher(DataFetcher):
                     except Exception:
                         pass
                     logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
-                
-                import random
-                time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
+                    time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
                 
         logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
         try:

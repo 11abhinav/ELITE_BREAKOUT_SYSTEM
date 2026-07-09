@@ -56,8 +56,14 @@ def get_dynamic_cadence(interval: str) -> int:
         secs = (market_open - now_dt).total_seconds()
         return max(5, int(secs))
         
-    # Parse the interval (e.g., '15m', '45m', '1h')
-    match = re.match(r'^(\d+)(m|h)$', interval.lower())
+    # Parse the interval (e.g., '15m', '45m', '1h', '1d')
+    interval_lower = interval.lower()
+    if interval_lower in ('1d', 'daily'):
+        # For daily data, update on 5-minute boundaries during market hours
+        # This prevents the 60s fallback spam while keeping live data fresh
+        interval_lower = '5m'
+
+    match = re.match(r'^(\d+)(m|h)$', interval_lower)
     if not match:
         return CACHE_TTL_SECONDS
         
