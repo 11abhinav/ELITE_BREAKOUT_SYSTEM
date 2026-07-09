@@ -223,6 +223,7 @@ def batch_download_market_data(symbols: list) -> dict:
             if df.empty:
                 continue
                 
+            fallback_attempts = 0
             for sym in [t.replace('.NS', '') for t in chunk]:
                 ticker_name = f"{sym}.NS"
                 try:
@@ -234,7 +235,11 @@ def batch_download_market_data(symbols: list) -> dict:
                                 continue
                             ticker_df = df[ticker_name]
                         else:
+                            if fallback_attempts >= 10:
+                                logger.warning(f"Maximum fallback attempts (10) reached for chunk. Skipping remaining.")
+                                break
                             logger.warning(f"Batch downgraded to single-index. Falling back to individual fetch for {sym}...")
+                            fallback_attempts += 1
                             try:
                                 fallback_df = yf.download(ticker_name, period="1y", interval="1d", auto_adjust=False, progress=False, threads=False)
                                 if fallback_df.empty: continue
@@ -365,9 +370,11 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         return None
     try:
         data = cache[symbol]
-        fetched_at_str = data.get("fetched_at", datetime.now().isoformat())
+        # 1. Check validity and freshness
+        fetched_at_str = data.get("fetched_at", datetime.now(IST).isoformat())
         fetched_at = datetime.fromisoformat(fetched_at_str)
         now_dt = datetime.now(IST)
+        # Ensure it has timezone info
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=IST)
             
@@ -704,20 +711,6 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     except Exception as e:
         logger.warning(f"⚠️ [MULTIBAGGER] Failed to validate upstream manifest: {e}. Proceeding cautiously.")
     
-    # Clean up any existing alerts for today to ensure a fresh, idempotent run
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM wealth_buy_alert WHERE breakout_type = 'MULTIBAGGER' AND alert_date = %s", (today_str,))
-                if cur.rowcount > 0:
-                    logger.info(f"🧹 Cleaned up {cur.rowcount} previous multibagger alerts for today.")
-            conn.commit()
-    except Exception as e:
-        logger.error(f"Failed to cleanup today's alerts: {e}")
-        
     upsert_scanner_health("MULTIBAGGER", "RUNNING")
     
     # Delegate to the actual scanning logic
@@ -1072,6 +1065,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     peer_medians = compute_peer_medians(symbols_to_val)
             
     results = []
+    alert_candidates = []
     categorized_stocks = {}
     
 
@@ -1144,7 +1138,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # Check alerts based on technicals and V5 validity
         is_worthy = pipeline_result.classification in ["🚀 Prime Multibagger", "💎 High Quality", "🏆 Good Business"]
-        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated) and is_worthy
+        is_fallback = raw_fundamentals.get("data_freshness") == "FALLBACK"
+        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated) and is_worthy and (not is_fallback)
         
         if pipeline_result.is_invalidated:
             status = "INVALIDATED"
@@ -1172,60 +1167,20 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 
             if not skip_alert:
-                logger.info(f"🌟 Alert Triggered for {sym}! Price={price_data.price:.1f}. Reason: In Buy Zone")
-                
-                scaled_score = int(total)
-                momentum_for_sizing = int(total)
-                sizing = calculate_risk_adjusted_sizing(price_data.price, 3.0, momentum_for_sizing)
-                pos_shares = int(sizing["Position_Amount"] / price_data.price) if price_data.price > 0 else 0
-                
-                inserted = False
-                if not is_test_mode:
-                    inserted = save_wealth_buy_alert(
-                        symbol=sym,
-                        alert_price=price_data.price,
-                        breakout_type="MULTIBAGGER",
-                        fm_score=scaled_score,
-                        notes=notes,
-                        position_pct=round(sizing["Position_Pct"] * 100, 2),
-                        position_amount=sizing["Position_Amount"],
-                        position_shares=pos_shares,
-                        portfolio_bucket="MULTIBAGGER",
-                        valuation_score=pas,
-                        momentum_score=int(trend),
-                        momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM",
-                        data_quality="LIVE",
-                        fallback_timestamp=None
-                    )
-                else:
-                    logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {sym}")
-                    inserted = True
+                alert_candidates.append({
+                    "symbol": sym,
+                    "price": price_data.price,
+                    "total_score": total,
+                    "cqs": cqs,
+                    "trend_score": trend,
+                    "pas": pas,
+                    "notes": notes,
+                    "pipeline_result": pipeline_result,
+                    "raw_fundamentals": raw_fundamentals
+                })
 
-                if inserted:
-                    from core.multibagger_pipeline import V5_CONFIG
-                    if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
-                        msg = (
-                            f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
-                            f"----------------------------------------\n"
-                            f"• Price: ₹{price_data.price:.1f}\n"
-                            f"• Classification: <b>{pipeline_result.classification}</b>\n"
-                            f"• Composite Score: {pipeline_result.composite_score:.1f}/100\n"
-                            f"• Confidence: {pipeline_result.confidence:.0f}%\n"
-                            f"• Fair Value: ₹{pipeline_result.valuation.fair_value:.1f} (MoS: {pipeline_result.valuation.margin_of_safety:.1f}%)\n"
-                            f"• Buy Zone: ₹{pipeline_result.buy_zone.buy_zone_low:.1f} - ₹{pipeline_result.buy_zone.buy_zone_high:.1f}\n"
-                            f"• Sector: {raw_fundamentals.get('sector', 'Unknown')}\n"
-                            f"\n<i>System V5 Architecture</i>"
-                        )
-                        queue_telegram_message(msg, symbol=sym)
-                    status = "ALERT_TRIGGERED"
-                else:
-                    logger.info(f"🚫 Alert for {sym} suppressed by DB Idempotency/Guards")
-                    status = "WAITING_BUY_ZONE"
-
-                
-            # Group only non-invalidated stocks for Telegram
             if status != "INVALIDATED":
-                label = pipeline_result.classification
+                label = bucket
                 if skip_alert:
                     label = f"🛡️ {label} (Currently Held)"
                 
@@ -1240,26 +1195,85 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     'total': total,
                     'status': status
                 })
-                
-        res = ScreenerResult(
-            symbol=sym,
-            price=price_data.price,
-            cqs=cqs,
-            pas=pas,
-            trend_score=trend,
-            total_score=total,
-            buy_zone_low=buy_low,
-            buy_zone_high=buy_high,
-            bucket=bucket,
-            status=status,
-            notes=notes,
-            change_pct=price_data.change_pct
-        )
-        results.append(res)
+
+        # Assemble the display record
+        results.append({
+            "Stock": sym,
+            "LTP": round(price_data.price, 2),
+            "SMA_50": round(price_data.sma_50, 2),
+            "SMA_200": round(price_data.sma_200, 2),
+            "Trend_Score": round(trend, 1),
+            "Quality_Score": round(cqs, 1),
+            "Valuation_Score": round(pas, 1),
+            "Composite_Score": round(total, 1),
+            "Label": bucket,
+            "Status": status,
+            "Notes": notes
+        })
         
-    if unverified_pledge_count > 0:
-        logger.warning(f"⚠️ Telemetry: {unverified_pledge_count} stocks passed Kill Gate #2 with UNVERIFIED pledge data (scraper fallback).")
+    # Process Top-N alerts
+    if alert_candidates:
+        # Sort by total_score desc, cqs desc, trend_score desc
+        alert_candidates.sort(key=lambda x: (x["total_score"], x["cqs"], x["trend_score"]), reverse=True)
+        top_n = alert_candidates[:5]
+        logger.info(f"🏆 Top 5 Candidates selected out of {len(alert_candidates)} valid alerts.")
+        
+        for cand in top_n:
+            sym = cand["symbol"]
+            price = cand["price"]
+            c_total = cand["total_score"]
+            c_cqs = cand["cqs"]
+            c_trend = cand["trend_score"]
+            c_pas = cand["pas"]
+            c_notes = cand["notes"]
+            pipeline_res = cand["pipeline_result"]
+            raw_fund = cand["raw_fundamentals"]
             
+            logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
+            
+            scaled_score = int(c_total)
+            sizing = calculate_risk_adjusted_sizing(price, 3.0, scaled_score)
+            pos_shares = int(sizing["Position_Amount"] / price) if price > 0 else 0
+            
+            inserted = False
+            if not is_test_mode:
+                inserted = save_wealth_buy_alert(
+                    symbol=sym,
+                    alert_price=price,
+                    breakout_type="MULTIBAGGER",
+                    fm_score=scaled_score,
+                    notes=c_notes,
+                    position_pct=round(sizing["Position_Pct"] * 100, 2),
+                    position_amount=sizing["Position_Amount"],
+                    position_shares=pos_shares,
+                    portfolio_bucket="MULTIBAGGER",
+                    valuation_score=c_pas,
+                    momentum_score=int(c_trend),
+                    momentum_confidence="HIGH" if c_cqs >= 75.0 else "MEDIUM",
+                    data_quality="LIVE",
+                    fallback_timestamp=None
+                )
+            else:
+                logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {sym}")
+                inserted = True
+
+            if inserted:
+                from core.multibagger_pipeline import V5_CONFIG
+                if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
+                    msg = (
+                        f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
+                        f"----------------------------------------\n"
+                        f"• Price: ₹{price:.1f}\n"
+                        f"• Classification: <b>{pipeline_res.classification}</b>\n"
+                        f"• Composite Score: {pipeline_res.composite_score:.1f}/100\n"
+                        f"• Confidence: {pipeline_res.confidence:.0f}%\n"
+                        f"• Fair Value: ₹{pipeline_res.valuation.fair_value:.1f} (MoS: {pipeline_res.valuation.margin_of_safety:.1f}%)\n"
+                        f"• Buy Zone: ₹{pipeline_res.buy_zone.buy_zone_low:.1f} - ₹{pipeline_res.buy_zone.buy_zone_high:.1f}\n"
+                        f"• Sector: {raw_fund.get('sector', 'Unknown')}\n"
+                        f"\n<i>System V5 Architecture</i>"
+                    )
+                    queue_telegram_message(msg, symbol=sym)
+
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
     save_scores_to_db(results)
