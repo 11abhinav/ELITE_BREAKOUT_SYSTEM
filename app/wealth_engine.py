@@ -1006,8 +1006,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     yf_sym = yf_syms[i]
                     current_price = None
                     if closes is not None:
-                        if isinstance(closes, pd.Series) and not pd.isna(closes.iloc[-1]): current_price = float(closes.iloc[-1])
-                        elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]): current_price = float(closes[yf_sym].iloc[-1])
+                        if isinstance(closes, pd.Series):
+                            if len(yf_syms) == 1 and not pd.isna(closes.iloc[-1]):
+                                current_price = float(closes.iloc[-1])
+                            elif len(yf_syms) > 1:
+                                logger.warning(f"Batch downgraded to single-index. Discarding real-time price for {yf_sym} to prevent cross-pollution.")
+                        elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]):
+                            current_price = float(closes[yf_sym].iloc[-1])
                     if current_price and current_price > 0:
                         realtime_metrics[symbol] = float(current_price)
         except Exception as e:

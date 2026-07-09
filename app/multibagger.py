@@ -234,7 +234,14 @@ def batch_download_market_data(symbols: list) -> dict:
                                 continue
                             ticker_df = df[ticker_name]
                         else:
-                            ticker_df = df
+                            logger.warning(f"Batch downgraded to single-index. Falling back to individual fetch for {sym}...")
+                            try:
+                                fallback_df = yf.download(ticker_name, period="1y", interval="1d", auto_adjust=False, progress=False, threads=False)
+                                if fallback_df.empty: continue
+                                ticker_df = fallback_df
+                            except Exception as e:
+                                logger.debug(f"Fallback fetch failed for {sym}: {e}")
+                                continue
                     
                     ticker_df = ticker_df.dropna(subset=["Close"])
                     
@@ -445,7 +452,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 # Map to V5 Engine Expected Keys
                 price = info.get("currentPrice") or fast_info.get("lastPrice")
                 shares = info.get("sharesOutstanding")
-                if not shares and market_cap and price:
+                if not shares and market_cap and price is not None and price > 0:
                     shares = market_cap / price
                 elif not shares:
                     shares = 1.0
@@ -742,101 +749,108 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
         
         for pos in open_positions:
-            symbol = pos["symbol"]
-            entry_price = float(pos["alert_price"])
-            alert_id = pos["id"]
-            
-            price_data = price_data_map.get(symbol)
-            if not price_data:
-                continue
+            try:
+                symbol = pos["symbol"]
+                entry_price = float(pos["alert_price"]) if pos.get("alert_price") is not None else 0.0
+                alert_id = pos["id"]
                 
-            current_price = price_data.price
-            
-            # Fetch latest fundamentals (using cache first)
-            fund = get_cached_fundamentals(symbol, cache)
-            if not fund:
-                fund = fetch_ticker_fundamentals(symbol)
-                
-            if fund:
-                technicals = {
-                    "price": current_price,
-                    "sma_50": price_data.sma_50,
-                    "sma_200": price_data.sma_200,
-                    "atr": price_data.atr_14
-                }
-                decision = run_pipeline_for_symbol(symbol, fund, technicals)
-                cqs = decision.quality.score
-                is_invalid = decision.is_invalidated
-                invalidation_reason = decision.invalidation_reason or ""
-            else:
-                # No data available — NEVER exit a position just because Yahoo Finance
-                # returned nothing. Missing data is NOT a sign of deterioration.
-                logger.warning(f"[EXIT MONITOR] {symbol}: no fundamental data available — skipping fundamental exit check.")
-                cqs = 15.0
-                is_invalid = False
-                invalidation_reason = ""
-            exit_triggered = False
-            exit_reason = ""
-            
-            # Rule 1: Catastrophic Stop (Drawdown > 20% from entry price)
-            drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
-            if drawdown_pct >= 20.0:
-                exit_triggered = True
-                exit_reason = f"Catastrophic Stop: Drawdown >20% ({drawdown_pct:.1f}% loss)"
-                
-            # Rule 2: Anti-Whipsaw 200-DMA exit
-            # Checks:
-            # - Price falls below 97% of 200-DMA today OR
-            # - Price closes below 200-DMA for two consecutive days (today & yesterday)
-            if not exit_triggered and price_data.sma_200 > 0:
-                below_97 = (current_price < 0.97 * price_data.sma_200)
-                consecutive_below = (current_price < price_data.sma_200 and price_data.close_yesterday < price_data.sma_200_yesterday)
-                
-                if below_97:
-                    exit_triggered = True
-                    exit_reason = f"Decisive breakdown: price closed below 97% of 200-DMA (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
-                elif consecutive_below:
-                    exit_triggered = True
-                    exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
+                price_data = price_data_map.get(symbol)
+                if not price_data:
+                    continue
                     
-            # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
-            # CRITICAL RULE: Never exit on missing/incomplete data.
-            # Only exit when we have REAL data confirming genuine deterioration.
-            # - Skip if no fund data at all (handled above: is_invalid=False)
-            # - Skip if data_freshness is FALLBACK (rate-limited, only basic fields)
-            # - Skip if invalidation_reason is data-related ("Incomplete Data")
-            is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
-            is_data_error_invalidation = "incomplete data" in invalidation_reason.lower() if is_invalid else False
-            
-            if not exit_triggered and fund and not is_fallback and not is_data_error_invalidation:
-                if cqs < 15.0:
-                    exit_triggered = True
-                    exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
-                elif is_invalid:
-                    exit_triggered = True
-                    exit_reason = f"Fundamental failure: fails Layer 1 Kill Gates ({invalidation_reason})"
-            elif is_data_error_invalidation:
-                logger.warning(f"[EXIT MONITOR] {symbol} failed gates due to INCOMPLETE DATA — NOT exiting. Will retry next scan.")
+                current_price = price_data.price
+                
+                # Fetch latest fundamentals (using cache first)
+                fund = get_cached_fundamentals(symbol, cache)
+                if not fund:
+                    fund = fetch_ticker_fundamentals(symbol)
                     
-            # Handle triggered exit
-            if exit_triggered:
-                logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
-                if is_test_mode:
-                    logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
-                    close_success = False
+                if fund:
+                    technicals = {
+                        "price": current_price,
+                        "sma_50": price_data.sma_50,
+                        "sma_200": price_data.sma_200,
+                        "atr": price_data.atr_14
+                    }
+                    decision = run_pipeline_for_symbol(symbol, fund, technicals)
+                    cqs = decision.quality.score
+                    is_invalid = decision.is_invalidated
+                    invalidation_reason = decision.invalidation_reason or ""
                 else:
-                    close_success = close_position(symbol, current_price, exit_reason, force_close=True)
-                if close_success:
-                    # Queue Telegram notification
-                    sell_msg = (
-                        f"🚨 <b>MULTIBAGGER SELL ALERT | {symbol}</b>\n"
-                        f"----------------------------------------\n"
-                        f"• Entry: ₹{entry_price:.1f}\n"
-                        f"• Exit: ₹{current_price:.1f}\n"
-                        f"• Return: {((current_price - entry_price) / entry_price * 100.0):.1f}%\n"
-                        f"• Reason: <i>{exit_reason}</i>\n"
-                    )
-                    queue_telegram_message(sell_msg, symbol=symbol)
+                    # No data available — NEVER exit a position just because Yahoo Finance
+                    # returned nothing. Missing data is NOT a sign of deterioration.
+                    logger.warning(f"[EXIT MONITOR] {symbol}: no fundamental data available — skipping fundamental exit check.")
+                    cqs = 15.0
+                    is_invalid = False
+                    invalidation_reason = ""
+                exit_triggered = False
+                exit_reason = ""
+                
+                # Rule 1: Catastrophic Stop (Drawdown > 20% from entry price)
+                if entry_price <= 0:
+                    logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Invalid entry_price ({entry_price}). Skipping drawdown check.")
+                else:
+                    drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
+                    if drawdown_pct >= 20.0:
+                        exit_triggered = True
+                        exit_reason = f"Catastrophic Stop: Drawdown >20% ({drawdown_pct:.1f}% loss)"
+                    
+                # Rule 2: Anti-Whipsaw 200-DMA exit
+                # Checks:
+                # - Price falls below 97% of 200-DMA today OR
+                # - Price closes below 200-DMA for two consecutive days (today & yesterday)
+                if not exit_triggered and price_data.sma_200 > 0:
+                    below_97 = (current_price < 0.97 * price_data.sma_200)
+                    consecutive_below = (current_price < price_data.sma_200 and price_data.close_yesterday < price_data.sma_200_yesterday)
+                    
+                    if below_97:
+                        exit_triggered = True
+                        exit_reason = f"Decisive breakdown: price closed below 97% of 200-DMA (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
+                    elif consecutive_below:
+                        exit_triggered = True
+                        exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
+                        
+                # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
+                # CRITICAL RULE: Never exit on missing/incomplete data.
+                # Only exit when we have REAL data confirming genuine deterioration.
+                # - Skip if no fund data at all (handled above: is_invalid=False)
+                # - Skip if data_freshness is FALLBACK (rate-limited, only basic fields)
+                # - Skip if invalidation_reason is data-related ("Incomplete Data")
+                is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
+                is_data_error_invalidation = "incomplete data" in invalidation_reason.lower() if is_invalid else False
+                
+                if not exit_triggered and fund and not is_fallback and not is_data_error_invalidation:
+                    if cqs < 15.0:
+                        exit_triggered = True
+                        exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
+                    elif is_invalid:
+                        exit_triggered = True
+                        exit_reason = f"Fundamental failure: fails Layer 1 Kill Gates ({invalidation_reason})"
+                elif is_data_error_invalidation:
+                    logger.warning(f"[EXIT MONITOR] {symbol} failed gates due to INCOMPLETE DATA — NOT exiting. Will retry next scan.")
+                        
+                # Handle triggered exit
+                if exit_triggered:
+                    logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
+                    if is_test_mode:
+                        logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
+                        close_success = False
+                    else:
+                        close_success = close_position(symbol, current_price, exit_reason, force_close=True)
+                    if close_success:
+                        # Queue Telegram notification
+                        calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+                        sell_msg = (
+                            f"🚨 <b>MULTIBAGGER SELL ALERT | {symbol}</b>\n"
+                            f"----------------------------------------\n"
+                            f"• Entry: ₹{entry_price:.1f}\n"
+                            f"• Exit: ₹{current_price:.1f}\n"
+                            f"• Return: {calc_ret:.1f}%\n"
+                            f"• Reason: <i>{exit_reason}</i>\n"
+                        )
+                        queue_telegram_message(sell_msg, symbol=symbol)
+            except Exception as e:
+                logger.error(f"❌ Unhandled exception in exit monitor for {pos.get('symbol', 'UNKNOWN')}: {e}", exc_info=True)
                     
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
