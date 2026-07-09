@@ -222,6 +222,11 @@ def batch_download_market_data(symbols: list) -> dict:
         try:
             df = yf.download(chunk, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False, threads=False)
             if not df.empty:
+                if df.index.tzinfo is None:
+                    logger.debug("[TIMEZONE] Normalizing naive yfinance batch index to IST at fetch boundary")
+                    df.index = df.index.tz_localize(IST)
+                else:
+                    df.index = df.index.tz_convert(IST)
                 if len(chunk) == 1:
                     batch_res[chunk[0].replace('.NS', '')] = df
                 elif isinstance(df.columns, pd.MultiIndex):
@@ -236,6 +241,12 @@ def batch_download_market_data(symbols: list) -> dict:
                         try:
                             sub_df = yf.download(sub, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False, threads=False)
                             if sub_df.empty: continue
+                            
+                            if sub_df.index.tzinfo is None:
+                                logger.debug("[TIMEZONE] Normalizing naive yfinance sub-batch index to IST at fetch boundary")
+                                sub_df.index = sub_df.index.tz_localize(IST)
+                            else:
+                                sub_df.index = sub_df.index.tz_convert(IST)
                             if len(sub) == 1:
                                 batch_res[sub[0].replace('.NS', '')] = sub_df
                             elif isinstance(sub_df.columns, pd.MultiIndex):
@@ -263,13 +274,6 @@ def batch_download_market_data(symbols: list) -> dict:
                         real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
                     else:
                         real_time_change = 0.0
-
-                    # Explicitly normalize the entire dataframe index at the fetch boundary
-                    if ticker_df.index.tzinfo is None:
-                        logger.debug(f"[TIMEZONE] Normalizing naive yfinance index for {sym} to IST")
-                        ticker_df.index = ticker_df.index.tz_localize(IST)
-                    else:
-                        ticker_df.index = ticker_df.index.tz_convert(IST)
 
                     if strip_forming and len(ticker_df) > 0:
                         last_ts = ticker_df.index[-1]
