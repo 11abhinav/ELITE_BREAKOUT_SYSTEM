@@ -988,7 +988,7 @@ def _run_wealth_scan_wrapper():
                 exit_reason = row.get("Exit_Reason")
                 if symbol and cmp and not getattr(database, "DONT_SAVE_WEALTH", False):
                     from database import close_position
-                    close_position("wealth_buy_alert", symbol, cmp, exit_reason)
+                    close_position(symbol, cmp, exit_reason)
 
             # Map Portfolio outputs back into wealth_df for Dashboard display
             port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
