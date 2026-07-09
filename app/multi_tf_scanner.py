@@ -270,6 +270,8 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
 
     ist_now = datetime.now(IST)
     end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
+    if ist_now > end_of_session:
+        end_of_session = ist_now + timedelta(minutes=15)
 
     
     # Funnel stats for Phase B/C/D
