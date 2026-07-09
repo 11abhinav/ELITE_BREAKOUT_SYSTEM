@@ -1348,19 +1348,23 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 })
 
         # Assemble the display record
-        results.append({
-            "Stock": sym,
-            "LTP": round(price_data.price, 2),
-            "SMA_50": round(price_data.sma_50, 2),
-            "SMA_200": round(price_data.sma_200, 2),
-            "Trend_Score": round(trend, 1),
-            "Quality_Score": round(cqs, 1),
-            "Valuation_Score": round(pas, 1),
-            "Composite_Score": round(total, 1),
-            "Label": bucket,
-            "Status": status,
-            "Notes": notes
-        })
+        bz_low = pipeline_result.buy_zone.buy_zone_low if pipeline_result.buy_zone else 0.0
+        bz_high = pipeline_result.buy_zone.buy_zone_high if pipeline_result.buy_zone else 0.0
+        
+        results.append(ScreenerResult(
+            symbol=sym,
+            price=round(price_data.price, 2),
+            cqs=round(cqs, 1),
+            pas=round(pas, 1),
+            trend_score=round(trend, 1),
+            total_score=round(total, 1),
+            buy_zone_low=round(bz_low, 2),
+            buy_zone_high=round(bz_high, 2),
+            bucket=bucket,
+            status=status,
+            notes=notes,
+            change_pct=0.0
+        ))
         
     # Process Top-N alerts
     if alert_candidates:
@@ -1436,7 +1440,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
-    alerts_count = sum(1 for r in results if r.get("Status") == "ALERT_TRIGGERED")
+    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
     try:
         from database import insert_notification
         insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks.")
