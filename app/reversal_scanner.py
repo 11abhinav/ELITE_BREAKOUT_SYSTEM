@@ -560,7 +560,6 @@ def _run_scan(force: bool = False):
                 reversal_signals.append("🏔️ Above SMA200 (full recovery)")
 
             signal_str = "Reversal"
-            today_str  = ist_now.strftime("%Y-%m-%d")
             breakout_type = "REVERSAL"
             dedup_key  = f"{category}|{symbol}|{today_str}|{breakout_type}"
 
@@ -669,8 +668,14 @@ def _run_scan(force: bool = False):
                 rejected["low_score"] += 1
                 continue
 
-            # Compute trend_score for export/analysis (same logic as scorer's trend block)
-            trend_score = 25 if (above_sma50 and above_sma200) else 18
+            # [BUG-5 FIX v1.5] Compute trend_score matching _score_reversal logic exactly
+            # When above_sma50=False (soft-pass path), scorer gives 0 trend points, not 18
+            if above_sma50 is True and above_sma200 is True:
+                trend_score = 25
+            elif above_sma50 is True:
+                trend_score = 18
+            else:
+                trend_score = 0  # soft-pass (within 3% of SMA50) gets no trend points
 
             # ─────────────────────────────────────────────────────────────────────
 
@@ -763,7 +768,12 @@ def _run_scan(force: bool = False):
 
         except Exception as e:
             logger.exception(f'❌ Error processing {symbol}')
-            upsert_fetch_error('yfinance', 'REVERSAL', symbol, '1d', 'processing_error', str(e))
+            # [BUG-9 FIX v1.5] Guard DB write with test mode check (matches EOD pattern)
+            if not is_test_mode:
+                try:
+                    upsert_fetch_error('yfinance', 'REVERSAL', symbol, '1d', 'processing_error', str(e))
+                except Exception:
+                    logger.exception(f'Failed to upsert fetch error for {symbol}')
 
     logger.info(
         f"[REVERSAL] rejection summary: "

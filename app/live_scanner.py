@@ -14,7 +14,7 @@ except Exception:
         pass
 import time
 import logging
-from concurrent.futures import ThreadPoolExecutor
+
 
 from zoneinfo import ZoneInfo
 from datetime import datetime, time as dt_time
@@ -84,7 +84,7 @@ def _start_wrapper(run_once=False):
     while True:
         ist_now      = datetime.now(IST)
         current_time = ist_now.time()
-        weekday      = ist_now.weekday()
+
 
         from market_utils import is_within_custom_hours
         is_active_window = run_once or is_within_custom_hours(dt_time(10, 17), dt_time(15, 35), ist_now)
@@ -229,7 +229,10 @@ def _start_wrapper(run_once=False):
                             _last_ts = pd.to_datetime(latest[_stale_col])
                             if _last_ts.tzinfo is not None:
                                 _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                            if _last_ts.date() != ist_now.date():
+                            # [BUG-4 FIX v1.5] Use 4-day age window instead of strict date equality
+                            # to handle weekends/holidays (same pattern as EOD scanner)
+                            _bar_age_days = (ist_now.date() - _last_ts.date()).days
+                            if _bar_age_days < 0 or _bar_age_days > 4:
                                 rejection_counts["stale_data"] += 1
                                 continue
                         except Exception:

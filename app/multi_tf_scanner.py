@@ -53,15 +53,15 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 from macro_utils import get_macro_regime, get_nifty_20d_return
 
 def run_hourly_phase(is_test_mode=False, run_once=False):
-    from market_utils import is_market_open
-    if not (run_once and is_test_mode) and not is_market_open():
-        logger.info("Market is closed. Skipping Phase A.")
-        return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
     Goal: Identify trend permission (Price > 200 EMA, 9 > 20 > 50 EMA, ADX > 20).
     Adds to breakout_watchlist as HOURLY_APPROVED.
     """
+    from market_utils import is_market_open
+    if not (run_once and is_test_mode) and not is_market_open():
+        logger.info("Market is closed. Skipping Phase A.")
+        return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
     logger.info("🕒 Starting Phase A (1H Trend Scanner)...")
     
     # 1. Get fundamental universe
@@ -187,18 +187,17 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     from datetime import timedelta
                     end_of_session = now_dt + timedelta(minutes=15)
                 if not is_test_mode:
-
                     upsert_breakout_watchlist(
-                    symbol=symbol,
-                    category=category,
-                    current_state="HOURLY_APPROVED",
-                    h1_status="PASSED",
-                    breakout_level=prior_high,
-                    trigger_level=prior_high,
-                    signal_timestamp=now_dt.isoformat(),
-                    expires_at=end_of_session.isoformat(),
-                    timeframe="1h"
-                )
+                        symbol=symbol,
+                        category=category,
+                        current_state="HOURLY_APPROVED",
+                        h1_status="PASSED",
+                        breakout_level=prior_high,
+                        trigger_level=prior_high,
+                        signal_timestamp=now_dt.isoformat(),
+                        expires_at=end_of_session.isoformat(),
+                        timeframe="1h"
+                    )
                 funnel["approved"] += 1
                 logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
 
@@ -217,15 +216,15 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
 
 def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False):
-    from market_utils import is_market_open
-    if not (run_once and is_test_mode) and not is_market_open():
-        logger.info("Market is closed. Skipping lower TF phase.")
-        return {"fetched": 0, "total": 0, "stale": 0}
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
       HOURLY_APPROVED → (30m) SETUP_ARMED → (15m) ENTRY_READY → (5m) TRADE_ACTIVE
     """
+    from market_utils import is_market_open
+    if not (run_once and is_test_mode) and not is_market_open():
+        logger.info("Market is closed. Skipping lower TF phase.")
+        return {"fetched": 0, "total": 0, "stale": 0}
     logger.info("⚡ Starting Phase B/C/D (Sub-hourly Ladder Updater)...")
     
     active_items = get_active_breakout_watchlist()
@@ -338,14 +337,12 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
 
                         if drift > 0.03:
                             if not is_test_mode:
-
                                 upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
                             state = "HOURLY_APPROVED"
                             lower_funnel["demoted"] += 1
                             logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
                         elif is_expired:
                             if not is_test_mode:
-
                                 upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
                             state = "HOURLY_APPROVED"
                             lower_funnel["demoted"] += 1
@@ -400,20 +397,18 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         expires_iso = min(ist_now + timedelta(minutes=60), end_of_session).isoformat()
                     
                         if not is_test_mode:
-
-                    
                             upsert_breakout_watchlist(
-                            symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
-                            trigger_level=breakout_level,
-                            invalidation_level=min(swing_low, ema20),
-                            max_extension_atr=0.8,
-                            buffer_pct=0.0015,
-                            armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
-                            context_json=ctx_json,
-                            signal_timestamp=now_iso,
-                            expires_at=expires_iso,
-                            timeframe="30m"
-                        )
+                                symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
+                                trigger_level=breakout_level,
+                                invalidation_level=min(swing_low, ema20),
+                                max_extension_atr=0.8,
+                                buffer_pct=0.0015,
+                                armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
+                                context_json=ctx_json,
+                                signal_timestamp=now_iso,
+                                expires_at=expires_iso,
+                                timeframe="30m"
+                            )
                         lower_funnel["armed"] += 1
                         state = "SETUP_ARMED"
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
@@ -463,16 +458,14 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         expires_iso = min(ist_now + timedelta(minutes=30), end_of_session).isoformat()
                     
                         if not is_test_mode:
-
-                    
                             upsert_breakout_watchlist(
-                            symbol=symbol, category=cat, current_state="ENTRY_READY",
-                            m15_status="PASSED",
-                            context_json=ctx_json,
-                            signal_timestamp=now_iso,
-                            expires_at=expires_iso,
-                            timeframe="15m"
-                        )
+                                symbol=symbol, category=cat, current_state="ENTRY_READY",
+                                m15_status="PASSED",
+                                context_json=ctx_json,
+                                signal_timestamp=now_iso,
+                                expires_at=expires_iso,
+                                timeframe="15m"
+                            )
                         lower_funnel["entry_ready"] += 1
                         state = "ENTRY_READY"
                         logger.info(f"🟡 {symbol} promoted to ENTRY_READY "
@@ -601,13 +594,10 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 )
                             if inserted:
                                 if not is_test_mode:
-
                                     upsert_breakout_watchlist(
-                                    symbol=symbol, category=cat, current_state="TRADE_ACTIVE",
-                                    m5_status="PASSED"
-                                )
-                                if not is_test_mode:
-
+                                        symbol=symbol, category=cat, current_state="TRADE_ACTIVE",
+                                        m5_status="PASSED"
+                                    )
                                     mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
                                 lower_funnel["triggered"] += 1
                                 logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
@@ -662,7 +652,6 @@ def _start_wrapper(run_once=False, is_test_mode=False):
         try:
             ist_now = datetime.now(IST)
             current_time = ist_now.time()
-            weekday = ist_now.weekday()
             
             scan_start = datetime.now(IST)
             logger.info("=========================================")

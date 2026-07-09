@@ -258,7 +258,6 @@ def _start_wrapper(run_once=False):
     while True:
         ist_now      = datetime.now(IST)
         current_time = ist_now.time()
-        weekday      = ist_now.weekday()
         
         from market_utils import is_within_custom_hours
         is_active_window = run_once or is_within_custom_hours(dt_time(9, 45), dt_time(15, 35), ist_now)
@@ -311,6 +310,10 @@ def _start_wrapper(run_once=False):
 
             
             stale_count = 0
+            
+            # [BUG-2 FIX v1.5] Initialize indicator-processed dictionaries before use
+            data_15m = {}
+            data_5m = {}
             
             # ── PRECOMPUTE INDICATORS ONCE PER DATASET ──
             for sym, df in data_15m_raw.items():

@@ -222,18 +222,15 @@ def _start_wrapper(force: bool = False):
         market_regime = get_macro_regime(nifty_ret_20d)
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
 
+        # [BUG-1 FIX v1.5] Compute threshold BEFORE regime check to avoid NameError
+        BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
+        global_min_score = BASE_SCORE_THRESHOLD
+
         if market_regime == "BEAR":
             logger.info("🛑 BEAR regime detected — raising score threshold by +5 (high-conviction only).")
             # [FIX P1] Instead of killing the entire scan, raise the bar.
             # Only the highest-conviction breakouts should fire in bear markets.
-            global_min_score = BASE_SCORE_THRESHOLD + 5
-
-
-        # Compute threshold outside loop
-        BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
-        # Single threshold for all regimes (BEAR already skipped above)
-        # In strong markets, good setups flow. In neutral, only best setups pass.
-        global_min_score = BASE_SCORE_THRESHOLD
+            global_min_score += 5
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
