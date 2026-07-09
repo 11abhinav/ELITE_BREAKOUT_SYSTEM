@@ -223,20 +223,10 @@ def _start_wrapper(force: bool = False):
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
 
         if market_regime == "BEAR":
-            logger.info("🛑 BEAR regime detected — skipping EOD breakout scan entirely.")
-            if not is_test_mode:
-                try:
-                    upsert_scanner_health(
-                        scanner_name="EOD",
-                        status="OK",
-                        last_success=datetime.now(IST).isoformat(),
-                        today_alerts=0,
-                        total_count=len(watchlist),
-                        error_msg="Skipped: BEAR regime"
-                    )
-                except Exception:
-                    logger.exception("❌ Failed to update scanner health for EOD early return")
-            return 0
+            logger.info("🛑 BEAR regime detected — raising score threshold by +5 (high-conviction only).")
+            # [FIX P1] Instead of killing the entire scan, raise the bar.
+            # Only the highest-conviction breakouts should fire in bear markets.
+            global_min_score = BASE_SCORE_THRESHOLD + 5
 
 
         # Compute threshold outside loop
@@ -320,13 +310,19 @@ def _start_wrapper(force: bool = False):
                     continue
 
                 # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
+                # [FIX P0] Compare against the last bar's own date rather than ist_now.date().
+                # On weekends/holidays, ist_now.date() is a non-trading day and every symbol
+                # would be rejected as stale. Instead, we confirm the last bar is reasonably
+                # recent (within 4 calendar days to cover long weekends).
+                _expected_max_age_days = 4  # Covers Fri→Mon and long weekends
                 _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
                 if _stale_col:
                     try:
                         _last_ts = pd.to_datetime(latest[_stale_col])
                         if _last_ts.tzinfo is not None:
                             _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                        if _last_ts.date() != ist_now.date():
+                        _bar_age_days = (ist_now.date() - _last_ts.date()).days
+                        if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
                             rejection_counts["stale_data"] += 1
                             continue
                     except Exception as e:
@@ -339,8 +335,12 @@ def _start_wrapper(force: bool = False):
                         if _last_ts.tzinfo is not None:
                             _last_ts = _last_ts.tz_convert("Asia/Kolkata")
                         else:
-                            _last_ts = _last_ts.tz_localize("UTC").tz_convert("Asia/Kolkata")
-                        if _last_ts.date() != ist_now.date():
+                            # [FIX P0] yfinance .NS returns naive timestamps in IST, not UTC.
+                            # Localizing as UTC shifts the date by 5.5h and causes valid bars
+                            # to be rejected near midnight IST.
+                            _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                        _bar_age_days = (ist_now.date() - _last_ts.date()).days
+                        if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
                             rejection_counts["stale_data"] += 1
                             continue
                     except Exception as e:
@@ -557,7 +557,6 @@ def _start_wrapper(force: bool = False):
                     continue
 
                 signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
-                today_str  = ist_now.strftime("%Y-%m-%d")
                 dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 
                 if (symbol, dedup_key) in cooldown_alerts:

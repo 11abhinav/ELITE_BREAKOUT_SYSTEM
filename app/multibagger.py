@@ -79,6 +79,7 @@ class StockPriceData:
     volume_sma20: float
     close_yesterday: float
     sma_200_yesterday: float
+    closes_below_sma200_count: int = 0
 
 @dataclass
 class ExitPriceData:
@@ -91,6 +92,7 @@ class ExitPriceData:
     sma_200_yesterday: float
     atr_14: float
     ema_20: float
+    closes_below_sma200_count: int = 0
 
 @dataclass
 class ScreenerResult:
@@ -263,102 +265,114 @@ def batch_download_market_data(symbols: list) -> dict:
 
         for sym, ticker_df in batch_res.items():
             try:
-                    
-                    ticker_df = ticker_df.dropna(subset=["Close"])
-                    
-                    # --- PHASE 2 FIX: Preserve real-time price before stripping ---
-                    real_time_close_series = ticker_df["Close"]
-                    real_time_close = float(real_time_close_series.iloc[-1])
-                    if len(real_time_close_series) >= 2:
-                        real_time_prev = float(real_time_close_series.iloc[-2])
-                        real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
-                    else:
-                        real_time_change = 0.0
-
-                    if strip_forming and len(ticker_df) > 0:
-                        last_ts = ticker_df.index[-1]
-                        if last_ts.date() == ist_now.date():
-                            ticker_df = ticker_df.iloc[:-1]
-                            
-                    if len(ticker_df) < 50: # Ensure we have enough data points for SMAs
-                        continue
+                ticker_df = ticker_df.dropna(subset=["Close"])
                 
-                    close_series = ticker_df["Close"]
-                    vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
-                    
-                    # Instead of overriding price with yesterday's close, use real_time_close
-                    close_price = real_time_close
-                    change_pct = real_time_change
-                    
-                    close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
-                    
-                    low_52w = float(close_series.min())
-                    high_52w = float(close_series.max())
-                    
-                    # Compute 20-day average liquidity (Volume * Close)
-                    recent_20 = ticker_df.tail(20)
-                    if not recent_20.empty and "Volume" in recent_20.columns:
-                        avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
-                    else:
-                        avg_turnover = 0.0
-                    
-                    # Calculate rolling averages & windows using pandas
-                    sma_20 = float(close_series.rolling(20).mean().iloc[-1])
-                    sma_50 = float(close_series.rolling(50).mean().iloc[-1])
-                    
-                    # Safe 200-day rolling handle (falls back to max available window if data < 200 days)
-                    window_200 = min(200, len(close_series))
-                    sma_200_series = close_series.rolling(window_200).mean()
-                    sma_200 = float(sma_200_series.iloc[-1])
-                    sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
-                    
-                    high_20d = float(close_series.rolling(20).max().iloc[-1])
-                    high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
-                    
-                    # 3-month momentum (60 trading days)
-                    hist_idx = min(60, len(close_series) - 1)
-                    close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
-                    mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
-                    
-                    latest_volume = float(vol_series.iloc[-1])
-                    volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
-                    
-                    # ATR(14) calculation
-                    if "High" in ticker_df.columns and "Low" in ticker_df.columns:
-                        high = ticker_df["High"]
-                        low = ticker_df["Low"]
-                        shifted_close = close_series.shift(1)
-                        tr1 = high - low
-                        tr2 = (high - shifted_close).abs()
-                        tr3 = (low - shifted_close).abs()
-                        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-                        atr_14 = float(tr.rolling(14).mean().iloc[-1])
-                    else:
-                        atr_14 = close_price * 0.05
+                # --- PHASE 2 FIX: Preserve real-time price before stripping ---
+                real_time_close_series = ticker_df["Close"]
+                real_time_close = float(real_time_close_series.iloc[-1])
+                if len(real_time_close_series) >= 2:
+                    real_time_prev = float(real_time_close_series.iloc[-2])
+                    real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
+                else:
+                    real_time_change = 0.0
+
+                if strip_forming and len(ticker_df) > 0:
+                    last_ts = ticker_df.index[-1]
+                    if last_ts.date() == ist_now.date():
+                        ticker_df = ticker_df.iloc[:-1]
                         
-                    # EMA(20) calculation
-                    ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
+                if len(ticker_df) < 50: # Ensure we have enough data points for SMAs
+                    continue
+            
+                close_series = ticker_df["Close"]
+                vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
+                
+                # Instead of overriding price with yesterday's close, use real_time_close
+                close_price = real_time_close
+                change_pct = real_time_change
+                
+                close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
+                
+                # [FIX #13] Use intraday High/Low columns for true 52-week range
+                if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+                    high_52w = float(ticker_df["High"].max())
+                    low_52w = float(ticker_df["Low"].min())
+                else:
+                    high_52w = float(close_series.max())
+                    low_52w = float(close_series.min())
+                
+                # Compute 20-day average liquidity (Volume * Close)
+                recent_20 = ticker_df.tail(20)
+                if not recent_20.empty and "Volume" in recent_20.columns:
+                    avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
+                else:
+                    avg_turnover = 0.0
+                
+                # Calculate rolling averages & windows using pandas
+                sma_20 = float(close_series.rolling(20).mean().iloc[-1])
+                sma_50 = float(close_series.rolling(50).mean().iloc[-1])
+                
+                # Safe 200-day rolling handle (falls back to max available window if data < 200 days)
+                window_200 = min(200, len(close_series))
+                sma_200_series = close_series.rolling(window_200).mean()
+                sma_200 = float(sma_200_series.iloc[-1])
+                sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
+                
+                high_20d = float(close_series.rolling(20).max().iloc[-1])
+                high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
+                
+                # 3-month momentum (60 trading days)
+                hist_idx = min(60, len(close_series) - 1)
+                close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
+                mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
+                
+                latest_volume = float(vol_series.iloc[-1])
+                volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
+                
+                # ATR(14) calculation
+                if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+                    high = ticker_df["High"]
+                    low = ticker_df["Low"]
+                    shifted_close = close_series.shift(1)
+                    tr1 = high - low
+                    tr2 = (high - shifted_close).abs()
+                    tr3 = (low - shifted_close).abs()
+                    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                    atr_14 = float(tr.rolling(14).mean().iloc[-1])
+                else:
+                    atr_14 = close_price * 0.05
                     
-                    results[sym] = StockPriceData(
-                        symbol=sym,
-                        price=close_price,
-                        change_pct=change_pct,
-                        low_52w=low_52w,
-                        high_52w=high_52w,
-                        turnover_20d=avg_turnover,
-                        sma_20=sma_20,
-                        sma_50=sma_50,
-                        sma_200=sma_200,
-                        high_20d=high_20d,
-                        high_60d=high_60d,
-                        mom_3m=mom_3m,
-                        latest_volume=latest_volume,
-                        volume_sma20=volume_sma20,
-                        close_yesterday=close_yesterday,
-                        sma_200_yesterday=sma_200_yesterday,
-                        atr_14=atr_14,
-                        ema_20=ema_20
-                    )
+                # EMA(20) calculation
+                ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
+                
+                # [FIX #4] SMA(200) breakdown persistence — reuse sma_200_series from above
+                closes_below_sma200_count = 0
+                if len(close_series) >= 5 and len(sma_200_series.dropna()) >= 5:
+                    last_5_closes = close_series.iloc[-5:]
+                    last_5_smas = sma_200_series.iloc[-5:]
+                    closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
+                
+                results[sym] = StockPriceData(
+                    symbol=sym,
+                    price=close_price,
+                    change_pct=change_pct,
+                    low_52w=low_52w,
+                    high_52w=high_52w,
+                    turnover_20d=avg_turnover,
+                    sma_20=sma_20,
+                    sma_50=sma_50,
+                    sma_200=sma_200,
+                    high_20d=high_20d,
+                    high_60d=high_60d,
+                    mom_3m=mom_3m,
+                    latest_volume=latest_volume,
+                    volume_sma20=volume_sma20,
+                    close_yesterday=close_yesterday,
+                    sma_200_yesterday=sma_200_yesterday,
+                    atr_14=atr_14,
+                    ema_20=ema_20,
+                    closes_below_sma200_count=closes_below_sma200_count
+                )
             except Exception as e:
                 logger.debug(f"Error parsing market data for {sym}: {e}")
             
@@ -371,6 +385,101 @@ def is_financial_sector(sector: str) -> bool:
         return False
     sec_lower = str(sector).lower()
     return any(keyword in sec_lower for keyword in ["financ", "bank", "nbfc", "insurance"])
+
+def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
+    """
+    Hard pre-scoring quality gate for Multibagger alerts.
+    """
+    # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
+    is_fin = f.get("is_financial", False)
+    if not is_fin:
+        roce = safe_float(f.get("roce", f.get("roe", 0.0)))
+        if roce < 0.15:
+            return False, f"ROCE/ROE below 15% ({roce*100:.1f}%)"
+    
+    rev_cagr = safe_float(f.get("revenue_cagr_3y", 0.0))
+    if f.get("revenue_cagr_3y") is not None and rev_cagr < 0.08:
+        return False, f"Revenue CAGR 3Y below 8% ({rev_cagr*100:.1f}%)"
+        
+    pledge = safe_float(f.get("promoter_pledge_pct", 0.0))
+    if pledge > 0.20:
+        return False, f"High promoter pledge ({pledge*100:.1f}%)"
+        
+    if f.get("auditor_flags") is True:
+        return False, "Auditor/Forensic red flags"
+
+    is_fin = f.get("is_financial", False)
+    
+    if is_fin:
+        roe = safe_float(f.get("roe", 0.0))
+        if f.get("roe") is not None and roe < 0.12: # Financials allowed slightly lower ROE but still positive
+            return False, f"Financial ROE below 12% ({roe*100:.1f}%)"
+            
+        gnpa = safe_float(f.get("gnpa", 0.0))
+        if f.get("gnpa") is not None and gnpa > 0.05:
+            return False, f"High GNPA ({gnpa*100:.1f}%)"
+            
+        car = safe_float(f.get("capital_adequacy_ratio", 0.0))
+        if f.get("capital_adequacy_ratio") is not None and car < 0.12:
+            return False, f"Low CAR ({car*100:.1f}%)"
+            
+        roa = safe_float(f.get("roa", 0.0))
+        if f.get("roa") is not None and roa < 0.01:
+            return False, f"ROA below 1% ({roa*100:.2f}%)"
+    else:
+        opm = safe_float(f.get("operating_margin_ttm", 0.0))
+        if opm < 0.12:
+            return False, f"Operating margin below 12% ({opm*100:.1f}%)"
+            
+        fcf_margin = safe_float(f.get("fcf_margin", 0.0))
+        if f.get("fcf_margin") is None or fcf_margin < 0.05:
+            return False, f"Weak FCF conversion ({fcf_margin*100:.1f}%)"
+            
+        cfo_pat = safe_float(f.get("cfo_pat_ratio", 0.0))
+        if f.get("cfo_pat_ratio") is not None and cfo_pat < 0.6:
+            return False, f"Poor cash conversion CFO/PAT ({cfo_pat:.2f})"
+            
+        de = safe_float(f.get("debt_equity", 0.0))
+        if de > 1.0:
+            return False, f"Debt/Equity > 1.0 ({de:.2f})"
+            
+        icr = safe_float(f.get("interest_coverage_ratio", 0.0))
+        if icr < 3.0 and f.get("interest_coverage_ratio") is not None:
+            return False, f"Interest coverage < 3x ({icr:.1f})"
+            
+        altman_z = safe_float(f.get("altman_z", 0.0))
+        if f.get("altman_z") is not None and altman_z < 1.8:
+            return False, f"Altman-Z in distress zone ({altman_z:.2f})"
+
+    return True, ""
+
+def classify_conviction(cqs: float, pas: float, trend: float, composite: float) -> tuple[str, float]:
+    """
+    Tiered classification for multibaggers.
+    Returns (Tier, Score)
+    """
+    if composite >= 80 and cqs >= 75 and pas >= 60 and trend >= 10.0:
+        return "PRIME", composite
+    elif composite >= 72 and cqs >= 70 and trend >= 10.0:
+        return "HIGH_QUALITY", composite
+    elif composite >= 65:
+        return "WATCH_ONLY", composite
+    else:
+        return "REJECT", composite
+
+def entry_confirmed(price_data: StockPriceData) -> bool:
+    """
+    Ensures technical stabilization before entry.
+    [FIX #12] Tightened from OR to AND + volume confirmation.
+    """
+    if price_data.price < price_data.sma_200:
+        return False
+        
+    reclaim_ema = price_data.price > price_data.ema_20
+    not_freefall = price_data.price >= price_data.close_yesterday
+    volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20 if price_data.volume_sma20 > 0 else True
+    
+    return reclaim_ema and not_freefall and volume_ok
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
@@ -391,7 +500,6 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
-    return None
     return None
 
 
@@ -512,12 +620,13 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
                     
                     "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
-                    "eps_cagr_3y": compute_cagr(fin, 'Net Income', 3),
+                    "pat_cagr_3y": compute_cagr(fin, 'Net Income', 3),  # [FIX #6] Renamed: this is PAT CAGR, not per-share EPS CAGR
                     "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
                     "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
                     
                     "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
-                    "interest_coverage_ratio": (ebit or 0.0) / safe_extract(fin, 'Interest Expense') if safe_extract(fin, 'Interest Expense') else 100.0,
+                    # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention
+                    "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit and ie and abs(ie) > 1) else 100.0)(safe_extract(fin, 'Interest Expense')),
                     "debt_yoy_growth": 0.0, # Dummy for now
                     "altman_z": altman_z,
                     "current_ratio": info.get("currentRatio"),
@@ -740,7 +849,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # Query only open alerts with breakout_type = 'MULTIBAGGER'
                 cur.execute("""
-                    SELECT id, symbol, alert_price
+                    SELECT id, symbol, alert_price, alert_date
                     FROM wealth_buy_alert 
                     WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER';
                 """)
@@ -787,50 +896,53 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     cqs = 15.0
                     is_invalid = False
                     invalidation_reason = ""
+                try:
+                    from datetime import datetime
+                    # [FIX #17] Use IST-aware datetime for grace period consistency
+                    if pos.get("alert_date"):
+                        adate = datetime.strptime(str(pos["alert_date"])[:10], "%Y-%m-%d").date()
+                        days_held = (datetime.now(IST).date() - adate).days
+                    else:
+                        days_held = 999
+                except Exception:
+                    days_held = 999
+
                 exit_triggered = False
                 exit_reason = ""
                 
-                # Rule 1: Catastrophic Stop (Drawdown > 20% from entry price)
+                # Rule 1: Catastrophic Stop (Drawdown >= 25% from entry price)
                 if entry_price <= 0:
                     logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Invalid entry_price ({entry_price}). Skipping drawdown check.")
                 else:
                     drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
-                    if drawdown_pct >= 20.0:
+                    if drawdown_pct >= 25.0:
                         exit_triggered = True
-                        exit_reason = f"Catastrophic Stop: Drawdown >20% ({drawdown_pct:.1f}% loss)"
+                        exit_reason = f"Catastrophic Stop: Drawdown >= 25% ({drawdown_pct:.1f}% loss)"
+                    
+                technical_exit_allowed = (days_held >= 15)
+                if not technical_exit_allowed and not exit_triggered:
+                    logger.info(f"🛡️ [EXIT MONITOR] {symbol}: In 15-day grace period (held {days_held} days). Technical exits skipped.")
                     
                 # Rule 2: Anti-Whipsaw 200-DMA exit
-                # Checks:
-                # - Price falls below 97% of 200-DMA today OR
-                # - Price closes below 200-DMA for two consecutive days (today & yesterday)
-                if not exit_triggered and price_data.sma_200 > 0:
-                    below_97 = (current_price < 0.97 * price_data.sma_200)
-                    consecutive_below = (current_price < price_data.sma_200 and price_data.close_yesterday < price_data.sma_200_yesterday)
-                    
-                    if below_97:
-                        exit_triggered = True
-                        exit_reason = f"Decisive breakdown: price closed below 97% of 200-DMA (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
-                    elif consecutive_below:
-                        exit_triggered = True
-                        exit_reason = f"SMA Breakdown: closed below 200-DMA for two consecutive days (Today: ₹{current_price:.1f}, Yesterday: ₹{price_data.close_yesterday:.1f})"
+                if not exit_triggered and technical_exit_allowed and price_data.sma_200 > 0:
+                    closes_below_count = getattr(price_data, "closes_below_sma200_count", 0)
+                    if closes_below_count >= 3:
+                        if current_price < 0.93 * price_data.sma_200:
+                            exit_triggered = True
+                            exit_reason = f"Sustained 200-DMA breakdown: 3+ closes below, and >7% deep (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
                         
-                # Rule 3: Fundamental Deterioration (BQS < 15.0 or fails Kill Gates)
-                # CRITICAL RULE: Never exit on missing/incomplete data.
-                # Only exit when we have REAL data confirming genuine deterioration.
-                # - Skip if no fund data at all (handled above: is_invalid=False)
-                # - Skip if data_freshness is FALLBACK (rate-limited, only basic fields)
-                # - Skip if invalidation_reason is data-related ("Incomplete Data")
+                # Rule 3: Fundamental Deterioration
                 is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
-                is_data_error_invalidation = "incomplete data" in invalidation_reason.lower() if is_invalid else False
                 
-                if not exit_triggered and fund and not is_fallback and not is_data_error_invalidation:
-                    if cqs < 15.0:
+                if not exit_triggered and fund and not is_fallback:
+                    ok, gate_reason = passes_multibagger_quality_gate(fund)
+                    if not ok:
                         exit_triggered = True
-                        exit_reason = f"Deteriorating Fundamentals: Quality score dropped below 15.0 (BQS: {cqs:.1f})"
-                    elif is_invalid:
+                        exit_reason = f"Quality kill-gate breach: {gate_reason}"
+                    elif cqs < 55.0:
                         exit_triggered = True
-                        exit_reason = f"Fundamental failure: fails Layer 1 Kill Gates ({invalidation_reason})"
-                elif is_data_error_invalidation:
+                        exit_reason = f"Deteriorating Fundamentals: Quality score decayed below hold-threshold 55 (CQS: {cqs:.1f})"
+                elif is_invalid and not fund:
                     logger.warning(f"[EXIT MONITOR] {symbol} failed gates due to INCOMPLETE DATA — NOT exiting. Will retry next scan.")
                         
                 # Handle triggered exit
@@ -859,8 +971,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
 
-def run_standalone_exit_monitor():
-    """Entry point for the 5-minute scheduler to check exits only"""
+def run_standalone_exit_monitor(is_test_mode: bool = False):
+    """Entry point for the 5-minute scheduler to check exits only.
+    [FIX #1] Added is_test_mode parameter to avoid NameError.
+    """
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -889,6 +1003,7 @@ def run_standalone_exit_monitor():
         price_data_map = {}
         for sym, stock_data in price_data_map_raw.items():
             if stock_data:
+                # [FIX #2] Include closes_below_sma200_count in ExitPriceData construction
                 price_data_map[sym] = ExitPriceData(
                     symbol=sym,
                     price=stock_data.price,
@@ -898,7 +1013,8 @@ def run_standalone_exit_monitor():
                     close_yesterday=stock_data.close_yesterday,
                     sma_200_yesterday=stock_data.sma_200_yesterday,
                     atr_14=stock_data.atr_14,
-                    ema_20=stock_data.ema_20
+                    ema_20=stock_data.ema_20,
+                    closes_below_sma200_count=stock_data.closes_below_sma200_count
                 )
                 
         # 3. Use cache for fundamentals
@@ -1046,10 +1162,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if fetch_ratio < 0.70:
             error_msg = f"Incomplete data error: Only {total_fetched}/{total_expected} ({fetch_ratio:.1%}) stocks fetched. Minimum 70% required."
             logger.error(f"❌ {error_msg}")
-            raise RuntimeError(error_msg)
+            # [FIX #9] Mark scanner health DOWN before aborting so the terminal state is always set
+            upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=error_msg)
+            return {"total_count": total_expected, "processed_count": 0, "today_alerts": 0, "error": error_msg}
     
     # Check Market Regime (Explicitly fetch Nifty)
-    market_regime = "BULL" # Defaulting for now
+    # Default to BEAR (conservative fail-direction for quality-over-quantity)
+    market_regime = "BEAR"
     try:
         nifty_df = yf.download("^NSEI", period="1y", interval="1d", progress=False)
         if not nifty_df.empty and len(nifty_df) >= 200:
@@ -1063,9 +1182,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 market_regime = "BULL"
             else:
                 market_regime = "BEAR"
+        else:
+            logger.warning("Nifty data insufficient (<200 days). Defaulting to BEAR (conservative).")
 
     except Exception as e:
-        logger.warning("Could not determine market regime, defaulting to BULL")
+        logger.warning(f"Could not determine market regime, defaulting to BEAR (conservative): {e}")
         
     logger.info(f"📊 Detected Market Regime: {market_regime}")
     
@@ -1110,7 +1231,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     # Gate engine expects a ratio (0.0-1.0), not a percentage
                     raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
                 else:
+                    # [FIX #8] Missing pledge = fail-safe to high value (consistent with except branch)
                     unverified_pledge_count += 1
+                    raw_fundamentals["promoter_pledge_pct"] = 0.99
             except Exception:
                 unverified_pledge_count += 1
                 raw_fundamentals["promoter_pledge_pct"] = 0.99  # Fail Kill Gate on missing pledge data for toxic prevention
@@ -1123,19 +1246,27 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             "atr": price_data.atr_14,
         }
         
-        # 2. Run the V5 Pipeline
+        # 2. Early Ambiguity & Quality Gates
+        if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "PRE_GATE", "reason": "Ambiguous Technicals"}) + "\n")
+            continue
+            
+        if raw_fundamentals.get("data_freshness") == "FALLBACK":
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "PRE_GATE", "reason": "Fallback Fundamentals"}) + "\n")
+            continue
+            
+        ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
+        if not ok:
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "QUALITY_GATE", "reason": reason}) + "\n")
+            continue
+
+        # 3. Run the V5 Pipeline
         pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         
-        # Log rejection if invalidated by gates
+        # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
-            rej_data = {
-                "symbol": sym,
-                "timestamp": pipeline_result.timestamp,
-                "phase": "GATE_ENGINE",
-                "reason": pipeline_result.invalidation_reason
-            }
-            with open(rejection_log_path, "a") as rf:
-                rf.write(json.dumps(rej_data) + "\n")
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": pipeline_result.timestamp, "phase": "V5_GATE", "reason": pipeline_result.invalidation_reason}) + "\n")
+            continue
                 
         # Extract scores from the V5 pipeline
         cqs = pipeline_result.quality.score
@@ -1146,41 +1277,36 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         buy_low = pipeline_result.buy_zone.buy_zone_low
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
-        # Check alerts based on technicals and V5 validity
-        is_worthy = pipeline_result.classification in ["🚀 Prime Multibagger", "💎 High Quality", "🏆 Good Business"]
-        is_fallback = raw_fundamentals.get("data_freshness") == "FALLBACK"
+        tier, composite = classify_conviction(cqs, pas, trend, total)
         
-        # Hard Veto: Fallback data is not allowed to pass
-        if is_fallback:
-            pipeline_result.is_invalidated = True
-            pipeline_result.invalidation_reason = "REJECTED: Degraded/Fallback Data"
-            
-        meets_quality_floors = (total >= 60.0) and (cqs >= 60.0) and (trend >= 10.0)
+        # [FIX #15] In BEAR regime, only allow PRIME tier to alert (raise the bar)
+        if market_regime == "BEAR" and tier == "HIGH_QUALITY":
+            tier = "WATCH_ONLY"
+            logger.info(f"🐻 [BEAR REGIME] {sym}: Downgraded from HIGH_QUALITY to WATCH_ONLY")
         
-        alert_triggered = (
-            pipeline_result.buy_zone.in_buy_zone 
-            and (not pipeline_result.is_invalidated) 
-            and is_worthy 
-            and meets_quality_floors
-        )
-        
-        if pipeline_result.is_invalidated:
-            status = "INVALIDATED"
+        if tier not in ["PRIME", "HIGH_QUALITY"]:
+            status = "WAITING_BUY_ZONE"
+            notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
+            alert_triggered = False
         else:
-            status = "ALERT_TRIGGERED" if alert_triggered else "WAITING_BUY_ZONE"
-            
-        # Label categorizations based on V5 pipeline
-        bucket = pipeline_result.classification
+            if not pipeline_result.buy_zone.in_buy_zone:
+                status = "WAITING_BUY_ZONE"
+                notes = f"Conviction: {tier} | Waiting for Pullback"
+                alert_triggered = False
+            elif not entry_confirmed(price_data):
+                status = "WAITING_BUY_ZONE"
+                notes = f"Conviction: {tier} | In Zone, Awaiting Technical Stabilization"
+                alert_triggered = False
+            else:
+                status = "ALERT_TRIGGERED"
+                notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED"
+                alert_triggered = True
+                
+        bucket = tier
         
-        if status == "INVALIDATED":
-            notes = pipeline_result.invalidation_reason
-        else:
-            tech_status = "In Buy Zone" if alert_triggered else "Waiting for Pullback"
-            notes = f"Confidence: {pipeline_result.confidence:.0f}% | {tech_status}"
-            
-            # Additional Valuation logging 
-            if pipeline_result.valuation.fair_value > 0:
-                notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
+        # Additional Valuation logging 
+        if pipeline_result.valuation.fair_value > 0:
+            notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
             
         if alert_triggered:
             skip_alert = False
@@ -1190,9 +1316,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 
             if not skip_alert:
+                tier_val = 2 if tier == "PRIME" else 1
                 alert_candidates.append({
                     "symbol": sym,
                     "price": price_data.price,
+                    "tier_val": tier_val,
                     "total_score": total,
                     "cqs": cqs,
                     "trend_score": trend,
@@ -1236,8 +1364,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
     # Process Top-N alerts
     if alert_candidates:
-        # Sort by total_score desc, cqs desc, trend_score desc
-        alert_candidates.sort(key=lambda x: (x["total_score"], x["cqs"], x["trend_score"]), reverse=True)
+        # Sort by tier, total_score desc, cqs desc
+        alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
         top_n = alert_candidates[:5]
         logger.info(f"🏆 Top 5 Candidates selected out of {len(alert_candidates)} valid alerts.")
         

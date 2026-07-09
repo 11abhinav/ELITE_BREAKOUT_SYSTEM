@@ -695,8 +695,8 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 nifty_ret = get_nifty_20d_return()
                 current_regime = get_macro_regime(nifty_ret)
             except Exception as e:
-                logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to BULL.")
-                current_regime = "BULL"
+                logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
+                current_regime = "NEUTRAL"
             
             # 1. Sweep old states
             run_sweeper(is_test_mode=is_test_mode)

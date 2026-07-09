@@ -33,9 +33,12 @@ def run_growth_engine(symbol: str, raw_data: Dict[str, Any]) -> EngineResult:
     total_confidence += c * (w_rev / 100)
     reasons.append(f"Revenue Growth: {s:.1f}/{w_rev:.1f}")
 
-    # 2. EPS CAGR
-    eps_cagr = safe_float(raw_data.get('eps_cagr_3y'))
-    if eps_cagr == 0.0: missing.append("eps_cagr_3y")
+    # 2. PAT/EPS CAGR (renamed from eps_cagr_3y to pat_cagr_3y — checks both for backwards compat)
+    _pat_cagr_raw = raw_data.get('pat_cagr_3y')
+    if _pat_cagr_raw is None:
+        _pat_cagr_raw = raw_data.get('eps_cagr_3y')  # legacy cache compat
+    eps_cagr = safe_float(_pat_cagr_raw)
+    if eps_cagr == 0.0: missing.append("pat_cagr_3y")
     s, c = evaluate_metric(symbol, "EPS CAGR", eps_cagr, (0.18, 0.12, 0.05), w_eps)
     total_score += s
     total_confidence += c * (w_eps / 100)

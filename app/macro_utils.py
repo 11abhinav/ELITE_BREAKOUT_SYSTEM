@@ -68,7 +68,14 @@ def _get_intraday_nifty() -> pd.DataFrame:
     return _cache.intraday_data
 
 def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
-    """Calculate the market regime based on Nifty 20-day returns and ADX."""
+    """Calculate the market regime based on Nifty 20-day returns and ADX.
+    
+    [FIX] Thresholds raised: previous -2%/-5% BEAR triggers were too sensitive
+    and caused scanners to go dark during normal pullbacks. New thresholds:
+      Trending (ADX>=20): BEAR < -5%, BULL > +3%
+      Rangebound (ADX<20): BEAR < -8%, BULL > +5%
+    Default on failure: NEUTRAL (not BULL or BEAR).
+    """
     try:
         df = _get_daily_nifty()
         if df is not None and not df.empty and len(df) >= 20:
@@ -92,12 +99,13 @@ def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
                 except Exception as e:
                     logger.warning(f"Could not compute ADX for macro regime: {e}")
                 
+                # [FIX] Raised thresholds to prevent minor pullbacks from triggering BEAR
                 if adx_val >= 20.0:
-                    if ret < -2.0: return "BEAR"
-                    if ret > 2.0:  return "BULL"
+                    if ret < -5.0: return "BEAR"    # was -2.0 (too trigger-happy)
+                    if ret > 3.0:  return "BULL"    # was 2.0
                     return "NEUTRAL"
                 else:
-                    if ret < -5.0: return "BEAR"
+                    if ret < -8.0: return "BEAR"    # was -5.0
                     if ret > 5.0:  return "BULL"
                     return "NEUTRAL"
     except Exception as e:
