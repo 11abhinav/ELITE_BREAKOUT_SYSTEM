@@ -820,6 +820,58 @@ def run_exit_monitor(price_data_map: dict, cache: dict):
         logger.exception(f"❌ Failed to complete exit monitoring")
         raise e
 
+def run_standalone_exit_monitor():
+    """Entry point for the 5-minute scheduler to check exits only"""
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+        
+        # 1. Fetch only ACTIVE open positions from DB
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT symbol, current_price, alert_price as entry_price 
+                    FROM wealth_buy_alert 
+                    WHERE is_closed = FALSE 
+                    AND breakout_type = 'MULTIBAGGER'
+                """)
+                open_positions = cur.fetchall()
+                
+        if not open_positions:
+            return
+            
+        # 2. Fetch latest prices for just these symbols
+        symbols = [p['symbol'] for p in open_positions]
+        if not symbols:
+            return
+            
+        price_data_map_raw = batch_download_market_data(symbols)
+        
+        price_data_map = {}
+        for sym, stock_data in price_data_map_raw.items():
+            if stock_data:
+                price_data_map[sym] = ExitPriceData(
+                    symbol=sym,
+                    price=stock_data.price,
+                    sma_50=stock_data.sma_50,
+                    sma_200=stock_data.sma_200,
+                    high_20d=stock_data.high_20d,
+                    close_yesterday=stock_data.close_yesterday,
+                    sma_200_yesterday=stock_data.sma_200_yesterday,
+                    atr_14=stock_data.atr_14,
+                    ema_20=stock_data.ema_20
+                )
+                
+        # 3. Use cache for fundamentals
+        from fundamentals_cache import load_cache
+        cache = load_cache()
+        
+        # 4. Run the core exit logic
+        run_exit_monitor(price_data_map, cache)
+        
+    except Exception as e:
+        logger.exception(f"Failed to run standalone exit monitor")
+        raise e
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
@@ -857,9 +909,6 @@ def _start_wrapper(debug_limit: int = None):
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         return {}
-        
-    # 3. Phase 1.5: Run Exit Monitor (Close eligible positions first)
-    run_exit_monitor(price_data_map, cache)
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)

@@ -728,6 +728,15 @@ def run_system_scheduler():
             logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
             run_wealth_scan()
             
+            # Run exit monitor in isolated try/except so a crash here
+            # does NOT mark Wealth Engine as DOWN (Issue #5 from audit)
+            try:
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
+                from multibagger import run_standalone_exit_monitor
+                run_standalone_exit_monitor()
+            except Exception as exit_err:
+                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed (Wealth Engine unaffected): {exit_err}")
+            
             last_wealth_market_run = now
             # Mark success
             now_str = now.isoformat()
