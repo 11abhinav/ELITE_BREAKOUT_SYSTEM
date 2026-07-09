@@ -40,3 +40,7 @@ Thumbs.db
 1cd
 .npm_cache/
 archive/
+.npm_cache/
+.agent
+.agents
+.coverage
