@@ -398,10 +398,14 @@ def _run_scan(force: bool = False):
                 continue
             drop_pct = ((high_52w - close_price) / high_52w) * 100
 
-            # [FIX 7] Single clean fixed drop band. Tightened lower bound to 20% (was 18%) to
-            #         avoid shallow, low-conviction pullbacks; capped at sweet-spot ceiling
-            #         (config-driven via MAX_DROP_FROM_52W_HIGH) to avoid deep falling knives.
-            if drop_pct < MIN_DROP_FROM_52W_HIGH or drop_pct > MAX_DROP_FROM_52W_HIGH:
+            # [FINDING-G FIX] Adjusted drop band for quality categories.
+            # Quality compounders/blue chips rarely drop 20%+ before reversing.
+            # A 15-20% drop in TCS or HDFC Bank is a significant discount.
+            # We lower the floor to 15% for quality categories to allow shallow pullbacks.
+            is_quality_cat = any(q in str(category).lower() for q in ["wealth", "blue chip", "debt-free"])
+            effective_min_drop = 15.0 if is_quality_cat else MIN_DROP_FROM_52W_HIGH
+            
+            if drop_pct < effective_min_drop or drop_pct > MAX_DROP_FROM_52W_HIGH:
                 # reject drawdowns outside configured band
                 rejected["drop_band"] += 1
                 continue

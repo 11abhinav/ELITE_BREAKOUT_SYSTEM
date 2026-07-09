@@ -129,14 +129,16 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
 
     # ── SUPPORT / RESISTANCE — TRUE Pivot Swing Points ────────────────────────
     # n = how many bars on each side a bar must be the extreme to qualify
-    pivot_n = {"1d": 5, "1h": 4, "15m": 3}.get(timeframe, 5)
+    # [FINDING-H FIX] Added 30m and 5m to avoid falling back to daily (5)
+    pivot_n = {"1d": 5, "1h": 4, "30m": 4, "15m": 3, "5m": 3}.get(timeframe, 5)
 
     # True swing levels — these are what price actually bounces off of
     df["SWING_LOW"]  = _find_swing_lows(low,  n=pivot_n)
     df["SWING_HIGH"] = _find_swing_highs(high, n=pivot_n)
 
     # Rolling fallback (simple window min/max) — used only if swing not available
-    swing_window = {"1d": 20, "1h": 14, "15m": 10}.get(timeframe, 20)
+    # [FINDING-H FIX] Added 30m and 5m to avoid falling back to daily (20)
+    swing_window = {"1d": 20, "1h": 14, "30m": 12, "15m": 10, "5m": 10}.get(timeframe, 20)
     df["SWING_LOW_RAW"]  = low.rolling(window=swing_window,  min_periods=swing_window // 2).min()
     df["SWING_HIGH_RAW"] = high.rolling(window=swing_window, min_periods=swing_window // 2).max()
 
@@ -144,7 +146,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     # For intraday timeframes: use DAILY OHLC (previous day) when available.
     # This produces meaningful S/R levels that traders actually use (CPR/pivots).
     # For daily bars: use the previous day's bar (shift(1)) as is standard.
-    if timeframe in ("1h", "15m") and daily_ohlc is not None and len(daily_ohlc) >= 2:
+    if timeframe in ("1h", "30m", "15m", "5m") and daily_ohlc is not None and len(daily_ohlc) >= 2:
         # Use the last completed daily bar as the pivot source
         last_daily = daily_ohlc.iloc[-1]
         d_high  = float(last_daily["High"])

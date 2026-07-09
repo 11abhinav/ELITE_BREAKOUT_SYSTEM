@@ -387,7 +387,10 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         vol_ratio = float(latest["Volume"]) / mean_vol
                 
                     # Consolidation formed OR Fast Breakout override
-                    is_consolidation = bb_pctile < 0.30 and (-0.015 <= dist_to_breakout <= 0.025)
+                    # [FINDING-E FIX] Widened bb_pctile from 0.30 to 0.45. A stock in the
+                    # lower 45th percentile of BB width is still consolidating. 30th pctile
+                    # was extreme squeeze only — rejected most valid coiling setups.
+                    is_consolidation = bb_pctile < 0.45 and (-0.015 <= dist_to_breakout <= 0.025)
                     is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
                 
                     if is_consolidation or is_fast_breakout:

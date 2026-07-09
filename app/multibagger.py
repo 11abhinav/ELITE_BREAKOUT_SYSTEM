@@ -470,16 +470,17 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float) 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
-    [FIX #12] Tightened from OR to AND + volume confirmation.
+    [FINDING-C FIX] Removed not_freefall (price >= yesterday). A fundamentally
+    prime stock pulling back into its buy zone on a red day is the ideal entry.
+    The V5 pipeline already validates the technical buy zone.
     """
     if price_data.price < price_data.sma_200:
         return False
         
     reclaim_ema = price_data.price > price_data.ema_20
-    not_freefall = price_data.price >= price_data.close_yesterday
     volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20 if price_data.volume_sma20 > 0 else True
     
-    return reclaim_ema and not_freefall and volume_ok
+    return reclaim_ema and volume_ok
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
@@ -1231,12 +1232,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     # Gate engine expects a ratio (0.0-1.0), not a percentage
                     raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
                 else:
-                    # [FIX #8] Missing pledge = fail-safe to high value (consistent with except branch)
+                    # [FINDING-A FIX] Default missing pledge to 0.0 (no pledge assumed).
+                    # Previously 0.99 which instantly killed the quality gate for ~50% of stocks
+                    # when the pledge scraper returned None (network error, NSE format change, etc.)
                     unverified_pledge_count += 1
-                    raw_fundamentals["promoter_pledge_pct"] = 0.99
+                    raw_fundamentals["promoter_pledge_pct"] = 0.0
+                    logger.debug(f"⚠️ {sym}: Pledge data unavailable — defaulting to 0% (not penalizing)")
             except Exception:
+                # [FINDING-A FIX] Same fix for exception branch
                 unverified_pledge_count += 1
-                raw_fundamentals["promoter_pledge_pct"] = 0.99  # Fail Kill Gate on missing pledge data for toxic prevention
+                raw_fundamentals["promoter_pledge_pct"] = 0.0
         
         technicals = {
             "price": price_data.price,
@@ -1279,10 +1284,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         tier, composite = classify_conviction(cqs, pas, trend, total)
         
-        # [FIX #15] In BEAR regime, only allow PRIME tier to alert (raise the bar)
-        if market_regime == "BEAR" and tier == "HIGH_QUALITY":
+        # [FINDING-B FIX] In BEAR regime, only downgrade HIGH_QUALITY if composite < 75.
+        # Previously ALL HIGH_QUALITY were downgraded, blocking ~80% of potential alerts.
+        # Now the strongest HIGH_QUALITY (composite >= 75) can still alert in bear markets.
+        if market_regime == "BEAR" and tier == "HIGH_QUALITY" and composite < 75:
             tier = "WATCH_ONLY"
-            logger.info(f"🐻 [BEAR REGIME] {sym}: Downgraded from HIGH_QUALITY to WATCH_ONLY")
+            logger.info(f"🐻 [BEAR REGIME] {sym}: Downgraded from HIGH_QUALITY to WATCH_ONLY (composite {composite:.1f} < 75)")
         
         if tier not in ["PRIME", "HIGH_QUALITY"]:
             status = "WAITING_BUY_ZONE"

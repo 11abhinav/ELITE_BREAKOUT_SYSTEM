@@ -583,7 +583,10 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
-        if score >= 82 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 9 and cmp > sma and sma > 0:
+        # [FINDING-D FIX] Lowered FM_Score threshold from 82 to 78 for BUY signal.
+        # Bucket assignment (determine_portfolio_bucket) already enforces its own quality
+        # thresholds, so this gate doesn't need to be at the top 18% of scores.
+        if score >= 78 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 9 and cmp > sma and sma > 0:
             if r.get("momentum_confidence", "") == "LOW":
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
             return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score}, Consistency: {r.get('Consistency_Score', 0)}"})
