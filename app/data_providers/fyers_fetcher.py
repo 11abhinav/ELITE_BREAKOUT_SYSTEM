@@ -112,7 +112,21 @@ class FyersFetcher(DataFetcher):
             
         if sym.endswith(".NS"):
             sym = sym[:-3]
-        sym = sym.replace("_", "-")
+            
+        # [VERSION: FYERS_PATCH_v1.0] Intercept ampersand symbols before blind replace
+        # This fixes Fyers API warnings for M-M-EQ by enforcing M&M regardless of DB state
+        _ampersand_map = {
+            "M_M": "M&M", "M-M": "M&M",
+            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
+            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
+            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
+            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+        }
+        if sym in _ampersand_map:
+            sym = _ampersand_map[sym]
+        else:
+            sym = sym.replace("_", "-")
         
         # Map index symbols
         if sym in ("^NSEI", "NIFTY", "NIFTY-50", "NSEI"):
@@ -190,7 +204,19 @@ class FyersFetcher(DataFetcher):
         
         orig_sym = symbol.strip().upper()
         if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
-        orig_sym = orig_sym.replace("_", "-")
+        
+        _ampersand_map = {
+            "M_M": "M&M", "M-M": "M&M",
+            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
+            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
+            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
+            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+        }
+        if orig_sym in _ampersand_map:
+            orig_sym = _ampersand_map[orig_sym]
+        else:
+            orig_sym = orig_sym.replace("_", "-")
         try:
             from data_providers.fyers_mapping_utils import is_fyers_invalid
             if is_fyers_invalid(orig_sym):
@@ -463,7 +489,19 @@ class FyersFetcher(DataFetcher):
         
         orig_sym = symbol.strip().upper()
         if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
-        orig_sym = orig_sym.replace("_", "-")
+        
+        _ampersand_map = {
+            "M_M": "M&M", "M-M": "M&M",
+            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
+            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
+            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
+            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+        }
+        if orig_sym in _ampersand_map:
+            orig_sym = _ampersand_map[orig_sym]
+        else:
+            orig_sym = orig_sym.replace("_", "-")
         try:
             from data_providers.fyers_mapping_utils import is_fyers_invalid
             if is_fyers_invalid(orig_sym):
