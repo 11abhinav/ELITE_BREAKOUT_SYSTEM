@@ -218,35 +218,40 @@ def batch_download_market_data(symbols: list) -> dict:
     for i in range(0, len(ticker_names), chunk_size):
         chunk = ticker_names[i:i + chunk_size]
         logger.info(f"📥 Fetching chunk {i//chunk_size + 1} ({len(chunk)} tickers)...")
+        batch_res = {}
         try:
             df = yf.download(chunk, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False, threads=False)
-            if df.empty:
-                continue
-                
-            fallback_attempts = 0
-            for sym in [t.replace('.NS', '') for t in chunk]:
-                ticker_name = f"{sym}.NS"
-                try:
-                    if len(chunk) == 1:
-                        ticker_df = df
-                    else:
-                        if isinstance(df.columns, pd.MultiIndex):
-                            if ticker_name not in df.columns.levels[0]:
-                                continue
-                            ticker_df = df[ticker_name]
-                        else:
-                            if fallback_attempts >= 10:
-                                logger.warning(f"Maximum fallback attempts (10) reached for chunk. Skipping remaining.")
-                                break
-                            logger.warning(f"Batch downgraded to single-index. Falling back to individual fetch for {sym}...")
-                            fallback_attempts += 1
-                            try:
-                                fallback_df = yf.download(ticker_name, period="1y", interval="1d", auto_adjust=False, progress=False, threads=False)
-                                if fallback_df.empty: continue
-                                ticker_df = fallback_df
-                            except Exception as e:
-                                logger.debug(f"Fallback fetch failed for {sym}: {e}")
-                                continue
+            if not df.empty:
+                if len(chunk) == 1:
+                    batch_res[chunk[0].replace('.NS', '')] = df
+                elif isinstance(df.columns, pd.MultiIndex):
+                    for sym in [t.replace('.NS', '') for t in chunk]:
+                        ticker_name = f"{sym}.NS"
+                        if ticker_name in df.columns.levels[0]:
+                            batch_res[sym] = df[ticker_name]
+                else:
+                    logger.warning(f"Batch downgraded. Re-chunking {len(chunk)} tickers into groups of 10...")
+                    sub_chunks = [chunk[j:j+10] for j in range(0, len(chunk), 10)]
+                    for sub in sub_chunks:
+                        try:
+                            sub_df = yf.download(sub, period="1y", interval="1d", auto_adjust=False, group_by="ticker", progress=False, threads=False)
+                            if sub_df.empty: continue
+                            if len(sub) == 1:
+                                batch_res[sub[0].replace('.NS', '')] = sub_df
+                            elif isinstance(sub_df.columns, pd.MultiIndex):
+                                for sym in [t.replace('.NS', '') for t in sub]:
+                                    ticker_name = f"{sym}.NS"
+                                    if ticker_name in sub_df.columns.levels[0]:
+                                        batch_res[sym] = sub_df[ticker_name]
+                            else:
+                                logger.debug(f"Sub-chunk of {len(sub)} downgraded. Skipping to preserve rate limits.")
+                        except Exception as e:
+                            logger.debug(f"Sub-chunk fetch failed: {e}")
+        except Exception as e:
+            logger.debug(f"Chunk fetch failed: {e}")
+
+        for sym, ticker_df in batch_res.items():
+            try:
                     
                     ticker_df = ticker_df.dropna(subset=["Close"])
                     
@@ -376,8 +381,8 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         now_dt = datetime.now(IST)
         # Ensure it has timezone info
         if fetched_at.tzinfo is None:
-            logger.debug(f"[TIMEZONE] Upgrading legacy naive cache timestamp to IST for {symbol}")
-            fetched_at = fetched_at.replace(tzinfo=IST)
+            logger.warning(f"[TIMEZONE] Rejecting legacy naive cache timestamp for {symbol} to strictly enforce aware IST contract.")
+            return None
             
         age_days = (now_dt - fetched_at).days
         if age_days < 7:
@@ -1142,13 +1147,18 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         # Check alerts based on technicals and V5 validity
         is_worthy = pipeline_result.classification in ["🚀 Prime Multibagger", "💎 High Quality", "🏆 Good Business"]
         is_fallback = raw_fundamentals.get("data_freshness") == "FALLBACK"
+        
+        # Hard Veto: Fallback data is not allowed to pass
+        if is_fallback:
+            pipeline_result.is_invalidated = True
+            pipeline_result.invalidation_reason = "REJECTED: Degraded/Fallback Data"
+            
         meets_quality_floors = (total >= 60.0) and (cqs >= 60.0) and (trend >= 10.0)
         
         alert_triggered = (
             pipeline_result.buy_zone.in_buy_zone 
             and (not pipeline_result.is_invalidated) 
             and is_worthy 
-            and (not is_fallback)
             and meets_quality_floors
         )
         
