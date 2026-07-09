@@ -264,14 +264,15 @@ def batch_download_market_data(symbols: list) -> dict:
                     else:
                         real_time_change = 0.0
 
+                    # Explicitly normalize the entire dataframe index at the fetch boundary
+                    if ticker_df.index.tzinfo is None:
+                        logger.debug(f"[TIMEZONE] Normalizing naive yfinance index for {sym} to IST")
+                        ticker_df.index = ticker_df.index.tz_localize(IST)
+                    else:
+                        ticker_df.index = ticker_df.index.tz_convert(IST)
+
                     if strip_forming and len(ticker_df) > 0:
                         last_ts = ticker_df.index[-1]
-                        if last_ts.tzinfo is None:
-                            logger.debug(f"[TIMEZONE] Localizing naive yfinance timestamp for {sym} as IST based on exchange timezone.")
-                            last_ts = last_ts.tz_localize(IST)
-                        else:
-                            last_ts = last_ts.tz_convert(IST)
-                            
                         if last_ts.date() == ist_now.date():
                             ticker_df = ticker_df.iloc[:-1]
                             
