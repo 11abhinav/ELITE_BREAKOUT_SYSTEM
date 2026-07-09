@@ -264,10 +264,10 @@ def batch_download_market_data(symbols: list) -> dict:
                     else:
                         real_time_change = 0.0
 
-                    # Strip forming candle during market hours to avoid false exits on SMA
                     if strip_forming and len(ticker_df) > 0:
                         last_ts = ticker_df.index[-1]
                         if last_ts.tzinfo is None:
+                            logger.debug(f"[TIMEZONE] Localizing naive yfinance timestamp for {sym} as IST based on exchange timezone.")
                             last_ts = last_ts.tz_localize(IST)
                         else:
                             last_ts = last_ts.tz_convert(IST)
