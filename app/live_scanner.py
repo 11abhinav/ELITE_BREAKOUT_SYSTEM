@@ -280,7 +280,10 @@ def _start_wrapper(run_once=False):
                     s50 = float(latest.get("SMA50", 0) or 0)
                     s200 = float(latest.get("SMA200", 0) or 0)
                     
-                    trend_ok = candle_close > e20 and candle_close > s50 and s50 > s200
+                    # [FINDING-5 FIX] Relaxed golden cross (s50 > s200) from hard filter
+                    # to scoring bonus. Many strong breakouts occur as the cross is forming.
+                    # Now requires: price > EMA20, price > SMA50, price > SMA200 (trend health)
+                    trend_ok = candle_close > e20 and candle_close > s50 and candle_close > s200
                     if not trend_ok:
                         rejection_counts["trend_fail"] += 1
                         continue

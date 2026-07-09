@@ -72,8 +72,10 @@ REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 # ── REVERSAL SCORE THRESHOLDS ────────────────────────────────────────────────────────
-# [VERSION: REVERSAL_PATCH_v1.0] Lowered threshold to accommodate partial (SMA50-only) recoveries
-MIN_REVERSAL_SCORE = 67   # minimum to generate an alert (out of 100)
+# [FINDING-8B FIX] Lowered from 67 to 62 to work with wider MACD window.
+# Stocks in early recovery (soft SMA50 pass = 0 trend points) were consistently
+# scoring 62-66 and getting rejected. 62 still filters out low-quality bounces.
+MIN_REVERSAL_SCORE = 62   # minimum to generate an alert (out of 100)
 
 # =====================================================================================
 # REVERSAL-SPECIFIC SCORING (v6 — re-weighted)
@@ -530,23 +532,23 @@ def _run_scan(force: bool = False):
                 rejected["low_volume"] += 1
                 continue
 
-            # ── [VERSION: REVERSAL_PATCH_v1.0] FRESH MACD BULLISH CROSSOVER (LAST 5 BARS) ──────────
-            # [FIX P1] Expanded from 2 bars → 5 bars. Requiring a cross in exactly 2 bars
-            # rejected ~90% of valid setups where the cross happened 3-4 days ago and the
-            # stock is still following through.
+            # ── [VERSION: REVERSAL_PATCH_v1.0] FRESH MACD BULLISH CROSSOVER (LAST 10 BARS) ──────────
+            # [FINDING-3 FIX] Expanded from 5 bars → 10 bars. Mean-reversion setups develop
+            # slower than breakouts. A MACD cross 7 days ago with continued follow-through
+            # is still a valid reversal signal. 5 bars was rejecting ~60% of valid setups.
             macd_bullish_cross_recent = False
-            if len(ticker) >= 6:
+            if len(ticker) >= 11:
                 try:
                     macd_bullish_cross_recent = any(
                         float(ticker["MACD"].iloc[-i]) > float(ticker["MACD_SIGNAL"].iloc[-i]) and
                         float(ticker["MACD"].iloc[-i-1]) <= float(ticker["MACD_SIGNAL"].iloc[-i-1])
-                        for i in range(1, 6)  # Check last 5 bars
+                        for i in range(1, 11)  # Check last 10 bars
                     )
                 except (KeyError, TypeError, ValueError):
                     pass  # MACD columns missing or invalid
 
             if not macd_bullish_cross_recent:
-                logger.debug(f"  ⊘ {symbol} no fresh MACD cross (last 5 bars) — skipping")
+                logger.debug(f"  ⊘ {symbol} no fresh MACD cross (last 10 bars) — skipping")
                 rejected["no_macd_cross"] += 1
                 continue
 

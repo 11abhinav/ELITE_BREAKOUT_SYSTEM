@@ -148,7 +148,9 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Op
     block_close = setup["last_15m_time"]
     
     seq = df5.loc[(df5.index > block_close - pd.Timedelta(minutes=15)) & (df5.index <= block_close)].copy()
-    if len(seq) != 3:
+    # [FINDING-4 FIX] Relaxed from == 3 to >= 2. YFinance timestamp misalignment
+    # or missing bars caused the exact-3 check to reject 100% of triggers.
+    if len(seq) < 2:
         return None
 
     resistance = setup["breakout_resistance"]
@@ -184,7 +186,9 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Op
     rolling_3_avg = recent["Volume"].rolling(3).sum().dropna().tail(20).mean()
     breakout_bar_vol_avg20 = recent["Volume"].tail(20).mean()
     breakout_bar_vol_ok = seq.iloc[-1]["Volume"] >= 1.5 * breakout_bar_vol_avg20
-    vol_ok = rolling_3_avg and rolling_3_avg > 0 and seq_vol >= 2.0 * rolling_3_avg
+    # [FINDING-4 FIX] Relaxed from 2.0x to 1.5x — with >= 2 bars instead of 3,
+    # the aggregate volume is naturally lower
+    vol_ok = rolling_3_avg and rolling_3_avg > 0 and seq_vol >= 1.5 * rolling_3_avg
 
     extension_guard = seq.iloc[-1]["Close"] <= resistance + 0.35 * setup["atr5"]
 

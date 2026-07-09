@@ -511,11 +511,16 @@ def _start_wrapper(force: bool = False):
                             rejection_counts["prior_red_candles"] += 1
                             continue
 
-                # ── v6: OBV STRUCTURE FILTER ────────────────────────────────────
+                # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
+                # [FINDING-8 FIX] OBV_SLOPE is a 3-bar diff which is noisy on breakout
+                # days. Converted from hard reject to a -5 score penalty applied after
+                # scoring. The scoring engine already penalizes via BASE_WIDTH and
+                # unsustained volume checks.
+                obv_penalty = 0
                 if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
                     if float(latest["OBV_SLOPE"]) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
-                        rejection_counts["obv_divergence"] += 1
-                        continue
+                        obv_penalty = -5
+                        logger.debug(f"⚠️ {symbol} OBV divergence detected (slope <= 0), applying -5 penalty")
 
                 atr_val_eod = (
                     float(latest["ATR"])
@@ -541,6 +546,8 @@ def _start_wrapper(force: bool = False):
                 )
 
                 if score > 0:
+                    # [FINDING-8] Apply OBV divergence penalty (soft, not hard reject)
+                    score = max(0, score + obv_penalty)
                     try:
                         safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
                         sector_bonus = rotation_result.score_bonus_for(safe_sector)

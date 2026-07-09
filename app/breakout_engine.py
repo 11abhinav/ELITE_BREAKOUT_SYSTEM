@@ -124,6 +124,11 @@ def _is_volume_confirmed(df: pd.DataFrame, min_ratio: float = None) -> bool:
     """
     Check if the latest candle has volume >= min_ratio × 20-bar average.
     This is the primary gate against noise breakouts.
+    
+    [FINDING-1 FIX] Previously used Z-score comparison (vol_z >= 1.5), which
+    statistically only passes ~7% of bars — far stricter than the config name
+    MIN_BREAKOUT_VOLUME_RATIO = 1.5 implies. Now uses straightforward multiple:
+    vol_now >= min_ratio * vol_avg (i.e., 1.5x the 20-bar average volume).
     """
     if min_ratio is None:
         min_ratio = MIN_BREAKOUT_VOLUME_RATIO
@@ -131,24 +136,17 @@ def _is_volume_confirmed(df: pd.DataFrame, min_ratio: float = None) -> bool:
     n = len(df)
     lookback = min(50, n - 1)
     if lookback < 20:
-        return True  # Insufficient history for reliable Z-score
+        return True  # Insufficient history — pass through
 
     vol_now = float(df["Volume"].iloc[-1])
     vol_series = df["Volume"].iloc[-(lookback+1):-1]
     vol_avg = float(vol_series.mean())
-    vol_std = float(vol_series.std())
 
-    if vol_avg <= 0 or pd.isna(vol_std) or vol_std == 0:
-        return True  # avoid division by zero / std errors
+    if vol_avg <= 0:
+        return True  # avoid division by zero
 
-    # Calculate Z-score
-    vol_z_score = (vol_now - vol_avg) / vol_std
-
-    # Treat min_ratio as the required Z-score since config may still export MIN_BREAKOUT_VOLUME_RATIO
-    # Assuming min_ratio ~ 2.5 for Z-score equivalent
-    required_z = min_ratio if min_ratio is not None else 2.5
-
-    return vol_z_score >= required_z
+    # [FINDING-1 FIX] Simple multiple check matching config intent
+    return vol_now >= min_ratio * vol_avg
 
 
 def _has_tight_base(df: pd.DataFrame, threshold: float = None) -> bool:

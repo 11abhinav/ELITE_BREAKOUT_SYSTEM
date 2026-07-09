@@ -169,8 +169,11 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             # AND price must be within 0.5% to 3.0% of the breakout level
             ema_ok = e9 > e20 and e20 > s50 and close > s200
             adx_ok = adx_val > 20
-            # [VERSION: MULTI_TF_PATCH_v1.1] Tightened distance gate to match intended funnel criteria
-            dist_ok = 0.005 <= dist_to_breakout <= 0.03
+            # [FINDING-6 FIX] Widened distance gate from 0.5-3% to 0-5%.
+            # Old gate rejected stocks AT the breakout level (dist < 0.5%) and stocks
+            # approaching from > 3% — only a 2.5pp window. Now allows stocks at/near
+            # the level AND gives a wider approach window for consolidating names.
+            dist_ok = 0.0 <= dist_to_breakout <= 0.05
         
             if ema_ok:
                 funnel["ema_only_pass"] += 1

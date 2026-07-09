@@ -558,7 +558,10 @@ def bonus_modifiers(
             if float(ticker["Volume"].iloc[i]) > avg_vol_20 * 0.80
         )
         if recent_above < 2:
-            penalty = -4 if timeframe != "1d" else -8
+            # [FINDING-7 FIX] Reduced EOD penalty from -8 to -4. Breakout candles are
+            # inherently preceded by low-volume consolidation bars — the -8 penalty was
+            # punishing the exact pattern we're looking for (quiet buildup → volume spike).
+            penalty = -4
             logger.warning(
                 f"  {penalty} {tag}Unsustained volume "
                 f"(only {recent_above}/3 recent bars above 80% of avg)"
