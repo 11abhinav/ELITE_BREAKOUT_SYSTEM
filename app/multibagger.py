@@ -1436,7 +1436,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
-    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
+    alerts_count = sum(1 for r in results if r.get("Status") == "ALERT_TRIGGERED")
     try:
         from database import insert_notification
         insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks.")
