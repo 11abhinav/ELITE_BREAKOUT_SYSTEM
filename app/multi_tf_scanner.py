@@ -49,7 +49,11 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 
 from macro_utils import get_macro_regime, get_nifty_20d_return
 
-def run_hourly_phase(is_test_mode=False):
+def run_hourly_phase(is_test_mode=False, run_once=False):
+    from market_utils import is_market_open
+    if not (run_once and is_test_mode) and not is_market_open():
+        logger.info("Market is closed. Skipping Phase A.")
+        return {"total": 0, "approved": 0}
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
     Goal: Identify trend permission (Price > 200 EMA, 9 > 20 > 50 EMA, ADX > 20).
@@ -209,7 +213,11 @@ def run_hourly_phase(is_test_mode=False):
             
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
 
-def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
+def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False):
+    from market_utils import is_market_open
+    if not (run_once and is_test_mode) and not is_market_open():
+        logger.info("Market is closed. Skipping lower TF phase.")
+        return {}
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
@@ -251,17 +259,15 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
             return False
         return True
 
-    ok_30m = _check_fetch(data_30m, needs_30m, "30m")
-    ok_15m = _check_fetch(data_15m, needs_15m, "15m")
-    ok_5m = _check_fetch(data_5m, needs_5m, "5m")
+    _check_fetch(data_30m, needs_30m, "30m")
+    _check_fetch(data_15m, needs_15m, "15m")
+    _check_fetch(data_5m, needs_5m, "5m")
 
     stale_count = 0
 
     ist_now = datetime.now(IST)
     end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
-    if ist_now > end_of_session:
-        from datetime import timedelta
-        end_of_session = ist_now + timedelta(minutes=15)
+
     
     # Funnel stats for Phase B/C/D
     lower_funnel = {"armed_candidates": 0, "bb_pass": 0, "armed": 0,
@@ -341,7 +347,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                             logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")
 
             # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
-            if state == "HOURLY_APPROVED" and ok_30m:
+            if state == "HOURLY_APPROVED" and data_30m.get(symbol) is not None:
                 lower_funnel["armed_candidates"] += 1
                 df = data_30m.get(symbol)
                 if df is None:
@@ -408,7 +414,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
             # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
-            if state == "SETUP_ARMED" and ok_15m:
+            if state == "SETUP_ARMED" and data_15m.get(symbol) is not None:
                 lower_funnel["entry_candidates"] += 1
                 df = data_15m.get(symbol)
                 if df is None:
@@ -469,7 +475,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                                     f"dist={dist_to_breakout*100:.2f}%)")
 
             # ── Phase D (5m): ENTRY_READY → TRADE_ACTIVE (Final Trigger) ─────
-            if state == "ENTRY_READY" and ok_5m:
+            if state == "ENTRY_READY" and data_5m.get(symbol) is not None:
                 lower_funnel["trigger_candidates"] += 1
                 df = data_5m.get(symbol)
                 if df is None:
@@ -691,10 +697,10 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             run_sweeper(is_test_mode=is_test_mode)
             
             # 2. Hourly phase (could be scheduled to only run top/bottom of hour, but we run it to keep it simple or wrapper handles scheduling)
-            metrics_a = run_hourly_phase(is_test_mode=is_test_mode)
+            metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
             
             # 3. Lower TF updater
-            metrics_b = run_lower_tf_phase(current_regime=current_regime, is_test_mode=is_test_mode)
+            metrics_b = run_lower_tf_phase(current_regime=current_regime, is_test_mode=is_test_mode, run_once=run_once)
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
             logger.info("=========================================")
