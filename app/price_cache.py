@@ -241,6 +241,15 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
                     if new_df is not None and not new_df.empty:
+                        # [VERSION: TIMEZONE_FIX_v1.0] True timezone normalization at ingestion boundary
+                        time_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
+                        if time_col:
+                            new_df[time_col] = pd.to_datetime(new_df[time_col])
+                            if new_df[time_col].dt.tz is None:
+                                new_df[time_col] = new_df[time_col].dt.tz_localize('Asia/Kolkata')
+                            else:
+                                new_df[time_col] = new_df[time_col].dt.tz_convert('Asia/Kolkata')
+                                
                         fresh_count += 1
                         if cached_df is not None and not cached_df.empty:
                             # Merge them

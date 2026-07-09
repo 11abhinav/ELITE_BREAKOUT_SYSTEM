@@ -279,7 +279,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                 continue
 
             # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──
-            if state in ("SETUP_ARMED", "ENTRY_READY") and ok_30m:
+            if state in ("SETUP_ARMED", "ENTRY_READY") and df_30 is not None:
                 state_change_str = None
             
                 # Try to get it from context_json first
@@ -547,9 +547,8 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                         if getattr(df, 'attrs', {}).get('is_stale'):
                             logger.info(f"Skipping buy alert for {symbol} because data is stale")
                             continue
-                        # Idempotency check before alert using stricter symbol-trigger key
-                        dedup_key = f"{cat}|MULTI_TF|{symbol}|{trigger_type}|{ist_now.strftime('%Y-%m-%d')}"
-                        if not check_recent_alert(symbol, "INTRADAY", dedup_key, lookback_minutes=390):
+                        # Idempotency check before alert
+                        if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="INTRADAY", lookback_minutes=390):
                             # Direct structural stop using max for tighter stop
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))
                             structure_sl = min(low, float(prev["Low"])) - (0.2 * atr20)
