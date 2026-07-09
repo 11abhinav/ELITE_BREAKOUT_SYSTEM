@@ -355,13 +355,10 @@ def batch_download_market_data(symbols: list) -> dict:
                         atr_14=atr_14,
                         ema_20=ema_20
                     )
-                except Exception as e:
-                    logger.debug(f"Error parsing downloaded data for {sym}: {e}")
-                    
-        except Exception as e:
-            logger.error(f"❌ Batch chunk price download failed: {e}")
+            except Exception as e:
+                logger.debug(f"Error parsing market data for {sym}: {e}")
             
-    logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
+    logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(ticker_names)} tickers.")
     return results
 
 def is_financial_sector(sector: str) -> bool:
