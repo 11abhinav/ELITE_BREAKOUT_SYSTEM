@@ -15,8 +15,11 @@ def test_normalize_symbol():
     assert fetcher._normalize_symbol("FIVESTAR") == "FIVESTAR.NS"
     # Should not append .NS if already present
     assert fetcher._normalize_symbol("FIVESTAR.NS") == "FIVESTAR.NS"
-    # Should convert underscores to hyphens and append .NS
-    assert fetcher._normalize_symbol("M_M") == "M-M.NS"
+    # Should convert special ampersand names correctly
+    assert fetcher._normalize_symbol("M_M") == "M&M.NS"
+    
+    # Should convert general underscores to hyphens and append .NS
+    assert fetcher._normalize_symbol("NAM_INDIA") == "NAM-INDIA.NS"
     # Should ignore indices
     assert fetcher._normalize_symbol("^NSEI") == "^NSEI"
 

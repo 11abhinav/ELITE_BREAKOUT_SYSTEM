@@ -34,12 +34,34 @@ class DataFetcher(ABC):
 
 class YFinanceFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
-        # yfinance requires .NS suffix; KiteConnect uses raw NSE symbol
-        # also handle underscore to hyphen conversion commonly needed for yfinance
-        sym = symbol.replace("_", "-")
-        if sym.startswith("^"):
-            return sym
-        return f"{sym}.NS" if not sym.endswith(".NS") else sym
+        # Strip trailing .NS if already present for cleaner mapping
+        base_sym = symbol[:-3] if symbol.endswith(".NS") else symbol
+        
+        # [VERSION: DATA_PROV_SYMBOL_FIX_v1.0] Fix ampersand symbols.
+        # Since daily_builder might have cached the broken M-M format, we must map 
+        # both the original underscore and the stale hyphenated format to the correct ampersand.
+        from daily_builder import SYMBOL_CORRECTIONS
+        STALE_MAP = {
+            "M-M": "M&M",
+            "M-MFIN": "M&MFIN",
+            "J-KBANK": "J&KBANK",
+            "GVT-D": "GVT&D",
+            "L-TFH": "L&TFH",
+            "T-IPOWER": "T&IPOWER",
+        }
+        
+        if base_sym in SYMBOL_CORRECTIONS:
+            base_sym = SYMBOL_CORRECTIONS[base_sym]
+        elif base_sym in STALE_MAP:
+            base_sym = STALE_MAP[base_sym]
+        else:
+            # yfinance requires .NS suffix; KiteConnect uses raw NSE symbol
+            # also handle underscore to hyphen conversion commonly needed for yfinance
+            base_sym = base_sym.replace("_", "-")
+            
+        if base_sym.startswith("^"):
+            return base_sym
+        return f"{base_sym}.NS"
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)
