@@ -251,7 +251,10 @@ def batch_download_market_data(symbols: list) -> dict:
                     if strip_forming and len(ticker_df) > 0:
                         last_ts = ticker_df.index[-1]
                         if last_ts.tzinfo is None:
-                            last_ts = last_ts.tz_localize('UTC').tz_convert(IST)
+                            last_ts = last_ts.tz_localize(IST)
+                        else:
+                            last_ts = last_ts.tz_convert(IST)
+                            
                         if last_ts.date() == ist_now.date():
                             ticker_df = ticker_df.iloc[:-1]
                             
@@ -359,7 +362,7 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         fetched_at = datetime.fromisoformat(fetched_at_str)
         now_dt = datetime.now(IST)
         if fetched_at.tzinfo is None:
-            now_dt = now_dt.replace(tzinfo=None)
+            fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
         if age_days < 7:
@@ -1176,7 +1179,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                         portfolio_bucket="MULTIBAGGER",
                         valuation_score=pas,
                         momentum_score=int(trend),
-                        momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM"
+                        momentum_confidence="HIGH" if cqs >= 75.0 else "MEDIUM",
+                        data_quality="LIVE",
+                        fallback_timestamp=None
                     )
                 else:
                     logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {sym}")
