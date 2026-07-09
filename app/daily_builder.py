@@ -764,27 +764,41 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
 # SYMBOL NORMALIZATION (Fix TradingView symbols for Yahoo Finance)
 # =====================================================================================
 
+# [VERSION: SYMBOL_FIX_v1.0] Explicit mapping for symbols where TradingView uses underscore
+# but Yahoo Finance requires a specific format (ampersand or hyphen).
+# NSE symbols containing '&' (M&M, M&MFIN, J&KBANK, GVT&D) are stored as underscores
+# in TradingView but must keep '&' for Yahoo Finance — hyphens do NOT work.
 SYMBOL_CORRECTIONS = {
-    "BAJAJ_AUTO": "BAJAJ-AUTO",      # Bajaj Auto Ltd - use hyphen for Yahoo Finance
-    "NAM_INDIA": "NAM-INDIA",      # Nippon Life India AMC - use hyphen for Yahoo Finance
+    "BAJAJ_AUTO": "BAJAJ-AUTO",      # Bajaj Auto Ltd - Yahoo uses hyphen
+    "NAM_INDIA": "NAM-INDIA",        # Nippon Life India AMC - Yahoo uses hyphen
+    "M_M": "M&M",                    # Mahindra & Mahindra - Yahoo uses ampersand
+    "M_MFIN": "M&MFIN",              # Mahindra & Mahindra Financial - Yahoo uses ampersand
+    "J_KBANK": "J&KBANK",            # Jammu & Kashmir Bank - Yahoo uses ampersand
+    "GVT_D": "GVT&D",                # GE Vernova T&D India - Yahoo uses ampersand
+    "L_TFH": "L&TFH",                # L&T Finance Holdings - Yahoo uses ampersand
+    "T_IPOWER": "T&IPOWER",          # T&I Power - Yahoo uses ampersand (if exists)
 }
 
 def normalize_symbol(symbol: str) -> str:
-    """Convert TradingView symbol names to Yahoo Finance compatible format."""
+    """Convert TradingView symbol names to Yahoo Finance compatible format.
+    
+    [VERSION: SYMBOL_FIX_v1.0] Critical fix: NSE ampersand symbols (M&M, J&KBANK etc.)
+    must NOT be converted to hyphens. Yahoo Finance requires the '&' character.
+    All such symbols are listed in SYMBOL_CORRECTIONS for explicit mapping.
+    """
     # Strip any trailing .NS or .BO if they accidentally came through
     if symbol.endswith(".NS") or symbol.endswith(".BO"):
         symbol = symbol[:-3]
         
-    # Replace & with -
-    symbol = symbol.replace("&", "-").replace(" ", "-")
+    # Replace spaces with hyphens (safe for all symbols)
+    symbol = symbol.replace(" ", "-")
 
-    # First check explicit corrections
+    # First check explicit corrections (handles ampersand and special cases)
     if symbol in SYMBOL_CORRECTIONS:
         return SYMBOL_CORRECTIONS[symbol]
     
-    # General transformations: replace underscores with hyphens
-    # since Yahoo Finance mostly uses hyphens for dual-share classes or names like M-AND-M.
-    # Note: the yf cache or downloader normally appends '.NS' later.
+    # General fallback: replace underscores with hyphens for remaining symbols
+    # (e.g. BAJAJ_AUTO -> BAJAJ-AUTO style, if not already in SYMBOL_CORRECTIONS)
     if "_" in symbol:
         logger.debug(f"normalize_symbol: automatically replacing '_' with '-' for {symbol}")
     return symbol.replace("_", "-")

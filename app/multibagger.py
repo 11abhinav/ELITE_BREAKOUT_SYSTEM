@@ -183,10 +183,17 @@ def fetch_constituents() -> list:
         except Exception as e:
             logger.warning(f"⚠️ Error fetching {name}: {e}")
             
-    # Normalize symbols for yfinance querying, filtering out NSE dummy/placeholder entries
+    # [VERSION: SYMBOL_FIX_v1.0] Normalize symbols for yfinance querying.
+    # NSE constituents use '&' in symbol names (M&M, J&KBANK, GVT&D, M&MFIN).
+    # These must NOT be replaced with hyphens — Yahoo Finance requires '&'.
+    # Reuse daily_builder's SYMBOL_CORRECTIONS for consistent mapping.
+    from daily_builder import SYMBOL_CORRECTIONS
     normalized = []
     for s in symbols:
-        clean = s.replace("_", "-")
+        if s in SYMBOL_CORRECTIONS:
+            clean = SYMBOL_CORRECTIONS[s]
+        else:
+            clean = s  # NSE CSV symbols are already correct (use & not _)
         if "DUMMY" in clean.upper():
             logger.info(f"🗑️ Skipping NSE placeholder symbol: {clean}")
             continue

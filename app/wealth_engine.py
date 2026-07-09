@@ -710,8 +710,12 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
 def run_wealth_scan():
+    # [VERSION: SYMBOL_FIX_v1.0] Graceful skip instead of RuntimeError when prior scan
+    # is still running. The 5-min scheduler can overlap if a scan takes >5 min;
+    # crashing pollutes the error log unnecessarily.
     if not _scan_lock.acquire(blocking=False):
-        raise RuntimeError("Scanner is already actively running!")
+        logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
+        return None
     try:
         return _run_wealth_scan_wrapper()
     finally:
