@@ -457,7 +457,10 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
                 
                 # Map to V5 Engine Expected Keys
-                price = info.get("currentPrice") or fast_info.get("lastPrice")
+                price = info.get("currentPrice")
+                if not price:
+                    price = fast_info.get("lastPrice")
+                    logger.debug(f"[DATA] {symbol}: Primary currentPrice missing, falling back to fast_info.lastPrice")
                 shares = info.get("sharesOutstanding")
                 if not shares and market_cap and price is not None and price > 0:
                     shares = market_cap / price
@@ -847,7 +850,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
-        raise e
 
 def run_standalone_exit_monitor():
     """Entry point for the 5-minute scheduler to check exits only"""
@@ -1139,7 +1141,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         # Check alerts based on technicals and V5 validity
         is_worthy = pipeline_result.classification in ["🚀 Prime Multibagger", "💎 High Quality", "🏆 Good Business"]
         is_fallback = raw_fundamentals.get("data_freshness") == "FALLBACK"
-        alert_triggered = pipeline_result.buy_zone.in_buy_zone and (not pipeline_result.is_invalidated) and is_worthy and (not is_fallback)
+        meets_quality_floors = (total >= 60.0) and (cqs >= 60.0) and (trend >= 10.0)
+        
+        alert_triggered = (
+            pipeline_result.buy_zone.in_buy_zone 
+            and (not pipeline_result.is_invalidated) 
+            and is_worthy 
+            and (not is_fallback)
+            and meets_quality_floors
+        )
         
         if pipeline_result.is_invalidated:
             status = "INVALIDATED"
