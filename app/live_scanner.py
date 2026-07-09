@@ -355,7 +355,7 @@ def _start_wrapper(run_once=False):
                     }
 
                     if is_active_window:
-                        saved, cap_alloc, shares = save_alert_if_new(
+                        saved, reason, cap_alloc, shares = save_alert_if_new(
                             symbol,
                             dedup_key,
                             datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S+05:30"),
@@ -375,7 +375,7 @@ def _start_wrapper(run_once=False):
                         )
                     else:
                         logger.info(f"🧪 [TEST MODE] Alert generated for {symbol} - {signal_str}")
-                        saved, cap_alloc, shares = True, 0.0, 0
+                        saved, reason, cap_alloc, shares = True, "", 0.0, 0
                     if not saved:
                         rejection_counts["duplicate"] += 1
                         continue

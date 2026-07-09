@@ -1112,7 +1112,7 @@ def save_alert_if_new(
     bayesian_weights: dict = None,
     cash_in_hand: float = None,
     **kwargs
-) -> tuple[bool, float, int]:
+) -> tuple[bool, str, float, int]:
     """
     Insert a new alert.  Returns (inserted, capital_allocated, shares_bought).
     
@@ -1162,7 +1162,7 @@ def save_alert_if_new(
 
         if _is_stale_buy():
             logger.warning(f"🛡️ save_alert_if_new: Suppressing persistence for {symbol} due to stale/fallback data in context")
-            return False, 0.0, 0
+            return False, "Stale/fallback data or DB constraint", 0.0, 0
     except Exception:
         # If the check fails for any reason, prefer to continue and allow the insert (fail-open)
         logger.exception("⚠️ save_alert_if_new: stale-data guard check failed unexpectedly — allowing insert")
@@ -1181,7 +1181,7 @@ def save_alert_if_new(
     # Dry-run mode: if enabled, do not persist alerts.
     if DONT_SAVE_ALERTS:
         logger.info(f"🧪 DONT_SAVE_ALERTS enabled — not saving alert for {symbol} ({breakout_type})")
-        return False, 0.0, 0
+        return False, "Stale/fallback data or DB constraint", 0.0, 0
 
     with _DB_WRITE_LOCK:
         with get_connection() as conn:
@@ -1216,10 +1216,10 @@ def save_alert_if_new(
                         except Exception as e:
                             logger.exception(f"Failed to start push thread")
                             
-                    return inserted, capital_allocated, shares_bought
+                    return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
             except Exception:
                 logger.exception(f"❌ save_alert_if_new failed for {symbol}")
-                return False, 0.0, 0
+                return False, "Stale/fallback data or DB constraint", 0.0, 0
             finally:
                 if not success:
                     conn.rollback()
@@ -3606,7 +3606,8 @@ def upsert_breakout_watchlist(
     signal_timestamp: str = None,
     expires_at: str = None,
     timeframe: str = None,
-    clear_context: bool = False
+    clear_context: bool = False,
+    force: bool = False
 ):
     if DONT_SAVE_ALERTS:
         return
@@ -3615,7 +3616,7 @@ def upsert_breakout_watchlist(
         with get_connection() as conn:
             with conn.cursor() as cur:
                 if clear_context:
-                    # [VERSION: MULTI_TF_PATCH_v1.0] Explicitly clear stale context on downgrade so COALESCE doesn't retain old values
+                    # Explicitly clear stale context on downgrade so COALESCE doesn't retain old values
                     cur.execute("""
                         UPDATE breakout_watchlist 
                         SET armed_at = NULL, context_json = NULL, expires_at = NULL 
@@ -3631,11 +3632,22 @@ def upsert_breakout_watchlist(
                         max_extension_atr, buffer_pct, armed_at, session_date, context_json, last_updated,
                         signal_timestamp, expires_at, timeframe
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s
+                        %(symbol)s, %(category)s, %(current_state)s, %(h1_status)s, %(m30_status)s, %(m15_status)s, %(m5_status)s,
+                        %(breakout_level)s, %(support_level)s, %(trigger_level)s, %(invalidation_level)s, %(max_extension_atr)s, 
+                        %(buffer_pct)s, %(armed_at)s, %(session_date)s, %(context_json)s, NOW(), %(signal_timestamp)s, %(expires_at)s, %(timeframe)s
                     )
                     ON CONFLICT (symbol) DO UPDATE SET
                         category = EXCLUDED.category,
-                        current_state = EXCLUDED.current_state,
+                        current_state = CASE
+                            WHEN %(force)s = FALSE AND breakout_watchlist.cooldown_until > NOW() THEN
+                                CASE
+                                    WHEN EXCLUDED.current_state = 'HOURLY_APPROVED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED') THEN breakout_watchlist.current_state
+                                    WHEN EXCLUDED.current_state = 'SETUP_ARMED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY') THEN breakout_watchlist.current_state
+                                    WHEN EXCLUDED.current_state = 'ENTRY_READY' AND breakout_watchlist.current_state = 'TRADE_ACTIVE' THEN breakout_watchlist.current_state
+                                    ELSE EXCLUDED.current_state
+                                END
+                            ELSE EXCLUDED.current_state
+                        END,
                         h1_status = EXCLUDED.h1_status,
                         m30_status = EXCLUDED.m30_status,
                         m15_status = EXCLUDED.m15_status,
@@ -3653,9 +3665,15 @@ def upsert_breakout_watchlist(
                         expires_at = COALESCE(EXCLUDED.expires_at, breakout_watchlist.expires_at),
                         timeframe = COALESCE(EXCLUDED.timeframe, breakout_watchlist.timeframe),
                         last_updated = NOW()
-                """, (symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
-                    breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, 
-                    buffer_pct, armed_at, session_date, context_json, signal_timestamp, expires_at, timeframe))
+                """, {
+                    'symbol': symbol, 'category': category, 'current_state': current_state,
+                    'h1_status': h1_status, 'm30_status': m30_status, 'm15_status': m15_status, 'm5_status': m5_status,
+                    'breakout_level': breakout_level, 'support_level': support_level, 'trigger_level': trigger_level,
+                    'invalidation_level': invalidation_level, 'max_extension_atr': max_extension_atr, 'buffer_pct': buffer_pct,
+                    'armed_at': armed_at, 'session_date': session_date, 'context_json': context_json,
+                    'signal_timestamp': signal_timestamp, 'expires_at': expires_at, 'timeframe': timeframe,
+                    'force': force
+                })
                 conn.commit()
 
     except Exception as e:

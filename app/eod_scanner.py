@@ -629,7 +629,7 @@ def _start_wrapper(force: bool = False):
                 }
 
                 if not is_test_mode:
-                    saved, cap_alloc, shares = save_alert_if_new(
+                    saved, reason, cap_alloc, shares = save_alert_if_new(
                         symbol,
                         dedup_key,
                         ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
@@ -648,7 +648,7 @@ def _start_wrapper(force: bool = False):
                         bayesian_weights=bayesian_weights
                     )
                 else:
-                    saved, cap_alloc, shares = True, 0.0, 0
+                    saved, reason, cap_alloc, shares = True, "", 0.0, 0
 
                 if not saved:
                     rejection_counts["duplicate"] += 1

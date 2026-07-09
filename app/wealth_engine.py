@@ -683,11 +683,18 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         sma = r.get("sma_200", 0) or 0
         rs = r.get("rs_6m", 0) or 0
         data_quality = r.get("data_quality")
+        used_fallback_data = r.get("used_fallback_data", False)
         
         exit_code = ""
         exit_reason = ""
         
-        if cmp > 0 and data_quality != "MISSING_PARTIAL":
+        if used_fallback_data:
+            # Fallback to HOLD and suppress SELL evaluations
+            r["Exit_Code"] = ""
+            r["Exit_Reason"] = ""
+            return r
+            
+        if cmp > 0 and data_quality not in ["MISSING_PARTIAL", "CACHED_PREV_DAY"]:
             if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
                 exit_code, exit_reason = "SELL_REVIEW", hold_trend
             elif final_hold_score < 45:
@@ -709,7 +716,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # =====================================================================================
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
-def run_wealth_scan():
+def run_wealth_scan(is_test_mode=False):
     # [VERSION: SYMBOL_FIX_v1.0] Graceful skip instead of RuntimeError when prior scan
     # is still running. The 5-min scheduler can overlap if a scan takes >5 min;
     # crashing pollutes the error log unnecessarily.
@@ -717,11 +724,11 @@ def run_wealth_scan():
         logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
         return None
     try:
-        return _run_wealth_scan_wrapper()
+        return _run_wealth_scan_wrapper(is_test_mode)
     finally:
         _scan_lock.release()
 
-def _run_wealth_scan_wrapper():
+def _run_wealth_scan_wrapper(is_test_mode=False):
     from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
     from datetime import datetime
@@ -954,14 +961,24 @@ def _run_wealth_scan_wrapper():
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 if symbol and cmp and not DONT_SAVE_WEALTH:
-                    save_wealth_buy_alert(
-                        symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value", 
-                        fm_score=row.get("FM_Score"), position_pct=row.get("position_pct"),
-                        position_amount=row.get("position_amount"), position_shares=int(row.get("position_amount", 0) / cmp) if cmp > 0 else 0,
-                        portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
-                        momentum_score=row.get("momentum_score"), momentum_confidence=row.get("momentum_confidence"),
-                        data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp")
-                    )
+                    if is_test_mode:
+                        logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {symbol}")
+                        inserted = True
+                    else:
+                        inserted = save_wealth_buy_alert(
+                            symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value", 
+                            fm_score=row.get("FM_Score"), position_pct=row.get("position_pct"),
+                            position_amount=row.get("position_amount"), position_shares=int(row.get("position_amount", 0) / cmp) if cmp > 0 else 0,
+                            portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
+                            momentum_score=row.get("momentum_score"), momentum_confidence=row.get("momentum_confidence"),
+                            data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp")
+                        )
+                    if not inserted:
+                        # Mutate the dataframe to reflect suppression so parquet dashboard is correct
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Code"] = "SUPPRESSED"
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Reason"] = "Rejected by DB Idempotency/Guard"
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal"] = "SUPPRESSED (Rejected by DB)"
+
         except Exception: pass
 
         # =====================================================================================
@@ -969,6 +986,33 @@ def _run_wealth_scan_wrapper():
         # =====================================================================================
         # Extract open positions into a separate dataframe
         portfolio_rows = []
+        
+        # 1. FETCH REAL-TIME PRICES BEFORE EVALUATION
+        realtime_metrics = {}
+        try:
+            if open_symbols:
+                import yfinance as yf
+                from yf_rate_limiter import acquire as yf_acquire, release as yf_release
+                yf_syms = [f"{s.replace('_', '-')}.NS" for s in open_symbols]
+                try:
+                    yf_acquire()
+                    batch_data = yf.download(yf_syms, period="1d", progress=False)
+                    closes = batch_data['Close'] if not batch_data.empty and 'Close' in batch_data else None
+                except Exception: closes = None
+                finally:
+                    yf_release()
+                
+                for i, symbol in enumerate(open_symbols):
+                    yf_sym = yf_syms[i]
+                    current_price = None
+                    if closes is not None:
+                        if isinstance(closes, pd.Series) and not pd.isna(closes.iloc[-1]): current_price = float(closes.iloc[-1])
+                        elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]): current_price = float(closes[yf_sym].iloc[-1])
+                    if current_price and current_price > 0:
+                        realtime_metrics[symbol] = float(current_price)
+        except Exception as e:
+            logger.warning(f"Failed to fetch realtime prices: {e}")
+            
         for sym, p_info in portfolio_dict.items():
             if sym in wealth_df["Stock"].values:
                 row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict()
@@ -978,6 +1022,11 @@ def _run_wealth_scan_wrapper():
                 row = {"Stock": sym}
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
+            
+            # INJECT REAL-TIME PRICE SO EXIT MONITOR SEES LIVE CRASHES
+            if sym in realtime_metrics:
+                row["cmp"] = realtime_metrics[sym]
+                
             portfolio_rows.append(row)
             
         portfolio_df = pd.DataFrame(portfolio_rows)
@@ -990,9 +1039,12 @@ def _run_wealth_scan_wrapper():
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 exit_reason = row.get("Exit_Reason")
-                if symbol and cmp and not getattr(database, "DONT_SAVE_WEALTH", False):
-                    from database import close_position
-                    close_position(symbol, cmp, exit_reason)
+                if symbol and cmp:
+                    if is_test_mode:
+                        logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason}")
+                    elif not getattr(database, "DONT_SAVE_WEALTH", False):
+                        from database import close_position
+                        close_position(symbol, cmp, exit_reason)
 
             # Map Portfolio outputs back into wealth_df for Dashboard display
             port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
@@ -1016,50 +1068,26 @@ def _run_wealth_scan_wrapper():
                 orphan_df["Signal_Reason"] = orphan_df["Exit_Reason"]
                 orphan_df["Signal"] = orphan_df.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x.get('Signal_Reason') else x.get('Signal_Code', ''), axis=1)
                 wealth_df = pd.concat([wealth_df, orphan_df], ignore_index=True)
-            
-            # Fetch REAL-TIME prices for open positions
+                
+            # DB Persistence
             try:
-                realtime_metrics = {}
-                if open_symbols:
-                    import yfinance as yf
-                    from yf_rate_limiter import acquire as yf_acquire, release as yf_release
-                    yf_syms = [f"{s.replace('_', '-')}.NS" for s in open_symbols]
-                    try:
-                        yf_acquire()
-                        try:
-                            batch_data = yf.download(yf_syms, period="1d", progress=False)
-                            closes = batch_data['Close'] if not batch_data.empty and 'Close' in batch_data else None
-                        finally:
-                            yf_release()
-                    except Exception: closes = None
-
-                    for i, symbol in enumerate(open_symbols):
-                        yf_sym = yf_syms[i]
-                        current_price = None
-                        if closes is not None:
-                            if isinstance(closes, pd.Series) and not pd.isna(closes.iloc[-1]): current_price = float(closes.iloc[-1])
-                            elif yf_sym in closes and not pd.isna(closes[yf_sym].iloc[-1]): current_price = float(closes[yf_sym].iloc[-1])
+                for symbol in open_symbols:
+                    if symbol not in port_map: continue
+                    current_score = port_map[symbol].get("Hold_Score")
+                    if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
+                        from database import save_hold_score_history
+                        p_row = portfolio_df[portfolio_df["Stock"] == symbol].iloc[0]
+                        save_hold_score_history(
+                            symbol=symbol, hold_score=current_score, fm_score=float(p_row.get("FM_Score", 0)),
+                            rs_6m=float(p_row.get("rs_6m", 0)), cmp=float(p_row.get("cmp", 0)), sma_200=float(p_row.get("sma_200", 0))
+                        )
                         
-                        sym_info = port_map.get(symbol, {})
-                        current_score = sym_info.get("Hold_Score")
-                                
-                        if not getattr(database, "DONT_SAVE_WEALTH", False):
-                            from database import save_hold_score_history
-                            p_row = portfolio_df[portfolio_df["Stock"] == symbol].iloc[0]
-                            save_hold_score_history(
-                                symbol=symbol, hold_score=current_score, fm_score=float(p_row.get("FM_Score", 0)),
-                                rs_6m=float(p_row.get("rs_6m", 0)), cmp=current_price or float(p_row.get("cmp", 0)), sma_200=float(p_row.get("sma_200", 0))
-                            )
-
-                        if current_price and current_price > 0: realtime_metrics[symbol] = {"price": float(current_price), "score": current_score}
-                    
-                    if realtime_metrics and not getattr(database, "DONT_SAVE_WEALTH", False):
-                        from database import update_position_real_time_prices
-                        update_position_real_time_prices(realtime_metrics)
+                if realtime_metrics and not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
+                    from database import update_position_real_time_prices
+                    update_position_real_time_prices({s: {"price": p, "score": port_map.get(s, {}).get("Hold_Score")} for s, p in realtime_metrics.items()})
             except Exception: pass
-
         # Final Dashboard Export
-        if not getattr(database, "DONT_SAVE_WEALTH", False):
+        if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
                 from database import upload_parquet_to_db
                 cols = ['Stock', 'Sector', 'FM_Score', 'Consistency_Score', 'Valuation_Score', 'Reliability', 'Base_FV', 'Bull_FV', 'Portfolio_Bucket', 'Signal', 'Hold_Score', 'hold_trend', 'Core_Selected']

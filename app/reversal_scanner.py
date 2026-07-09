@@ -771,7 +771,7 @@ def _run_scan(force: bool = False):
     if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
         try:
             for alert in shortlisted_alerts:
-                inserted, _, _ = database.save_alert_if_new(
+                inserted, reason, _, _ = database.save_alert_if_new(
                     alert["symbol"],
                     alert["dedup_key"],
                     alert["alert_time"],
