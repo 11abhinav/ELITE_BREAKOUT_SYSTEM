@@ -244,11 +244,11 @@ def batch_download_market_data(symbols: list) -> dict:
                                     if ticker_name in sub_df.columns.levels[0]:
                                         batch_res[sym] = sub_df[ticker_name]
                             else:
-                                logger.debug(f"Sub-chunk of {len(sub)} downgraded. Skipping to preserve rate limits.")
+                                logger.warning(f"Sub-chunk of {len(sub)} downgraded. Skipping to preserve rate limits.")
                         except Exception as e:
-                            logger.debug(f"Sub-chunk fetch failed: {e}")
+                            logger.warning(f"Sub-chunk fetch failed: {e}")
         except Exception as e:
-            logger.debug(f"Chunk fetch failed: {e}")
+            logger.warning(f"Chunk fetch failed: {e}")
 
         for sym, ticker_df in batch_res.items():
             try:
