@@ -376,6 +376,7 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         now_dt = datetime.now(IST)
         # Ensure it has timezone info
         if fetched_at.tzinfo is None:
+            logger.debug(f"[TIMEZONE] Upgrading legacy naive cache timestamp to IST for {symbol}")
             fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
