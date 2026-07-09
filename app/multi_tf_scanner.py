@@ -33,14 +33,17 @@ def strip_forming_candle(df, tf_minutes, ist_now):
         return df
     try:
         raw_ts = pd.Timestamp(df.index[-1])
-        if raw_ts.tzinfo is not None:
-            raw_ts = raw_ts.tz_convert(IST)
+        # [VERSION: TIMEZONE_FIX_v1.1] Strict Timezone Provenance Enforcement
+        # Fetch layer is contracted to provide tz-aware IST indices. Reject naives.
+        if raw_ts.tzinfo is None:
+            logger.error(f"strip_forming_candle received a NAIVE timestamp. Rejecting df to prevent false state.")
+            return df
             
-        candle_start = raw_ts.replace(tzinfo=None)
-        candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
-        now_naive    = ist_now.replace(tzinfo=None)
+        raw_ts = raw_ts.tz_convert(IST)
+        candle_end = raw_ts + pd.Timedelta(minutes=tf_minutes)
         
-        if now_naive < candle_end:
+        # Safe timezone-aware comparison
+        if ist_now < candle_end:
             return df.iloc[:-1].copy()
     except Exception:
         pass
@@ -53,7 +56,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     from market_utils import is_market_open
     if not (run_once and is_test_mode) and not is_market_open():
         logger.info("Market is closed. Skipping Phase A.")
-        return {"total": 0, "approved": 0}
+        return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
     Goal: Identify trend permission (Price > 200 EMA, 9 > 20 > 50 EMA, ADX > 20).
@@ -217,7 +220,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
     from market_utils import is_market_open
     if not (run_once and is_test_mode) and not is_market_open():
         logger.info("Market is closed. Skipping lower TF phase.")
-        return {}
+        return {"fetched": 0, "total": 0, "stale": 0}
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
