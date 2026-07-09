@@ -279,7 +279,8 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                 continue
 
             # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──
-            if state in ("SETUP_ARMED", "ENTRY_READY") and df_30 is not None:
+            df_30_decay = data_30m.get(symbol)
+            if state in ("SETUP_ARMED", "ENTRY_READY") and df_30_decay is not None:
                 state_change_str = None
             
                 # Try to get it from context_json first
@@ -304,7 +305,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False):
                     state_change_ts = None
 
                 # Decay & Smart Expiry check
-                df = data_30m.get(symbol)
+                df = df_30_decay
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Decay check: no data returned from fetch")
                 if df is not None:
