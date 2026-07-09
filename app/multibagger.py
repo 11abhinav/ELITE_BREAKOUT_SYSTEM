@@ -202,7 +202,6 @@ def batch_download_market_data(symbols: list) -> dict:
     
     # [VERSION: MULTIBAGGER_PATCH_v1.0] Determine if we need to strip forming candle for exit monitor
     from datetime import datetime
-    from config import IST
     from market_utils import is_market_open
     ist_now = datetime.now(IST)
     strip_forming = is_market_open(ist_now)
