@@ -216,7 +216,7 @@ def _start_wrapper(force: bool = False):
             "gap_day", "extended_breakout", "gap_extended", "low_score", "duplicate", "stale_data",
             "prior_red_candles", "obv_divergence", 
             "no_structural_breakout", "no_atr_expansion", "base_too_wide",
-            "missing_atr", "zero_avg_volume", "zero_candle_range"
+            "missing_atr", "zero_avg_volume", "zero_candle_range", "low_rr"
         ]}
         
         market_regime = get_macro_regime(nifty_ret_20d)
@@ -590,9 +590,14 @@ def _start_wrapper(force: bool = False):
                     swing_high_raw=latest.get("SWING_HIGH_RAW"),
                     candle_low=candle_low,
                     vwap=latest.get("VWAP"),
+                    ticker=ticker,
                 )
                 suggested_stop = sl_result["stop_loss"]
                 target_price = sl_result["target_1"]
+ 
+                if sl_result.get("rr_ratio", 0.0) < 2.0:
+                    rejection_counts["low_rr"] += 1
+                    continue
 
                 above_ema20  = bool(candle_close >= float(latest["EMA20"])) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
                 above_sma50  = bool(candle_close >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None

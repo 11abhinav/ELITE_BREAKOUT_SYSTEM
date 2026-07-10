@@ -146,7 +146,7 @@ def _start_wrapper(run_once=False):
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
                 "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
                 "no_breakout", "extended_breakout", "exhaustion_bar", "stale_data", "duplicate",
-                "no_rsi", "zero_avg_volume", "zero_candle_range", "no_breakout_level", "missing_atr"
+                "no_rsi", "zero_avg_volume", "zero_candle_range", "no_breakout_level", "missing_atr", "low_rr"
             ]}
             
             # Collect prices to update open positions with fresh data
@@ -363,11 +363,37 @@ def _start_wrapper(run_once=False):
                         continue
 
                     # ── DETERMINISTIC STRUCTURAL SL & TARGET ──
-                    suggested_stop = min(candle_low, e20) - (0.2 * atr)
-                    if suggested_stop >= candle_close:
-                        suggested_stop = candle_close - (0.5 * atr)
-                        
-                    calc_target = candle_close + ((candle_close - suggested_stop) * 2)
+                    from sl_target_helper import compute_sl_and_target
+                    sl_result = compute_sl_and_target(
+                        entry_price=candle_close,
+                        atr=atr,
+                        candle_range=candle_range,
+                        mode="LIVE_1H",
+                        adx=latest.get("ADX"),
+                        rsi=rsi_val,
+                        macd_hist=latest.get("MACD_HIST"),
+                        atr_pct=latest.get("ATR_PCT"),
+                        swing_low=latest.get("SWING_LOW"),
+                        swing_high=latest.get("SWING_HIGH"),
+                        bb_upper=latest.get("BB_UPPER"),
+                        bb_lower=latest.get("BB_LOWER"),
+                        bb_mid=latest.get("BB_MID"),
+                        s1=latest.get("S1"),
+                        s2=latest.get("S2"),
+                        r1=latest.get("R1"),
+                        r2=latest.get("R2"),
+                        swing_low_raw=latest.get("SWING_LOW_RAW"),
+                        swing_high_raw=latest.get("SWING_HIGH_RAW"),
+                        candle_low=candle_low,
+                        vwap=latest.get("VWAP"),
+                        ticker=ticker,
+                    )
+                    suggested_stop = sl_result["stop_loss"]
+                    calc_target = sl_result["target_1"]
+
+                    if sl_result.get("rr_ratio", 0.0) < 2.0:
+                        rejection_counts["low_rr"] += 1
+                        continue
 
                     context = {
                         "technicals": {
@@ -377,7 +403,7 @@ def _start_wrapper(run_once=False):
                         "execution": {
                             "breakout_level":   round(breakout_level, 2),
                             "atr":              round(atr, 2),
-                            "stop_basis":       "min(candle_low, e20) - 0.2*ATR"
+                            "stop_basis":       sl_result.get("sl_method", "Structural SL")
                         }
                     }
 

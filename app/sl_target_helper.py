@@ -78,18 +78,49 @@ def _safe(val) -> Optional[float]:
         return None
 
 
+def _find_swing_low_cluster(swing_lows, threshold_pct: float = 0.01) -> Optional[float]:
+    """
+    If 2+ swing lows in the list are within threshold_pct (1%) of each other,
+    returns the average of the clustering swing lows as the cluster zone level.
+    Otherwise returns None.
+    """
+    if swing_lows is None or len(swing_lows) < 2:
+        return None
+    n = len(swing_lows)
+    best_cluster = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            val1 = float(swing_lows[i])
+            val2 = float(swing_lows[j])
+            diff = abs(val1 - val2) / max(val1, val2)
+            if diff <= threshold_pct:
+                cluster = [val1, val2]
+                for k in range(n):
+                    if k != i and k != j:
+                        val3 = float(swing_lows[k])
+                        if abs(val3 - val1) / max(val3, val1) <= threshold_pct and abs(val3 - val2) / max(val3, val2) <= threshold_pct:
+                            cluster.append(val3)
+                if len(cluster) > len(best_cluster):
+                    best_cluster = cluster
+    if len(best_cluster) >= 2:
+        return min(best_cluster)
+    return None
+ 
+ 
 def _pick_support(
     entry: float,
     swing_low: Optional[float],
     s1: Optional[float],
     swing_low_raw: Optional[float],
     s2: Optional[float],
+    swing_low_cluster: Optional[float] = None,
 ) -> tuple[Optional[float], str]:
     """
     Best structural support level below entry.
-    Priority: true pivot swing low > S1 > rolling window low > S2.
+    Priority: swing low cluster > true pivot swing low > S1 > rolling window low > S2.
     """
     for level, label in [
+        (swing_low_cluster, "swing low cluster"),
         (swing_low,     "pivot swing low"),
         (s1,            "pivot S1"),
         (swing_low_raw, "rolling swing low"),
@@ -213,6 +244,7 @@ def _compute_eod(
     entry: float, eff_atr: float, adx, rsi, macd_hist, atr_pct,
     swing_low, swing_high, bb_upper, bb_lower,
     s1, s2, r1, r2, swing_low_raw, swing_high_raw,
+    swing_low_cluster: Optional[float] = None,
 ) -> dict:
     """
     EOD breakout logic:
@@ -225,7 +257,10 @@ def _compute_eod(
     atr_base, sl_atr_buf, sl_pct_buf, min_rr, max_sl_atr = _MODE_CONFIG["EOD"]
     scaled_mult = _adx_atr_scale(_safe(adx), _safe(atr_pct), atr_base)
 
-    support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+    support, sup_label = _pick_support(
+        entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+        swing_low_cluster=swing_low_cluster
+    )
 
     if support is not None:
         raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
@@ -302,6 +337,7 @@ def _compute_intraday(
     s1, s2, r1, r2, swing_low_raw, swing_high_raw,
     candle_low: Optional[float] = None,
     vwap: Optional[float] = None,
+    swing_low_cluster: Optional[float] = None,
 ) -> dict:
     """
     Intraday 15m scalp logic (v5 upgrade):
@@ -326,11 +362,11 @@ def _compute_intraday(
     # VWAP is the institutional fair-value line. During genuine breakouts,
     # price rarely stays below VWAP. If VWAP is between candle_low and entry,
     # it's a better SL anchor than candle_low alone.
+
     vwap_v = _safe(vwap)
     if vwap_v is not None and candle_low is not None and _safe(candle_low):
         candle_low_f = float(candle_low)
         if candle_low_f < vwap_v < entry:
-            # VWAP is between candle low and entry — use VWAP as anchor
             raw_sl    = vwap_v - buf
             sl_method = (
                 f"Below VWAP ₹{round(vwap_v, 2)} — buffer ₹{round(buf, 2)} "
@@ -340,7 +376,10 @@ def _compute_intraday(
             raw_sl    = candle_low_f - buf
             sl_method = f"Below candle low ₹{round(candle_low_f, 2)} — buffer ₹{round(buf, 2)} (anti-trap)"
         else:
-            support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+            support, sup_label = _pick_support(
+                entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+                swing_low_cluster=swing_low_cluster
+            )
             if support is not None:
                 raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
             else:
@@ -351,7 +390,10 @@ def _compute_intraday(
         sl_method = f"Below candle low ₹{round(candle_low, 2)} — buffer ₹{round(buf, 2)} (anti-trap)"
     else:
         # Fallback: 15m swing structure
-        support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+        support, sup_label = _pick_support(
+            entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+            swing_low_cluster=swing_low_cluster
+        )
         if support is not None:
             raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
         else:
@@ -423,6 +465,7 @@ def _compute_live_1h(
     s1, s2, r1, r2, swing_low_raw, swing_high_raw,
     candle_low: Optional[float] = None,
     vwap: Optional[float] = None,
+    swing_low_cluster: Optional[float] = None,
 ) -> dict:
     """
     1H swing logic (v5 upgrade):
@@ -457,14 +500,20 @@ def _compute_live_1h(
             raw_sl    = candle_low_f - buf
             sl_method = f"Below candle low ₹{round(candle_low_f, 2)} — buffer ₹{round(buf, 2)} (anti-trap)"
         else:
-            support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+            support, sup_label = _pick_support(
+                entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+                swing_low_cluster=swing_low_cluster
+            )
             if support is not None:
                 raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
             else:
                 raw_sl    = entry - scaled_mult * eff_atr
                 sl_method = f"ATR fallback ({scaled_mult}×ATR) — no 1H structure below entry"
     else:
-        support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+        support, sup_label = _pick_support(
+            entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+            swing_low_cluster=swing_low_cluster
+        )
         if support is not None:
             raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
         else:
@@ -531,6 +580,7 @@ def _compute_reversal(
     ema20: Optional[float] = None,
     bb_mid: Optional[float] = None,
     sma50: Optional[float] = None,
+    swing_low_cluster: Optional[float] = None,
 ) -> dict:
     """
     REVERSAL / Mean-Reversion logic (LONG-ONLY oversold bounce):
@@ -558,7 +608,10 @@ def _compute_reversal(
     atr_base, sl_atr_buf, sl_pct_buf, min_rr, max_sl_atr = _MODE_CONFIG["REVERSAL"]
 
     # Volatility-scaled buffer (beaten stocks are volatile)
-    support, sup_label = _pick_support(entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2))
+    support, sup_label = _pick_support(
+        entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
+        swing_low_cluster=swing_low_cluster
+    )
 
     if support is not None:
         raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
@@ -692,6 +745,7 @@ def compute_sl_and_target(
     vwap:           Optional[float] = None,   # v5: used by INTRADAY (VWAP-anchored SL)
     # Backward-compat alias (old callers used timeframe=)
     timeframe:      Optional[str]   = None,
+    ticker:         Optional[pd.DataFrame] = None,
 ) -> dict:
     """
     Mode-dispatching SL/Target engine.
@@ -729,6 +783,15 @@ def compute_sl_and_target(
     if eff_atr is None or eff_atr <= 0:
         eff_atr = entry_price * 0.015   # last resort: 1.5% of price
 
+    # Calculate swing low cluster zone if ticker is provided
+    swing_low_cluster = None
+    if ticker is not None and "SWING_LOW" in ticker.columns:
+        try:
+            recent_lows = ticker["SWING_LOW"].dropna().unique()[-3:]
+            swing_low_cluster = _find_swing_low_cluster(recent_lows)
+        except Exception:
+            pass
+ 
     kwargs = dict(
         entry=entry_price, eff_atr=eff_atr,
         adx=adx, rsi=rsi, macd_hist=macd_hist, atr_pct=atr_pct,
@@ -736,6 +799,7 @@ def compute_sl_and_target(
         bb_upper=bb_upper, bb_lower=bb_lower,
         s1=s1, s2=s2, r1=r1, r2=r2,
         swing_low_raw=swing_low_raw, swing_high_raw=swing_high_raw,
+        swing_low_cluster=swing_low_cluster,
     )
 
     if effective_mode == "EOD":

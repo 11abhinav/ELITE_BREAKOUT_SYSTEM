@@ -397,11 +397,38 @@ def _start_wrapper(run_once=False):
                         position_prices[symbol] = {"price": candle_close, "score": None}
                     
                     atr5 = setup["atr5"]
-                    suggested_stop = trigger["latest_5m_low"] - (0.2 * atr5)
-                    if suggested_stop >= candle_close:
-                        suggested_stop = candle_close - (0.5 * atr5)
-                        
-                    calc_target = candle_close + ((candle_close - suggested_stop) * 2)
+                    latest_5m_row = df5.iloc[-1]
+                    from sl_target_helper import compute_sl_and_target
+                    sl_result = compute_sl_and_target(
+                        entry_price=candle_close,
+                        atr=atr5,
+                        candle_range=latest_5m_row["High"] - latest_5m_row["Low"],
+                        mode="INTRADAY",
+                        adx=latest_5m_row.get("ADX"),
+                        rsi=setup["rsi"],
+                        macd_hist=latest_5m_row.get("MACD_HIST"),
+                        atr_pct=latest_5m_row.get("ATR_PCT"),
+                        swing_low=latest_5m_row.get("SWING_LOW"),
+                        swing_high=latest_5m_row.get("SWING_HIGH"),
+                        bb_upper=latest_5m_row.get("BB_UPPER"),
+                        bb_lower=latest_5m_row.get("BB_LOWER"),
+                        bb_mid=latest_5m_row.get("BB_MID"),
+                        s1=latest_5m_row.get("S1"),
+                        s2=latest_5m_row.get("S2"),
+                        r1=latest_5m_row.get("R1"),
+                        r2=latest_5m_row.get("R2"),
+                        swing_low_raw=latest_5m_row.get("SWING_LOW_RAW"),
+                        swing_high_raw=latest_5m_row.get("SWING_HIGH_RAW"),
+                        candle_low=trigger["latest_5m_low"],
+                        vwap=latest_5m_row.get("VWAP"),
+                        ticker=df5,
+                    )
+                    suggested_stop = sl_result["stop_loss"]
+                    calc_target = sl_result["target_1"]
+
+                    if sl_result.get("rr_ratio", 0.0) < 1.5:
+                        logger.info(f"🚫 {symbol} alert SUPPRESSED: low R:R ratio {sl_result.get('rr_ratio')}")
+                        continue
 
                     context = {
                         "technicals": {
@@ -411,7 +438,7 @@ def _start_wrapper(run_once=False):
                         "execution": {
                             "breakout_level":   round(setup["breakout_resistance"], 2),
                             "atr":              round(atr5, 2),
-                            "stop_basis":       "min(candle_low, prev_low) - 0.2*ATR"
+                            "stop_basis":       sl_result.get("sl_method", "Structural SL")
                         }
                     }
 

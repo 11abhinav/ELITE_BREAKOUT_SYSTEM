@@ -318,7 +318,8 @@ def _run_scan(force: bool = False):
         "no_macd_cross": 0,
         "low_score": 0,
         "climax_top": 0,
-        "thin_spread": 0
+        "thin_spread": 0,
+        "low_rr": 0
     }
     today_str = ist_now.strftime("%Y-%m-%d")
 
@@ -642,9 +643,14 @@ def _run_scan(force: bool = False):
                 # Mean-reversion specific targets
                 ema20=latest.get("EMA20"),
                 sma50=latest.get("SMA50"),
+                ticker=ticker,
             )
             suggested_stop = sl_result["stop_loss"]
             target_price   = sl_result["target_1"]
+ 
+            if sl_result.get("rr_ratio", 0.0) < 2.0:
+                rejected["low_rr"] += 1
+                continue
 
             signal_str = ", ".join(reversal_signals)
 
