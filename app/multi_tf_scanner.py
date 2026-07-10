@@ -706,7 +706,8 @@ def _start_wrapper(run_once=False, is_test_mode=False):
 
             from market_utils import is_market_open
             market_open = is_market_open(ist_now)
-            is_active_window = market_open or (run_once and is_test_mode)
+            # Admin manual triggers pass run_once=True, which should bypass the market closed check
+            is_active_window = market_open or run_once
             
             import database
             if not is_active_window:
