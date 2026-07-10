@@ -38,19 +38,34 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     if df is None or df.empty:
         return df
     
-    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
-    if datetime_col is not None:
-        try:
+    try:
+        raw_ts = None
+        datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+        
+        if datetime_col is not None:
             raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
+        elif isinstance(df.index, pd.DatetimeIndex) or isinstance(df.index[-1], (pd.Timestamp, pd.DatetimeIndex)):
+            raw_ts = pd.Timestamp(df.index[-1])
+        else:
+            # Fallback for naive RangeIndex parsing issues
+            return df
+            
+        if raw_ts is not None:
             if raw_ts.tzinfo is not None:
                 raw_ts = raw_ts.tz_convert("Asia/Kolkata")
+            else:
+                # If naive, localize as Asia/Kolkata (IST)
+                raw_ts = raw_ts.tz_localize("Asia/Kolkata")
+                
             candle_start = raw_ts.replace(tzinfo=None)
             candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
             now_naive    = ist_now.replace(tzinfo=None)
+            
             if now_naive < candle_end:
                 return df.iloc[:-1].copy()
-        except Exception:
-            pass
+    except Exception as e:
+        logger.warning(f"Failed to strip forming candle: {e}")
+        pass
     return df
 
 
@@ -130,7 +145,8 @@ def _start_wrapper(run_once=False):
             rejection_counts = {k: 0 for k in [
                 "no_data", "missing_col", "forming_candle_stripped", "insufficient_bars", 
                 "indicator_fail", "penny_stock", "trend_fail", "momentum_fail", "volume_fail", "candle_fail",
-                "no_breakout", "extended_breakout", "exhaustion_bar", "stale_data", "duplicate"
+                "no_breakout", "extended_breakout", "exhaustion_bar", "stale_data", "duplicate",
+                "no_rsi", "zero_avg_volume", "zero_candle_range", "no_breakout_level", "missing_atr"
             ]}
             
             # Collect prices to update open positions with fresh data
@@ -239,13 +255,15 @@ def _start_wrapper(run_once=False):
                             pass 
 
                     if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
+                        rejection_counts["no_rsi"] += 1
                         continue
-
+ 
                     latest_volume = float(latest["Volume"])
                     vol_series    = ticker["Volume"].iloc[-21:-1]
                     avg_volume    = float(vol_series.mean())
-
+ 
                     if avg_volume <= 0:
+                        rejection_counts["zero_avg_volume"] += 1
                         continue
 
                     candle_high  = float(latest["High"])
@@ -262,6 +280,7 @@ def _start_wrapper(run_once=False):
                     upper_wick   = candle_high - candle_close
 
                     if candle_range <= 0:
+                        rejection_counts["zero_candle_range"] += 1
                         continue
 
                     body_ratio     = candle_body / candle_range
@@ -306,6 +325,7 @@ def _start_wrapper(run_once=False):
 
                     breakout_level = float(latest.get("PRIOR_20D_HIGH", 0) or 0)
                     if breakout_level <= 0:
+                        rejection_counts["no_breakout_level"] += 1
                         continue
                         
                     breakout_ok = candle_close > breakout_level
@@ -315,6 +335,7 @@ def _start_wrapper(run_once=False):
                         
                     atr = float(latest.get("ATR", 0) or 0)
                     if atr <= 0:
+                        rejection_counts["missing_atr"] += 1
                         continue
                         
                     extension_ok = candle_close <= breakout_level + 0.8 * atr

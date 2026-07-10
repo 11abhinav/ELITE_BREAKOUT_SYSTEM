@@ -797,8 +797,7 @@ def calculate_score(
                 logger.debug(f"  +12 {tag}Piotroski F-Score {p_score} >= 7 bonus")
             elif p_score < 0:
                 # Missing fundamental data
-                max_score_cap = 75
-                logger.debug(f"  ○ {tag}Missing fundamentals — capping max score at 75")
+                logger.debug(f"  ○ {tag}Missing fundamentals — score not capped")
         except Exception:
             pass
 

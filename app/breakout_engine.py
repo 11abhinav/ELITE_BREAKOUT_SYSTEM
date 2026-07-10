@@ -156,17 +156,16 @@ def _has_tight_base(df: pd.DataFrame, threshold: float = None) -> bool:
     """
     if threshold is None:
         threshold = BASE_TIGHTNESS_THRESHOLD
-
+ 
     if "BASE_WIDTH" not in df.columns:
         return False
-
+ 
     base_width = df["BASE_WIDTH"].iloc[-1]
-    vcp_tightening = df.get("VCP_TIGHTENING", pd.Series([False])).iloc[-1]
     
     if pd.isna(base_width):
         return False
-
-    return float(base_width) < threshold and bool(vcp_tightening)
+ 
+    return float(base_width) < threshold
 
 
 def _get_obv_trend(df: pd.DataFrame) -> int:
