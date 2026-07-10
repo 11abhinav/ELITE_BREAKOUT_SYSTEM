@@ -336,6 +336,13 @@ def _run_scan(force: bool = False):
     except Exception as e:
         logger.warning(f"Could not clean up today's export rows: {e}")
 
+    try:
+        from database import delete_todays_alerts_for_scanner
+        deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
+        logger.info(f"REVERSAL cleanup: removed {deleted_count} existing alerts for {today_str} before run")
+    except Exception as e:
+        logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
+
     from database import get_recent_alerts_for_scanner
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
 
@@ -801,13 +808,7 @@ def _run_scan(force: bool = False):
         f"thin_spread={rejected.get('thin_spread', 0)}"
     )
 
-    # ── VALIDATION COMPLETE: IDEMPOTENT CLEANUP ──
-    try:
-        from database import delete_todays_alerts_for_scanner
-        deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
-        logger.info(f"REVERSAL cleanup complete: removed {deleted_count} existing alerts for {today_str}")
-    except Exception as e:
-        logger.exception("Failed to delete today's alerts for REVERSAL before persistence")
+    # ── VALIDATION COMPLETE ──
 
     # ── PERSISTENCE ───────────────────────────────────────────────────────────
     total_alerts = 0

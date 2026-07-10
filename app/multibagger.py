@@ -122,7 +122,10 @@ def get_nse_session() -> requests.Session:
 
 def safe_float(val, default=0.0):
     try:
-        return float(val) if val is not None else default
+        import pandas as pd
+        if val is None or pd.isna(val):
+            return default
+        return float(val)
     except:
         return default
 
@@ -398,14 +401,14 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     if not is_fin:
         # Check if ROCE or ROE is present
         roce_val = f.get("roce", f.get("roe"))
-        if roce_val is not None:
+        if roce_val is not None and not pd.isna(roce_val):
             known_metrics_count += 1
             roce = safe_float(roce_val)
             if roce < 0.15:
                 return False, f"ROCE/ROE below 15% ({roce*100:.1f}%)"
     
     rev_cagr = f.get("revenue_cagr_3y")
-    if rev_cagr is not None:
+    if rev_cagr is not None and not pd.isna(rev_cagr):
         known_metrics_count += 1
         if safe_float(rev_cagr) < 0.08:
             return False, f"Revenue CAGR 3Y below 8% ({safe_float(rev_cagr)*100:.1f}%)"
@@ -419,61 +422,61 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
 
     if is_fin:
         roe = f.get("roe")
-        if roe is not None:
+        if roe is not None and not pd.isna(roe):
             known_metrics_count += 1
             if safe_float(roe) < 0.12: # Financials allowed slightly lower ROE but still positive
                 return False, f"Financial ROE below 12% ({safe_float(roe)*100:.1f}%)"
             
         gnpa = f.get("gnpa")
-        if gnpa is not None:
+        if gnpa is not None and not pd.isna(gnpa):
             known_metrics_count += 1
             if safe_float(gnpa) > 0.05:
                 return False, f"High GNPA ({safe_float(gnpa)*100:.1f}%)"
             
         car = f.get("capital_adequacy_ratio")
-        if car is not None:
+        if car is not None and not pd.isna(car):
             known_metrics_count += 1
             if safe_float(car) < 0.12:
                 return False, f"Low CAR ({safe_float(car)*100:.1f}%)"
             
         roa = f.get("roa")
-        if roa is not None:
+        if roa is not None and not pd.isna(roa):
             known_metrics_count += 1
             if safe_float(roa) < 0.01:
                 return False, f"ROA below 1% ({safe_float(roa)*100:.2f}%)"
     else:
         opm = f.get("operating_margin_ttm")
-        if opm is not None:
+        if opm is not None and not pd.isna(opm):
             known_metrics_count += 1
             if safe_float(opm) < 0.12:
                 return False, f"Operating margin below 12% ({safe_float(opm)*100:.1f}%)"
             
         fcf_margin = f.get("fcf_margin")
-        if fcf_margin is not None:
+        if fcf_margin is not None and not pd.isna(fcf_margin):
             known_metrics_count += 1
             if safe_float(fcf_margin) < 0.05:
                 return False, f"Weak FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
             
         cfo_pat = f.get("cfo_pat_ratio")
-        if cfo_pat is not None:
+        if cfo_pat is not None and not pd.isna(cfo_pat):
             known_metrics_count += 1
             if safe_float(cfo_pat) < 0.6:
                 return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
             
         de = f.get("debt_equity")
-        if de is not None:
+        if de is not None and not pd.isna(de):
             known_metrics_count += 1
             if safe_float(de) > 1.0:
                 return False, f"Debt/Equity > 1.0 ({safe_float(de):.2f})"
             
         icr = f.get("interest_coverage_ratio")
-        if icr is not None:
+        if icr is not None and not pd.isna(icr):
             known_metrics_count += 1
             if safe_float(icr) < 3.0:
                 return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
             
         altman_z = f.get("altman_z")
-        if altman_z is not None:
+        if altman_z is not None and not pd.isna(altman_z):
             known_metrics_count += 1
             if safe_float(altman_z) < 1.8:
                 return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f})"

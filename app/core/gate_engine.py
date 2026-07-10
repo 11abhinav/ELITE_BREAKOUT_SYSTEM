@@ -3,7 +3,8 @@ from core.audit_engine import audit_engine
 
 def safe_float(val: Any) -> float:
     try:
-        if val is None:
+        import pandas as pd
+        if val is None or pd.isna(val):
             return 0.0
         return float(val)
     except (ValueError, TypeError):

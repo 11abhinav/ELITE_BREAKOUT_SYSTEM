@@ -4,7 +4,8 @@ from core.audit_engine import audit_engine
 
 def safe_float(val: Any, default=0.0) -> float:
     try:
-        if val is None:
+        import pandas as pd
+        if val is None or pd.isna(val):
             return default
         return float(val)
     except (ValueError, TypeError):
@@ -121,7 +122,7 @@ def run_quality_engine(symbol: str, raw_data: Dict[str, Any], weights: Dict[str,
     w_earn = weights.get('earnings_quality', 0.15) * 100
     fcf_m = safe_float(raw_data.get('fcf_margin'))
     # FCF margin can be valid 0.0, but let's assume missing if None
-    if raw_data.get('fcf_margin') is None: missing.append("fcf_margin")
+    if raw_data.get('fcf_margin') is None or pd.isna(raw_data.get('fcf_margin')): missing.append("fcf_margin")
     s, c = evaluate_metric(symbol, "FCF Margin", fcf_m, (0.15, 0.08, 0.0), w_earn)
     total_score += s
     total_confidence += c * (w_earn / 100)

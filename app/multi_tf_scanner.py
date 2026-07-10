@@ -137,7 +137,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     if series_val is None:
                         return None
                     v = float(series_val)
-                    if math.isnan(v) or v == 0.0:
+                    if math.isnan(v):
                         return None
                     return v
                 except (TypeError, ValueError):

@@ -4,6 +4,7 @@ from core.audit_engine import audit_engine
 from core.quality_engine import safe_float, evaluate_metric
 
 def run_market_structure_engine(symbol: str, raw_data: Dict[str, Any]) -> EngineResult:
+    import pandas as pd
     """
     Layer 6: Market Structure Engine
     Scores based on RS, Volume, and Trend.
@@ -20,7 +21,8 @@ def run_market_structure_engine(symbol: str, raw_data: Dict[str, Any]) -> Engine
 
     # 1. Relative Strength (RS) - e.g. outperforming Nifty by x%
     rs = safe_float(raw_data.get('rs_rating'))
-    if raw_data.get('rs_rating') is None: missing.append("rs_rating")
+    rs = safe_float(raw_data.get('rs_rating'))
+    if raw_data.get('rs_rating') is None or pd.isna(raw_data.get('rs_rating')): missing.append("rs_rating")
     s, c = evaluate_metric(symbol, "Relative Strength", rs, (85.0, 70.0, 50.0), w_rs)
     total_score += s
     total_confidence += c * (w_rs / 100)
@@ -30,7 +32,8 @@ def run_market_structure_engine(symbol: str, raw_data: Dict[str, Any]) -> Engine
     rel_vol = safe_float(raw_data.get('relative_volume_10d'))
     dist_high = safe_float(raw_data.get('pct_from_52w_high'))
     
-    if raw_data.get('relative_volume_10d') is None: missing.append("relative_volume_10d")
+    
+    if raw_data.get('relative_volume_10d') is None or pd.isna(raw_data.get('relative_volume_10d')): missing.append("relative_volume_10d")
     s, c = evaluate_metric(symbol, "Relative Volume", rel_vol, (1.5, 1.0, 0.8), w_vol)
     
     # Volume Profiling: High volume on uptrend/consolidation = Accumulation. High volume on drawdown = Distribution.
@@ -50,7 +53,8 @@ def run_market_structure_engine(symbol: str, raw_data: Dict[str, Any]) -> Engine
 
     # 3. Distance from 52W High (Trend) - negative is worse (drawdown)
     dist_high = safe_float(raw_data.get('pct_from_52w_high'))
-    if raw_data.get('pct_from_52w_high') is None: missing.append("pct_from_52w_high")
+    dist_high = safe_float(raw_data.get('pct_from_52w_high'))
+    if raw_data.get('pct_from_52w_high') is None or pd.isna(raw_data.get('pct_from_52w_high')): missing.append("pct_from_52w_high")
     s, c = evaluate_metric(symbol, "Distance from 52W High", dist_high, (-0.05, -0.15, -0.30), w_trend)
     total_score += s
     total_confidence += c * (w_trend / 100)
