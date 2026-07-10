@@ -19,6 +19,18 @@ from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")
 from enum import Enum
 
+# [VERSION: WEALTH_SAFE_NUM_v1.0] Null-safe numeric extractor for Pandas rows.
+# np.nan is truthy, so the common 'r.get(field, 0) or 0' pattern silently
+# carries NaN through — causing all downstream comparisons to return False.
+def _safe_num(val, default=0):
+    """Convert NaN/None to default; pass valid numbers through."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 from config import ENABLE_AI_SENTIMENT_SCORE
 from collections import defaultdict
 import concurrent.futures
@@ -349,8 +361,9 @@ def calculate_hold_score(r: pd.Series) -> int:
     score = 0
     
     # 1. DRAWDOWN CIRCUIT BREAKER (NEW - Added Phase 1)
-    cmp = r.get("cmp", 0) or 0
-    entry_price = r.get("entry_price", 0) or 0
+    # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'or 0' silent suppression
+    cmp = _safe_num(r.get("cmp"))
+    entry_price = _safe_num(r.get("entry_price"))
     
     if not entry_price or entry_price <= 0:
         pass # Not an open holding, safely ignore drawdown circuit breaker
@@ -367,10 +380,10 @@ def calculate_hold_score(r: pd.Series) -> int:
             score -= 25  # Force below 45 → SELL REVIEW
     
     # 2. Technical Health (40 pts)
-    ema20 = r.get("ema_20", 0) or 0
-    sma50 = r.get("sma_50", 0) or 0
-    sma200 = r.get("sma_200", 0) or 0
-    rs_6m = r.get("rs_6m", 0) or 0
+    ema20 = _safe_num(r.get("ema_20"))
+    sma50 = _safe_num(r.get("sma_50"))
+    sma200 = _safe_num(r.get("sma_200"))
+    rs_6m = _safe_num(r.get("rs_6m"))
     
     if cmp > ema20 and ema20 > 0: score += 10
     if cmp > sma50 and sma50 > 0: score += 10
@@ -379,24 +392,24 @@ def calculate_hold_score(r: pd.Series) -> int:
     
     # 3. Fundamental Integrity (30 pts)
     # Mapping Piotroski/Fundamentals to our existing FM_Score
-    fm_score = r.get("FM_Score", 0) or 0
+    fm_score = _safe_num(r.get("FM_Score"))
     if fm_score >= 70: score += 15
     elif fm_score >= 50: score += 5
     
     pledge = r.get("Promoter_Pledge")
     if pledge is not None and pledge == 0: score += 10
     
-    yoy_profit = r.get("YOY Profit %", 0) or 0
+    yoy_profit = _safe_num(r.get("YOY Profit %"))
     if yoy_profit > 0: score += 5
     
     # 4. Sector & Momentum Regime (15 pts)
     # Using 6-month RS Rating (Percentile)
-    rs_rating = r.get("RS_Rating", 0) or 0
+    rs_rating = _safe_num(r.get("RS_Rating"))
     if rs_rating > 80: score += 15
     elif rs_rating > 50: score += 5
     
     # 5. Portfolio Context / Alpha Adjustments (15 pts)
-    ai_conf = r.get("AI_Confidence", 0) or 0
+    ai_conf = _safe_num(r.get("AI_Confidence"))
     if ai_conf >= 7: score += 15
     elif ai_conf >= 4: score += 5
     
@@ -490,9 +503,10 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
         
     def _get_entry_signal(r):
         score = r.get("FM_Score", 0)
-        cmp = r.get("cmp", 0) or 0
-        sma = r.get("sma_200", 0) or 0
-        rs = r.get("rs_6m", 0) or 0
+        # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'or 0' silent suppression in entry signal
+        cmp = _safe_num(r.get("cmp"))
+        sma = _safe_num(r.get("sma_200"))
+        rs = _safe_num(r.get("rs_6m"))
         used_fallback = r.get("used_fallback_data", False)
         bucket = str(r.get("Portfolio_Bucket", ""))
         is_complete = r.get("candidate_complete_for_buy", False)
@@ -507,12 +521,13 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
             if "Quality-On-Sale" in bucket:
                 cons_score = r.get("Consistency_Score", 0)
                 val_score = r.get("Valuation_Score", 0)
-                roce = r.get("ROCE %", 0) or 0
+                roce = _safe_num(r.get("ROCE %"))
                 fcf_margin = r.get("FCF Margin %")
                 path = r.get("Path", "")
                 mom_conf = r.get("momentum_confidence", "")
                 
-                fcf_ok = True if path == "Financial" else (fcf_margin is not None and fcf_margin > 0)
+                # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'is not None' — np.nan passes 'is not None'
+                fcf_ok = True if path == "Financial" else (not pd.isna(fcf_margin) and fcf_margin > 0)
                 
                 if (score >= 78 and cons_score >= 18 and val_score >= 15 and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
@@ -603,8 +618,8 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         tax_info = {}
         try:
             entry_date = _coerce_to_date(r.get("entry_date"))
-            entry_price = r.get("entry_price", 0) or 0
-            cmp_price = r.get("cmp", entry_price) or entry_price
+            entry_price = _safe_num(r.get("entry_price"))
+            cmp_price = _safe_num(r.get("cmp"), default=entry_price)
             pnl_pct = ((cmp_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
             if entry_date:
                 tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
@@ -619,9 +634,9 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         hold_trend = trend["reason"] if trend["action"] != "HOLD" else "Stable"
         r["hold_trend"] = hold_trend
 
-        cmp = r.get("cmp", 0) or 0
-        sma = r.get("sma_200", 0) or 0
-        rs = r.get("rs_6m", 0) or 0
+        cmp = _safe_num(r.get("cmp"))
+        sma = _safe_num(r.get("sma_200"))
+        rs = _safe_num(r.get("rs_6m"))
         data_quality = r.get("data_quality")
         used_fallback_data = r.get("used_fallback_data", False)
         
