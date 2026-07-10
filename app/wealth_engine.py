@@ -232,7 +232,9 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
 
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
-    # [VERSION: WEALTH_BUCKET_FIX_v1.0] Fix missing fundamentals zero coercion
+    import pandas as pd
+    
+    # [VERSION: WEALTH_BUCKET_FIX_v1.1] Handle pandas NaN semantics for missing data
     score      = r.get("FM_Score", 0)
     mcap       = r.get("Market Cap Cr")
     roce       = r.get("ROCE %")
@@ -254,31 +256,40 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
         return None
 
+    # Helper for missing data bypass
+    def _is_ok(val, threshold, is_lower_bound=True):
+        if pd.isna(val):
+            return True
+        if is_lower_bound:
+            return float(val) >= threshold
+        else:
+            return float(val) <= threshold
+
     # Core Compounder — ₹10,000 Cr+ mega-quality
-    if score >= 80 and (mcap is None or float(mcap) >= 10000) and (roce is None or float(roce) >= 20) and (roe is None or float(roe) >= 15) and (de is None or float(de) <= 0.5):
+    if score >= 80 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
         buckets.append("Core")
 
     # Growth Multiplier — ₹2,000 Cr+ emerging leaders
-    if score >= 75 and (mcap is None or float(mcap) >= 2000) and (yoy_sales is None or float(yoy_sales) >= 20) and (yoy_profit is None or float(yoy_profit) >= 20) and (rs_6m is None or float(rs_6m) > 0) and (dist_52w is None or float(dist_52w) <= 15):
+    if score >= 75 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
         buckets.append("Growth")
 
     # Opportunistic Momentum — massive acceleration
-    if score >= 65 and (yoy_profit is None or float(yoy_profit) >= 40) and (rs_6m is None or float(rs_6m) >= 15) and "SME" not in cats:
+    if score >= 65 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
         buckets.append("Opportunistic")
 
     # Quality-On-Sale — Temporarily out of favor but high quality
     peg = r.get("PEG Ratio", 1.0)
-    if peg is None: peg = 1.0
+    if pd.isna(peg): peg = 1.0
     
     cons_score = r.get("Consistency_Score", 0)
     fcf_margin = r.get("FCF Margin %")
     
-    if score >= 60 and (mcap is None or float(mcap) >= 500) and (de is None or float(de) <= 1.0) and "SME" not in cats and (roce is None or float(roce) >= 15) and (cons_score >= 18 or (fcf_margin is not None and fcf_margin > 0)):
-        is_qos = ((dist_52w is None or float(dist_52w) > 10) and (dist_52w is None or float(dist_52w) <= 30) and float(peg) < 1.0 and (rs_6m is None or float(rs_6m) > 0))
+    if score >= 60 and _is_ok(mcap, 500) and _is_ok(de, 1.0, False) and "SME" not in cats and _is_ok(roce, 15) and (cons_score >= 18 or (not pd.isna(fcf_margin) and fcf_margin > 0)):
+        is_qos = (_is_ok(dist_52w, 10.01) and _is_ok(dist_52w, 30.0, False) and float(peg) < 1.0 and _is_ok(rs_6m, 0.01))
         
         # MACRO REGIME GATE: If Nifty is >15% below 52W high, loosen QOS criteria
         if nifty_dist_52w is not None and nifty_dist_52w > 15:
-            is_qos = is_qos or ((dist_52w is None or float(dist_52w) > 10) and (dist_52w is None or float(dist_52w) <= 45) and float(peg) < 1.5 and (rs_6m is None or float(rs_6m) > -15))
+            is_qos = is_qos or (_is_ok(dist_52w, 10.01) and _is_ok(dist_52w, 45.0, False) and float(peg) < 1.5 and _is_ok(rs_6m, -14.99))
             
         if is_qos:
             buckets.append("Quality-On-Sale")
