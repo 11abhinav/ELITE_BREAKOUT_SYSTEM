@@ -201,103 +201,33 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
-    try:
-        from core.deprecated.core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
-    except ImportError:
-        from core_score_engine import CoreFundamentals, PeerMetrics, CorePriceData, generate_core_scores
+    """
+    Migrated to V5 Pipeline architecture since core.deprecated.core_score_engine was removed.
+    Maps V5 component scores to legacy FM_Score (CIS), Valuation_Score (RVS), and Consistency_Score (BQS).
+    """
+    from core.multibagger_pipeline import run_pipeline_for_symbol
     
-    def _safe_float(val, default=0.0):
-        if val is None: return default
-        try:
-            f = float(val)
-            return default if pd.isna(f) else f
-        except (ValueError, TypeError):
-            return default
-
-    def _safe_bool(val):
-        if val is None or pd.isna(val): return False
-        return bool(val)
-        
-    def _safe_pct(val, default=None):
-        f = _safe_float(val, default=default)
-        if f is not None:
-            return f / 100.0
-        return default
-        
     symbol = str(r.get("Stock", ""))
-    
-    f = CoreFundamentals(
-        symbol=symbol,
-        sector=str(r.get("Sector", "")),
-        canonical_industry=str(r.get("Industry", r.get("Sector", ""))),
-        pe=_safe_float(r.get("P/E Ratio"), None),
-        pb=_safe_float(r.get("P/B Ratio"), None),
-        roe=_safe_pct(r.get("ROE %"), None),
-        roce=_safe_pct(r.get("ROCE %"), None),
-        debt_equity=_safe_float(r.get("Debt/Equity"), None),
-        operating_margin=_safe_pct(r.get("OPM %"), None),
-        revenue_growth_3y=_safe_pct(r.get("3Y Revenue %"), None),
-        revenue_growth_5y=_safe_pct(r.get("5Y Revenue %"), None),
-        eps_growth_3y=_safe_pct(r.get("3Y EPS %"), None),
-        eps_growth_5y=_safe_pct(r.get("5Y EPS %"), None),
-        revenue_growth_1y=_safe_pct(r.get("YOY Revenue %"), None),
-        eps_growth_1y=_safe_pct(r.get("YOY EPS %"), None),
-        fcf_margin=_safe_pct(r.get("FCF Margin %"), None),
-        cfo_pat_ratio=_safe_float(r.get("CFO/PAT"), None),
-        operating_cash_flow=_safe_float(r.get("Operating Cash Flow"), None),
-        yoy_profit_growth=_safe_pct(r.get("YOY Profit %"), None),
-        net_losses_3y=_safe_bool(r.get("Net Losses 3Y")),
-        div_yield=_safe_pct(r.get("Div Yield %"), 0.0),
-        eps=_safe_float(r.get("EPS"), None),
-        bvps=_safe_float(r.get("BVPS"), None),
-        roa=_safe_pct(r.get("ROA %"), None),
-        is_financial=(str(r.get("Path", "")) == "Financial")
-    )
-    
-    ps = sector_stats.get(symbol, {}) if sector_stats else {}
-    
-    p = PeerMetrics(
-        median_pe=ps.get("effective_pe"),
-        median_pb=ps.get("effective_pb"),
-        median_roe=ps.get("median_roe", 0) / 100.0 if ps.get("median_roe") is not None else None,
-        median_peg=ps.get("median_peg"),
-        peer_count=ps.get("peer_count", 0),
-        dispersion_iqr_median=ps.get("dispersion_iqr_median"),
-        source_type=ps.get("source_type", "FALLBACK"),
-        is_complete=(ps.get("peer_count", 0) >= 15),
-        missing_critical=(ps.get("effective_pe") is None and ps.get("effective_pb") is None),
-        missing_minor=(ps.get("dispersion_iqr_median") is None)
-    )
-    
-    pd_data = CorePriceData(
-        price=_safe_float(r.get("cmp")),
-        sma_50=_safe_float(r.get("sma_50")),
-        sma_200=_safe_float(r.get("sma_200")),
-        high_20d=_safe_float(r.get("high_20d")),
-        latest_volume=_safe_float(r.get("Volume")),
-        volume_sma20=_safe_float(r.get("volume_sma20"))
-    )
-    
-    ai_conf = r.get("AI_Confidence", 0)
-    overlays = 0.0
-    if ai_conf >= 8: overlays = 5.0
-    elif ai_conf == 7: overlays = 2.0
-    elif 1 <= ai_conf <= 4: overlays = -5.0
+    raw_data = r.to_dict()
     
     try:
-        scores = generate_core_scores(f, p, pd_data, strategic_overlays=overlays)
-    except TypeError:
-        # Fallback for older core_score_engine without strategic_overlays param
-        scores = generate_core_scores(f, p, pd_data)
-    
-    return pd.Series({
-        "CIS": scores.composite_investment_score,
-        "RVS": scores.relative_valuation_score,
-        "BQS": scores.business_quality_score,
-        "Reliability": scores.bayesian_confidence_score,
-        "Base_FV": scores.valuation.fair_value if scores.valuation else None,
-        "Bull_FV": scores.valuation.bull_value if scores.valuation else None
-    })
+        # The V5 pipeline expects a dict of the watchlist row
+        decision = run_pipeline_for_symbol(symbol, raw_data)
+        
+        return pd.Series({
+            "CIS": decision.composite_score,
+            "RVS": decision.valuation.score if decision.valuation else 0,
+            "BQS": decision.quality.score if decision.quality else 0,
+            "Reliability": decision.quality.confidence if decision.quality else 0,
+            "Base_FV": None,  # Deprecated in V5
+            "Bull_FV": None   # Deprecated in V5
+        })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"V5 Pipeline failed for {symbol}: {e}")
+        return pd.Series({
+            "CIS": 0, "RVS": 0, "BQS": 0, "Reliability": 0, "Base_FV": None, "Bull_FV": None
+        })
 
 
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
