@@ -191,11 +191,14 @@ def run_valuation_engine(symbol: str, raw_data: Dict[str, Any], weights: Dict[st
         if current_price > 0:
             margin_of_safety = ((fair_value - current_price) / fair_value) * 100.0
             
-            # Score logic: Higher margin of safety = better score
+            # [VERSION: VALUATION_PENALTY_FLAT_v1.0] Flattened penalty curve for breakout system
+            # Avoids heavily punishing premium-priced quality stocks unless they are in absurd mania
             if margin_of_safety > 20: score = 100.0
-            elif margin_of_safety > 0: score = 75.0
-            elif margin_of_safety > -20: score = 50.0
-            else: score = 20.0
+            elif margin_of_safety > 0: score = 85.0
+            elif margin_of_safety > -15: score = 75.0
+            elif margin_of_safety > -30: score = 60.0 # premium but acceptable
+            elif margin_of_safety > -50: score = 40.0 # very expensive
+            else: score = 20.0 # mania
             
             reasons.append(f"Fair Value: {fair_value:.2f}, MoS: {margin_of_safety:.1f}%")
         else:

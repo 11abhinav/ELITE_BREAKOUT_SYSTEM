@@ -519,7 +519,6 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                 
                     trigger_level = float(item.get("trigger_level") or breakout_level)
                     max_ext_atr = float(item.get("max_extension_atr") or 0.8)
-                    buffer_val = trigger_level * float(item.get("buffer_pct") or 0.0015)
                 
                     e9 = float(latest.get("EMA9", 0))
                     close = float(latest["Close"])
@@ -529,6 +528,10 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                 
                     if atr20 <= 0:
                         continue
+                        
+                    # [VERSION: MULTI_TF_THRUST_FIX_v1.0] Dynamic ATR-relative buffer (15% of ATR) to prevent mathematical contradiction
+                    # with the max_ext_atr (which is typically 80% of ATR).
+                    buffer_val = 0.15 * atr20
                 
                     if len(df) >= 22:
                         mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
@@ -573,22 +576,47 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                             continue
                         # Idempotency check before alert
                         if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="INTRADAY", lookback_minutes=390):
-                            # Direct structural stop using max for tighter stop
+                            from sl_target_helper import compute_sl_and_target
+                            sl_result = compute_sl_and_target(
+                                entry_price=close,
+                                atr=atr20,
+                                candle_range=float(latest["High"]) - float(latest["Low"]),
+                                mode="INTRADAY",
+                                adx=latest.get("ADX"),
+                                rsi=float(latest.get("RSI", 0)),
+                                macd_hist=latest.get("MACD_HIST"),
+                                atr_pct=latest.get("ATR_PCT"),
+                                swing_low=latest.get("SWING_LOW"),
+                                swing_high=latest.get("SWING_HIGH"),
+                                bb_upper=latest.get("BB_UPPER"),
+                                bb_lower=latest.get("BB_LOWER"),
+                                bb_mid=latest.get("BB_MID"),
+                                s1=latest.get("S1"),
+                                s2=latest.get("S2"),
+                                r1=latest.get("R1"),
+                                r2=latest.get("R2"),
+                                swing_low_raw=latest.get("SWING_LOW_RAW"),
+                                swing_high_raw=latest.get("SWING_HIGH_RAW"),
+                                candle_low=low,
+                                vwap=latest.get("VWAP"),
+                                ticker=df,
+                            )
+                            final_sl = sl_result["stop_loss"]
+                            calc_target = sl_result["target_1"]
+
+                            if sl_result.get("rr_ratio", 0.0) < 1.5:
+                                logger.info(f"🚫 {symbol} alert SUPPRESSED: low R:R ratio {sl_result.get('rr_ratio')}")
+                                continue
+
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))
-                            structure_sl = min(low, float(prev["Low"])) - (0.2 * atr20)
-                            final_sl = max(structure_sl, invalidation_level)
-                            if final_sl >= close:
-                                final_sl = close - (0.5 * atr20) # Fallback if invalidation is too high
-                            
-                            calc_target = close + ((close - final_sl) * 2)
-                        
                             ctx = json.dumps({
                                 "ladder": "TRADE_ACTIVE",
                                 "breakout_level": round(trigger_level, 2),
                                 "trigger": trigger_type,
                                 "vol_ratio": round(vol_ratio, 2),
                                 "final_sl": round(final_sl, 2),
-                                "invalidation_level": round(invalidation_level, 2)
+                                "invalidation_level": round(invalidation_level, 2),
+                                "stop_basis": sl_result.get("sl_method", "Structural SL")
                             })
                         
                             if is_test_mode:

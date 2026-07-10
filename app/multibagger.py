@@ -393,7 +393,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     Hard pre-scoring quality gate for Multibagger alerts.
     """
-    # [VERSION: MULTIBAGGER_GATE_FIX_v1.0] Fixed missing data penalties & added minimum known metrics floor
+    # [VERSION: MULTIBAGGER_GATE_FIX_v1.1] Fixed missing data penalties & added minimum known metrics floor
     known_metrics_count = 0
     
     # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
@@ -404,14 +404,14 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         if roce_val is not None and not pd.isna(roce_val):
             known_metrics_count += 1
             roce = safe_float(roce_val)
-            if roce < 0.15:
-                return False, f"ROCE/ROE below 15% ({roce*100:.1f}%)"
+            if roce < 0.10:
+                return False, f"ROCE/ROE below 10% ({roce*100:.1f}%)"
     
     rev_cagr = f.get("revenue_cagr_3y")
     if rev_cagr is not None and not pd.isna(rev_cagr):
         known_metrics_count += 1
-        if safe_float(rev_cagr) < 0.08:
-            return False, f"Revenue CAGR 3Y below 8% ({safe_float(rev_cagr)*100:.1f}%)"
+        if safe_float(rev_cagr) < 0.00:
+            return False, f"Revenue CAGR 3Y negative ({safe_float(rev_cagr)*100:.1f}%)"
         
     pledge = safe_float(f.get("promoter_pledge_pct", 0.0))
     if pledge > 0.20:
@@ -424,8 +424,8 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         roe = f.get("roe")
         if roe is not None and not pd.isna(roe):
             known_metrics_count += 1
-            if safe_float(roe) < 0.12: # Financials allowed slightly lower ROE but still positive
-                return False, f"Financial ROE below 12% ({safe_float(roe)*100:.1f}%)"
+            if safe_float(roe) < 0.10: # Financials allowed slightly lower ROE but still positive
+                return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
             
         gnpa = f.get("gnpa")
         if gnpa is not None and not pd.isna(gnpa):
@@ -448,26 +448,26 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         opm = f.get("operating_margin_ttm")
         if opm is not None and not pd.isna(opm):
             known_metrics_count += 1
-            if safe_float(opm) < 0.12:
-                return False, f"Operating margin below 12% ({safe_float(opm)*100:.1f}%)"
+            if safe_float(opm) < 0.08:
+                return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
             
         fcf_margin = f.get("fcf_margin")
         if fcf_margin is not None and not pd.isna(fcf_margin):
             known_metrics_count += 1
-            if safe_float(fcf_margin) < 0.05:
-                return False, f"Weak FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
+            if safe_float(fcf_margin) < 0.00:
+                return False, f"Negative FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
             
         cfo_pat = f.get("cfo_pat_ratio")
         if cfo_pat is not None and not pd.isna(cfo_pat):
             known_metrics_count += 1
-            if safe_float(cfo_pat) < 0.6:
+            if safe_float(cfo_pat) < 0.5:
                 return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
             
         de = f.get("debt_equity")
         if de is not None and not pd.isna(de):
             known_metrics_count += 1
-            if safe_float(de) > 1.0:
-                return False, f"Debt/Equity > 1.0 ({safe_float(de):.2f})"
+            if safe_float(de) > 2.0:
+                return False, f"Debt/Equity > 2.0 ({safe_float(de):.2f})"
             
         icr = f.get("interest_coverage_ratio")
         if icr is not None and not pd.isna(icr):
@@ -492,11 +492,11 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float) 
     Tiered classification for multibaggers.
     Returns (Tier, Score)
     """
-    if composite >= 80 and cqs >= 75 and pas >= 60 and trend >= 10.0:
+    if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0:
         return "PRIME", composite
-    elif composite >= 72 and cqs >= 70 and trend >= 10.0:
+    elif composite >= 65 and cqs >= 60 and trend >= 10.0:
         return "HIGH_QUALITY", composite
-    elif composite >= 65:
+    elif composite >= 50:
         return "WATCH_ONLY", composite
     else:
         return "REJECT", composite
@@ -636,9 +636,15 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     total_equity = assets - total_liab
                 if not total_equity and bv and shares:
                     total_equity = bv * shares
+                    
+                roe = None
+                # [VERSION: MULTIBAGGER_ROE_FIX_v1.0] Added ROE calculation with safeguards
+                if pat is not None and not pd.isna(pat) and total_equity is not None and total_equity > 0:
+                    roe = pat / total_equity
                 
                 fund = {
                     "symbol": symbol,
+                    "roe": roe,
                     "sector": info.get("sector", "Unknown"),
                     "market_cap": market_cap,
                     "shares_outstanding": shares,
