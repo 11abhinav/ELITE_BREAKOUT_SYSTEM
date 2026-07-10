@@ -166,6 +166,26 @@ import os
 from config import DATA_DIR
 from datetime import timedelta
 
+def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
+    """Checks if the cached data already contains the most recent market close."""
+    now_dt = datetime.now(IST)
+    market_close = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+    
+    if now_dt.weekday() >= 5:
+        last_close = market_close - timedelta(days=now_dt.weekday() - 4)
+    elif now_dt > market_close:
+        last_close = market_close
+    elif now_dt.weekday() == 0:
+        last_close = market_close - timedelta(days=3)
+    else:
+        last_close = market_close - timedelta(days=1)
+        
+    if interval.lower() in ('1d', 'daily', '1wk', '1mo'):
+        return last_ts.date() >= last_close.date()
+    else:
+        # Intraday candles: allow a 30m buffer for early broker closures (e.g. 15:25 candle)
+        return last_ts >= (last_close - timedelta(minutes=30))
+
 def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, requester: str = None) -> dict[str, pd.DataFrame]:
     symbols = watchlist["Stock"].tolist()
     all_data: dict[str, pd.DataFrame] = {}
@@ -200,6 +220,17 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         last_ts = pd.to_datetime(cached_df['Datetime'].iloc[-1])
                     else:
                         last_ts = pd.to_datetime(cached_df.index[-1])
+                        
+                    if last_ts.tzinfo is None:
+                        last_ts = last_ts.tz_localize(IST)
+                    else:
+                        last_ts = last_ts.tz_convert(IST)
+                        
+                    # 🚀 OPTIMIZATION: If data is already up to the last market close, skip DELTA fetch completely!
+                    if _is_cache_up_to_date(last_ts, interval):
+                        all_data[sym] = cached_df
+                        needs_full = False
+                        continue
                         
                     # Back up 1 day to ensure we get overlapping candles to avoid gaps
                     range_from = (last_ts - timedelta(days=1)).strftime("%Y-%m-%d")
