@@ -72,8 +72,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     Adds to breakout_watchlist as HOURLY_APPROVED.
     """
     from market_utils import is_market_open
-    if not (run_once and is_test_mode) and not is_market_open():
-        logger.info("Market is closed. Skipping Phase A.")
+    if not run_once and not is_market_open():
+        logger.info("Market is closed. Skipping 1H phase.")
         return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
     logger.info("🕒 Starting Phase A (1H Trend Scanner)...")
     
@@ -238,7 +238,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
       HOURLY_APPROVED → (30m) SETUP_ARMED → (15m) ENTRY_READY → (5m) TRADE_ACTIVE
     """
     from market_utils import is_market_open
-    if not (run_once and is_test_mode) and not is_market_open():
+    if not run_once and not is_market_open():
         logger.info("Market is closed. Skipping lower TF phase.")
         return {"fetched": 0, "total": 0, "stale": 0}
     logger.info("⚡ Starting Phase B/C/D (Sub-hourly Ladder Updater)...")
