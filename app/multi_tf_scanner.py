@@ -31,22 +31,26 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     import pandas as pd
     if df is None or df.empty:
         return df
-    try:
-        raw_ts = pd.Timestamp(df.index[-1])
-        # [VERSION: TIMEZONE_FIX_v1.1] Strict Timezone Provenance Enforcement
-        # Fetch layer is contracted to provide tz-aware IST indices. Reject naives.
-        if raw_ts.tzinfo is None:
-            logger.error(f"strip_forming_candle received a NAIVE timestamp. Rejecting df to prevent false state.")
-            return df
+    
+    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+    if datetime_col is not None:
+        try:
+            raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
+            if raw_ts.tzinfo is not None:
+                raw_ts = raw_ts.tz_convert(IST)
+            else:
+                # If naive, assume it's already IST from the data fetcher
+                raw_ts = raw_ts.tz_localize(IST)
+                
+            candle_start = raw_ts.replace(tzinfo=None)
+            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
+            now_naive    = ist_now.replace(tzinfo=None)
             
-        raw_ts = raw_ts.tz_convert(IST)
-        candle_end = raw_ts + pd.Timedelta(minutes=tf_minutes)
-        
-        # Safe timezone-aware comparison
-        if ist_now < candle_end:
-            return df.iloc[:-1].copy()
-    except Exception:
-        pass
+            if now_naive < candle_end:
+                return df.iloc[:-1].copy()
+        except Exception as e:
+            logger.warning(f"Failed to strip forming candle: {e}")
+            pass
     return df
 
 
