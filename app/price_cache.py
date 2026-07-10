@@ -169,9 +169,18 @@ from datetime import timedelta
 def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
     """Checks if the cached data already contains the most recent market close."""
     now_dt = datetime.now(IST)
+    market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
     
-    if now_dt.weekday() >= 5:
+    is_weekend = now_dt.weekday() >= 5
+    is_market_active = not is_weekend and (market_open <= now_dt <= market_close)
+    
+    # If the market is currently OPEN, the cache is NEVER fully up to date
+    # (because new candles are forming right now). We MUST fetch the delta.
+    if is_market_active:
+        return False
+        
+    if is_weekend:
         last_close = market_close - timedelta(days=now_dt.weekday() - 4)
     elif now_dt > market_close:
         last_close = market_close
