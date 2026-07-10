@@ -249,19 +249,40 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 new_df[time_col] = new_df[time_col].dt.tz_localize('Asia/Kolkata')
                             else:
                                 new_df[time_col] = new_df[time_col].dt.tz_convert('Asia/Kolkata')
+                        elif not new_df.index.empty:
+                            new_df.index = pd.to_datetime(new_df.index)
+                            if new_df.index.tz is None:
+                                new_df.index = new_df.index.tz_localize('Asia/Kolkata')
+                            else:
+                                new_df.index = new_df.index.tz_convert('Asia/Kolkata')
                                 
                         fresh_count += 1
                         if cached_df is not None and not cached_df.empty:
+                            # [VERSION: TIMEZONE_FIX_v1.1] Normalize cached_df timezone before concat
+                            c_time_col = 'Date' if 'Date' in cached_df.columns else ('Datetime' if 'Datetime' in cached_df.columns else None)
+                            if c_time_col:
+                                cached_df[c_time_col] = pd.to_datetime(cached_df[c_time_col])
+                                if cached_df[c_time_col].dt.tz is None:
+                                    cached_df[c_time_col] = cached_df[c_time_col].dt.tz_localize('Asia/Kolkata')
+                                else:
+                                    cached_df[c_time_col] = cached_df[c_time_col].dt.tz_convert('Asia/Kolkata')
+                            elif not cached_df.index.empty:
+                                cached_df.index = pd.to_datetime(cached_df.index)
+                                if cached_df.index.tz is None:
+                                    cached_df.index = cached_df.index.tz_localize('Asia/Kolkata')
+                                else:
+                                    cached_df.index = cached_df.index.tz_convert('Asia/Kolkata')
+
                             # Merge them
                             combined = pd.concat([cached_df, new_df])
                             # Deduplicate based on timestamp
-                            time_col = 'Date' if 'Date' in combined.columns else ('Datetime' if 'Datetime' in combined.columns else None)
-                            if time_col:
-                                combined = combined.drop_duplicates(subset=[time_col], keep='last')
+                            time_col_comb = 'Date' if 'Date' in combined.columns else ('Datetime' if 'Datetime' in combined.columns else None)
+                            if time_col_comb:
+                                combined = combined.drop_duplicates(subset=[time_col_comb], keep='last')
                             else:
                                 combined = combined[~combined.index.duplicated(keep='last')]
                                 
-                            combined = combined.sort_index() if time_col is None else combined.sort_values(time_col)
+                            combined = combined.sort_index() if time_col_comb is None else combined.sort_values(time_col_comb)
                             
                             # Keep reasonable history limit to prevent infinite growth
                             max_rows = 5000 if interval.endswith('m') else 2000
