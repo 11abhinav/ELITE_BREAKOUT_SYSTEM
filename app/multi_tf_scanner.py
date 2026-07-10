@@ -32,10 +32,19 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     if df is None or df.empty:
         return df
     
-    datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
-    if datetime_col is not None:
-        try:
+    try:
+        raw_ts = None
+        datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+        
+        if datetime_col is not None:
             raw_ts = pd.Timestamp(df.iloc[-1][datetime_col])
+        elif isinstance(df.index, pd.DatetimeIndex) or isinstance(df.index[-1], (pd.Timestamp, pd.DatetimeIndex)):
+            raw_ts = pd.Timestamp(df.index[-1])
+        else:
+            # Fallback for naive RangeIndex parsing issues
+            return df
+            
+        if raw_ts is not None:
             if raw_ts.tzinfo is not None:
                 raw_ts = raw_ts.tz_convert(IST)
             else:
@@ -48,9 +57,9 @@ def strip_forming_candle(df, tf_minutes, ist_now):
             
             if now_naive < candle_end:
                 return df.iloc[:-1].copy()
-        except Exception as e:
-            logger.warning(f"Failed to strip forming candle: {e}")
-            pass
+    except Exception as e:
+        logger.warning(f"Failed to strip forming candle: {e}")
+        pass
     return df
 
 
