@@ -1324,12 +1324,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         tier, composite = classify_conviction(cqs, pas, trend, total)
         
-        # [FINDING-B FIX] In BEAR regime, only downgrade HIGH_QUALITY if composite < 75.
+        # [FINDING-B FIX] In BEAR regime, only downgrade HIGH_QUALITY if composite < 70.
         # Previously ALL HIGH_QUALITY were downgraded, blocking ~80% of potential alerts.
-        # Now the strongest HIGH_QUALITY (composite >= 75) can still alert in bear markets.
-        if market_regime == "BEAR" and tier == "HIGH_QUALITY" and composite < 75:
+        # Now the strongest HIGH_QUALITY (composite >= 70) can still alert in bear markets.
+        if market_regime == "BEAR" and tier == "HIGH_QUALITY" and composite < 70:
             tier = "WATCH_ONLY"
-            logger.info(f"🐻 [BEAR REGIME] {sym}: Downgraded from HIGH_QUALITY to WATCH_ONLY (composite {composite:.1f} < 75)")
+            logger.info(f"🐻 [BEAR REGIME] {sym}: Downgraded from HIGH_QUALITY to WATCH_ONLY (composite {composite:.1f} < 70)")
         
         if tier not in ["PRIME", "HIGH_QUALITY"]:
             status = "WAITING_BUY_ZONE"
