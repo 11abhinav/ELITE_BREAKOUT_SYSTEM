@@ -782,6 +782,16 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")
             
             if run_once:
+                try:
+                    from database import insert_notification
+                    total_scanned = metrics_a.get("total", 0) + metrics_b.get("total", 0)
+                    insert_notification(
+                        "admin", 
+                        "🚀 MULTI_TF Scanner ran successfully.",
+                        f"Evaluated {total_scanned} setups across multiple timeframes."
+                    )
+                except Exception:
+                    pass
                 return {"total_count": total_symbols}
                 
             logger.info("💤 Sleeping 5 minutes before next Multi-TF ladder run...")
