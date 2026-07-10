@@ -455,17 +455,14 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
 
     def check_completeness(r):
-        mand_cols = ["ROE %", "YOY Revenue %", "YOY Profit %", "Debt/Equity", "cmp", "sma_200", "rs_6m", "FM_Score", "Valuation_Score", "Consistency_Score", "data_quality", "momentum_confidence"]
+        # [VERSION: WEALTH_COMPLETENESS_FIX_v1.0] 
+        # Removed hard fundamental checks (ROE, ROCE, FCF Margin, etc.) to prevent double-penalizing
+        # missing data. The V5 pipeline's FM_Score already accounts for and degrades on missing data.
+        # We only require technicals and the final V5 scores to be present.
+        mand_cols = ["cmp", "sma_200", "rs_6m", "FM_Score", "Valuation_Score", "Consistency_Score", "data_quality", "momentum_confidence"]
         for col in mand_cols:
             if pd.isna(r.get(col)): return False
             
-        path = r.get("Path", "")
-        if path == "Financial":
-            if pd.isna(r.get("ROA %")): return False
-        else:
-            if pd.isna(r.get("ROCE %")) or pd.isna(r.get("FCF Margin %")): return False
-            
-        if pd.isna(r.get("P/E Ratio")) and pd.isna(r.get("P/B Ratio")): return False
         return True
         
     wealth_df["candidate_complete_for_buy"] = wealth_df.apply(check_completeness, axis=1)

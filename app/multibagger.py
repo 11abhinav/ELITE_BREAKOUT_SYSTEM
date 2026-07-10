@@ -390,16 +390,25 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     Hard pre-scoring quality gate for Multibagger alerts.
     """
+    # [VERSION: MULTIBAGGER_GATE_FIX_v1.0] Fixed missing data penalties & added minimum known metrics floor
+    known_metrics_count = 0
+    
     # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
     is_fin = f.get("is_financial", False)
     if not is_fin:
-        roce = safe_float(f.get("roce", f.get("roe", 0.0)))
-        if roce < 0.15:
-            return False, f"ROCE/ROE below 15% ({roce*100:.1f}%)"
+        # Check if ROCE or ROE is present
+        roce_val = f.get("roce", f.get("roe"))
+        if roce_val is not None:
+            known_metrics_count += 1
+            roce = safe_float(roce_val)
+            if roce < 0.15:
+                return False, f"ROCE/ROE below 15% ({roce*100:.1f}%)"
     
-    rev_cagr = safe_float(f.get("revenue_cagr_3y", 0.0))
-    if f.get("revenue_cagr_3y") is not None and rev_cagr < 0.08:
-        return False, f"Revenue CAGR 3Y below 8% ({rev_cagr*100:.1f}%)"
+    rev_cagr = f.get("revenue_cagr_3y")
+    if rev_cagr is not None:
+        known_metrics_count += 1
+        if safe_float(rev_cagr) < 0.08:
+            return False, f"Revenue CAGR 3Y below 8% ({safe_float(rev_cagr)*100:.1f}%)"
         
     pledge = safe_float(f.get("promoter_pledge_pct", 0.0))
     if pledge > 0.20:
@@ -408,48 +417,70 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     if f.get("auditor_flags") is True:
         return False, "Auditor/Forensic red flags"
 
-    is_fin = f.get("is_financial", False)
-    
     if is_fin:
-        roe = safe_float(f.get("roe", 0.0))
-        if f.get("roe") is not None and roe < 0.12: # Financials allowed slightly lower ROE but still positive
-            return False, f"Financial ROE below 12% ({roe*100:.1f}%)"
+        roe = f.get("roe")
+        if roe is not None:
+            known_metrics_count += 1
+            if safe_float(roe) < 0.12: # Financials allowed slightly lower ROE but still positive
+                return False, f"Financial ROE below 12% ({safe_float(roe)*100:.1f}%)"
             
-        gnpa = safe_float(f.get("gnpa", 0.0))
-        if f.get("gnpa") is not None and gnpa > 0.05:
-            return False, f"High GNPA ({gnpa*100:.1f}%)"
+        gnpa = f.get("gnpa")
+        if gnpa is not None:
+            known_metrics_count += 1
+            if safe_float(gnpa) > 0.05:
+                return False, f"High GNPA ({safe_float(gnpa)*100:.1f}%)"
             
-        car = safe_float(f.get("capital_adequacy_ratio", 0.0))
-        if f.get("capital_adequacy_ratio") is not None and car < 0.12:
-            return False, f"Low CAR ({car*100:.1f}%)"
+        car = f.get("capital_adequacy_ratio")
+        if car is not None:
+            known_metrics_count += 1
+            if safe_float(car) < 0.12:
+                return False, f"Low CAR ({safe_float(car)*100:.1f}%)"
             
-        roa = safe_float(f.get("roa", 0.0))
-        if f.get("roa") is not None and roa < 0.01:
-            return False, f"ROA below 1% ({roa*100:.2f}%)"
+        roa = f.get("roa")
+        if roa is not None:
+            known_metrics_count += 1
+            if safe_float(roa) < 0.01:
+                return False, f"ROA below 1% ({safe_float(roa)*100:.2f}%)"
     else:
-        opm = safe_float(f.get("operating_margin_ttm", 0.0))
-        if opm < 0.12:
-            return False, f"Operating margin below 12% ({opm*100:.1f}%)"
+        opm = f.get("operating_margin_ttm")
+        if opm is not None:
+            known_metrics_count += 1
+            if safe_float(opm) < 0.12:
+                return False, f"Operating margin below 12% ({safe_float(opm)*100:.1f}%)"
             
-        fcf_margin = safe_float(f.get("fcf_margin", 0.0))
-        if f.get("fcf_margin") is None or fcf_margin < 0.05:
-            return False, f"Weak FCF conversion ({fcf_margin*100:.1f}%)"
+        fcf_margin = f.get("fcf_margin")
+        if fcf_margin is not None:
+            known_metrics_count += 1
+            if safe_float(fcf_margin) < 0.05:
+                return False, f"Weak FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
             
-        cfo_pat = safe_float(f.get("cfo_pat_ratio", 0.0))
-        if f.get("cfo_pat_ratio") is not None and cfo_pat < 0.6:
-            return False, f"Poor cash conversion CFO/PAT ({cfo_pat:.2f})"
+        cfo_pat = f.get("cfo_pat_ratio")
+        if cfo_pat is not None:
+            known_metrics_count += 1
+            if safe_float(cfo_pat) < 0.6:
+                return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
             
-        de = safe_float(f.get("debt_equity", 0.0))
-        if de > 1.0:
-            return False, f"Debt/Equity > 1.0 ({de:.2f})"
+        de = f.get("debt_equity")
+        if de is not None:
+            known_metrics_count += 1
+            if safe_float(de) > 1.0:
+                return False, f"Debt/Equity > 1.0 ({safe_float(de):.2f})"
             
-        icr = safe_float(f.get("interest_coverage_ratio", 0.0))
-        if icr < 3.0 and f.get("interest_coverage_ratio") is not None:
-            return False, f"Interest coverage < 3x ({icr:.1f})"
+        icr = f.get("interest_coverage_ratio")
+        if icr is not None:
+            known_metrics_count += 1
+            if safe_float(icr) < 3.0:
+                return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
             
-        altman_z = safe_float(f.get("altman_z", 0.0))
-        if f.get("altman_z") is not None and altman_z < 1.8:
-            return False, f"Altman-Z in distress zone ({altman_z:.2f})"
+        altman_z = f.get("altman_z")
+        if altman_z is not None:
+            known_metrics_count += 1
+            if safe_float(altman_z) < 1.8:
+                return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f})"
+
+    # Minimum data footprint check: At least 2 fundamental metrics must be known
+    if known_metrics_count < 2:
+        return False, f"Data Void: Only {known_metrics_count} fundamental metrics known"
 
     return True, ""
 
