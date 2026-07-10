@@ -89,7 +89,11 @@ def auto_login() -> str:
         try:
             res = res_obj.json()
         except ValueError:
-            logger.error(f"Fyers Step 1 failed, invalid JSON response: {res_obj.text}")
+            error_text = res_obj.text
+            if "CF-1" in error_text or "Anomaly Detection" in error_text:
+                logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
+            else:
+                logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
             return None
         
         if 'request_key' not in res:
