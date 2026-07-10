@@ -501,6 +501,7 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float) 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
+    # [VERSION: MULTIBAGGER_EMA20_FIX_v1.0] Fix entry EMA block
     [FINDING-C FIX] Removed not_freefall (price >= yesterday). A fundamentally
     prime stock pulling back into its buy zone on a red day is the ideal entry.
     The V5 pipeline already validates the technical buy zone.

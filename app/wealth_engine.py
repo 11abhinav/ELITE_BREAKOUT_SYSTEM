@@ -232,6 +232,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
 
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
+    # [VERSION: WEALTH_BUCKET_FIX_v1.0] Fix missing fundamentals zero coercion
     score      = r.get("FM_Score", 0)
     mcap       = r.get("Market Cap Cr")
     roce       = r.get("ROCE %")
