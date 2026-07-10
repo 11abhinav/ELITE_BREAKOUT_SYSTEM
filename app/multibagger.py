@@ -508,10 +508,9 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     if price_data.price < price_data.sma_200:
         return False
         
-    reclaim_ema = price_data.price > price_data.ema_20
     volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20 if price_data.volume_sma20 > 0 else True
     
-    return reclaim_ema and volume_ok
+    return volume_ok
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
@@ -1337,7 +1336,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 alert_triggered = False
             else:
                 status = "ALERT_TRIGGERED"
-                notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED"
+                reclaim_ema = price_data.price > price_data.ema_20
+                if reclaim_ema:
+                    notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (EMA Reclaimed)"
+                else:
+                    notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (Deep Value Zone)"
                 alert_triggered = True
                 
         bucket = tier

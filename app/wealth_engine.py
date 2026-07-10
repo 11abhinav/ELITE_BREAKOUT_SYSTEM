@@ -233,14 +233,14 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
     score      = r.get("FM_Score", 0)
-    mcap       = r.get("Market Cap Cr", 0) or 0
-    roce       = r.get("ROCE %", 0) or 0
-    roe        = r.get("ROE %", 0) or 0
-    de         = r.get("Debt/Equity", 0) or 0
-    yoy_sales  = r.get("YOY Revenue %", 0) or 0
-    yoy_profit = r.get("YOY Profit %", 0) or 0
-    rs_6m      = r.get("rs_6m", 0) or 0
-    dist_52w   = r.get("dist_52w_high", 100) or 100
+    mcap       = r.get("Market Cap Cr")
+    roce       = r.get("ROCE %")
+    roe        = r.get("ROE %")
+    de         = r.get("Debt/Equity")
+    yoy_sales  = r.get("YOY Revenue %")
+    yoy_profit = r.get("YOY Profit %")
+    rs_6m      = r.get("rs_6m")
+    dist_52w   = r.get("dist_52w_high")
     pledge     = r.get("Promoter_Pledge")
     liquidity  = r.get("liquidity", 0) or 0
     cats       = str(r.get("Category", ""))
@@ -248,23 +248,21 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     buckets = []
 
     # Instant Kill Gates
-    # if pledge is not None and pledge > MAX_PROMOTER_PLEDGE:
-    #     return None
     from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
     
     if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
         return None
 
     # Core Compounder — ₹10,000 Cr+ mega-quality
-    if score >= 80 and mcap >= 10000 and roce >= 20 and roe >= 15 and de <= 0.5:
+    if score >= 80 and (mcap is None or float(mcap) >= 10000) and (roce is None or float(roce) >= 20) and (roe is None or float(roe) >= 15) and (de is None or float(de) <= 0.5):
         buckets.append("Core")
 
     # Growth Multiplier — ₹2,000 Cr+ emerging leaders
-    if score >= 75 and mcap >= 2000 and yoy_sales >= 20 and yoy_profit >= 20 and rs_6m > 0 and dist_52w <= 15:
+    if score >= 75 and (mcap is None or float(mcap) >= 2000) and (yoy_sales is None or float(yoy_sales) >= 20) and (yoy_profit is None or float(yoy_profit) >= 20) and (rs_6m is None or float(rs_6m) > 0) and (dist_52w is None or float(dist_52w) <= 15):
         buckets.append("Growth")
 
     # Opportunistic Momentum — massive acceleration
-    if score >= 65 and yoy_profit >= 40 and rs_6m >= 15 and "SME" not in cats:
+    if score >= 65 and (yoy_profit is None or float(yoy_profit) >= 40) and (rs_6m is None or float(rs_6m) >= 15) and "SME" not in cats:
         buckets.append("Opportunistic")
 
     # Quality-On-Sale — Temporarily out of favor but high quality
@@ -274,17 +272,17 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     cons_score = r.get("Consistency_Score", 0)
     fcf_margin = r.get("FCF Margin %")
     
-    if score >= 60 and mcap >= 500 and de <= 1.0 and "SME" not in cats and roce >= 15 and (cons_score >= 18 or (fcf_margin is not None and fcf_margin > 0)):
-        is_qos = (dist_52w > 10 and dist_52w <= 30 and peg < 1.0 and rs_6m > 0)
+    if score >= 60 and (mcap is None or float(mcap) >= 500) and (de is None or float(de) <= 1.0) and "SME" not in cats and (roce is None or float(roce) >= 15) and (cons_score >= 18 or (fcf_margin is not None and fcf_margin > 0)):
+        is_qos = ((dist_52w is None or float(dist_52w) > 10) and (dist_52w is None or float(dist_52w) <= 30) and float(peg) < 1.0 and (rs_6m is None or float(rs_6m) > 0))
         
         # MACRO REGIME GATE: If Nifty is >15% below 52W high, loosen QOS criteria
         if nifty_dist_52w is not None and nifty_dist_52w > 15:
-            is_qos = is_qos or (dist_52w > 10 and dist_52w <= 45 and peg < 1.5 and rs_6m > -15)
+            is_qos = is_qos or ((dist_52w is None or float(dist_52w) > 10) and (dist_52w is None or float(dist_52w) <= 45) and float(peg) < 1.5 and (rs_6m is None or float(rs_6m) > -15))
             
         if is_qos:
             buckets.append("Quality-On-Sale")
 
-    return ", ".join(buckets) if buckets else None
+    return ", ".join(buckets) if buckets else "REVIEW"
 
 
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:
