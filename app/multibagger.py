@@ -1434,8 +1434,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     if alert_candidates:
         # Sort by tier, total_score desc, cqs desc
         alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
-        top_n = alert_candidates[:5]
-        logger.info(f"🏆 Top 5 Candidates selected out of {len(alert_candidates)} valid alerts.")
+        top_n = alert_candidates
+        logger.info(f"🏆 All {len(alert_candidates)} valid candidates selected.")
         
         for cand in top_n:
 
