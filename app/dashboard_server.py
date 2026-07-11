@@ -1801,11 +1801,17 @@ def api_news(symbol):
             news = []
             for item in raw_news:
                 n = item.get("content", item)
+                
+                # Safely extract link, handling None values from provider dicts
+                click_url = (n.get("clickThroughUrl") or {}).get("url", "")
+                canon_url = (n.get("canonicalUrl") or {}).get("url", "")
+                link = n.get("link") or click_url or canon_url
+                
                 news.append({
                     "title": n.get("title", ""),
                     "summary": n.get("summary", ""),
-                    "link": n.get("link") or n.get("clickThroughUrl", {}).get("url", "") or n.get("canonicalUrl", {}).get("url", ""),
-                    "provider": n.get("provider", {}).get("displayName", ""),
+                    "link": link,
+                    "provider": (n.get("provider") or {}).get("displayName", ""),
                     "date": n.get("pubDate", "") or n.get("providerPublishTime", "")
                 })
 

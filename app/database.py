@@ -3047,13 +3047,9 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
             logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} due to data_quality={data_quality}")
             return False
 
-        if fallback_timestamp:
+        import pandas as pd
+        if fallback_timestamp is not None and not pd.isna(fallback_timestamp):
             try:
-                import pandas as pd
-                if pd.isna(fallback_timestamp):
-                    logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp is missing/NaN")
-                    return False
-                    
                 ts = pd.to_datetime(fallback_timestamp)
                 if ts.tzinfo is None:
                     ts = ts.tz_localize("Asia/Kolkata")
