@@ -648,7 +648,7 @@ def _run_scan(force: bool = False):
             suggested_stop = sl_result["stop_loss"]
             target_price   = sl_result["target_1"]
  
-            if sl_result.get("rr_ratio", 0.0) < 2.0:
+            if sl_result.get("rr_ratio", 0.0) < 1.5:
                 rejected["low_rr"] += 1
                 continue
 
