@@ -3049,21 +3049,23 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
 
         if fallback_timestamp:
             try:
-                from datetime import datetime as _dt
-                # Accept either ISO strings or naive timestamps
-                if isinstance(fallback_timestamp, str):
-                    ts = _dt.fromisoformat(fallback_timestamp)
-                    if ts.tzinfo is None:
-                        from zoneinfo import ZoneInfo as _ZI
-                        ts = ts.replace(tzinfo=_ZI("Asia/Kolkata"))
+                import pandas as pd
+                if pd.isna(fallback_timestamp):
+                    logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp is missing/NaN")
+                    return False
+                    
+                ts = pd.to_datetime(fallback_timestamp)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("Asia/Kolkata")
                 else:
-                    ts = _dt(fallback_timestamp)
+                    ts = ts.tz_convert("Asia/Kolkata")
+                    
                 if ts.date() != now_ist.date():
                     logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not today")
                     return False
-            except Exception:
+            except Exception as e:
                 # If parsing fails, be conservative and suppress
-                logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol}; suppressing buy")
+                logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol} ({type(e).__name__}); suppressing buy")
                 return False
     except Exception:
         logger.exception("⚠️ save_wealth_buy_alert: stale-data guard check failed unexpectedly — allowing insert")
