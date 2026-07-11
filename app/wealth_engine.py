@@ -214,7 +214,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 def map_watchlist_to_v5(raw_data: dict) -> dict:
-    """Maps Screener export headers to V5 snake_case variables"""
+    """Maps Screener export headers to V5 snake_case variables and reconstructs missing absolute metrics for Valuation Engine."""
     import pandas as pd
     
     def _safe_float(val, default=0.0):
@@ -222,8 +222,19 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         try: return float(val)
         except: return default
         
+    market_cap = _safe_float(raw_data.get('Market Cap Cr', raw_data.get('Market Capitalization')))
+    price = _safe_float(raw_data.get('cmp', 0.0))
+    pe = _safe_float(raw_data.get('PE Ratio', raw_data.get('Price to Earning')))
+    pb = _safe_float(raw_data.get('Price to Book', raw_data.get('Price to book value')))
+    
+    # [VERSION: V5_VALUATION_FIX] The V5 Valuation Engine requires absolute numbers (EPS, BVPS, Shares) 
+    # which aren't in the raw screener ratios. We must reconstruct them mathematically.
+    shares = (market_cap / price) if price > 0 else 0.0
+    eps = (price / pe) if pe > 0 else 0.0
+    bvps = (price / pb) if pb > 0 else 0.0
+        
     return {
-        'market_cap': _safe_float(raw_data.get('Market Cap Cr', raw_data.get('Market Capitalization'))),
+        'market_cap': market_cap,
         'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))),
         'roe': _safe_float(raw_data.get('ROE %', raw_data.get('ROE'))),
         'debt_to_equity': _safe_float(raw_data.get('Debt/Equity', raw_data.get('Debt to equity'))),
@@ -232,19 +243,26 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))),
         'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))),
         'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio', 1.0))),
-        'pe': _safe_float(raw_data.get('PE Ratio', raw_data.get('Price to Earning'))),
+        'pe': pe,
         'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA'))),
         'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin'))),
-        'price_to_book': _safe_float(raw_data.get('Price to Book', raw_data.get('Price to book value'))),
+        'price_to_book': pb,
         'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability', 0.05)),
         'asset_turnover': _safe_float(raw_data.get('asset_turnover', 1.0)),
+        
+        # Injected Reconstructed Fields for Valuation Models
+        'eps': eps,
+        'book_value_per_share': bvps,
+        'shares_outstanding': shares,
+        'tt_indpe': pe,  # Proxy industry PE with trailing PE if missing
+        'ebit': eps * shares * 1.33,  # Proxy NOPAT assuming 25% tax
         
         # Technical fields that might be passed from wealth_technicals
         'pct_from_52w_high': _safe_float(raw_data.get('dist_52w_high', 0.0)) / -100.0,
         'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
         'relative_volume_10d': 1.0,  # Proxy default
         'sector': str(raw_data.get('Sector', 'Unknown')),
-        'price': _safe_float(raw_data.get('cmp', 0.0))
+        'price': price
     }
 
 def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
@@ -564,19 +582,18 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
                 # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'is not None' — np.nan passes 'is not None'
                 fcf_ok = True if path == "Financial" else (not pd.isna(fcf_margin) and fcf_margin > 0)
                 
-                if (score >= 78 and cons_score >= 18 and val_score >= 15 and
+                if (score >= 65 and cons_score >= 18 and val_score >= 10 and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
                     rs > -10 and roce >= 15 and fcf_ok and mom_conf != "LOW"):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
-        # [FINDING-D FIX] Lowered FM_Score threshold from 82 to 78 for BUY signal.
-        # Bucket assignment (determine_portfolio_bucket) already enforces its own quality
-        # thresholds, so this gate doesn't need to be at the top 18% of scores.
-        if score >= 78 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 9 and cmp > sma and sma > 0:
+        # [VERSION: V5_COMPATIBILITY_FIX] Lowered thresholds to match V5 classification config.
+        # Under V5, 65 is officially classified as "High Quality" and Valuation Models are extremely strict.
+        if score >= 65 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
             if r.get("momentum_confidence", "") == "LOW":
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
-            return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score}, Consistency: {r.get('Consistency_Score', 0)}"})
+            return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score:.1f}, Valuation: {r.get('Valuation_Score', 0):.1f}"})
             
         from wealth_mean_reversion import get_mean_reversion_signal
         mr_code, mr_reason = get_mean_reversion_signal(r)
