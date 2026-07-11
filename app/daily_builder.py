@@ -296,6 +296,11 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # Long-term specific metrics
     pe          = fv("price_earnings_ttm")
     pb          = fv("price_book_ratio")
+    
+    # Valuation fallbacks for TradingView missing data
+    if pe is None: pe = fund_data.get("pe_fallback")
+    if pb is None: pb = fund_data.get("pb_fallback")
+    
     rev_5y      = fv("total_revenue_5y_growth")
     eps_5y      = fv("earnings_per_share_basic_5y_growth")
     fcf_margin  = fv("free_cash_flow_margin_ttm")
@@ -504,6 +509,11 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 
     pe          = fv("price_earnings_ttm")
     pb          = fv("price_book_ratio")
+    
+    # Valuation fallbacks for TradingView missing data
+    if pe is None: pe = fund_data.get("pe_fallback")
+    if pb is None: pb = fund_data.get("pb_fallback")
+    
     rev_5y      = fv("total_revenue_5y_growth")
     eps_5y      = fv("earnings_per_share_basic_5y_growth")
     div_yield   = fv("dividend_yield_recent")

@@ -165,6 +165,10 @@ def fetch_single_piotroski(symbol: str) -> dict:
     # Insider holding
     insider_hold = info.get("heldPercentInsiders")
     
+    # Valuation Fallbacks (for when TradingView returns NaN)
+    pb_fallback = info.get("priceToBook")
+    pe_fallback = info.get("trailingPE")
+    
     # Forensics (Asset Quality & Accruals)
     forensic_flags = 0
     try:
@@ -191,7 +195,9 @@ def fetch_single_piotroski(symbol: str) -> dict:
         "cfo_pat_ratio": cfo_pat_ratio,
         "retention_ratio": retention_ratio,
         "insider_hold": insider_hold,
-        "forensic_flags": forensic_flags
+        "forensic_flags": forensic_flags,
+        "pb_fallback": pb_fallback,
+        "pe_fallback": pe_fallback
     }
 
 
