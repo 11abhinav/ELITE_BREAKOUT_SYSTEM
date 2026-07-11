@@ -1863,35 +1863,7 @@
     <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
   </div></div><!-- /panel-mb-watchlist -->
 
-    <!-- ═══ MULTIBAGGER POSITIONS ═══ -->
-    <div class="section-label" style="margin-top:28px;">Multibagger Active Positions</div>
-    <div class="card" style="margin-bottom:28px">
-      <div class="filter-bar">
-        <button class="refresh-btn" onclick="loadMultibaggerPositions()" style="padding:6px 12px; background:var(--amber); color:#000; border:none; font-weight:600;">🔄 Refresh</button>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Date &amp; Time</th>
-              <th>Chart</th>
-              <th style="text-align:right;">Entry ₹</th>
-              <th style="text-align:right;">CMP ₹</th>
-              <th style="text-align:right;">Capital ₹</th>
-              <th style="text-align:right;">Shares</th>
-              <th style="text-align:right;">P&amp;L %</th>
-              <th style="text-align:right;">P&amp;L ₹</th>
-              <th style="text-align:right;">Live Scr</th>
-              <th style="text-align:center;">Status</th>
-            </tr>
-          </thead>
-          <tbody id="mb-positions-body">
-            <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No Multibagger positions found.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    
 
 
       <!-- DRILL PANEL -->
@@ -4240,7 +4212,6 @@ async function initDashboard() {
   renderTradeTable();
   fetchSignalLadder();
   loadMultibaggerWatchlist();
-  loadMultibaggerPositions();
   loadPendingUsers();
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
@@ -4268,7 +4239,6 @@ async function initDashboard() {
         populateFilters(ALL_TRADES);
         fetchSignalLadder();
   loadMultibaggerWatchlist();
-  loadMultibaggerPositions();
         renderTradeTable();
         updateSim();
         loadCapitalInfo();
@@ -5509,47 +5479,9 @@ function renderMultibaggerWatchlist() {
   }).join('');
 }
 
-async function loadMultibaggerPositions() {
-  try {
-    const res = await fetch('/api/multibagger/positions');
-    if (!res.ok) throw new Error('Failed to fetch MB positions');
-    const positions = await res.json();
-    renderMultibaggerPositions(positions);
-  } catch (e) {
-    console.error('Failed to load multibagger positions:', e);
-    const tbody = document.getElementById('mb-positions-body');
-    if(tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--red);">Error loading positions</td></tr>`;
-  }
-}
 
-function renderMultibaggerPositions(positions) {
-  const tbody = document.getElementById('mb-positions-body');
-  if(!tbody) return;
-  if (!positions || positions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No Multibagger positions found.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = positions.map(pos => {
-    const pnlPct = parseFloat(pos.pnl_pct||0);
-    const pnlRs = parseFloat(pos.pnl_rs||0);
-    const pnlColor = pnlPct >= 0 ? 'var(--green)' : 'var(--red)';
-    return `
-      <tr>
-        <td class="font-bold"><a href="https://chartink.com/stocks/${pos.symbol}.html" target="_blank" class="symbol-link">${pos.symbol}</a></td>
-        <td style="font-size:11px; color:var(--muted);">${new Date(pos.entry_time).toLocaleString()}</td>
-        <td><a href="https://www.tradingview.com/chart/?symbol=NSE:${pos.symbol}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;">📊 TV</a></td>
-        <td class="mono" style="text-align:right;">₹${parseFloat(pos.entry_price||0).toFixed(2)}</td>
-        <td class="mono" style="text-align:right;">₹${parseFloat(pos.latest_price||0).toFixed(2)}</td>
-        <td class="mono" style="text-align:right;">₹${parseFloat(pos.capital_allocated||0).toFixed(0)}</td>
-        <td class="mono" style="text-align:right;">${pos.quantity}</td>
-        <td class="mono font-bold" style="color:${pnlColor}; text-align:right;">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
-        <td class="mono font-bold" style="color:${pnlColor}; text-align:right;">${pnlRs >= 0 ? '+' : ''}₹${pnlRs.toFixed(0)}</td>
-        <td class="mono" style="text-align:right; font-weight:bold; color:var(--amber);">${parseFloat(pos.total_score||0).toFixed(1)}</td>
-        <td style="text-align:center;"><span style="background:rgba(16,185,129,0.15); color:var(--green); padding:4px 8px; border-radius:4px; font-size:10px; font-weight:bold;">${pos.status}</span></td>
-      </tr>
-    `;
-  }).join('');
-}
+
+
 // ============================================================================
 
 </script>

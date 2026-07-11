@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
 
-from database import get_connection, save_multibagger_alert, close_multibagger_position, init_db, upsert_scanner_health
+from database import get_connection, save_alert_if_new, close_position, init_db, upsert_scanner_health
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 from core.multibagger_pipeline import run_pipeline_for_symbol
@@ -895,11 +895,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         open_positions = []
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Query only open alerts with breakout_type = 'MULTIBAGGER'
+                # Query only open alerts with breakout_type/scanner = 'MULTIBAGGER'
                 cur.execute("""
-                    SELECT id, symbol, alert_price, alert_date
-                    FROM multibagger_alerts 
-                    WHERE is_closed = FALSE;
+                    SELECT id, symbol, entry_price as alert_price, alert_date
+                    FROM alerts 
+                    WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN' AND is_rejected = FALSE;
                 """)
                 open_positions = [dict(row) for row in cur.fetchall()]
                 
@@ -1000,7 +1000,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
                         close_success = False
                     else:
-                        close_success = close_multibagger_position(symbol, current_price, exit_signal=exit_reason, force_close=True)
+                        close_success = close_position(symbol, current_price, exit_signal=exit_reason, force_close=True)
                     if close_success:
                         # Queue Telegram notification
                         calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
@@ -1460,33 +1460,56 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             c_notes = cand["notes"]
             pipeline_res = cand["pipeline_result"]
             raw_fund = cand["raw_fundamentals"]
+            c_tier = pipeline_res.classification if pipeline_res else "🟡 Watchlist"
             
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
             
             scaled_score = int(c_total)
-            sizing = calculate_risk_adjusted_sizing(price, 3.0, scaled_score)
-            pos_shares = int(sizing["Position_Amount"] / price) if price > 0 else 0
+            
+            # Custom Capital Allocation based on tier
+            if c_tier == "🚀 Prime Multibagger":
+                alloc = 100000.0
+            elif c_tier == "💎 High Quality":
+                alloc = 50000.0
+            else:
+                alloc = 25000.0
+                
+            pos_shares = int(alloc / price) if price > 0 else 0
             
             inserted = False
             if not is_test_mode:
-                inserted = save_multibagger_alert(
+                context_dict = {
+                    "multibagger_meta": {
+                        "valuation_score": c_pas,
+                        "momentum_score": int(c_trend),
+                        "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
+                        "data_quality": "LIVE",
+                        "pipeline_tier": c_tier
+                    }
+                }
+                
+                # We use save_alert_if_new to insert into the main alerts table!
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
+                
+                inserted, reason, _, _ = save_alert_if_new(
                     symbol=sym,
-                    alert_price=price,
                     breakout_type="MULTIBAGGER",
-                    fm_score=scaled_score,
-                    notes=c_notes,
-                    position_pct=round(sizing["Position_Pct"] * 100, 2),
-                    position_amount=sizing["Position_Amount"],
-                    position_shares=pos_shares,
-                    portfolio_bucket="MULTIBAGGER",
-                    valuation_score=c_pas,
-                    momentum_score=int(c_trend),
-                    momentum_confidence="HIGH" if c_cqs >= 75.0 else "MEDIUM",
-                    data_quality="LIVE",
-                    fallback_timestamp=None
+                    alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                    scanner="MULTIBAGGER",
+                    category=c_tier,
+                    entry_price=round(price, 2),
+                    stop_loss=0.0, # As requested: No SL for Multibagger
+                    target_price=0.0,
+                    signals="Value, Momentum, Quality",
+                    score=scaled_score,
+                    context=context_dict,
+                    capital_allocated=alloc,
+                    shares_bought=pos_shares
                 )
             else:
-                logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {sym}")
+                logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
                 inserted = True
 
             if inserted:
