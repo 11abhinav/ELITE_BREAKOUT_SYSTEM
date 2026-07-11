@@ -3825,8 +3825,10 @@
       btn.classList.add('spinning');
       const data = await loadData(!isAuto);
       
-      // Also refresh user management
+      // Also refresh user management and logs/errors
       searchUsers();
+      fetchSystemLogs();
+      loadNonCriticalErrors();
 
       // Alert Diffing Logic
       if (isAuto && data.trades && ALL_TRADES.length > 0) {
@@ -3855,6 +3857,8 @@
       ALL_TRADES = data.trades || [];
       populateFilters(ALL_TRADES);
       await loadCapitalInfo(); // Ensure capital is always fresh on refresh
+      fetchSignalLadder(); // Refresh signal ladder
+      loadMultibaggerWatchlist(); // Refresh multibagger watchlist
       renderTradeTable();
       updateSim();
       loadPendingUsers();
@@ -4183,7 +4187,7 @@ async function submitDepositFunds() {
 
 // ── MAIN
 async function initDashboard() {
-  const data = await loadData(!isAuto);
+  const data = await loadData(false);
   // Try to overlay live scanner status from API
   const liveStatus = await loadScannerStatus();
   if (liveStatus) {
@@ -5485,6 +5489,8 @@ function renderMultibaggerWatchlist() {
 // ============================================================================
 
 </script>
+
+<script src="/static/push.js"></script>
 
 </body>
 </html>

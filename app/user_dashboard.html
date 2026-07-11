@@ -1873,11 +1873,13 @@ async function doRefresh(isAuto = false) {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
   await loadCapitalInfo();
-  const data = await loadData(!isAuto);
+  const data = await loadData(false);
   window.DATA_GENERATED_AT = data.generated_at;
 
   ALL_TRADES = data.trades || [];
   populateFilters(ALL_TRADES);
+  fetchSignalLadder();
+  loadMultibaggerWatchlist();
   renderTradeTable();
   renderCategoryStats();
   updateSim();
@@ -1912,7 +1914,7 @@ async function pingViewer() {
 // ── MAIN
 async function initDashboard() {
   await loadCapitalInfo();
-  const data = await loadData(!isAuto);
+  const data = await loadData(false);
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
@@ -2735,19 +2737,6 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <script>
-// ── SERVICE WORKER REGISTRATION ──────────────────────────────
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
-      .then(reg => {
-        console.log('[PWA] Service worker registered:', reg.scope);
-        // Check for updates every time page loads
-        reg.update();
-      })
-      .catch(err => console.warn('[PWA] Service worker registration failed:', err));
-  });
-}
-
 // ── PWA INSTALL BANNER (Android / Desktop) ───────────────────
 let deferredPrompt = null;
 const installBanner = document.getElementById('pwa-install-banner');
@@ -2798,66 +2787,10 @@ if (isIOS && !isInStandaloneMode && !iosHintDismissed) {
   }, 4000);
 }
 
-// ── PUSH NOTIFICATION PERMISSION REQUEST ─────────────────────
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-  return outputArray;
-}
-
-async function subscribeToPush() {
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (sub) return; // already subscribed
-
-    const vapidRes = await fetch('/api/push/vapid_public_key');
-    if (!vapidRes.ok) throw new Error("Could not fetch VAPID key");
-    const vapidData = await vapidRes.json();
-    const convertedVapidKey = urlBase64ToUint8Array(vapidData.vapid_public_key);
-
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: convertedVapidKey
-    });
-
-    await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sub)
-    });
-    console.log('[PWA] Push subscription saved to server.');
-  } catch (err) {
-    console.error('[PWA] Failed to subscribe to push:', err);
-  }
-}
-
-async function requestPushPermission() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-  
-  if (Notification.permission === 'granted') {
-    subscribeToPush();
-    return;
-  }
-  
-  if (Notification.permission !== 'denied') {
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      console.log('[PWA] Push notifications granted!');
-      subscribeToPush();
-    }
-  }
-}
-
-// Request push permission 10 seconds after load (non-intrusive)
-setTimeout(requestPushPermission, 10000);
-
-
-
-
+// Include centralized Push Notifications Logic
+</script>
+<script src="/static/push.js"></script>
+<script>
 
 // ── Multibagger Watchlist & Positions ─────────────────────────────────────────────────
 let mbWatchlistLoaded = false;
