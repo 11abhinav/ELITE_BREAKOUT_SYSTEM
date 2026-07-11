@@ -1062,8 +1062,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     """Main scanning wrapper."""
     logger.info("🚀 Multibagger Scanner execution started...")
     init_db()
-    from valuation_utils import seed_universe_if_empty
-    seed_universe_if_empty()
     
     # Load fundamentals cache
     cache = load_cache()

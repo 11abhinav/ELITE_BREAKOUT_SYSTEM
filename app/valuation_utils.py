@@ -385,33 +385,6 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
         logger.warning(f"Failed to extract raw metrics for {symbol}: {e}")
         return None
 
-def refresh_universe_benchmarks():
-    from database import get_universe_symbols, upsert_universe_stock
-    universe_rows = get_universe_symbols()
-    if not universe_rows:
-        logger.info("Universe table empty, nothing to refresh.")
-        return
-        
-    logger.info(f"Refreshing {len(universe_rows)} universe benchmarks...")
-    for row in universe_rows:
-        try:
-            sym = row['symbol']
-            bse_code = row.get('bse_code')
-            extracted = extract_raw_metrics(sym, bse_code)
-            if extracted:
-                upsert_universe_stock(
-                    sym, bse_code, extracted['sector'], extracted['canonical_industry'], extracted['pe'], extracted['pb'],
-                    extracted['roe'], extracted['eps'], extracted['bvps'],
-                    extracted['div_yield'], fetch_status="OK", last_error=None
-                )
-            else:
-                upsert_universe_stock(
-                    sym, bse_code, None, None, None, None, None, None, None, None,
-                    fetch_status="FAILED", last_error="extract_raw_metrics returned None"
-                )
-            time.sleep(1) # rate limit protection
-        except Exception as e:
-            logger.warning(f"Failed to refresh universe metrics for {row}: {e}")
 
 def compute_sector_medians(all_stocks):
     import statistics
@@ -453,29 +426,6 @@ def compute_sector_medians(all_stocks):
         }
     return medians
 
-def seed_universe_if_empty():
-    from database import get_universe_symbols, upsert_universe_stock
-    import threading
-    universe = get_universe_symbols()
-    if not universe:
-        logger.info("🌱 Universe table is empty! Seeding from index constituents...")
-        
-        try:
-            from multibagger import fetch_constituents
-            symbols = set(fetch_constituents())
-                
-            if not symbols:
-                logger.warning("No index constituents found to seed universe.")
-                return
-                
-            for sym in symbols:
-                upsert_universe_stock(sym, None, None, None, None, None, None, None, None, None, None, fetch_status="PENDING")
-                
-            logger.info(f"🌱 Seeded {len(symbols)} symbols into universe. Spawning background refresh...")
-            t = threading.Thread(target=refresh_universe_benchmarks, name="InitialUniverseRefresh", daemon=True)
-            t.start()
-        except Exception as e:
-            logger.exception("Failed to seed universe")
 
 def multi_scenario_dcf(fcf: float, growth_rate: float, discount_rate: float = 0.12, terminal_growth: float = 0.04, shares: float = 1.0):
     if not fcf or fcf <= 0 or not shares:
