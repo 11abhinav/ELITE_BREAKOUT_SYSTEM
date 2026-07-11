@@ -73,7 +73,7 @@ class StockPriceData:
     high_20d: float
     high_60d: float
     mom_3m: float
-    mom_6m: float = 0.0
+    mom_6m: float
     atr_14: float
     ema_20: float
     latest_volume: float
