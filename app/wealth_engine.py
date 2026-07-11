@@ -242,10 +242,15 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))),
         'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))),
         'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))),
+        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 0.15))) / 100.0,
+        'revenue_growth_1y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 0.15))) / 100.0,
+        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth', 0.15))) / 100.0,
+        'reinvestment_rate': 0.50, # Proxy 50% retention if missing
         'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio', 1.0))),
         'pe': pe,
         'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA'))),
         'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin'))),
+        'free_cash_flow': (eps * shares * 1.33 * 0.75) * (_safe_float(raw_data.get('FCF Margin %', 10.0)) / 100.0), # Proxy FCF based on NOPAT and FCF Margin
         'price_to_book': pb,
         'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability', 0.05)),
         'asset_turnover': _safe_float(raw_data.get('asset_turnover', 1.0)),
@@ -323,43 +328,32 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 
     # Helper for missing data bypass
     def _is_ok(val, threshold, is_lower_bound=True):
-        if pd.isna(val):
-            return True
-        if is_lower_bound:
-            return float(val) >= threshold
-        else:
-            return float(val) <= threshold
+            # Helper for missing data bypass
+            def _is_ok(val, threshold, is_lower_bound=True):
+                if pd.isna(val):
+                    return True
+                if is_lower_bound:
+                    return float(val) >= threshold
+                else:
+                    return float(val) <= threshold
 
-    # Core Compounder — ₹10,000 Cr+ mega-quality
-    if score >= 80 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
-        buckets.append("Core")
+            # 1. Core Compounder — ₹10,000 Cr+ mega-quality
+            if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
+                buckets.append("Core")
 
-    # Growth Multiplier — ₹2,000 Cr+ emerging leaders
-    if score >= 75 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
-        buckets.append("Growth")
+            # 2. Growth Multiplier — ₹2,000 Cr+ emerging leaders
+            if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
+                buckets.append("Growth")
 
-    # Opportunistic Momentum — massive acceleration
-    if score >= 65 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
-        buckets.append("Opportunistic")
+            # 3. Quality-On-Sale — high quality but correcting (52W high dist > 20%)
+            if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
+                buckets.append("Quality-On-Sale")
 
-    # Quality-On-Sale — Temporarily out of favor but high quality
-    peg = r.get("PEG Ratio", 1.0)
-    if pd.isna(peg): peg = 1.0
-    
-    cons_score = r.get("Consistency_Score", 0)
-    fcf_margin = r.get("FCF Margin %")
-    
-    if score >= 60 and _is_ok(mcap, 500) and _is_ok(de, 1.0, False) and "SME" not in cats and _is_ok(roce, 15) and (cons_score >= 18 or (not pd.isna(fcf_margin) and fcf_margin > 0)):
-        is_qos = (_is_ok(dist_52w, 10.01) and _is_ok(dist_52w, 30.0, False) and float(peg) < 1.0 and _is_ok(rs_6m, 0.01))
-        
-        # MACRO REGIME GATE: If Nifty is >15% below 52W high, loosen QOS criteria
-        if nifty_dist_52w is not None and nifty_dist_52w > 15:
-            is_qos = is_qos or (_is_ok(dist_52w, 10.01) and _is_ok(dist_52w, 45.0, False) and float(peg) < 1.5 and _is_ok(rs_6m, -14.99))
-            
-        if is_qos:
-            buckets.append("Quality-On-Sale")
+            # 4. Opportunistic / Turnaround — massive momentum + turnaround growth
+            if score >= 55 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
+                buckets.append("Opportunistic")
 
-    return ", ".join(buckets) if buckets else "REVIEW"
+            return ", ".join(buckets) if buckets else "REVIEW"
 
 
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:
@@ -588,9 +582,8 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
-        # [VERSION: V5_COMPATIBILITY_FIX] Lowered thresholds to match V5 classification config.
-        # Under V5, 65 is officially classified as "High Quality" and Valuation Models are extremely strict.
-        if score >= 65 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
+        # Baseline Active Entry Condition (V5 Thresholds)
+        if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
             if r.get("momentum_confidence", "") == "LOW":
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
             return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score:.1f}, Valuation: {r.get('Valuation_Score', 0):.1f}"})

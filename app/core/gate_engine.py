@@ -21,8 +21,8 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
     # 0. Data Completeness
     freshness = raw_data.get("data_freshness", "LIVE")
     if freshness == "FALLBACK":
-        audit_engine.log(symbol, "Kill Gates", "Failed", "Incomplete Data (Fallback)", "data_freshness", freshness)
-        return False, "Incomplete Data"
+        audit_engine.log(symbol, "Kill Gates", "Warning", "Incomplete Data (Fallback) - Proceeding with Fundamentals", "data_freshness", freshness)
+        # DO NOT KILL THE STOCK JUST BECAUSE INTRADAY YAHOO FINANCE FAILED
         
     raw_equity = raw_data.get("total_equity")
     market_cap = raw_data.get("market_cap")
