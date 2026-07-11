@@ -547,11 +547,25 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
 # =====================================================================================
 # LAYER 2: ENTRY TIMING
 # =====================================================================================
-def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
+def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, open_symbols=None):
     """Decides whether a candidate should be bought, suppressed, or watched."""
     if candidate_df.empty:
         return candidate_df
         
+    if open_symbols is None: open_symbols = []
+    
+    # 1. Compute the strict Top-N capped universe
+    core_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Core", max_stocks=15)
+    growth_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Growth", max_stocks=10)
+    opp_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Opportunistic", max_stocks=10)
+    qos_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Quality-On-Sale", max_stocks=5)
+    
+    approved_symbols = set()
+    for df_capped in [core_capped, growth_capped, opp_capped, qos_capped]:
+        if not df_capped.empty:
+            approved_symbols.update(df_capped["Stock"].tolist())
+            
+
     def _get_entry_signal(r):
         score = r.get("FM_Score", 0)
         # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'or 0' silent suppression in entry signal
@@ -588,6 +602,13 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
             
         if bucket == "REVIEW" or not bucket:
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Failed Bucket Quality Gates"})
+            
+        symbol = r.get("Stock")
+        if open_symbols and symbol in open_symbols:
+            return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Position Already Open"})
+            
+        if symbol not in approved_symbols:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Ranked Out (Top N / Sector Cap limit)"})
             
         # Baseline Active Entry Condition (V5 Thresholds)
         if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
@@ -653,8 +674,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
 
     candidate_df = candidate_df.apply(calculate_position_sizing, axis=1)
     
-    # Core bucket Sector Caps
-    core_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Core", max_stocks=15)
+    # Flag Core_Selected for the UI based on the cap calculated at the top
     core_symbols = set(core_capped["Stock"].tolist()) if not core_capped.empty else set()
     candidate_df["Core_Selected"] = candidate_df["Stock"].apply(lambda s: s in core_symbols)
     
@@ -973,7 +993,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 except Exception:
                     pass
             
-        wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason)
+        wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason, open_symbols)
         
         # Persist BUY Signals
         try:
