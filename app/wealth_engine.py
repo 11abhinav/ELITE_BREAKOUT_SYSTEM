@@ -224,7 +224,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     
     try:
         # The V5 pipeline expects a dict of the watchlist row
-        decision = run_pipeline_for_symbol(symbol, raw_data)
+        decision = run_pipeline_for_symbol(symbol, map_watchlist_to_v5(raw_data))
         
         return pd.Series({
             "CIS": decision.composite_score,
