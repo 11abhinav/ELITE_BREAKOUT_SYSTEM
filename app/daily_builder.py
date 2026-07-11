@@ -295,6 +295,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
 
     # Long-term specific metrics
     pe          = fv("price_earnings_ttm")
+    pb          = fv("price_book_ratio")
     rev_5y      = fv("total_revenue_5y_growth")
     eps_5y      = fv("earnings_per_share_basic_5y_growth")
     fcf_margin  = fv("free_cash_flow_margin_ttm")
@@ -464,7 +465,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=opm, debt_equity=debt_equity, debt_missing=debt_missing,
         qoq_rev=qoq_sales, yoy_rev=yoy_sales, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin,
-        rev_5y=rev_5y, eps_5y=eps_5y
+        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb
     )
 
 # =====================================================================================
@@ -502,6 +503,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     qoq_profit = fv("net_income_qoq_growth_fq")
 
     pe          = fv("price_earnings_ttm")
+    pb          = fv("price_book_ratio")
     rev_5y      = fv("total_revenue_5y_growth")
     eps_5y      = fv("earnings_per_share_basic_5y_growth")
     div_yield   = fv("dividend_yield_recent")
@@ -626,7 +628,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         symbol=symbol, cats=cats, path="Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=None, debt_equity=debt_equity, debt_missing=debt_missing,
         qoq_rev=qoq_rev, yoy_rev=yoy_rev, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, roa=roa, peg=peg, roce=roce, fcf_margin=fcf_margin,
-        rev_5y=rev_5y, eps_5y=eps_5y
+        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb
     )
 
 # =====================================================================================
@@ -729,7 +731,7 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
 # ROW BUILDER (shared)
 # =====================================================================================
 
-def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=None, fcf_margin=None, rev_5y=None, eps_5y=None) -> dict:
+def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=None, fcf_margin=None, rev_5y=None, eps_5y=None, pe=None, pb=None) -> dict:
     desc_list = [CAT_DESCRIPTIONS.get(c, "") for c in cats]
     cat_desc = " | ".join(filter(None, desc_list))
 
@@ -741,6 +743,8 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "Sector":               row.get("sector", "Unknown"),
         "CMP":                  round(close_price, 2),
         "Market Cap Cr":        round(market_cap / 10_000_000, 2),
+        "PE Ratio":             round(pe, 2) if pe is not None else None,
+        "Price to Book":        round(pb, 2) if pb is not None else None,
         "PEG Ratio":            round(peg, 2) if peg is not None else None,
         "ROE %":                round(roe, 2),
         # [VERSION: DAILY_BUILDER_PATCH_v1.7] Emit None when ROCE is missing instead of 0.00
