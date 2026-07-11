@@ -3048,21 +3048,27 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
             return False
 
         import pandas as pd
-        if fallback_timestamp is not None and not pd.isna(fallback_timestamp):
-            try:
-                ts = pd.to_datetime(fallback_timestamp)
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize("Asia/Kolkata")
-                else:
-                    ts = ts.tz_convert("Asia/Kolkata")
+        if fallback_timestamp is not None:
+            if pd.isna(fallback_timestamp):
+                fallback_timestamp = None
+            else:
+                try:
+                    ts = pd.to_datetime(fallback_timestamp)
+                    if ts.tzinfo is None:
+                        ts = ts.tz_localize("Asia/Kolkata")
+                    else:
+                        ts = ts.tz_convert("Asia/Kolkata")
+                        
+                    if ts.date() != now_ist.date():
+                        logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not today")
+                        return False
                     
-                if ts.date() != now_ist.date():
-                    logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not today")
+                    fallback_timestamp = ts
+
+                except Exception as e:
+                    # If parsing fails, be conservative and suppress
+                    logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol} ({type(e).__name__}); suppressing buy")
                     return False
-            except Exception as e:
-                # If parsing fails, be conservative and suppress
-                logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol} ({type(e).__name__}); suppressing buy")
-                return False
     except Exception:
         logger.exception("⚠️ save_wealth_buy_alert: stale-data guard check failed unexpectedly — allowing insert")
     
