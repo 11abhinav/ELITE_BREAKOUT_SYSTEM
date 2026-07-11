@@ -72,40 +72,13 @@ def _parse_dedup_key(breakout_type: str) -> tuple[str, str, str]:
 
 
 def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
-    """Batch-fetch latest prices using robust yfinance fast_info."""
+    """Batch-fetch latest prices using Fyers with Yahoo fallback."""
     if not symbols:
         return {}
-    prices = {}
-    import yfinance as yf
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     
-    def _get_price(sym):
-        try:
-            return sym, float(yf.Ticker(f"{sym}.NS").fast_info.last_price)
-        except Exception:
-            return sym, None
-            
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_get_price, sym): sym for sym in symbols}
-        for future in as_completed(futures):
-            sym, price = future.result()
-            if price and price > 0:
-                prices[sym] = price
-                
-    missing = [s for s in symbols if s not in prices]
-    if missing:
-        try:
-            df_request = pd.DataFrame({"Stock": missing})
-            raw_dict = fetch_watchlist_data(df_request, interval="1d", period="2d", requester="performance_tracker")
-            for sym, df in raw_dict.items():
-                if df is not None and not df.empty and "Close" in df.columns:
-                    try:
-                        prices[sym] = float(df["Close"].dropna().iloc[-1])
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning(f"⚠️ DataFetcher fallback price fetch failed: {e}")
-            
+    from live_prices import get_live_prices
+    prices = get_live_prices(symbols)
+    
     try:
         from data_fetch_status import mark_success
         mark_success('performance_tracker')

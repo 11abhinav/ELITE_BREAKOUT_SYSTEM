@@ -1156,10 +1156,10 @@ def save_alert_if_new(
 
     # [FIX] Force fetch live price for accurate entry price across all scanners
     try:
-        import yfinance as yf
-        live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
-        if live_p and live_p > 0:
-            entry_price = float(live_p)
+        from live_prices import get_live_prices
+        prices = get_live_prices([symbol])
+        if symbol in prices:
+            entry_price = float(prices[symbol])
     except Exception:
         pass
 
@@ -3066,10 +3066,10 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
 
     # [FIX] Force fetch live price for accurate entry price in wealth engine
     try:
-        import yfinance as yf
-        live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
-        if live_p and live_p > 0:
-            alert_price = float(live_p)
+        from live_prices import get_live_prices
+        prices = get_live_prices([symbol])
+        if symbol in prices:
+            alert_price = float(prices[symbol])
     except Exception:
         pass
 
