@@ -957,7 +957,12 @@ def api_wealth():
         from datetime import datetime
         records = json.loads(df.to_json(orient="records"))
         mtime = os.path.getmtime(WEALTH_PATH)
-        generated_at = datetime.fromtimestamp(mtime).isoformat()
+        
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        from datetime import datetime
+        generated_at = datetime.fromtimestamp(mtime, tz=IST).isoformat()
+        
         return jsonify({"data": records, "generated_at": generated_at})
     except Exception as e:
         logger.exception(f"Failed to load wealth JSON")

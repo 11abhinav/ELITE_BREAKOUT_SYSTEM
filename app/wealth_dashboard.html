@@ -1188,7 +1188,11 @@
         document.querySelector('#tbl-sells tbody').innerHTML = combinedHtml || `<tr><td colspan="7" class="empty">No sell alerts or closed positions today</td></tr>`;
 
         // Top 20
-        const top20 = [...stocks].sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0)).slice(0, 20);
+        const top20 = [...stocks].sort((a,b) => {
+          const scoreDiff = (b.FM_Score || 0) - (a.FM_Score || 0);
+          if (scoreDiff !== 0) return scoreDiff;
+          return (b.rs_6m || 0) - (a.rs_6m || 0);
+        }).slice(0, 20);
         document.getElementById('top20-count').textContent = top20.length;
         const avgScore = top20.length ? Math.round(top20.reduce((s,r) => s + (r.FM_Score || 0), 0) / top20.length) : 0;
         document.getElementById('kpi-avg-score').textContent = avgScore;
