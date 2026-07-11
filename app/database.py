@@ -4208,6 +4208,10 @@ def check_session_validity(user_id: int, session_token: str) -> bool:
                     return bool(is_active) and str(db_token) == str(session_token)
         return False
     except Exception as e:
+        import psycopg2
+        if isinstance(e, psycopg2.OperationalError):
+            logger.warning(f"Session validation skipped due to DB timeout, preserving session: {e}")
+            raise  # Let it 500 instead of destroying the session
         logger.exception(f"Session validation failed")
         return False
 
