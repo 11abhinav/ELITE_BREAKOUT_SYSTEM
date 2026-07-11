@@ -586,6 +586,9 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
+        if bucket == "REVIEW" or not bucket:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Failed Bucket Quality Gates"})
+            
         # Baseline Active Entry Condition (V5 Thresholds)
         if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
             if r.get("momentum_confidence", "") == "LOW":
