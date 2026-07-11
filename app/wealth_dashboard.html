@@ -1791,11 +1791,13 @@ fetchNotifications();
     <div class="guide-section-title">1. The V5 Pipeline (Quality Filters)</div>
     <p>Every stock evaluated by the engine must pass the brutal V5 Pipeline, scored across 5 dimensions: Business Quality, Growth Velocity, Financial Strength, Valuation, and Market Structure.</p>
     
-    <div class="guide-section-title">2. Entry Rules (The "Value + Momentum" System)</div>
-    <p>To generate an active <strong>BUY</strong> alert, a stock must strictly meet <strong>both</strong> conditions:</p>
+    <div class="guide-section-title">2. Entry Rules (Dual-Gate & Sector Caps)</div>
+    <p>To generate an active <strong>BUY</strong> alert, a stock must survive a brutal multi-layer elimination process. Out of thousands of stocks, it must strictly pass all of these rules:</p>
     <ul>
-      <li><strong>Fundamental Score ≥ 55:</strong> Guarantees you are buying a profitable, growing, durable business, not a speculative trap.</li>
-      <li><strong>Momentum Score ≥ 25:</strong> Confirms active institutional buying, an established uptrend above the 50 & 200 SMAs, and massive price acceleration.</li>
+      <li><strong>Bucket Prerequisite:</strong> It MUST pass the rigorous fundamental filters to land in a specific bucket (e.g. ROCE > 20% for Core, or YoY Growth > 20% for Growth).</li>
+      <li><strong>Hard Quantitative Caps:</strong> It must rank mathematically in the absolute Top 15 Core, Top 10 Growth, Top 10 Opp, or Top 5 QoS stocks in the entire market. It enforces a strict 2-stock limit per industry.</li>
+      <li><strong>Value + Momentum Check:</strong> It must maintain a Fundamental Score ≥ 55 and confirm active institutional buying with a Momentum Score ≥ 25 (above the 200 SMA).</li>
+      <li><strong>Position Guard:</strong> If the stock is already actively open in your portfolio, it will be suppressed.</li>
     </ul>
 
     <div class="guide-section-title">3. Portfolio Buckets</div>
