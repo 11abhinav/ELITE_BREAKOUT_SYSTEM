@@ -71,7 +71,7 @@
     /* ═══ KPI GRID ═══ */
     .kpi-grid {
       display: flex; flex-wrap: wrap; gap: 16px;
-      margin: 0 28px 32px; padding: 0;
+      margin: 0 10px 32px; padding: 0;
     }
     .kpi-card {
       flex: 1 1 160px;
@@ -400,6 +400,20 @@
   .notification-type-buy { color: var(--accent); }
   .notification-type-sell { color: var(--warn); }
 
+
+    /* V_RESPONSIVE_FIX_02 */
+    @media(max-width: 768px) {
+      .kpi-grid { margin: 0 10px 24px !important; }
+      .table-container { margin: 0 10px 24px !important; }
+      .dashboard-grid { gap: 10px !important; }
+      .header-actions { flex-wrap: wrap; }
+      .header-search { width: 100%; margin-top: 10px; }
+      .ai-search-bar { flex-direction: column; }
+      .ai-search-bar input { width: 100%; border-radius: 8px; margin-bottom: 8px; }
+      .ai-search-bar button { width: 100%; border-radius: 8px; }
+      #aiChatModal > div { width: 95vw !important; max-width: 95vw !important; }
+    }
+            
 </style>
 </head>
 <body>
