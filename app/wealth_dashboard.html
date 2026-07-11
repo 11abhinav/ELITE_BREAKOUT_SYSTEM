@@ -1109,7 +1109,7 @@
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
             </td>
             <td><span class="score-badge ${getScoreCls(r.momentum_score)}">${r.momentum_score || 0}</span></td>
-            <td class="mono" style="color:var(--accent); font-weight:bold;">${r.position_pct ? r.position_pct + '%' : '-'}</td>
+            <td class="mono" style="color:var(--accent); font-weight:bold;">${r.position_pct ? (parseFloat(r.position_pct) * 100).toFixed(2) + '%' : '-'}</td>
             <td class="mono" style="color:var(--green); font-weight:bold;">${r.position_amount ? '₹' + r.position_amount.toLocaleString('en-IN') : '-'}</td>
             <td class="mono" style="color:var(--text); font-weight:600;">${r.position_shares ? r.position_shares : '-'}</td>
             <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
@@ -1397,7 +1397,7 @@
           }
         }
         
-        const posPct = alert.position_pct ? alert.position_pct + '%' : '-';
+        const posPct = alert.position_pct ? (parseFloat(alert.position_pct) * 100).toFixed(2) + '%' : '-';
         const posAmt = parseFloat(alert.position_amount) || 0;
         const posShares = alert.position_shares || '-';
         const pnlRs = alertPrice > 0 && posAmt > 0 ? (posAmt * (currentPrice - alertPrice) / alertPrice) : 0;

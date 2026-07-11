@@ -636,7 +636,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
         
         r["position_pct"] = sizing["Position_Pct"]
         r["position_amount"] = sizing["Position_Amount"]
-        r["position_shares"] = int(sizing["Position_Amount"] / cmp) if cmp > 0 else 0
+        r["position_shares"] = max(1, int(sizing["Position_Amount"] / cmp)) if cmp > 0 else 0
         r["alloc_category"] = sizing["Alloc_Category"]
         return r
 
@@ -989,7 +989,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                         inserted = save_wealth_buy_alert(
                             symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value", 
                             fm_score=row.get("FM_Score"), position_pct=row.get("position_pct"),
-                            position_amount=row.get("position_amount"), position_shares=int(row.get("position_amount", 0) / cmp) if cmp > 0 else 0,
+                            position_amount=row.get("position_amount"), position_shares=max(1, int(row.get("position_amount", 0) / cmp)) if cmp > 0 else 0,
                             portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
                             momentum_score=row.get("momentum_score"), momentum_confidence=row.get("momentum_confidence"),
                             data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp")
