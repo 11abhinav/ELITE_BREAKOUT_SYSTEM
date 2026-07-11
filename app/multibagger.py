@@ -73,6 +73,7 @@ class StockPriceData:
     high_20d: float
     high_60d: float
     mom_3m: float
+    mom_6m: float = 0.0
     atr_14: float
     ema_20: float
     latest_volume: float
@@ -329,6 +330,11 @@ def batch_download_market_data(symbols: list) -> dict:
                 close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
                 mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
                 
+                # 6-month momentum (120 trading days)
+                hist_idx_6m = min(120, len(close_series) - 1)
+                close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
+                mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
+                
                 latest_volume = float(vol_series.iloc[-1])
                 volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
                 
@@ -368,6 +374,7 @@ def batch_download_market_data(symbols: list) -> dict:
                     high_20d=high_20d,
                     high_60d=high_60d,
                     mom_3m=mom_3m,
+                    mom_6m=mom_6m,
                     latest_volume=latest_volume,
                     volume_sma20=volume_sma20,
                     close_yesterday=close_yesterday,
@@ -1255,6 +1262,29 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             
         # 1. Pass the raw dictionary directly to the V5 Pipeline
         raw_fundamentals = f.copy()
+        
+        # Inject computed technical data for V5 Market Structure Engine (Momentum)
+        if price_data.high_52w > 0:
+            raw_fundamentals["pct_from_52w_high"] = (price_data.price - price_data.high_52w) / price_data.high_52w
+        else:
+            raw_fundamentals["pct_from_52w_high"] = 0.0
+            
+        if getattr(price_data, 'volume_sma20', 0) > 0:
+            raw_fundamentals["relative_volume_10d"] = price_data.latest_volume / price_data.volume_sma20
+        else:
+            raw_fundamentals["relative_volume_10d"] = 1.0
+            
+        # Calculate proxy RS Rating from 6-month momentum
+        mom = getattr(price_data, 'mom_6m', 0.0)
+        rs = 50.0
+        if mom > 0.40: rs = 95.0
+        elif mom > 0.20: rs = 85.0
+        elif mom > 0.10: rs = 75.0
+        elif mom > 0.05: rs = 65.0
+        elif mom > 0.0: rs = 55.0
+        elif mom < -0.20: rs = 30.0
+        elif mom < -0.10: rs = 40.0
+        raw_fundamentals["rs_rating"] = rs
         
         # [FIX] Issue #2: Use actual forensic_flags instead of hardcoded False
         # forensic_flags >= 2 means auditor/accounting red flags detected

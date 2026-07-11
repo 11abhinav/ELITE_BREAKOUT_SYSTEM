@@ -2430,8 +2430,8 @@ def deactivate_user(user_id):
 def get_multibagger_positions():
     try:
         from database import get_multibagger_alerts
-        alerts = get_multibagger_alerts(status="OPEN")
-        return jsonify([a.to_dict() for a in alerts])
+        alerts = get_multibagger_alerts()
+        return jsonify(alerts)
     except Exception as e:
         logger.exception(f"Failed to fetch multibagger positions")
         return jsonify({"error": str(e)}), 500
