@@ -1206,6 +1206,17 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
 
 def _trigger_daily_builder():
+    import os
+    import json
+    try:
+        from database import save_system_state
+        save_system_state("daily_builder_checkpoint", json.dumps({}))
+        if os.path.exists("data/temp_universe.parquet"):
+            os.remove("data/temp_universe.parquet")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not clear daily builder checkpoint: {e}")
+        
     from daily_builder import main as build_watchlist
     build_watchlist(force_rebuild=True)
     from watchlist_cache import get_watchlist
