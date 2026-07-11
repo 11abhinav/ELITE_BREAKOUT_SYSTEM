@@ -955,7 +955,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 try:
                     upsert_scanner_health("Wealth Engine", "DEGRADED", error_msg=f"Data stale ({fresh_ratio*100:.1f}% fresh). Signals suppressed.")
                     from telegram_engine import send_telegram_message
-                    send_telegram_message(f"🚨 <b>Wealth Engine Degraded</b>\nSignals suppressed due to missing/stale data.\nFresh ratio: {fresh_ratio*100:.1f}%")
+                    msg = f"🚨 <b>Wealth Engine Degraded</b>\nSignals suppressed due to missing/stale data.\nFresh ratio: {fresh_ratio*100:.1f}%"
+                    send_telegram_message(msg)
+                    from push_service import send_push_to_all
+                    send_push_to_all("Wealth Engine Degraded", f"Signals suppressed. Data freshness dropped to {fresh_ratio*100:.1f}%")
                 except Exception:
                     pass
             
