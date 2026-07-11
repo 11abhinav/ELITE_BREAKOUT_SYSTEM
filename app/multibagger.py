@@ -500,13 +500,13 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float) 
     Returns (Tier, Score)
     """
     if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0:
-        return "PRIME", composite
+        return "🚀 Prime Multibagger", composite
     elif composite >= 65 and cqs >= 60 and trend >= 10.0:
-        return "HIGH_QUALITY", composite
+        return "💎 High Quality", composite
     elif composite >= 50:
-        return "WATCH_ONLY", composite
+        return "🟡 Watchlist", composite
     else:
-        return "REJECT", composite
+        return "Invalidated", composite
 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
@@ -1357,7 +1357,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         # As per recent architectural decisions, the scoring engine naturally penalizes weak setups.
         # We do not forcibly downgrade HIGH_QUALITY alerts to WATCH_ONLY just because the market is BEAR.
         
-        if tier not in ["PRIME", "HIGH_QUALITY"]:
+        if tier not in ["🚀 Prime Multibagger", "💎 High Quality"]:
             status = "WAITING_BUY_ZONE"
             notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
             alert_triggered = False

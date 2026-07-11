@@ -1441,7 +1441,7 @@
 
   
     function toggleMbWatchlist() {
-      const body = document.getElementById('mb-watchlist-body');
+      const body = document.getElementById('mb-watchlist-card-body');
       const icon = document.getElementById('mb-watchlist-icon');
       const status = document.getElementById('mb-watchlist-status');
 
@@ -1801,7 +1801,7 @@
             </svg>
           </div>
         </div>
-        <div id="mb-watchlist-body" style="display: none; padding: 20px; background: var(--bg);">
+        <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
     
 
 
@@ -2523,6 +2523,7 @@
 
       // Async function to render scanner cards with error loading
       (async function renderAll() {
+        let html_buffer = '';
         for (const sc of allScanners) {
           const data = scanner_stats[sc] || { today_alerts: 0, last_success: null, status: 'IDLE', today_trades: [], error_severity: null };
           const meta = SCANNER_META[sc] || { label: sc, desc: '' };
@@ -2672,7 +2673,7 @@
             triggerBtnHtml = `<button onclick="triggerScanner(event, '${sc}')" style="margin-left: 8px; background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.1)'; this.style.color='var(--accent)';">▶ Run Now</button>`;
           }
 
-          el.innerHTML += `
+          html_buffer += `
         <div class="scanner-card ${statusClass}" style="${cardStyle}">
           <div class="scanner-header">
             <div>
@@ -2705,6 +2706,7 @@
           ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="alert('Error Details:\\n\\n' + '${(data.error || '').replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;
         }
+        el.innerHTML = html_buffer;
       })();
     }
 
@@ -5405,7 +5407,7 @@ async function loadMultibaggerWatchlist() {
     mbWatchlistLoaded = true;
   } catch (e) {
     console.error('Failed to load multibagger watchlist:', e);
-    const body = document.getElementById('mb-watchlist-body');
+    const body = document.getElementById('mb-watchlist-card-body');
     const empty = document.getElementById('mb-watchlist-empty');
     if(body) body.innerHTML = '';
     if(empty) empty.style.display = 'block';

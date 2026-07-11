@@ -101,6 +101,8 @@ def _cleanup_old_scanner_names():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM scanner_health WHERE scanner_name ILIKE '%worker%' OR scanner_name ILIKE '%wealthengine%';")
+                cur.execute("DELETE FROM scanner_health WHERE scanner_name = 'Multibagger';")
+                cur.execute("DELETE FROM scanner_health WHERE scanner_name = 'WealthEngine';")
                 # Reset stale DOWN status from previous crashes for main scanners.
                 # On boot, every scanner starts fresh — it will set its own status
                 # once it completes its first cycle. This prevents old DOWN entries

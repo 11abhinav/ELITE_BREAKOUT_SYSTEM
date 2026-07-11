@@ -594,7 +594,7 @@ function playDing() {
 
 
     function toggleMbWatchlist() {
-      const body = document.getElementById('mb-watchlist-body');
+      const body = document.getElementById('mb-watchlist-card-body');
       const icon = document.getElementById('mb-watchlist-icon');
       const status = document.getElementById('mb-watchlist-status');
 
@@ -809,7 +809,7 @@ function playDing() {
             </svg>
           </div>
         </div>
-        <div id="mb-watchlist-body" style="display: none; padding: 20px; background: var(--bg);">
+        <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
     
 
 
@@ -2901,7 +2901,7 @@ async function loadMultibaggerWatchlist() {
     mbWatchlistLoaded = true;
   } catch (e) {
     console.error('Failed to load multibagger watchlist:', e);
-    const body = document.getElementById('mb-watchlist-body');
+    const body = document.getElementById('mb-watchlist-card-body');
     const empty = document.getElementById('mb-watchlist-empty');
     if(body) body.innerHTML = '';
     if(empty) empty.style.display = 'block';
