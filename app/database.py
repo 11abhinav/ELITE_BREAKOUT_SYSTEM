@@ -3042,7 +3042,13 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
     # Safety: Do not persist wealth BUY alerts when the input data is stale.
     # Callers pass `data_quality` and/or `fallback_timestamp` when using cached data.
     try:
-        stale_indicators = ("CACHED_PREV_DAY", "CACHED_MULTI_DAY", "MISSING_PARTIAL")
+        from datetime import timedelta
+        is_weekend = now_ist.weekday() in (5, 6)
+
+        stale_indicators = ["MISSING_PARTIAL"]
+        if not is_weekend:
+            stale_indicators.extend(["CACHED_PREV_DAY", "CACHED_MULTI_DAY"])
+
         if data_quality and str(data_quality).upper() in stale_indicators:
             logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} due to data_quality={data_quality}")
             return False
@@ -3059,8 +3065,16 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                     else:
                         ts = ts.tz_convert("Asia/Kolkata")
                         
-                    if ts.date() != now_ist.date():
-                        logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not today")
+                    is_valid = False
+                    if ts.date() == now_ist.date():
+                        is_valid = True
+                    elif now_ist.weekday() == 5 and ts.date() == (now_ist.date() - timedelta(days=1)):
+                        is_valid = True # Saturday using Friday data
+                    elif now_ist.weekday() == 6 and ts.date() == (now_ist.date() - timedelta(days=2)):
+                        is_valid = True # Sunday using Friday data
+                        
+                    if not is_valid:
+                        logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not valid for today")
                         return False
                     
                     fallback_timestamp = ts
