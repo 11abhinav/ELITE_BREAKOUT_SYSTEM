@@ -195,6 +195,43 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
         # Intraday candles: allow a 30m buffer for early broker closures (e.g. 15:25 candle)
         return last_ts >= (last_close - timedelta(minutes=30))
 
+def _is_cache_long_enough(cached_df: pd.DataFrame, period: str) -> bool:
+    """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
+    if cached_df.empty:
+        return False
+    try:
+        if 'Date' in cached_df.columns:
+            first_ts = pd.to_datetime(cached_df['Date'].iloc[0])
+            last_ts = pd.to_datetime(cached_df['Date'].iloc[-1])
+        elif 'Datetime' in cached_df.columns:
+            first_ts = pd.to_datetime(cached_df['Datetime'].iloc[0])
+            last_ts = pd.to_datetime(cached_df['Datetime'].iloc[-1])
+        else:
+            first_ts = pd.to_datetime(cached_df.index[0])
+            last_ts = pd.to_datetime(cached_df.index[-1])
+            
+        days_diff = (last_ts - first_ts).days
+        
+        req = 0
+        p = period.lower()
+        if p == "10y": req = 3600
+        elif p == "5y": req = 1800
+        elif p == "2y": req = 700
+        elif p == "1y": req = 300
+        elif p == "6mo": req = 150
+        elif p == "3mo": req = 75
+        elif p == "1mo": req = 20
+        elif p.endswith("d"):
+            try: req = int(p[:-1]) - 1
+            except: pass
+            
+        if req > 0 and days_diff < req and len(cached_df) < (req * 0.6):
+            return False
+            
+        return True
+    except Exception:
+        return True
+
 def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, requester: str = None) -> dict[str, pd.DataFrame]:
     symbols = watchlist["Stock"].tolist()
     all_data: dict[str, pd.DataFrame] = {}
@@ -236,9 +273,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         last_ts = last_ts.tz_convert(IST)
                         
                     # 🚀 OPTIMIZATION: If data is already up to the last market close, skip DELTA fetch completely!
-                    if _is_cache_up_to_date(last_ts, interval):
-                        all_data[sym] = cached_df
-                        needs_full = False
+                    is_up_to_date = _is_cache_up_to_date(last_ts, interval)
+                    is_long_enough = _is_cache_long_enough(cached_df, period)
+                    
+                    if is_up_to_date:
+                        if is_long_enough:
+                            all_data[sym] = cached_df
+                            needs_full = False
+                            continue
+                        else:
+                            # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
+                            needs_full = True
+                            continue
+                            
+                    if not is_long_enough:
+                        needs_full = True
                         continue
                         
                     # Back up 1 day to ensure we get overlapping candles to avoid gaps
