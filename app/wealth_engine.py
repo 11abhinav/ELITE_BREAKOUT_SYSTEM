@@ -594,7 +594,17 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
         if mr_code:
             return pd.Series({"Signal_Code": mr_code, "Signal_Reason": mr_reason})
             
-        return pd.Series({"Signal_Code": "", "Signal_Reason": ""})
+        # Provide contextual WAIT messages instead of blanks
+        if cmp <= sma and sma > 0:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Below 200 SMA"})
+        if score < 55:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": f"Score {score:.1f} < 55"})
+        if r.get("Consistency_Score", 0) < 15:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Low Consistency"})
+        if r.get("Valuation_Score", 0) < 5:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Overvalued"})
+            
+        return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Building Base"})
 
     entry_signals = candidate_df.apply(_get_entry_signal, axis=1)
     candidate_df["Signal_Code"] = entry_signals["Signal_Code"]
