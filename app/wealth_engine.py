@@ -444,9 +444,9 @@ def calculate_hold_score(r: pd.Series) -> int:
     if rs_6m > 0: score += 10
     
     # 3. Fundamental Integrity (30 pts)
-    # Mapping Piotroski/Fundamentals to our existing FM_Score
+    # Mapping Piotroski/Fundamentals to our existing FM_Score (V5 thresholds)
     fm_score = _safe_num(r.get("FM_Score"))
-    if fm_score >= 70: score += 15
+    if fm_score >= 65: score += 15
     elif fm_score >= 50: score += 5
     
     pledge = r.get("Promoter_Pledge")
