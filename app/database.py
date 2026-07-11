@@ -283,6 +283,7 @@ def init_db():
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_price   REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_pct      REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS closed_at    TEXT",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_signal  TEXT",
                     # Portfolio tracking columns
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS capital_allocated REAL DEFAULT 0.0",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shares_bought     INTEGER DEFAULT 0",
@@ -300,6 +301,9 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+
+                # ── DROP LEGACY TABLES ──
+                cur.execute("DROP TABLE IF EXISTS multibagger_alerts CASCADE;")
 
                 # ── Breakout Watchlist Metadata Columns (Multi-TF Funnel) ─────────
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
@@ -731,47 +735,6 @@ def init_db():
                 END $$;
                 """)
 
-
-                # ── Multibagger Alerts table ──
-                cur.execute('''
-                    CREATE TABLE IF NOT EXISTS multibagger_alerts (
-                        id SERIAL PRIMARY KEY,
-                        symbol TEXT NOT NULL,
-                        alert_price REAL NOT NULL,
-                        alert_date TEXT NOT NULL DEFAULT (CURRENT_DATE::TEXT),
-                        alert_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        breakout_type TEXT NOT NULL DEFAULT '',
-                        fm_score REAL,
-                        status TEXT DEFAULT 'ACTIVE',
-                        current_price REAL,
-                        current_score REAL,
-                        status_updated_at TIMESTAMPTZ DEFAULT NOW(),
-                        notes TEXT,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        entry_signal TEXT,
-                        exit_signal TEXT,
-                        exit_price REAL,
-                        exit_date TEXT,
-                        exit_time TEXT,
-                        is_closed BOOLEAN DEFAULT FALSE,
-                        pnl_rs REAL,
-                        pnl_pct REAL,
-                        position_pct REAL,
-                        position_amount REAL,
-                        position_shares INTEGER,
-                        portfolio_bucket TEXT,
-                        valuation_score REAL,
-                        momentum_score INTEGER,
-                        momentum_confidence TEXT,
-                        data_quality TEXT,
-                        fallback_timestamp TIMESTAMPTZ,
-                        updated_at TIMESTAMPTZ DEFAULT NOW(),
-                        CONSTRAINT uq_multibagger_symbol_date UNIQUE (symbol, alert_date)
-                    )
-                ''')
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_mb_alert_symbol ON multibagger_alerts(symbol)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_mb_alert_date ON multibagger_alerts(alert_date)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_mb_alert_is_closed ON multibagger_alerts(is_closed)")
 
                 # ── Users & Sessions Tables ──
                 cur.execute("""
@@ -1267,11 +1230,12 @@ def save_alert_if_new(
 
 def update_alert_outcome(
     alert_id: int,
-    status: str,          # "WIN" | "LOSS"
+    status: str,          # "WIN" | "LOSS" | "CLOSED"
     exit_price: float,
     pnl_pct: float,
     pnl_rs: float = None,
     closed_at: Optional[str] = None,
+    exit_signal: Optional[str] = None,
 ) -> None:
     """
     Lock in the final outcome of a trade once SL or Target is hit.
@@ -1287,14 +1251,15 @@ def update_alert_outcome(
                 with conn.cursor() as cur:
                     cur.execute("""
                         UPDATE alerts
-                        SET status     = %s,
-                            exit_price = %s,
-                            pnl_pct    = %s,
-                            pnl_rs     = %s,
-                            closed_at  = %s
+                        SET status      = %s,
+                            exit_price  = %s,
+                            pnl_pct     = %s,
+                            pnl_rs      = %s,
+                            closed_at   = %s,
+                            exit_signal = %s
                         WHERE id = %s
                         AND status = 'OPEN'   -- never overwrite an already-closed row
-                    """, (status, exit_price, pnl_pct, pnl_rs, closed_at, alert_id))
+                    """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
                     conn.commit()
                     success = True
                     if cur.rowcount:

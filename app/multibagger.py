@@ -32,8 +32,9 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
+from scoring import rank_breakout_candidates
 
-from database import get_connection, save_alert_if_new, close_position, init_db, upsert_scanner_health
+from database import get_connection, save_alert_if_new, close_position, update_alert_outcome, init_db, upsert_scanner_health
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 from core.multibagger_pipeline import run_pipeline_for_symbol
@@ -972,14 +973,29 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # Handle triggered exit
                 if exit_triggered:
                     logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
+                    calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+                    
                     if is_test_mode:
                         logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
                         close_success = False
                     else:
-                        close_success = close_position(symbol, current_price, exit_signal=exit_reason, force_close=True)
+                        try:
+                            update_alert_outcome(
+                                alert_id=alert_id,
+                                status="CLOSED",
+                                exit_price=current_price,
+                                pnl_pct=calc_ret,
+                                pnl_rs=0.0,  # We don't track position size natively in alerts table without wealth engine
+                                exit_signal=exit_reason
+                            )
+                            close_success = True
+                            logger.info(f"💰 MULTIBAGGER CLOSED: {symbol} at {current_price} (P&L: {calc_ret:.2f}%)")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to close MULTIBAGGER alert for {symbol}: {e}")
+                            close_success = False
+                            
                     if close_success:
                         # Queue Telegram notification
-                        calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
                         sell_msg = (
                             f"🚨 <b>MULTIBAGGER SELL ALERT | {symbol}</b>\n"
                             f"----------------------------------------\n"
@@ -996,20 +1012,18 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         logger.exception(f"❌ Failed to complete exit monitoring")
 
 def run_standalone_exit_monitor(is_test_mode: bool = False):
-    """Entry point for the 5-minute scheduler to check exits only.
-    [FIX #1] Added is_test_mode parameter to avoid NameError.
-    """
+    """Entry point for the 5-minute scheduler to check exits only."""
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
         
-        # 1. Fetch only ACTIVE open positions from DB
+        # 1. Fetch only ACTIVE MULTIBAGGER positions from alerts table
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT symbol, current_price, alert_price as entry_price 
-                    FROM multibagger_alerts 
-                    WHERE is_closed = FALSE 
+                    SELECT id, symbol, entry_price as alert_price, alert_date
+                    FROM alerts 
+                    WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN' AND is_rejected = FALSE;
                 """)
                 open_positions = cur.fetchall()
                 
