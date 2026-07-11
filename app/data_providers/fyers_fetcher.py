@@ -341,7 +341,7 @@ class FyersFetcher(DataFetcher):
                         try:
                             import database
                             database.insert_notification(
-                                type='system',
+                                notif_type='system',
                                 title='⚠️ Fyers Authentication Required',
                                 message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
                                 symbol='SYSTEM'
@@ -578,7 +578,7 @@ class FyersFetcher(DataFetcher):
                     try:
                         import database
                         database.insert_notification(
-                            type='system',
+                            notif_type='system',
                             title='⚠️ Fyers Authentication Required',
                             message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
                             symbol='SYSTEM'

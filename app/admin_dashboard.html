@@ -1759,6 +1759,112 @@
         </div>
       </div>
 
+
+      <!-- ═══ MULTIBAGGER WATCHLIST ═══ -->
+<div class="section-label" style="margin-top:28px;">Multibagger Watchlist</div>
+
+  <div >
+    
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+      <div style="font-weight: 600; font-size: 14px; margin-bottom: 12px; color: var(--amber);">📖 How to read the Buckets (Tiers)</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; font-size: 13px; color: var(--muted);">
+        <div><strong style="color:var(--text);">Tier A (Prime Candidate):</strong> Exceptional fundamentals + accelerating growth & momentum. Best buys.</div>
+        <div><strong style="color:var(--text);">Tier B (Established):</strong> High quality, mature businesses with steady, reliable growth.</div>
+        <div><strong style="color:var(--text);">Tier C (Turnaround):</strong> Poor recent history but showing massive fundamental improvement & momentum.</div>
+        <div><strong style="color:var(--text);">Tier D (Deep Value):</strong> Heavily discounted valuations with emerging positive trajectory.</div>
+        <div><strong style="color:var(--text);">Tier E (Watchlist):</strong> Passed basic gates but doesn't have high conviction yet. Keep watching.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
+      <div style="flex: 1; min-width: 200px;">
+        <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
+        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
+          <option value="">All Candidates</option>
+          <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
+          <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
+          <option value="INVALIDATED">🔴 Invalidated</option>
+        </select>
+      </div>
+      <div>
+        <button onclick="loadMultibaggerWatchlist()" style="padding: 10px 24px; background: var(--amber); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.3s;">🔄 Refresh</button>
+      </div>
+    </div>
+
+    <div style="background: var(--card2); padding: 14px; border-radius: 8px; border-left: 4px solid var(--amber); margin-bottom: 20px; font-size: 13px; color: var(--text);">
+      <div style="margin-bottom: 8px;"><strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.</div>
+      <div><strong>Bucket Meanings:</strong> <strong>Tier A:</strong> Emerging Compounder | <strong>Tier B:</strong> Established Compounder | <strong>Tier C:</strong> Turnaround | <strong>Tier D:</strong> Deep Value | <strong>Tier E:</strong> Watchlist (waiting for technical confirmation)</div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-total-count" style="color:var(--text);">-</div>
+        <div class="kpi-label">Total Candidates</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-waiting-count" style="color:var(--amber);">-</div>
+        <div class="kpi-label">Waiting Buy Zone</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-triggered-count" style="color:var(--green);">-</div>
+        <div class="kpi-label">Alert Triggered</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-invalid-count" style="color:var(--red);">-</div>
+        <div class="kpi-label">Invalidated</div>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table id="tbl-mb-watchlist">
+        <thead><tr>
+          <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
+          <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
+          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by Business Quality Score">Quality ↕</th>
+          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by Relative Valuation Score">Valuation ↕</th>
+          <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Price Momentum">Momentum ↕</th>
+          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Wealth Score">Score ↕</th>
+          <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
+          <th>Reason</th>
+          <th>Act</th>
+        </tr></thead>
+        <tbody id="mb-watchlist-body"></tbody>
+      </table>
+    </div>
+    <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
+  </div><!-- /panel-mb-watchlist -->
+
+    <!-- ═══ MULTIBAGGER POSITIONS ═══ -->
+    <div class="section-label" style="margin-top:28px;">Multibagger Active Positions</div>
+    <div class="card" style="margin-bottom:28px">
+      <div class="filter-bar">
+        <button class="refresh-btn" onclick="loadMultibaggerPositions()" style="padding:6px 12px; background:var(--amber); color:#000; border:none; font-weight:600;">🔄 Refresh</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Date &amp; Time</th>
+              <th>Chart</th>
+              <th style="text-align:right;">Entry ₹</th>
+              <th style="text-align:right;">CMP ₹</th>
+              <th style="text-align:right;">Capital ₹</th>
+              <th style="text-align:right;">Shares</th>
+              <th style="text-align:right;">P&amp;L %</th>
+              <th style="text-align:right;">P&amp;L ₹</th>
+              <th style="text-align:right;">Live Scr</th>
+              <th style="text-align:center;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="mb-positions-body">
+            <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No Multibagger positions found.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+
       <!-- DRILL PANEL -->
       <div id="drill-panel">
         <div class="drill-header">
@@ -4102,6 +4208,8 @@ async function initDashboard() {
   loadCapitalInfo(); 
   renderTradeTable();
   fetchSignalLadder();
+  loadMultibaggerWatchlist();
+  loadMultibaggerPositions();
   loadPendingUsers();
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
@@ -4128,6 +4236,8 @@ async function initDashboard() {
         ALL_TRADES = data.trades;
         populateFilters(ALL_TRADES);
         fetchSignalLadder();
+  loadMultibaggerWatchlist();
+  loadMultibaggerPositions();
         renderTradeTable();
         updateSim();
         loadCapitalInfo();

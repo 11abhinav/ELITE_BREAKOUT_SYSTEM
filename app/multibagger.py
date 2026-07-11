@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
 
-from database import get_connection, save_wealth_buy_alert, close_position, init_db, upsert_scanner_health
+from database import get_connection, save_multibagger_alert, close_multibagger_position, init_db, upsert_scanner_health
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 from core.multibagger_pipeline import run_pipeline_for_symbol
@@ -891,8 +891,8 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # Query only open alerts with breakout_type = 'MULTIBAGGER'
                 cur.execute("""
                     SELECT id, symbol, alert_price, alert_date
-                    FROM wealth_buy_alert 
-                    WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER';
+                    FROM multibagger_alerts 
+                    WHERE is_closed = FALSE;
                 """)
                 open_positions = [dict(row) for row in cur.fetchall()]
                 
@@ -993,7 +993,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
                         close_success = False
                     else:
-                        close_success = close_position(symbol, current_price, exit_reason, force_close=True)
+                        close_success = close_multibagger_position(symbol, current_price, exit_signal=exit_reason, force_close=True)
                     if close_success:
                         # Queue Telegram notification
                         calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
@@ -1025,9 +1025,8 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT symbol, current_price, alert_price as entry_price 
-                    FROM wealth_buy_alert 
+                    FROM multibagger_alerts 
                     WHERE is_closed = FALSE 
-                    AND breakout_type = 'MULTIBAGGER'
                 """)
                 open_positions = cur.fetchall()
                 
@@ -1115,7 +1114,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT symbol FROM wealth_buy_alert WHERE is_closed = FALSE AND breakout_type = 'MULTIBAGGER'")
+                cur.execute("SELECT symbol FROM multibagger_alerts WHERE is_closed = FALSE")
                 open_symbols = {row[0] for row in cur.fetchall()}
     except Exception as e:
         logger.error(f"Failed to fetch open positions for shortlist injection: {e}")
@@ -1440,7 +1439,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             
             inserted = False
             if not is_test_mode:
-                inserted = save_wealth_buy_alert(
+                inserted = save_multibagger_alert(
                     symbol=sym,
                     alert_price=price,
                     breakout_type="MULTIBAGGER",
