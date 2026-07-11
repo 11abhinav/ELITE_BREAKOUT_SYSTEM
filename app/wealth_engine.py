@@ -329,32 +329,30 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 
     # Helper for missing data bypass
     def _is_ok(val, threshold, is_lower_bound=True):
-            # Helper for missing data bypass
-            def _is_ok(val, threshold, is_lower_bound=True):
-                if pd.isna(val):
-                    return True
-                if is_lower_bound:
-                    return float(val) >= threshold
-                else:
-                    return float(val) <= threshold
+        if pd.isna(val):
+            return True
+        if is_lower_bound:
+            return float(val) >= threshold
+        else:
+            return float(val) <= threshold
 
-            # 1. Core Compounder — ₹10,000 Cr+ mega-quality
-            if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
-                buckets.append("Core")
+    # 1. Core Compounder — ₹10,000 Cr+ mega-quality
+    if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
+        buckets.append("Core")
 
-            # 2. Growth Multiplier — ₹2,000 Cr+ emerging leaders
-            if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
-                buckets.append("Growth")
+    # 2. Growth Multiplier — ₹2,000 Cr+ emerging leaders
+    if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
+        buckets.append("Growth")
 
-            # 3. Quality-On-Sale — high quality but correcting (52W high dist > 20%)
-            if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
-                buckets.append("Quality-On-Sale")
+    # 3. Quality-On-Sale — high quality but correcting (52W high dist > 20%)
+    if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
+        buckets.append("Quality-On-Sale")
 
-            # 4. Opportunistic / Turnaround — massive momentum + turnaround growth
-            if score >= 55 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
-                buckets.append("Opportunistic")
+    # 4. Opportunistic / Turnaround — massive momentum + turnaround growth
+    if score >= 55 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
+        buckets.append("Opportunistic")
 
-            return ", ".join(buckets) if buckets else "REVIEW"
+    return ", ".join(buckets) if buckets else "REVIEW"
 
 
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:
