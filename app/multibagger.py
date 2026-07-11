@@ -759,7 +759,7 @@ def save_watchlist_to_db(results: list):
             with conn.cursor() as cur:
                 # Upsert query using execute_values
                 execute_values(cur, """
-                    INSERT INTO stockupdates.watchlist 
+                    INSERT INTO watchlist 
                     (symbol, buy_zone_low, buy_zone_high, latest_price, 
                      growth_score, value_score, trend_score, total_score, bucket, status, notes,
                      last_alert_price, last_alert_at)
@@ -775,14 +775,14 @@ def save_watchlist_to_db(results: list):
                         bucket = EXCLUDED.bucket,
                         status = EXCLUDED.status,
                         notes = EXCLUDED.notes,
-                        last_alert_price = COALESCE(EXCLUDED.last_alert_price, stockupdates.watchlist.last_alert_price),
-                        last_alert_at = COALESCE(EXCLUDED.last_alert_at, stockupdates.watchlist.last_alert_at),
+                        last_alert_price = COALESCE(EXCLUDED.last_alert_price, watchlist.last_alert_price),
+                        last_alert_at = COALESCE(EXCLUDED.last_alert_at, watchlist.last_alert_at),
                         last_updated = CURRENT_TIMESTAMP;
                 """, data)
             conn.commit()
-        logger.info(f"✅ Stored {len(results)} candidates in stockupdates.watchlist (execute_values).")
+        logger.info(f"✅ Stored {len(results)} candidates in watchlist (execute_values).")
     except Exception as e:
-        logger.exception(f"❌ Failed to bulk write to stockupdates.watchlist")
+        logger.exception(f"❌ Failed to bulk write to watchlist")
 
 
 def format_telegram_message(categorized_stocks: dict) -> list:

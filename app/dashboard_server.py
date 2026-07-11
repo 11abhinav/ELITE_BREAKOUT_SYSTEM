@@ -2043,7 +2043,7 @@ def api_concall_ai(symbol):
 @app.route("/api/multibagger/watchlist", methods=["GET"])
 @login_required
 def get_multibagger_watchlist():
-    """Returns all stockupdates.watchlist entries for the Multibagger Watchlist tab."""
+    """Returns all watchlist entries for the Multibagger Watchlist tab."""
     from database import get_connection
     from psycopg2.extras import RealDictCursor
     try:
@@ -2056,7 +2056,7 @@ def get_multibagger_watchlist():
                                growth_score, value_score, trend_score, total_score,
                                bucket, status, notes, last_alert_price, last_alert_at, last_updated
 
-                        FROM stockupdates.watchlist
+                        FROM watchlist
                         WHERE status = %s
                         ORDER BY total_score DESC NULLS LAST
                     """, (status_filter,))
@@ -2065,7 +2065,7 @@ def get_multibagger_watchlist():
                         SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
                                bucket, status, notes, last_alert_price, last_alert_at, last_updated
-                        FROM stockupdates.watchlist
+                        FROM watchlist
                         ORDER BY total_score DESC NULLS LAST
                     """)
                 rows = cur.fetchall()
