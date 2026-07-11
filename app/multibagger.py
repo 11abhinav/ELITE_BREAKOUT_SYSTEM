@@ -32,7 +32,6 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from psycopg2.extras import execute_values
-from scoring import rank_breakout_candidates
 
 from database import get_connection, save_alert_if_new, close_position, update_alert_outcome, init_db, upsert_scanner_health
 from telegram_engine import queue_telegram_message
