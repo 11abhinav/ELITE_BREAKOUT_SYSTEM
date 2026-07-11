@@ -329,12 +329,17 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 
     # Helper for missing data bypass
     def _is_ok(val, threshold, is_lower_bound=True):
-        if pd.isna(val):
+        if pd.isna(val) or val == "":
             return True
+        try:
+            v = float(val)
+        except (ValueError, TypeError):
+            return True
+        
         if is_lower_bound:
-            return float(val) >= threshold
+            return v >= threshold
         else:
-            return float(val) <= threshold
+            return v <= threshold
 
     # 1. Core Compounder — ₹10,000 Cr+ mega-quality
     if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
