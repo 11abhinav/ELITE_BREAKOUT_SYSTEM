@@ -346,15 +346,15 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         buckets.append("Core")
 
     # 2. Growth Multiplier — ₹2,000 Cr+ emerging leaders
-    if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
+    if score >= 65 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
         buckets.append("Growth")
 
     # 3. Quality-On-Sale — high quality but correcting (52W high dist > 20%)
-    if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
+    if score >= 65 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
         buckets.append("Quality-On-Sale")
 
     # 4. Opportunistic / Turnaround — massive momentum + turnaround growth
-    if score >= 55 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
+    if score >= 65 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
         buckets.append("Opportunistic")
 
     return ", ".join(buckets) if buckets else "REVIEW"
@@ -587,7 +587,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
         # Baseline Active Entry Condition (V5 Thresholds)
-        if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
+        if score >= 65 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
             if r.get("momentum_confidence", "") == "LOW":
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
             return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score:.1f}, Valuation: {r.get('Valuation_Score', 0):.1f}"})
@@ -600,8 +600,8 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason):
         # Provide contextual WAIT messages instead of blanks
         if cmp <= sma and sma > 0:
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Below 200 SMA"})
-        if score < 55:
-            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": f"Score {score:.1f} < 55"})
+        if score < 65:
+            return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": f"Score {score:.1f} < 65"})
         if r.get("Consistency_Score", 0) < 15:
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Low Consistency"})
         if r.get("Valuation_Score", 0) < 5:
