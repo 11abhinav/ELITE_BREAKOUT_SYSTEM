@@ -235,24 +235,25 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         
     return {
         'market_cap': market_cap,
-        'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))),
-        'roe': _safe_float(raw_data.get('ROE %', raw_data.get('ROE'))),
-        'debt_to_equity': _safe_float(raw_data.get('Debt/Equity', raw_data.get('Debt to equity'))),
-        'interest_coverage': _safe_float(raw_data.get('Interest Coverage', raw_data.get('Interest coverage'))),
-        'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))),
-        'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))),
-        'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))),
-        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 0.15))) / 100.0,
-        'revenue_growth_1y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 0.15))) / 100.0,
-        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth', 0.15))) / 100.0,
+        'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))) / 100.0,
+        'roe': _safe_float(raw_data.get('ROE %', raw_data.get('ROE'))) / 100.0,
+        'debt_to_equity': _safe_float(raw_data.get('Debt/Equity', raw_data.get('Debt to equity', 0.5))),
+        'interest_coverage': _safe_float(raw_data.get('Interest Coverage', raw_data.get('Interest coverage', 5.0))),
+        'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))) / 100.0,
+        'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))) / 100.0,
+        'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))) / 100.0,
+        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 15.0))) / 100.0,
+        'revenue_growth_1y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth', 15.0))) / 100.0,
+        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth', 15.0))) / 100.0,
+        'fcf_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth', 15.0))) / 100.0, # Proxy FCF growth with Profit growth
         'reinvestment_rate': 0.50, # Proxy 50% retention if missing
         'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio', 1.0))),
         'pe': pe,
-        'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA'))),
-        'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin'))),
+        'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA', pe))),
+        'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin', 10.0))) / 100.0,
         'free_cash_flow': (eps * shares * 1.33 * 0.75) * (_safe_float(raw_data.get('FCF Margin %', 10.0)) / 100.0), # Proxy FCF based on NOPAT and FCF Margin
         'price_to_book': pb,
-        'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability', 0.05)),
+        'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability', 5.0)) / 100.0,
         'asset_turnover': _safe_float(raw_data.get('asset_turnover', 1.0)),
         
         # Injected Reconstructed Fields for Valuation Models
