@@ -2111,14 +2111,14 @@
         });
     }
 
-    async function loadData() {
+    async function loadData(forceRebuild = false) {
       const urls = [
         
         '/data/performance_data.json', '../data/performance_data.json', './data/performance_data.json', 'performance_data.json',
       ];
       const t = new Date().getTime();
       for (const url of urls) {
-        try { const r = await fetch(url + '?t=' + t, { cache: 'no-store' }); if (r.ok) return r.json(); } catch { }
+        try { const r = await fetch(url + '?t=' + t + (forceRebuild ? '&rebuild=true' : ''), { cache: 'no-store' }); if (r.ok) return r.json(); } catch { }
       }
 
       console.warn('Failed to load performance data, returning empty state.');
@@ -3823,7 +3823,7 @@
     async function doRefresh(isAuto = false) {
       const btn = document.getElementById('refreshBtn');
       btn.classList.add('spinning');
-      const data = await loadData();
+      const data = await loadData(!isAuto);
       
       // Also refresh user management
       searchUsers();
@@ -4183,7 +4183,7 @@ async function submitDepositFunds() {
 
 // ── MAIN
 async function initDashboard() {
-  const data = await loadData();
+  const data = await loadData(!isAuto);
   // Try to overlay live scanner status from API
   const liveStatus = await loadScannerStatus();
   if (liveStatus) {

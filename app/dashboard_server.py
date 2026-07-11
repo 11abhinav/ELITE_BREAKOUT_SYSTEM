@@ -650,6 +650,13 @@ def api_admin_reset_password():
 def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
     try:
+        if request.args.get('rebuild') == 'true':
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data(fast_mode=True)
+            except Exception as e:
+                logger.error(f"Failed to fast-rebuild performance data: {e}")
+                
         from database import get_system_state
         val = get_system_state("performance_data")
         if val:

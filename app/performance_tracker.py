@@ -248,7 +248,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data():
+def build_performance_data(fast_mode=False):
     logger.info("=" * 70)
     logger.info("📊 PERFORMANCE TRACKER | Building performance data...")
     logger.info("=" * 70)
@@ -389,8 +389,10 @@ def build_performance_data():
 
         if sl and tp and alert_time:
             # ── Full SL + Target detection ───────────────────────────────────────
-            pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
-            hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
+            hist = None
+            if not fast_mode:
+                pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
+                hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
             if hist is not None:
                 outcome, exit_p, hit_time = _check_sl_and_target(hist, sl, tp)
@@ -461,7 +463,9 @@ def build_performance_data():
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
-            hist = _fetch_post_alert_bars(sym, alert_time)
+            hist = None
+            if not fast_mode:
+                hist = _fetch_post_alert_bars(sym, alert_time)
             if hist is not None and not hist.empty:
                 lowest_low = float(hist["Low"].min())
                 if lowest_low <= sl:
