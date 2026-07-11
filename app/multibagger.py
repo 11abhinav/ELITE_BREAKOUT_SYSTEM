@@ -1108,7 +1108,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT symbol FROM multibagger_alerts WHERE is_closed = FALSE")
+                cur.execute("SELECT symbol FROM alerts WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN'")
                 open_symbols = {row[0] for row in cur.fetchall()}
     except Exception as e:
         logger.error(f"Failed to fetch open positions for shortlist injection: {e}")
@@ -1204,6 +1204,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     # Default to BEAR (conservative fail-direction for quality-over-quantity)
     market_regime = "BEAR"
     try:
+        import yfinance as yf
         nifty_df = yf.download("^NSEI", period="1y", interval="1d", progress=False)
         if not nifty_df.empty and len(nifty_df) >= 200:
             import pandas as pd
