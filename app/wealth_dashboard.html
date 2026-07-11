@@ -610,7 +610,7 @@
   <!-- BUY TAB -->
   <div id="panel-buy" class="tab-panel active">
     <!-- ACTIVE BUY SIGNALS TABLE -->
-    <div id="scroll-buy" class="section-title" style="margin-top:0; color:var(--green);">✅ Active Buy Signals <span id="buy-count">0</span> <span>Score ≥ 65 · above 200 SMA</span></div>
+    <div id="scroll-buy" class="section-title" style="margin-top:0; color:var(--green);">✅ Active Buy Signals <span id="buy-count">0</span> <span>Score ≥ 55 · Mom ≥ 25 · above 200 SMA</span></div>
     <div class="table-container">
       <table id="tbl-buy">
         <thead><tr><th>Stock</th><th>CMP</th><th>Score</th><th>Mom Score</th><th>Alloc %</th><th>Amount (₹)</th><th>Qty</th><th>RS (6M)</th><th>ROCE %</th><th>ROE %</th><th>YoY Profit</th><th>Bucket</th><th>Sector</th></tr></thead>
@@ -1120,7 +1120,7 @@
             <td>${bucketTag(r.Portfolio_Bucket)}</td>
             <td>${sectorTag(r.Sector)}</td>
           </tr>
-        `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 65 with price above 200 SMA</td></tr>`;
+        `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 55 + Mom ≥ 25 above 200 SMA</td></tr>`;
 
         // Fetch Today's Closed Positions
         let closedToday = [];
@@ -1791,7 +1791,14 @@ fetchNotifications();
     <div class="guide-section-title">1. The V5 Pipeline (Quality Filters)</div>
     <p>Every stock evaluated by the engine must pass the brutal V5 Pipeline, scored across 5 dimensions: Business Quality, Growth Velocity, Financial Strength, Valuation, and Market Structure.</p>
     
-    <div class="guide-section-title">2. Portfolio Buckets</div>
+    <div class="guide-section-title">2. Entry Rules (The "Value + Momentum" System)</div>
+    <p>To generate an active <strong>BUY</strong> alert, a stock must strictly meet <strong>both</strong> conditions:</p>
+    <ul>
+      <li><strong>Fundamental Score ≥ 55:</strong> Guarantees you are buying a profitable, growing, durable business, not a speculative trap.</li>
+      <li><strong>Momentum Score ≥ 25:</strong> Confirms active institutional buying, an established uptrend above the 50 & 200 SMAs, and massive price acceleration.</li>
+    </ul>
+
+    <div class="guide-section-title">3. Portfolio Buckets</div>
     <ul>
       <li><strong>🏆 Core Compounders (Score ≥ 65):</strong> Market Cap > ₹10,000 Cr, ROCE > 20%, Low Debt. Allocate the majority of your long-term capital here.</li>
       <li><strong>🚀 Growth Multipliers (Score ≥ 60):</strong> Market Cap > ₹2,000 Cr, >20% YoY Growth. Emerging leaders. Higher risk, massive alpha. Allocate a smaller chunk here.</li>
@@ -1799,10 +1806,10 @@ fetchNotifications();
       <li><strong>💎 Quality-On-Sale (Score ≥ 50):</strong> Elite companies temporarily discounted (PEG < 1.0) with early momentum recovery. Usually triggers during market dips.</li>
     </ul>
 
-    <div class="guide-section-title">3. Position Sizing (Alloc %)</div>
-    <p>Do not guess your position size! The dashboard automatically calculates the <strong>Alloc %</strong> using the stock's <strong>ATR (Volatility)</strong>. It sizes down volatile assets to mathematically normalize risk and protect your capital. Do not override this.</p>
+    <div class="guide-section-title">4. Position Sizing (Alloc %)</div>
+    <p>Do not guess your position size! The dashboard automatically calculates the <strong>Alloc %</strong> using the stock's <strong>ATR (Volatility)</strong> and <strong>Mom Score</strong>. It sizes down volatile assets to mathematically normalize risk and sizes up massive momentum. Do not override this.</p>
 
-    <div class="guide-section-title">4. Managing Open Positions (Hold Score)</div>
+    <div class="guide-section-title">5. Managing Open Positions (Hold Score)</div>
     <p>Your open trades are monitored daily using a dynamic Hold Score (0-100):</p>
     <ul>
       <li><strong>Stable (> 60):</strong> Fundamentals and technicals are intact. Keep holding.</li>
@@ -1811,7 +1818,7 @@ fetchNotifications();
       <li><strong>TLH (Tax Loss Harvest):</strong> Recommends selling a losing stock just before the 1-year mark to offset realized gains for tax purposes.</li>
     </ul>
 
-    <div class="guide-section-title">5. Key Data Columns</div>
+    <div class="guide-section-title">6. Key Data Columns</div>
     <ul>
       <li><strong>Mom Score:</strong> Measures institutional buying pressure. High score = immediate upside probability.</li>
       <li><strong>RS (6M):</strong> Relative Strength vs Nifty. Positive means it's beating the index.</li>
