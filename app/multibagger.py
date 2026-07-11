@@ -889,7 +889,18 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 if not price_data:
                     continue
                     
+
                 current_price = price_data.price
+                
+                # [FIX] Force fetch live price to ensure accuracy over yfinance history
+                try:
+                    import yfinance as yf
+                    live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
+                    if live_p and live_p > 0:
+                        current_price = live_p
+                except Exception:
+                    pass
+
                 
                 # Fetch latest fundamentals (using cache first)
                 fund = get_cached_fundamentals(symbol, cache)
@@ -1414,8 +1425,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         logger.info(f"🏆 Top 5 Candidates selected out of {len(alert_candidates)} valid alerts.")
         
         for cand in top_n:
+
             sym = cand["symbol"]
             price = cand["price"]
+            
+            # [FIX] Force fetch live price for accurate entry price
+            try:
+                import yfinance as yf
+                live_p = yf.Ticker(f"{sym}.NS").fast_info.last_price
+                if live_p and live_p > 0:
+                    price = live_p
+            except Exception:
+                pass
+
             c_total = cand["total_score"]
             c_cqs = cand["cqs"]
             c_trend = cand["trend_score"]
