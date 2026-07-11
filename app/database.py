@@ -3051,6 +3051,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
 
         if data_quality and str(data_quality).upper() in stale_indicators:
             logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} due to data_quality={data_quality}")
+            if not is_weekend:
+                insert_notification('warning', 'Stale Data Warning', f"Suppressed BUY for {symbol} due to stale data ({data_quality})", symbol)
             return False
 
         import pandas as pd
@@ -3075,6 +3077,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         
                     if not is_valid:
                         logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not valid for today")
+                        if not is_weekend:
+                            insert_notification('warning', 'Stale Data Warning', f"Suppressed BUY for {symbol} because fallback timestamp ({ts.date()}) is older than today", symbol)
                         return False
                     
                     fallback_timestamp = ts
