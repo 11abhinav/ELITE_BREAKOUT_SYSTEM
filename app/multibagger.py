@@ -1274,16 +1274,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         else:
             raw_fundamentals["relative_volume_10d"] = 1.0
             
-        # Calculate proxy RS Rating from 6-month momentum
+                # Calculate proxy RS Rating from 6-month momentum
         mom = getattr(price_data, 'mom_6m', 0.0)
-        rs = 50.0
         if mom > 0.40: rs = 95.0
         elif mom > 0.20: rs = 85.0
         elif mom > 0.10: rs = 75.0
         elif mom > 0.05: rs = 65.0
         elif mom > 0.0: rs = 55.0
-        elif mom < -0.20: rs = 30.0
-        elif mom < -0.10: rs = 40.0
+        elif mom > -0.10: rs = 45.0
+        elif mom > -0.20: rs = 35.0
+        else: rs = 25.0
         raw_fundamentals["rs_rating"] = rs
         
         # [FIX] Issue #2: Use actual forensic_flags instead of hardcoded False

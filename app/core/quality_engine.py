@@ -14,7 +14,7 @@ def safe_float(val: Any, default=0.0) -> float:
 
 def evaluate_metric(symbol: str, metric_name: str, val: float, thresholds: Tuple[float, float, float], weight: float, higher_is_better: bool = True) -> Tuple[float, float]:
     """Returns (score_points, confidence). Score is out of `weight`."""
-    if val == 0.0 and metric_name not in ["fcf_margin"]: # 0 is often missing data unless explicitly 0
+    if val == 0.0 and metric_name not in ["fcf_margin", "pct_from_52w_high", "rs_rating"]: # 0 is often missing data unless explicitly 0
         audit_engine.log(symbol, "Quality", "Warning", f"Missing/Zero {metric_name}", metric_name, val)
         return (weight * 0.5, 0.0) # 50% score for missing, 0 confidence
 
