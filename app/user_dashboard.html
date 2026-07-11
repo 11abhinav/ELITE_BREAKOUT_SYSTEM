@@ -592,7 +592,24 @@ function playDing() {
     osc.stop(_audioCtx.currentTime + 0.5);
 }
 
-</script>
+
+    function toggleMbWatchlist() {
+      const body = document.getElementById('mb-watchlist-body');
+      const icon = document.getElementById('mb-watchlist-icon');
+      const status = document.getElementById('mb-watchlist-status');
+
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+        status.textContent = 'Click to collapse';
+      } else {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        status.textContent = 'Click to expand';
+      }
+    }
+    
+  </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
@@ -777,9 +794,22 @@ function playDing() {
 
 
       <!-- ═══ MULTIBAGGER WATCHLIST ═══ -->
-<div class="section-label" style="margin-top:28px;">Multibagger Watchlist</div>
-
-  <div >
+      <div class="card" style="margin-top: 28px; margin-bottom: 28px; overflow: hidden; padding: 0;">
+        <div id="mb-watchlist-header"
+          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
+          onclick="toggleMbWatchlist()">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-weight: 600; color: var(--text); font-size:16px;">🚀 Multibagger Watchlist</span>
+          </div>
+          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span id="mb-watchlist-status">Click to expand</span>
+            <svg id="mb-watchlist-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" style="transition: transform 0.2s;">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </div>
+        <div id="mb-watchlist-body" style="display: none; padding: 20px; background: var(--bg);">
     
 
 
@@ -839,7 +869,7 @@ function playDing() {
       </table>
     </div>
     <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
-  </div><!-- /panel-mb-watchlist -->
+  </div></div><!-- /panel-mb-watchlist -->
 
     <!-- ═══ MULTIBAGGER POSITIONS ═══ -->
     <div class="section-label" style="margin-top:28px;">Multibagger Active Positions</div>

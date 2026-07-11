@@ -212,6 +212,41 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 # =====================================================================================
 
 
+
+def map_watchlist_to_v5(raw_data: dict) -> dict:
+    """Maps Screener export headers to V5 snake_case variables"""
+    import pandas as pd
+    
+    def _safe_float(val, default=0.0):
+        if val is None or pd.isna(val): return default
+        try: return float(val)
+        except: return default
+        
+    return {
+        'market_cap': _safe_float(raw_data.get('Market Cap Cr', raw_data.get('Market Capitalization'))),
+        'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))),
+        'roe': _safe_float(raw_data.get('ROE %', raw_data.get('ROE'))),
+        'debt_to_equity': _safe_float(raw_data.get('Debt/Equity', raw_data.get('Debt to equity'))),
+        'interest_coverage': _safe_float(raw_data.get('Interest Coverage', raw_data.get('Interest coverage'))),
+        'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))),
+        'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))),
+        'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))),
+        'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio', 1.0))),
+        'pe': _safe_float(raw_data.get('PE Ratio', raw_data.get('Price to Earning'))),
+        'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA'))),
+        'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin'))),
+        'price_to_book': _safe_float(raw_data.get('Price to Book', raw_data.get('Price to book value'))),
+        'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability', 0.05)),
+        'asset_turnover': _safe_float(raw_data.get('asset_turnover', 1.0)),
+        
+        # Technical fields that might be passed from wealth_technicals
+        'pct_from_52w_high': _safe_float(raw_data.get('dist_52w_high', 0.0)) / -100.0,
+        'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
+        'relative_volume_10d': 1.0,  # Proxy default
+        'sector': str(raw_data.get('Sector', 'Unknown')),
+        'price': _safe_float(raw_data.get('cmp', 0.0))
+    }
+
 def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     """
     Migrated to V5 Pipeline architecture since core.deprecated.core_score_engine was removed.
