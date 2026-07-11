@@ -746,15 +746,15 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
       <div style="padding: 12px; background: rgba(16, 185, 129, 0.05); border-left: 4px solid var(--green); border-radius: 6px;">
         <div style="font-weight: 600; color: var(--green); margin-bottom: 4px;">🛡️ 50% Core Portfolio</div>
-        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Safe, Sector-Capped, ₹10,000 Cr+ mega-compounders. Score ≥ 80. Highly stable foundation.</div>
+        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Safe, Sector-Capped, ₹10,000 Cr+ mega-compounders. Score ≥ 65. Highly stable foundation.</div>
       </div>
       <div style="padding: 12px; background: rgba(59, 130, 246, 0.05); border-left: 4px solid var(--blue); border-radius: 6px;">
         <div style="font-weight: 600; color: var(--blue); margin-bottom: 4px;">🚀 30% Growth Multipliers</div>
-        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Emerging leaders (₹2K Cr+) growing sales/profits >20% YoY. Score ≥ 75. Riskier multi-baggers.</div>
+        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Emerging leaders (₹2K Cr+) growing sales/profits >20% YoY. Score ≥ 60. Riskier multi-baggers.</div>
       </div>
       <div style="padding: 12px; background: rgba(139, 92, 246, 0.05); border-left: 4px solid var(--accent); border-radius: 6px;">
         <div style="font-weight: 600; color: var(--accent); margin-bottom: 4px;">🔄 20% Opportunistic / Discount</div>
-        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Flexible cash used for either "Opportunistic" (Score ≥ 65, high-momentum) OR "Quality-on-Sale" (Score ≥ 60, deep value) buys.</div>
+        <div style="font-size: 12px; color: var(--muted); line-height: 1.4;">Flexible cash used for either "Opportunistic" (Score ≥ 55, high-momentum) OR "Quality-on-Sale" (Score ≥ 50, deep value) buys.</div>
       </div>
     </div>
   </div>
@@ -1009,7 +1009,7 @@
       }
     };
     const fmt = (v) => v !== null && v !== undefined ? parseFloat(v).toFixed(1) : '-';
-    const getScoreCls = (s) => s >= 80 ? 'score-high' : (s >= 60 ? 'score-med' : 'score-low');
+    const getScoreCls = (s) => s >= 65 ? 'score-high' : (s >= 55 ? 'score-med' : 'score-low');
     const getRsCls = (rs) => rs > 0 ? 'rs-pos' : 'rs-neg';
     const getFcfHtml = (f) => {
       if (f === null || f === undefined) return '<span class="mono fcf-na">N/A</span>';
@@ -1125,7 +1125,7 @@
             <td>${bucketTag(r.Portfolio_Bucket)}</td>
             <td>${sectorTag(r.Sector)}</td>
           </tr>
-        `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 85 with price above 200 SMA</td></tr>`;
+        `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 65 with price above 200 SMA</td></tr>`;
 
         // Fetch Today's Closed Positions
         let closedToday = [];
@@ -1794,10 +1794,10 @@ fetchNotifications();
     
     <div class="guide-section-title">2. Portfolio Buckets</div>
     <ul>
-      <li><strong>🏆 Core Compounders (Score ≥ 80):</strong> Market Cap > ₹10,000 Cr, ROCE > 20%, Low Debt. Allocate the majority of your long-term capital here.</li>
-      <li><strong>🚀 Growth Multipliers (Score ≥ 75):</strong> Market Cap > ₹2,000 Cr, >20% YoY Growth. Emerging leaders. Higher risk, massive alpha. Allocate a smaller chunk here.</li>
-      <li><strong>🔥 Opportunistic Momentum (Score ≥ 65):</strong> YoY Profit > 40%, RS > 15. Massive acceleration and high momentum trades.</li>
-      <li><strong>💎 Quality-On-Sale (Score ≥ 60):</strong> Elite companies temporarily discounted (PEG < 1.0) with early momentum recovery. Usually triggers during market dips.</li>
+      <li><strong>🏆 Core Compounders (Score ≥ 65):</strong> Market Cap > ₹10,000 Cr, ROCE > 20%, Low Debt. Allocate the majority of your long-term capital here.</li>
+      <li><strong>🚀 Growth Multipliers (Score ≥ 60):</strong> Market Cap > ₹2,000 Cr, >20% YoY Growth. Emerging leaders. Higher risk, massive alpha. Allocate a smaller chunk here.</li>
+      <li><strong>🔥 Opportunistic Momentum (Score ≥ 55):</strong> YoY Profit > 40%, RS > 15. Massive acceleration and high momentum trades.</li>
+      <li><strong>💎 Quality-On-Sale (Score ≥ 50):</strong> Elite companies temporarily discounted (PEG < 1.0) with early momentum recovery. Usually triggers during market dips.</li>
     </ul>
 
     <div class="guide-section-title">3. Position Sizing (Alloc %)</div>
