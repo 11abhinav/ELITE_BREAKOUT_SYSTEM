@@ -213,14 +213,16 @@
     }
 
     /* ── KPI ROW ── */
+    /* V_DASHBOARD_FLEX_WRAP_FIX_01: Use flexbox to prevent blank spaces on right side */
     .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       margin-bottom: 28px;
     }
 
     .kpi {
+      flex: 1 1 140px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -1102,7 +1104,9 @@
       .header-brand { width: 100%; justify-content: space-between; }
       .header-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
       .scanner-grid { grid-template-columns: 1fr; }
-      .kpi-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+      .kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      /* V_DASHBOARD_FLEX_WRAP_FIX_01: Make the last KPI span full width if it's odd to prevent blank space on the right */
+      .kpi-row .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
       .scanner-alert-tooltip { width: 90vw; }
       
       /* Make all tables scrollable horizontally */

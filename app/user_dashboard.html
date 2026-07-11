@@ -110,8 +110,10 @@
   .container { max-width:1400px; margin:0 auto; padding:24px 20px; }
 
   /* ── KPI ROW ── */
-  .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:28px; }
+  /* V_DASHBOARD_FLEX_WRAP_FIX_01: Use flexbox to prevent blank spaces on right side */
+  .kpi-row { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:28px; }
   .kpi {
+    flex: 1 1 140px;
     background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
     padding:16px; cursor:pointer; transition:all .2s; position:relative; overflow:hidden;
   }

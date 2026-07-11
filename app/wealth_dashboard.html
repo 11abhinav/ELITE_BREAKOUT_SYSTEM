@@ -70,10 +70,11 @@
 
     /* ═══ KPI GRID ═══ */
     .kpi-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px;
+      display: flex; flex-wrap: wrap; gap: 16px;
       margin: 0 28px 32px; padding: 0;
     }
     .kpi-card {
+      flex: 1 1 160px;
       background: #ffffff; backdrop-filter: blur(5px);
       border: 1px solid rgba(139,92,246,0.15); border-radius: 12px;
       padding: 20px; text-align: center;
