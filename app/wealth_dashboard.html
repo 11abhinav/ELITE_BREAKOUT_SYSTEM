@@ -421,7 +421,46 @@
       }
     }
             
+
+    /* Guide Modal CSS */
+    .guide-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 10000;
+      align-items: center; justify-content: center;
+    }
+    .guide-modal.active { display: flex; }
+    .guide-content {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      width: 90%; max-width: 700px;
+      max-height: 85vh; overflow-y: auto;
+      border-radius: 12px; padding: 24px;
+      position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .guide-close {
+      position: absolute; top: 16px; right: 20px;
+      cursor: pointer; font-size: 24px; color: var(--text-secondary);
+    }
+    .guide-close:hover { color: var(--text-primary); }
+    .guide-section-title { font-size: 16px; font-weight: 700; color: var(--accent-blue); margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; }
+    .guide-content ul { padding-left: 20px; margin-bottom: 16px; }
+    .guide-content li { margin-bottom: 6px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+    .guide-content p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+    .guide-content strong { color: var(--text-primary); }
+    .guide-btn {
+      background: transparent; border: 1px solid rgba(16,185,129,0.3);
+      color: #10b981; font-weight: 600; font-size: 12px;
+      padding: 6px 12px; border-radius: 20px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px; transition: all 0.2s;
+      margin-right: 12px;
+    }
+    .guide-btn:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
 </style>
+
 </head>
 <body>
   <div class="header">
@@ -433,7 +472,13 @@
         <div class="subtitle">100-Point Institutional Scoring · Sector-Capped · Real-Time Signals</div>
       </div>
     </div>
-    <div id="macro-state-badge" style="font-size:11px; padding:6px 12px; border-radius:20px; font-weight:600; font-family:var(--font-mono); letter-spacing:0.5px; border:1px solid rgba(16,185,129,0.3); background:rgba(16,185,129,0.1);">
+    
+    <button class="guide-btn" onclick="document.getElementById('guideModal').classList.add('active')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+      Trading Guide
+    </button>
+    <div id="macro-state-badge"
+ style="font-size:11px; padding:6px 12px; border-radius:20px; font-weight:600; font-family:var(--font-mono); letter-spacing:0.5px; border:1px solid rgba(16,185,129,0.3); background:rgba(16,185,129,0.1);">
       Loading Regime...
     </div>
     <div class="header-nav">
@@ -1736,6 +1781,46 @@ fetchNotifications();
 // ============================================================================
 
 </script>
+
+<!-- TRADING GUIDE MODAL -->
+<div id="guideModal" class="guide-modal" onclick="if(event.target===this) this.classList.remove('active')">
+  <div class="guide-content">
+    <div class="guide-close" onclick="document.getElementById('guideModal').classList.remove('active')">&times;</div>
+    <div style="font-size: 18px; font-weight: 800; margin-bottom: 4px;">📖 Wealth Engine Trading Guide</div>
+    <p style="font-size: 12px; color: var(--text-tertiary); margin-top:0;">Built on fundamental integrity and business durability.</p>
+    
+    <div class="guide-section-title">1. The V5 Pipeline (Quality Filters)</div>
+    <p>Every stock evaluated by the engine must pass the brutal V5 Pipeline, scored across 5 dimensions: Business Quality, Growth Velocity, Financial Strength, Valuation, and Market Structure.</p>
+    
+    <div class="guide-section-title">2. Portfolio Buckets</div>
+    <ul>
+      <li><strong>🏆 Core Compounders:</strong> Market Cap > ₹10,000 Cr, ROCE > 20%, Low Debt. Allocate the majority of your long-term capital here.</li>
+      <li><strong>🚀 Growth Multipliers:</strong> Market Cap > ₹2,000 Cr, >20% YoY Growth. Emerging leaders. Higher risk, massive alpha. Allocate a smaller chunk here.</li>
+      <li><strong>💎 Quality-On-Sale:</strong> Elite companies temporarily discounted (PEG < 1.0) with early momentum recovery. Usually triggers during market dips.</li>
+    </ul>
+
+    <div class="guide-section-title">3. Position Sizing (Alloc %)</div>
+    <p>Do not guess your position size! The dashboard automatically calculates the <strong>Alloc %</strong> using the stock's <strong>ATR (Volatility)</strong>. It sizes down volatile assets to mathematically normalize risk and protect your capital. Do not override this.</p>
+
+    <div class="guide-section-title">4. Managing Open Positions (Hold Score)</div>
+    <p>Your open trades are monitored daily using a dynamic Hold Score (0-100):</p>
+    <ul>
+      <li><strong>Stable (> 60):</strong> Fundamentals and technicals are intact. Keep holding.</li>
+      <li><strong>SELL REVIEW (< 45):</strong> Fundamentals have decayed or support broken. Prepare to exit.</li>
+      <li><strong>Catastrophic Stop:</strong> If a stock drops <strong>> 20%</strong> from entry, the system bypasses all logic and triggers an immediate SELL. Cut the loss.</li>
+      <li><strong>TLH (Tax Loss Harvest):</strong> Recommends selling a losing stock just before the 1-year mark to offset realized gains for tax purposes.</li>
+    </ul>
+
+    <div class="guide-section-title">5. Key Data Columns</div>
+    <ul>
+      <li><strong>Mom Score:</strong> Measures institutional buying pressure. High score = immediate upside probability.</li>
+      <li><strong>RS (6M):</strong> Relative Strength vs Nifty. Positive means it's beating the index.</li>
+      <li><strong>FCF:</strong> Free Cash Flow. Heavily weighted to avoid accounting frauds. FCF cannot be faked like net profit.</li>
+    </ul>
+  </div>
+</div>
+
 <script src="/static/push.js"></script>
+
 </body>
 </html>
