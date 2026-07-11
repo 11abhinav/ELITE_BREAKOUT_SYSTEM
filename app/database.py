@@ -1150,8 +1150,19 @@ def save_alert_if_new(
     - bayesian_regime: Market regime (BULL, BEAR, SIDEWAYS)
     - bayesian_weights: Actual weights used for scoring
     """
+
     context_str = json.dumps(context) if context is not None else None
     weights_str = json.dumps(bayesian_weights) if bayesian_weights is not None else None
+
+    # [FIX] Force fetch live price for accurate entry price across all scanners
+    try:
+        import yfinance as yf
+        live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
+        if live_p and live_p > 0:
+            entry_price = float(live_p)
+    except Exception:
+        pass
+
 
     # Safety: Never persist a BUY-style alert if the input/context indicates stale or fallback data.
     # Many scanners pass `used_fallback_data`, `data_quality` or `alert_details` in `context` or **kwargs.
@@ -3046,11 +3057,22 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         momentum_score: int = None, momentum_confidence: str = None,
                         data_quality: str = None, fallback_timestamp: str = None) -> bool:
     """Save BUY alert to wealth_buy_alert with position sizing. Deduplicates by (symbol, alert_date, breakout_type)."""
+
     from datetime import datetime
     from zoneinfo import ZoneInfo
     now_ist = datetime.now(ZoneInfo('Asia/Kolkata'))
     ist_today = now_ist.strftime('%Y-%m-%d')
     ist_time = now_ist.strftime('%H:%M:%S')
+
+    # [FIX] Force fetch live price for accurate entry price in wealth engine
+    try:
+        import yfinance as yf
+        live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
+        if live_p and live_p > 0:
+            alert_price = float(live_p)
+    except Exception:
+        pass
+
 
     # Safety: Do not persist wealth BUY alerts when the input data is stale.
     # Callers pass `data_quality` and/or `fallback_timestamp` when using cached data.
