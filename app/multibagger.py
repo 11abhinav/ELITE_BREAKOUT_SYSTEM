@@ -784,39 +784,11 @@ def save_watchlist_to_db(results: list):
     except Exception as e:
         logger.exception(f"❌ Failed to bulk write to stockupdates.watchlist")
 
-def save_scores_to_db(results: list):
-    """Save scanned scores in bulk using psycopg2 execute_values."""
-    if not results:
-        return
-    
-    data = []
-    for r in results:
-        legacy_score = int(r.total_score) # total_score is now the 0-100 composite investment score
-        data.append((r.symbol.upper(), r.price, r.change_pct, legacy_score, r.cqs, r.pas))
-        
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                execute_values(cur, """
-                    INSERT INTO stockupdates.prices (symbol, latest_price, change_pct, fundamental_score, quality_score, value_score)
-                    VALUES %s
-                    ON CONFLICT (symbol) DO UPDATE SET
-                        latest_price = EXCLUDED.latest_price,
-                        change_pct = EXCLUDED.change_pct,
-                        fundamental_score = EXCLUDED.fundamental_score,
-                        quality_score = EXCLUDED.quality_score,
-                        value_score = EXCLUDED.value_score,
-                        last_fetched = CURRENT_TIMESTAMP;
-                """, data)
-            conn.commit()
-        logger.info(f"✅ Stored {len(results)} stock scores in stockupdates.prices (execute_values).")
-    except Exception as e:
-        logger.exception(f"❌ Failed to bulk write to stockupdates.prices")
 
 def format_telegram_message(categorized_stocks: dict) -> list:
     """Format categorized stocks into chunked Telegram messages (HTML)."""
     messages = []
-    current_msg = "<b>🚀 SUNDAY MULTIBAGGER WATCHLIST SUMMARY</b>\n"
+    current_msg = "<b>🚀 DAILY MULTIBAGGER WATCHLIST SUMMARY</b>\n"
     current_msg += f"<i>Time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M IST')}</i>\n"
     current_msg += "========================================\n\n"
     
@@ -1531,7 +1503,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
 
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
-    save_scores_to_db(results)
     
     # 6. Format and queue Telegram updates
     logger.info(f"📢 Formatting Telegram messages for {len(results)} watchlist items...")
