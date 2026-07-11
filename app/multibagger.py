@@ -214,7 +214,6 @@ def batch_download_market_data(symbols: list) -> dict:
     logger.info(f"📥 Batch downloading 1y history for {len(ticker_names)} tickers...")
     
     # [VERSION: MULTIBAGGER_PATCH_v1.0] Determine if we need to strip forming candle for exit monitor
-    from datetime import datetime
     from market_utils import is_market_open
     ist_now = datetime.now(IST)
     strip_forming = is_market_open(ist_now)
@@ -836,7 +835,6 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     # Ensure tables and functions are created
     init_db()
 
-    from datetime import datetime
     from zoneinfo import ZoneInfo
     today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
     
@@ -917,7 +915,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     is_invalid = False
                     invalidation_reason = ""
                 try:
-                    from datetime import datetime
                     # [FIX #17] Use IST-aware datetime for grace period consistency
                     if pos.get("alert_date"):
                         adate = datetime.strptime(str(pos["alert_date"])[:10], "%Y-%m-%d").date()
@@ -1459,7 +1456,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 }
                 
                 # We use save_alert_if_new to insert into the main alerts table!
-                from datetime import datetime
                 from zoneinfo import ZoneInfo
                 ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
                 
