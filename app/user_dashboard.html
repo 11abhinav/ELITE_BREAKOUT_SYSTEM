@@ -2854,4 +2854,167 @@ async function requestPushPermission() {
 
 // Request push permission 10 seconds after load (non-intrusive)
 setTimeout(requestPushPermission, 10000);
+
+
+
+
+
+// ── Multibagger Watchlist & Positions ─────────────────────────────────────────────────
+let mbWatchlistLoaded = false;
+let allMbWatchlistItems = [];
+
+async function loadMultibaggerWatchlist() {
+  try {
+    const res = await fetch('/api/multibagger/watchlist');
+    if (!res.ok) throw new Error('Failed to fetch watchlist');
+    allMbWatchlistItems = await res.json();
+    renderMultibaggerWatchlist();
+    mbWatchlistLoaded = true;
+  } catch (e) {
+    console.error('Failed to load multibagger watchlist:', e);
+    const body = document.getElementById('mb-watchlist-body');
+    const empty = document.getElementById('mb-watchlist-empty');
+    if(body) body.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+  }
+}
+
+let currentMbSortCol = '';
+let currentMbSortAsc = true;
+
+function sortMbWatchlist(col) {
+  if (!allMbWatchlistItems || allMbWatchlistItems.length === 0) return;
+  if (currentMbSortCol === col) currentMbSortAsc = !currentMbSortAsc;
+  else { currentMbSortCol = col; currentMbSortAsc = true; }
+  allMbWatchlistItems.sort((a, b) => {
+    let valA = a[col]; let valB = b[col];
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+    if (valA === undefined || valA === null) valA = '';
+    if (valB === undefined || valB === null) valB = '';
+    if (valA < valB) return currentMbSortAsc ? -1 : 1;
+    if (valA > valB) return currentMbSortAsc ? 1 : -1;
+    return 0;
+  });
+  renderMultibaggerWatchlist();
+}
+
+function getScoreCls(score) {
+    if (score >= 85) return 'score-best';
+    if (score >= 70) return 'score-good';
+    if (score >= 50) return 'score-avg';
+    return 'score-poor';
+}
+function bucketTag(b) {
+    return `<span style="background:var(--border); padding:2px 4px; border-radius:3px; font-size:9px;">${b}</span>`;
+}
+
+function renderMultibaggerWatchlist() {
+  const tbody = document.getElementById('mb-watchlist-body');
+  const empty = document.getElementById('mb-watchlist-empty');
+  if(!tbody) return;
+
+  if (!allMbWatchlistItems || allMbWatchlistItems.length === 0) {
+    tbody.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    ['mb-total-count','mb-waiting-count','mb-triggered-count','mb-invalid-count'].forEach(id => {
+      let el = document.getElementById(id);
+      if(el) el.textContent = '0';
+    });
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+
+  const waiting = allMbWatchlistItems.filter(i => i.status === 'WAITING_BUY_ZONE').length;
+  const triggered = allMbWatchlistItems.filter(i => i.status === 'ALERT_TRIGGERED').length;
+  const invalid = allMbWatchlistItems.filter(i => i.status === 'INVALIDATED').length;
+  if(document.getElementById('mb-total-count')) document.getElementById('mb-total-count').textContent = allMbWatchlistItems.length;
+  if(document.getElementById('mb-waiting-count')) document.getElementById('mb-waiting-count').textContent = waiting;
+  if(document.getElementById('mb-triggered-count')) document.getElementById('mb-triggered-count').textContent = triggered;
+  if(document.getElementById('mb-invalid-count')) document.getElementById('mb-invalid-count').textContent = invalid;
+
+  const statusFilterEl = document.getElementById('filter-mb-status');
+  const statusFilter = statusFilterEl ? statusFilterEl.value : '';
+  const itemsToRender = statusFilter ? allMbWatchlistItems.filter(i => i.status === statusFilter) : allMbWatchlistItems;
+
+  tbody.innerHTML = itemsToRender.map(item => {
+    const sym = item.symbol || '';
+    const cmp = parseFloat(item.latest_price) || 0;
+    const bqs = parseFloat(item.growth_score) || 0;
+    const rvs = parseFloat(item.value_score) || 0;
+    const trend = parseFloat(item.trend_score) || 0;
+    const cis = parseFloat(item.total_score) || 0;
+    const bucket = item.bucket || '-';
+    const notes = item.notes || '-';
+    const status = item.status || '-';
+
+    let statusClass = 'muted';
+    if (status === 'ALERT_TRIGGERED') statusClass = 'active';
+    else if (status === 'WAITING_BUY_ZONE') statusClass = 'hold';
+    else if (status === 'INVALIDATED') statusClass = 'sell';
+
+    return `
+      <tr class="${statusClass}">
+        <td class="font-bold">
+          <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link">${sym}</a>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;">${status === 'INVALIDATED' ? 'Failed Checks' : bucketTag(bucket)}</div>
+        </td>
+        <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
+        <td class="mono font-bold" style="color:var(--text)">${bqs.toFixed(1)}</td>
+        <td class="mono font-bold" style="color:var(--text)">${rvs.toFixed(1)}</td>
+        <td class="mono font-bold" style="color:var(--text)">${trend.toFixed(1)}</td>
+        <td><span class="score-badge ${getScoreCls(cis)}">${cis.toFixed(1)}</span></td>
+        <td style="font-size:11px;">${bucket}</td>
+        <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
+        <td style="text-align: center;">
+          <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadMultibaggerPositions() {
+  try {
+    const res = await fetch('/api/multibagger/positions');
+    if (!res.ok) throw new Error('Failed to fetch MB positions');
+    const positions = await res.json();
+    renderMultibaggerPositions(positions);
+  } catch (e) {
+    console.error('Failed to load multibagger positions:', e);
+    const tbody = document.getElementById('mb-positions-body');
+    if(tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--red);">Error loading positions</td></tr>`;
+  }
+}
+
+function renderMultibaggerPositions(positions) {
+  const tbody = document.getElementById('mb-positions-body');
+  if(!tbody) return;
+  if (!positions || positions.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No Multibagger positions found.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = positions.map(pos => {
+    const pnlPct = parseFloat(pos.pnl_pct||0);
+    const pnlRs = parseFloat(pos.pnl_rs||0);
+    const pnlColor = pnlPct >= 0 ? 'var(--green)' : 'var(--red)';
+    return `
+      <tr>
+        <td class="font-bold"><a href="https://chartink.com/stocks/${pos.symbol}.html" target="_blank" class="symbol-link">${pos.symbol}</a></td>
+        <td style="font-size:11px; color:var(--muted);">${new Date(pos.entry_time).toLocaleString()}</td>
+        <td><a href="https://www.tradingview.com/chart/?symbol=NSE:${pos.symbol}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;">📊 TV</a></td>
+        <td class="mono" style="text-align:right;">₹${parseFloat(pos.entry_price||0).toFixed(2)}</td>
+        <td class="mono" style="text-align:right;">₹${parseFloat(pos.latest_price||0).toFixed(2)}</td>
+        <td class="mono" style="text-align:right;">₹${parseFloat(pos.capital_allocated||0).toFixed(0)}</td>
+        <td class="mono" style="text-align:right;">${pos.quantity}</td>
+        <td class="mono font-bold" style="color:${pnlColor}; text-align:right;">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
+        <td class="mono font-bold" style="color:${pnlColor}; text-align:right;">${pnlRs >= 0 ? '+' : ''}₹${pnlRs.toFixed(0)}</td>
+        <td class="mono" style="text-align:right; font-weight:bold; color:var(--amber);">${parseFloat(pos.total_score||0).toFixed(1)}</td>
+        <td style="text-align:center;"><span style="background:rgba(16,185,129,0.15); color:var(--green); padding:4px 8px; border-radius:4px; font-size:10px; font-weight:bold;">${pos.status}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+// ============================================================================
+
 </script>

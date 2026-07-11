@@ -2424,3 +2424,14 @@ def deactivate_user(user_id):
     except Exception as e:
         logger.exception(f"Failed to deactivate user")
         return jsonify({"error": "Failed to deactivate user"}), 500
+
+@app.route("/api/multibagger/positions", methods=["GET"])
+@login_required
+def get_multibagger_positions():
+    try:
+        from database import get_multibagger_alerts
+        alerts = get_multibagger_alerts(status="OPEN")
+        return jsonify([a.to_dict() for a in alerts])
+    except Exception as e:
+        logger.exception(f"Failed to fetch multibagger positions")
+        return jsonify({"error": str(e)}), 500
