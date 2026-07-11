@@ -951,6 +951,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             BUY_GATE_ACTIVE = True; suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
         elif fresh_ratio < 0.70 and degraded >= 3:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
+            if not getattr(database, "DONT_SAVE_WEALTH", False):
+                try:
+                    upsert_scanner_health("Wealth Engine", "DEGRADED", error_msg=f"Data stale ({fresh_ratio*100:.1f}% fresh). Signals suppressed.")
+                except Exception:
+                    pass
             
         wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason)
         
