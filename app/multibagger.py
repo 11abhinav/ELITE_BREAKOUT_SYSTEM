@@ -936,12 +936,8 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         exit_triggered = True
                         exit_reason = f"Catastrophic Stop: Drawdown >= 25% ({drawdown_pct:.1f}% loss)"
                     
-                technical_exit_allowed = (days_held >= 15)
-                if not technical_exit_allowed and not exit_triggered:
-                    logger.info(f"🛡️ [EXIT MONITOR] {symbol}: In 15-day grace period (held {days_held} days). Technical exits skipped.")
-                    
                 # Rule 2: Anti-Whipsaw 200-DMA exit
-                if not exit_triggered and technical_exit_allowed and price_data.sma_200 > 0:
+                if not exit_triggered and price_data.sma_200 > 0:
                     closes_below_count = getattr(price_data, "closes_below_sma200_count", 0)
                     if closes_below_count >= 3:
                         if current_price < 0.93 * price_data.sma_200:
