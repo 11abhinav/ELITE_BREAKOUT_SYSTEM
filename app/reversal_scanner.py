@@ -121,6 +121,7 @@ def _score_reversal(
         above_sma200: Optional[bool] = None,
         obv_trend: Optional[int] = None,
         delivery_pct: Optional[float] = None,
+        close_price: Optional[float] = None,
 ) -> int:
     """Score a reversal setup from 0-100 based on quality dimensions (v6 weights)."""
     score = 0
@@ -134,7 +135,9 @@ def _score_reversal(
         score += 25   # full recovery structure: above both 50 & 200 SMA
     elif above_sma50:
         score += 18   # reclaimed SMA50 (mandatory gate, baseline recovery)
-    # else: no trend-structure points (should be rare — SMA50 is a hard gate)
+    elif above_sma50 is False:
+        # [VERSION: REVERSAL_SOFT_SMA_v1.0] Grant partial trend score of 10 for soft SMA50 pass
+        score += 10
 
     # ── SMA200 proximity (15 pts) — closer = safer entry ──
     if pct_below_sma200 is not None:
@@ -156,16 +159,18 @@ def _score_reversal(
     # < MIN_VOLUME_RATIO never reaches here (hard gate), but guarded for safety.
 
     # ── MACD momentum (15 pts) ──
-    # [FIX P2] Normalize MACD histogram by price to remove large-cap bias.
-    # A ₹100 stock and ₹5000 stock with equal momentum strength should score equally.
-    if macd_hist is not None:
+    # [VERSION: REVERSAL_MACD_NORM_v1.0] Express macd_hist as percentage of close price to eliminate large-cap bias
+    if macd_hist is not None and close_price is not None and close_price > 0:
+        try:
+            mh_pct = (float(macd_hist) / float(close_price)) * 100.0
+            if mh_pct >= 0.10:   score += 15   # strong bullish momentum (10+ basis points)
+            elif mh_pct >= 0.03: score += 10   # moderate bullish momentum (3+ basis points)
+            elif mh_pct > 0.0:   score += 5    # turning positive
+        except (TypeError, ValueError):
+            pass
+    elif macd_hist is not None:
         try:
             mh = float(macd_hist)
-            # Normalize: express MACD_HIST as basis points of price
-            # For scoring, we need the close price — pass it via the function
-            # but since we don't have it here, use raw thresholds with a note.
-            # The caller should normalize before passing. For now, keep raw but
-            # use looser thresholds that work across price ranges.
             if mh > 0.3:   score += 15   # strong bullish histogram
             elif mh > 0.1: score += 10
             elif mh > 0:   score += 5    # just turned positive
@@ -285,13 +290,14 @@ def _run_scan(force: bool = False):
 
     fetched_count = len(all_ticker_data) if all_ticker_data else 0
     if fetched_count < len(watchlist) * 0.70:
-        logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
+        logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited).")
+        # [VERSION: REV_FETCH_ABORT_FIX] Gracefully degrade instead of crashing the runner
         if not is_test_mode:
             try:
-                upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
+                upsert_scanner_health(scanner_name="REVERSAL", status="DEGRADED", error_msg=f"Partial Fetch: {fetched_count}/{len(watchlist)} symbols")
             except Exception:
                 pass
-        raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
+        # Proceed with partial data rather than aborting the entire nightly run
     else:
         logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for Reversal scan")
         if not is_test_mode:
@@ -379,8 +385,9 @@ def _run_scan(force: bool = False):
                 ticker.columns = ticker.columns.get_level_values(0)
             ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-            if len(ticker) < 100:
-                logger.warning(f"[REVERSAL] {symbol} rejected: insufficient bars ({len(ticker)} < 100)")
+            # [VERSION: REV_BAR_LIMIT_FIX] Lowered bar minimum from 100 to 50 to allow IPOs/new listings to be evaluated
+            if len(ticker) < 50:
+                logger.warning(f"[REVERSAL] {symbol} rejected: insufficient bars ({len(ticker)} < 50)")
                 rejected["insufficient_bars"] += 1
                 continue
 
@@ -458,14 +465,15 @@ def _run_scan(force: bool = False):
                     pass
 
             # ── RSI curl: was oversold recently, now recovering ─────────────────────
+            # [VERSION: REVERSAL_RSI_LOOKBACK_v1.0] Expand recent RSI lookback to 15 bars to capture slower bottoming patterns
             current_rsi = float(latest["RSI"])
-            recent_rsi = ticker["RSI"].dropna().iloc[-11:-1]
+            recent_rsi = ticker["RSI"].dropna().iloc[-16:-1]
             if len(recent_rsi) < 5:
                 rejected["insufficient_bars"] += 1
                 continue
-            past_10_rsi = recent_rsi.min()
+            past_15_rsi = recent_rsi.min()
 
-            if current_rsi < RSI_CURL_MIN or past_10_rsi > RSI_OVERSOLD_THRESHOLD:
+            if current_rsi < RSI_CURL_MIN or past_15_rsi > RSI_OVERSOLD_THRESHOLD:
                 rejected["failed_pattern"] += 1
                 continue
 
@@ -577,14 +585,15 @@ def _run_scan(force: bool = False):
             breakout_type = "REVERSAL"
             dedup_key  = f"{category}|{symbol}|{today_str}|{breakout_type}"
 
-            # [VERSION: REVERSAL_PATCH_v1.0] Fixed dedup_key mapping for early-exit duplicate suppression
-            if (symbol, dedup_key) in cooldown_alerts:
+            # [VERSION: REV_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
+            if (symbol, breakout_type) in cooldown_alerts:
                 continue
 
             candle_range   = float(latest["High"]) - float(latest["Low"])
             candle_high    = float(latest["High"])
             candle_low     = float(latest["Low"])
-            atr_val        = float(latest["ATR"]) if "ATR" in ticker.columns and not pd.isna(latest.get("ATR")) else None
+            # [VERSION: REV_ATR_FALLBACK_FIX] Added 2% fallback for ATR if missing from fallback provider to prevent SL engine failure
+            atr_val = float(latest["ATR"]) if "ATR" in ticker.columns and not pd.isna(latest.get("ATR")) else (float(latest["Close"]) * 0.02)
 
             # ── v5: CLIMAX TOP DISQUALIFIER ───────────────────────────────────────
             # Operators push beaten-down stocks to a fake bounce high with massive
@@ -671,7 +680,7 @@ def _run_scan(force: bool = False):
                 vol_ratio=vol_ratio,
                 drop_pct=drop_pct,
                 current_rsi=current_rsi,
-                past_10_rsi_min=float(past_10_rsi),
+                past_10_rsi_min=float(past_15_rsi), # Maps to signature arg name
                 macd_hist=latest.get("MACD_HIST"),
                 pct_below_sma200=pct_below_200,
                 category=category,
@@ -680,6 +689,7 @@ def _run_scan(force: bool = False):
                 above_sma200=above_sma200,    # [FIX 2/3]
                 obv_trend=obv_trend_val,
                 delivery_pct=delivery_pct,
+                close_price=close_price,       # [VERSION: REVERSAL_MACD_NORM_v1.0]
             )
 
             if reversal_score < MIN_REVERSAL_SCORE:
@@ -688,13 +698,15 @@ def _run_scan(force: bool = False):
                 continue
 
             # [BUG-5 FIX v1.5] Compute trend_score matching _score_reversal logic exactly
-            # When above_sma50=False (soft-pass path), scorer gives 0 trend points, not 18
+            # When above_sma50=False (soft-pass path), scorer gives 10 trend points (REVERSAL_SOFT_SMA_v1.0), not 18
             if above_sma50 is True and above_sma200 is True:
                 trend_score = 25
             elif above_sma50 is True:
                 trend_score = 18
+            elif above_sma50 is False:
+                trend_score = 10
             else:
-                trend_score = 0  # soft-pass (within 3% of SMA50) gets no trend points
+                trend_score = 0
 
             # ─────────────────────────────────────────────────────────────────────
 

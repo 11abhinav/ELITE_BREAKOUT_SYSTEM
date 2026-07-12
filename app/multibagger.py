@@ -484,8 +484,11 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         altman_z = f.get("altman_z")
         if altman_z is not None and not pd.isna(altman_z):
             known_metrics_count += 1
-            if safe_float(altman_z) < 1.8:
-                return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f})"
+            # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Check if service sector to apply solvent threshold of 1.10 vs 1.80 for manufacturing
+            is_svc = any(k in str(f.get("sector", "")).lower() for k in ["technology", "communication", "services"])
+            z_threshold = 1.10 if is_svc else 1.80
+            if safe_float(altman_z) < z_threshold:
+                return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f} < {z_threshold})"
 
     # Minimum data footprint check: At least 2 fundamental metrics must be known
     if known_metrics_count < 2:
@@ -533,8 +536,9 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         now_dt = datetime.now(IST)
         # Ensure it has timezone info
         if fetched_at.tzinfo is None:
-            logger.warning(f"[TIMEZONE] Rejecting legacy naive cache timestamp for {symbol} to strictly enforce aware IST contract.")
-            return None
+            logger.warning(f"[TIMEZONE] Upgrading legacy naive cache timestamp for {symbol} to IST.")
+            # [VERSION: MB_CACHE_TZ_FIX] Upgrade naive timestamp instead of discarding cache to preserve rate limits
+            fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
         if age_days < 7:
@@ -610,8 +614,16 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     x2 = retained_earnings / assets
                     x3 = ebit / assets
                     x4 = market_cap / total_liab
-                    x5 = revenue / assets if revenue else 0
-                    altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
+                    
+                    # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Determine Z''-score for service/non-manufacturing firms vs standard Z-score for manufacturing firms
+                    is_svc = any(k in str(info.get("sector", "")).lower() for k in ["technology", "communication", "services"]) or \
+                             any(k in str(info.get("industry", "")).lower() for k in ["services", "software", "consulting", "internet", "retail", "media"])
+                             
+                    if is_svc:
+                        altman_z = (6.56 * x1) + (3.26 * x2) + (6.72 * x3) + (1.05 * x4)
+                    else:
+                        x5 = revenue / assets if revenue else 0
+                        altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
                 
                 # Map to V5 Engine Expected Keys
                 price = info.get("currentPrice")
@@ -879,27 +891,27 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             
         logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
         
+        # [VERSION: MULTIBAGGER_EXIT_BATCH_v1.0] Pre-fetch price data for all open positions in batch to avoid loop network latency
+        open_symbols = [pos["symbol"] for pos in open_positions]
+        exit_prices = {}
+        if open_symbols:
+            try:
+                exit_prices = batch_download_market_data(open_symbols)
+            except Exception as e:
+                logger.warning(f"Failed to batch download exit prices: {e}")
+
         for pos in open_positions:
             try:
                 symbol = pos["symbol"]
                 entry_price = float(pos["alert_price"]) if pos.get("alert_price") is not None else 0.0
                 alert_id = pos["id"]
                 
-                price_data = price_data_map.get(symbol)
+                # Try exit_prices first, then fall back to price_data_map
+                price_data = exit_prices.get(symbol) or price_data_map.get(symbol)
                 if not price_data:
                     continue
                     
-
                 current_price = price_data.price
-                
-                # [FIX] Force fetch live price to ensure accuracy over yfinance history
-                try:
-                    import yfinance as yf
-                    live_p = yf.Ticker(f"{symbol}.NS").fast_info.last_price
-                    if live_p and live_p > 0:
-                        current_price = live_p
-                except Exception:
-                    pass
 
                 
                 # Fetch latest fundamentals (using cache first)
@@ -1194,11 +1206,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         fetch_ratio = total_fetched / total_expected
         logger.info(f"📊 Data Integrity: {total_fetched}/{total_expected} ({fetch_ratio:.1%}) fundamentals loaded.")
         if fetch_ratio < 0.70:
-            error_msg = f"Incomplete data error: Only {total_fetched}/{total_expected} ({fetch_ratio:.1%}) stocks fetched. Minimum 70% required."
-            logger.error(f"❌ {error_msg}")
-            # [FIX #9] Mark scanner health DOWN before aborting so the terminal state is always set
-            upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=error_msg)
-            return {"total_count": total_expected, "processed_count": 0, "today_alerts": 0, "error": error_msg}
+            error_msg = f"Incomplete data error: Only {total_fetched}/{total_expected} ({fetch_ratio:.1%}) stocks fetched."
+            logger.warning(f"⚠️ {error_msg}")
+            # [VERSION: MB_FETCH_ABORT_FIX] Gracefully degrade instead of aborting the script
+            if not is_test_mode:
+                try:
+                    upsert_scanner_health(scanner_name="MULTIBAGGER", status="DEGRADED", error_msg=error_msg)
+                except Exception:
+                    pass
+            # Allow the valid subset to continue rather than raising an Exception
     
     # Check Market Regime (Explicitly fetch Nifty)
     # Default to BEAR (conservative fail-direction for quality-over-quantity)

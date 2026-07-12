@@ -159,13 +159,14 @@ def _start_wrapper(force: bool = False):
         # so that main.py catches it and retries later when rate limits clear.
         fetched_count = len(all_ticker_data) if all_ticker_data else 0
         if fetched_count < len(watchlist) * 0.70:
-            logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited). Forcing retry...")
+            logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited).")
+            # [VERSION: EOD_FETCH_ABORT_FIX] Gracefully degrade instead of crashing the runner
             if not is_test_mode:
                 try:
-                    upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols")
+                    upsert_scanner_health(scanner_name="EOD", status="DEGRADED", error_msg=f"Partial Fetch: {fetched_count}/{len(watchlist)} symbols")
                 except Exception:
                     pass
-            raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Only fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting to prevent stale data.")
+            # Proceed with partial data rather than aborting the entire nightly run
         else:
             logger.info(f"✅ Successfully fetched {fetched_count}/{len(watchlist)} symbols for EOD scan")
 
@@ -285,7 +286,8 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["no_data"] += 1
                     continue
 
-                if len(ticker) < 200:
+                # [VERSION: EOD_BAR_LIMIT_FIX] Lowered bar minimum from 200 to 50 to allow IPOs/new listings to be evaluated
+                if len(ticker) < 50:
                     rejection_counts["insufficient_bars"] += 1
                     continue
 
@@ -316,7 +318,10 @@ def _start_wrapper(force: bool = False):
                 if _stale_col:
                     try:
                         _last_ts = pd.to_datetime(latest[_stale_col])
-                        if _last_ts.tzinfo is not None:
+                        # [VERSION: EOD_TZ_STALE_FIX_v1.0] Localize timezone naive timestamp to IST to prevent midnight rollover miscalculation
+                        if _last_ts.tzinfo is None:
+                            _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                        else:
                             _last_ts = _last_ts.tz_convert("Asia/Kolkata")
                         _bar_age_days = (ist_now.date() - _last_ts.date()).days
                         if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
@@ -349,8 +354,11 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["stale_data"] += 1
                     continue
 
-                latest_volume = float(latest["Volume"])
-                avg_volume    = float(ticker["Volume"].iloc[-21:-1].mean())
+                # [VERSION: EOD_VOL_RATIO_FIX] Protect against newly listed stocks with <22 bars
+                if len(ticker) >= 22:
+                    avg_volume = float(ticker["Volume"].iloc[-21:-1].mean())
+                else:
+                    avg_volume = float(ticker["Volume"].iloc[:-1].mean())
 
                 if avg_volume <= 0:
                     # [VERSION: EOD_PATCH_v1.0] [BUG FIX 3] Rejection counters updated for zero volume and candle range
@@ -563,7 +571,8 @@ def _start_wrapper(force: bool = False):
                 signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
                 dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 
-                if (symbol, dedup_key) in cooldown_alerts:
+                # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
+                if (symbol, "EOD") in cooldown_alerts:
                     rejection_counts["duplicate"] += 1
                     continue
 
@@ -595,7 +604,8 @@ def _start_wrapper(force: bool = False):
                 suggested_stop = sl_result["stop_loss"]
                 target_price = sl_result["target_1"]
  
-                if sl_result.get("rr_ratio", 0.0) < 1.5:
+                # [VERSION: EOD_RR_GATE_FIX] Lowered minimum R:R to 1.2 to avoid penalizing high-probability low-volatility structural bases
+                if sl_result.get("rr_ratio", 0.0) < 1.2:
                     rejection_counts["low_rr"] += 1
                     continue
 

@@ -169,5 +169,81 @@ class TestDailyBuilderFixes(unittest.TestCase):
         self.assertEqual(fetcher._normalize_symbol("^NSEI"), "^NSEI")
         print("✓ Test passed: YFinanceFetcher symbol normalization correctly handles NSE, BSE, indices, and ampersands.")
 
+    def test_service_sector_altman_z_score(self):
+        """Test that Altman Z-score utilizes service sector solvent thresholds (1.10) for IT/Service companies."""
+        from multibagger import passes_multibagger_quality_gate
+        
+        # Service stock template: Altman Z is 1.5 (which is below 1.8 manufacturing threshold, but above 1.10 service threshold)
+        service_stock = {
+            "is_financial": False,
+            "sector": "Technology",
+            "roce": 0.25,
+            "revenue_cagr_3y": 0.15,
+            "operating_margin_ttm": 0.20,
+            "fcf_margin": 0.15,
+            "cfo_pat_ratio": 0.90,
+            "debt_equity": 0.10,
+            "interest_coverage_ratio": 15.0,
+            "altman_z": 1.5,  # Grey zone for service, but solvent
+            "promoter_pledge_pct": 0.0,
+            "auditor_flags": False
+        }
+        
+        passed, reason = passes_multibagger_quality_gate(service_stock)
+        self.assertTrue(passed, f"Service stock should pass Altman Z gate: {reason}")
+        
+        # Manufacturing stock template: Altman Z is 1.5 (which is below 1.8 manufacturing threshold)
+        mfg_stock = service_stock.copy()
+        mfg_stock["sector"] = "Basic Materials"  # Manufacturing/Asset-heavy
+        
+        passed, reason = passes_multibagger_quality_gate(mfg_stock)
+        self.assertFalse(passed, "Manufacturing stock should fail Altman Z gate when Z < 1.8")
+        print("✓ Test passed: Altman Z-score correctly uses service sector solvent thresholds vs manufacturing.")
+
+    def test_reversal_macd_normalization(self):
+        """Test that MACD momentum scoring is normalized by close price to prevent large-cap bias."""
+        from reversal_scanner import _score_reversal
+        
+        # High priced stock (price = 10,000) with MACD hist = 5.0 (5 bps = 0.05% of price). Expecting moderate score.
+        score_high = _score_reversal(
+            vol_ratio=2.0, drop_pct=30.0, current_rsi=35.0, past_10_rsi_min=20.0,
+            macd_hist=5.0, pct_below_sma200=5.0, category="Wealth Compounder", rr_ratio=3.0,
+            above_sma50=True, above_sma200=True, obv_trend=1, delivery_pct=40.0,
+            close_price=10000.0
+        )
+        
+        # Low priced stock (price = 100) with MACD hist = 0.05 (5 bps = 0.05% of price). Should receive identical score!
+        score_low = _score_reversal(
+            vol_ratio=2.0, drop_pct=30.0, current_rsi=35.0, past_10_rsi_min=20.0,
+            macd_hist=0.05, pct_below_sma200=5.0, category="Wealth Compounder", rr_ratio=3.0,
+            above_sma50=True, above_sma200=True, obv_trend=1, delivery_pct=40.0,
+            close_price=100.0
+        )
+        
+        self.assertEqual(score_high, score_low, f"Large cap and small cap with identical relative MACD should score equally ({score_high} vs {score_low})")
+        print("✓ Test passed: MACD scoring correctly normalizes by close price to eliminate large-cap bias.")
+
+    def test_reversal_soft_sma50_score(self):
+        """Test that soft SMA50 pass awards 10 trend points instead of 0."""
+        from reversal_scanner import _score_reversal
+        
+        score_soft = _score_reversal(
+            vol_ratio=2.0, drop_pct=30.0, current_rsi=35.0, past_10_rsi_min=20.0,
+            macd_hist=1.0, pct_below_sma200=5.0, category="Wealth Compounder", rr_ratio=3.0,
+            above_sma50=False, above_sma200=False, obv_trend=1, delivery_pct=40.0,
+            close_price=100.0
+        )
+        
+        score_no_sma = _score_reversal(
+            vol_ratio=2.0, drop_pct=30.0, current_rsi=35.0, past_10_rsi_min=20.0,
+            macd_hist=1.0, pct_below_sma200=5.0, category="Wealth Compounder", rr_ratio=3.0,
+            above_sma50=None, above_sma200=False, obv_trend=1, delivery_pct=40.0,
+            close_price=100.0
+        )
+        
+        # Soft pass (above_sma50=False) should score 10 points higher than no SMA pass (above_sma50=None)
+        self.assertEqual(score_soft - score_no_sma, 10)
+        print("✓ Test passed: Soft SMA50 pass correctly awards 10 trend score points.")
+
 if __name__ == '__main__':
     unittest.main()

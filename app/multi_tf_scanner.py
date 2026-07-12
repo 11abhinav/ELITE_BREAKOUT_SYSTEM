@@ -45,15 +45,18 @@ def strip_forming_candle(df, tf_minutes, ist_now):
             return df
             
         if raw_ts is not None:
+            # [VERSION: MTF_CANDLE_STRIP_FIX] Robust timezone handling for forming candle strip
             if raw_ts.tzinfo is not None:
                 raw_ts = raw_ts.tz_convert(IST)
-            else:
-                # If naive, assume it's already IST from the data fetcher
-                raw_ts = raw_ts.tz_localize(IST)
                 
             candle_start = raw_ts.replace(tzinfo=None)
-            candle_end   = candle_start + pd.Timedelta(minutes=tf_minutes)
-            now_naive    = ist_now.replace(tzinfo=None)
+            now_naive = ist_now.replace(tzinfo=None)
+            
+            # If the naive timestamp looks like UTC (e.g. 5+ hours behind IST), auto-correct it
+            if now_naive - candle_start > pd.Timedelta(hours=4):
+                candle_start = candle_start + pd.Timedelta(hours=5, minutes=30)
+                
+            candle_end = candle_start + pd.Timedelta(minutes=tf_minutes)
             
             if now_naive < candle_end:
                 return df.iloc[:-1].copy()
@@ -95,8 +98,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     required_count = int(len(watchlist) * 0.70)
     
     if fetched_count < required_count:
-        logger.warning(f"⚠️ 1H data fetch returned {fetched_count}/{len(watchlist)} symbols (70% minimum required). Aborting Phase A.")
-        raise Exception(f"STALE DATA/INCOMPLETE DATA ERROR: Fetched {fetched_count}/{len(watchlist)} symbols (70% minimum required)")
+        # [VERSION: MTF_FETCH_ABORT_FIX] Catch failure gracefully and skip only Phase A, instead of crashing the whole cycle
+        logger.warning(f"⚠️ 1H data fetch returned {fetched_count}/{len(watchlist)} symbols (70% minimum required). Skipping Phase A processing.")
+        return {"fetched": fetched_count, "total": len(watchlist), "stale": 0, "approved": 0, "abort": True}
     else:
         logger.info(f"✅ Successfully fetched {fetched_count} symbols for 1H hourly phase")
         
@@ -113,7 +117,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             funnel["total"] += 1
         
             df = ticker_data.get(symbol)
-            if df is None or df.empty or len(df) < 200:
+            # [VERSION: MTF_BAR_LIMIT_FIX] Reduced from 200 to 50 to allow YFinance fallback data to process safely
+            if df is None or df.empty or len(df) < 50:
                 continue
             
             if getattr(df, 'attrs', {}).get('is_stale') == True:
@@ -182,11 +187,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             # AND price must be within 0.5% to 3.0% of the breakout level
             ema_ok = e9 > e20 and e20 > s50 and close > s200
             adx_ok = adx_val > 20
-            # [FINDING-6 FIX] Widened distance gate from 0.5-3% to 0-5%.
-            # Old gate rejected stocks AT the breakout level (dist < 0.5%) and stocks
-            # approaching from > 3% — only a 2.5pp window. Now allows stocks at/near
-            # the level AND gives a wider approach window for consolidating names.
-            dist_ok = 0.0 <= dist_to_breakout <= 0.05
+            # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum
+            dist_ok = -0.02 <= dist_to_breakout <= 0.05
         
             if ema_ok:
                 funnel["ema_only_pass"] += 1
@@ -268,6 +270,11 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
     if data_5m is None:
         data_5m = {}
         
+    # [VERSION: MTF_DAILY_PIVOTS_FIX] Fetch daily data for 5m pivot points
+    data_daily = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}), period="5d", interval="1d") if needs_5m else {}
+    if data_daily is None:
+        data_daily = {}
+        
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
         req_len = len(needed_list)
@@ -277,12 +284,12 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
             return False
         return True
 
-    _check_fetch(data_30m, needs_30m, "30m")
-    _check_fetch(data_15m, needs_15m, "15m")
-    _check_fetch(data_5m, needs_5m, "5m")
-
+    # [VERSION: MTF_FETCH_CHECK_FIX] Capture the fetch validation to gracefully skip failed timeframes
+    ok_30m = _check_fetch(data_30m, needs_30m, "30m")
+    ok_15m = _check_fetch(data_15m, needs_15m, "15m")
+    ok_5m  = _check_fetch(data_5m, needs_5m, "5m")
     stale_count = 0
-
+    db_save_failures = 0
     ist_now = datetime.now(IST)
     end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
     if ist_now > end_of_session:
@@ -353,7 +360,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
 
                         if drift > 0.03:
                             if not is_test_mode:
+                                # [VERSION: MTF_FLAPPING_FIX] Apply a 2-hour cooldown on drift demotion to prevent choppy day flapping
                                 upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
+                                mark_breakout_watchlist_cooldown(symbol, "HOURLY_APPROVED", hours=2)
                             state = "HOURLY_APPROVED"
                             lower_funnel["demoted"] += 1
                             logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
@@ -365,7 +374,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                             logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")
 
             # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
-            if state == "HOURLY_APPROVED" and data_30m.get(symbol) is not None:
+            if state == "HOURLY_APPROVED" and data_30m.get(symbol) is not None and ok_30m:
                 lower_funnel["armed_candidates"] += 1
                 df = data_30m.get(symbol)
                 if df is None:
@@ -433,7 +442,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
             # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
-            if state == "SETUP_ARMED" and data_15m.get(symbol) is not None:
+            if state == "SETUP_ARMED" and data_15m.get(symbol) is not None and ok_15m:
                 lower_funnel["entry_candidates"] += 1
                 df = data_15m.get(symbol)
                 if df is None:
@@ -492,7 +501,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                     f"dist={dist_to_breakout*100:.2f}%)")
 
             # ── Phase D (5m): ENTRY_READY → TRADE_ACTIVE (Final Trigger) ─────
-            if state == "ENTRY_READY" and data_5m.get(symbol) is not None:
+            if state == "ENTRY_READY" and data_5m.get(symbol) is not None and ok_5m:
                 lower_funnel["trigger_candidates"] += 1
                 df = data_5m.get(symbol)
                 if df is None:
@@ -509,7 +518,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase D: insufficient 5m data")
                         continue
-                    df = apply_indicators(df, timeframe="5m")
+                    # [VERSION: MTF_DAILY_PIVOTS_FIX] Inject daily_ohlc into indicator engine to correctly anchor intraday S/R pivots
+                    daily_df = data_daily.get(symbol)
+                    df = apply_indicators(df, timeframe="5m", daily_ohlc=daily_df)
                     if df.empty or "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
                         logger.debug(f"⏭️ {symbol} phase D: missing required 5m indicators")
                         continue
@@ -577,6 +588,12 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         # Idempotency check before alert
                         if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="INTRADAY", lookback_minutes=390):
                             from sl_target_helper import compute_sl_and_target
+                            
+                            # [VERSION: MTF_VWAP_FALLBACK_FIX] Fallback to EMA20 if VWAP is missing due to lack of intraday volume
+                            vwap_val = latest.get("VWAP")
+                            if vwap_val is None or pd.isna(vwap_val) or vwap_val <= 0:
+                                vwap_val = float(latest.get("EMA20", close))
+                                
                             sl_result = compute_sl_and_target(
                                 entry_price=close,
                                 atr=atr20,
@@ -598,7 +615,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 swing_low_raw=latest.get("SWING_LOW_RAW"),
                                 swing_high_raw=latest.get("SWING_HIGH_RAW"),
                                 candle_low=low,
-                                vwap=latest.get("VWAP"),
+                                vwap=vwap_val,
                                 ticker=df,
                             )
                             final_sl = sl_result["stop_loss"]
@@ -650,6 +667,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
                             else:
                                 logger.info(f"🚫 {symbol} alert SUPPRESSED: {reason}")
+                                # [VERSION: MTF_DB_SAVE_FIX] Track silent DB save failures and flip health to DEGRADED
+                                if reason != "ALREADY_EXISTS" and reason != "RECENT_ALERT_EXISTS" and "CONFLICT" not in str(reason).upper():
+                                    db_save_failures += 1
                                 # Do NOT advance state or set cooldown so it can try again if data freshness recovers
 
         except Exception as e:
@@ -663,7 +683,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
 
     unique_needed = set(needs_30m) | set(needs_15m) | set(needs_5m)
     unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
-    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_count}
+    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_count, "save_failures": db_save_failures}
 
 def run_sweeper(is_test_mode=False):
     if is_test_mode:
@@ -767,6 +787,11 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             if (total_expected_a > 0 and total_fetched_a < total_expected_a) or (total_expected_b > 0 and total_fetched_b < total_expected_b):
                 status = "DEGRADED"
                 error_msg = f"Partial Fetch: {total_fetched_a + total_fetched_b}/{total_expected_a + total_expected_b} symbols"
+                
+            total_save_failures = metrics_a.get("save_failures", 0) + metrics_b.get("save_failures", 0)
+            if total_save_failures > 0:
+                status = "DEGRADED"
+                error_msg = f"DB Save Failures: {total_save_failures} drops"
             
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
