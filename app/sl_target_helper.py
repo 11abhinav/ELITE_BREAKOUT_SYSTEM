@@ -265,8 +265,9 @@ def _compute_eod(
     if support is not None:
         raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
     else:
-        raw_sl    = entry - scaled_mult * eff_atr
-        sl_method = f"ATR fallback ({scaled_mult}×ATR) — no support structure below entry"
+        fallback_dist = max(scaled_mult * eff_atr, sl_pct_buf * entry)
+        raw_sl    = entry - fallback_dist
+        sl_method = f"ATR fallback ({scaled_mult}×ATR, min buffer enforced) — no support structure below entry"
 
     stop_loss = round(raw_sl, 2)
     risk      = max(entry - stop_loss, entry * 0.005)
@@ -383,8 +384,9 @@ def _compute_intraday(
             if support is not None:
                 raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
             else:
-                raw_sl    = entry - 1.0 * eff_atr
-                sl_method = f"1×ATR fallback — no 15m structure below entry"
+                fallback_dist = max(1.0 * eff_atr, sl_pct_buf * entry)
+                raw_sl    = entry - fallback_dist
+                sl_method = f"1×ATR fallback (min buffer enforced) — no 15m structure below entry"
     elif candle_low is not None and _safe(candle_low) and candle_low < entry:
         raw_sl    = candle_low - buf
         sl_method = f"Below candle low ₹{round(candle_low, 2)} — buffer ₹{round(buf, 2)} (anti-trap)"
@@ -397,8 +399,9 @@ def _compute_intraday(
         if support is not None:
             raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
         else:
-            raw_sl    = entry - 1.0 * eff_atr
-            sl_method = f"1×ATR fallback — no 15m structure below entry"
+            fallback_dist = max(1.0 * eff_atr, sl_pct_buf * entry)
+            raw_sl    = entry - fallback_dist
+            sl_method = f"1×ATR fallback (min buffer enforced) — no 15m structure below entry"
 
     # Hard cap: intraday SL max 2.5×ATR
     if (entry - raw_sl) > max_sl_atr * eff_atr:
@@ -507,8 +510,9 @@ def _compute_live_1h(
             if support is not None:
                 raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
             else:
-                raw_sl    = entry - scaled_mult * eff_atr
-                sl_method = f"ATR fallback ({scaled_mult}×ATR) — no 1H structure below entry"
+                fallback_dist = max(scaled_mult * eff_atr, sl_pct_buf * entry)
+                raw_sl    = entry - fallback_dist
+                sl_method = f"ATR fallback ({scaled_mult}×ATR, min buffer enforced) — no 1H structure below entry"
     else:
         support, sup_label = _pick_support(
             entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
@@ -517,8 +521,9 @@ def _compute_live_1h(
         if support is not None:
             raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
         else:
-            raw_sl    = entry - scaled_mult * eff_atr
-            sl_method = f"ATR fallback ({scaled_mult}×ATR) — no 1H structure below entry"
+            fallback_dist = max(scaled_mult * eff_atr, sl_pct_buf * entry)
+            raw_sl    = entry - fallback_dist
+            sl_method = f"ATR fallback ({scaled_mult}×ATR, min buffer enforced) — no 1H structure below entry"
 
     stop_loss = round(raw_sl, 2)
     risk      = max(entry - stop_loss, entry * 0.005)
