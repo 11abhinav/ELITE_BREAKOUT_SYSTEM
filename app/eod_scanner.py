@@ -751,11 +751,11 @@ def _start_wrapper(force: bool = False):
         logger.info(f"🧵 Final Active Thread Count: {active_threads}")
         
         stale_pct = rejection_counts["stale_data"] / len(watchlist) if len(watchlist) > 0 else 0
-        if stale_pct > 0.1:
+        if stale_pct > 0.05:
             status = "DEGRADED"
             error_msg = f"Stale Data: {rejection_counts['stale_data']}/{len(watchlist)} symbols"
             
-        if len(all_ticker_data) < len(watchlist):
+        if len(all_ticker_data) < len(watchlist) * 0.95:
             status = "DEGRADED"
             error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"
 

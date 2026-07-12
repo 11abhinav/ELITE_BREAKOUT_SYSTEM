@@ -868,9 +868,14 @@ def _run_scan(force: bool = False):
             error_msg = None
             stale_count = rejected.get("stale_data", 0)
             total_symbols = len(watchlist)
-            if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
+            if total_symbols > 0 and (stale_count / total_symbols) > 0.05:
                 status = "DEGRADED"
                 error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+                
+            fetched_count = len(all_ticker_data) if all_ticker_data else 0
+            if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
+                status = "DEGRADED"
+                error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
 
             upsert_scanner_health(
                 scanner_name="REVERSAL",

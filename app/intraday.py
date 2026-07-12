@@ -508,11 +508,11 @@ def _start_wrapper(run_once=False):
             error_msg = None
             
             stale_pct = stale_count / len(watchlist) if len(watchlist) > 0 else 0
-            if stale_pct > 0.1:
+            if stale_pct > 0.05:
                 status = "DEGRADED"
                 error_msg = f"Stale Data: {stale_count}/{len(watchlist)} symbols"
                 
-            if len(data_15m_raw) < len(watchlist):
+            if len(data_15m_raw) < len(watchlist) * 0.95:
                 status = "DEGRADED"
                 error_msg = f"Partial Fetch: {len(data_15m_raw)}/{len(watchlist)} symbols"
 

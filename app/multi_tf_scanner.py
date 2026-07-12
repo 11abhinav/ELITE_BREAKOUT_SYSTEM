@@ -777,7 +777,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             total_stale = (metrics_a.get("stale", 0) + metrics_b.get("stale", 0))
             total_symbols = (metrics_a.get("total", 0) + metrics_b.get("total", 0))
             
-            if total_symbols > 0 and total_stale / total_symbols > 0.1:
+            if total_symbols > 0 and total_stale / total_symbols > 0.05:
                 status = "DEGRADED"
                 error_msg = f"Stale Data: {total_stale}/{total_symbols} symbols"
                 
@@ -786,7 +786,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             total_expected_a = metrics_a.get("total", 0)
             total_expected_b = metrics_b.get("total", 0)
             
-            if (total_expected_a > 0 and total_fetched_a < total_expected_a) or (total_expected_b > 0 and total_fetched_b < total_expected_b):
+            if (total_expected_a > 0 and total_fetched_a < total_expected_a * 0.95) or (total_expected_b > 0 and total_fetched_b < total_expected_b * 0.95):
                 status = "DEGRADED"
                 error_msg = f"Partial Fetch: {total_fetched_a + total_fetched_b}/{total_expected_a + total_expected_b} symbols"
                 
