@@ -363,14 +363,14 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         if drift > 0.03:
                             if not is_test_mode:
                                 # [VERSION: MTF_FLAPPING_FIX] Apply a 2-hour cooldown on drift demotion to prevent choppy day flapping
-                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
+                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
                                 mark_breakout_watchlist_cooldown(symbol, "HOURLY_APPROVED", hours=2)
                             state = "HOURLY_APPROVED"
                             lower_funnel["demoted"] += 1
                             logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
                         elif is_expired:
                             if not is_test_mode:
-                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True)
+                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
                             state = "HOURLY_APPROVED"
                             lower_funnel["demoted"] += 1
                             logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")

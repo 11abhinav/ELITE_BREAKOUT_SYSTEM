@@ -3625,7 +3625,7 @@ def upsert_breakout_watchlist(
                     ON CONFLICT (symbol) DO UPDATE SET
                         category = EXCLUDED.category,
                         current_state = CASE
-                            WHEN %(force)s = FALSE AND breakout_watchlist.cooldown_until > NOW() THEN
+                            WHEN %(force)s = FALSE THEN
                                 CASE
                                     WHEN EXCLUDED.current_state = 'HOURLY_APPROVED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED') THEN breakout_watchlist.current_state
                                     WHEN EXCLUDED.current_state = 'SETUP_ARMED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY') THEN breakout_watchlist.current_state
