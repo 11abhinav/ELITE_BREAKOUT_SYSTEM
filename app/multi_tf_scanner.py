@@ -205,12 +205,14 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     from datetime import timedelta
                     end_of_session = now_dt + timedelta(minutes=15)
                 if not is_test_mode:
+                    # [VERSION: MTF_PHASE_B_DROP_FIX] Force clear old context (expires_at, invalidated_at) so Phase B doesn't silently ignore this stock due to yesterday's stale state
                     upsert_breakout_watchlist(
                         symbol=symbol,
                         category=category,
                         current_state="HOURLY_APPROVED",
                         h1_status="PASSED",
                         breakout_level=prior_high,
+                        clear_context=True,
                         trigger_level=prior_high,
                         signal_timestamp=now_dt.isoformat(),
                         expires_at=end_of_session.isoformat(),

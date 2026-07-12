@@ -3605,7 +3605,7 @@ def upsert_breakout_watchlist(
                     # Explicitly clear stale context on downgrade so COALESCE doesn't retain old values
                     cur.execute("""
                         UPDATE breakout_watchlist 
-                        SET armed_at = NULL, context_json = NULL, expires_at = NULL 
+                        SET armed_at = NULL, context_json = NULL, expires_at = NULL, invalidated_at = NULL, cooldown_until = NULL
                         WHERE symbol = %s
                     """, (symbol,))
                 
