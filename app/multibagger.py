@@ -1397,7 +1397,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 
             if not skip_alert:
-                tier_val = 2 if tier == "PRIME" else 1
+                tier_val = 2 if "Prime" in tier else 1
                 alert_candidates.append({
                     "symbol": sym,
                     "price": price_data.price,

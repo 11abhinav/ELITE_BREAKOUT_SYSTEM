@@ -295,7 +295,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     opm         = fv("operating_margin")
 
     _raw_de     = fv("debt_to_equity_fq")
-    debt_equity = _raw_de if _raw_de is not None else 0.0
+    debt_equity = _raw_de
     debt_missing = _raw_de is None
 
     yoy_sales   = fv("total_revenue_yoy_growth_ttm")

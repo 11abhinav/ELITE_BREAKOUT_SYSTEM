@@ -1127,48 +1127,8 @@ def save_alert_if_new(
         pass
 
 
-    # Safety: Never persist a BUY-style alert if the input/context indicates stale or fallback data.
-    # Many scanners pass `used_fallback_data`, `data_quality` or `alert_details` in `context` or **kwargs.
-    # If any of these flags indicate cached/stale data, suppress the insert and return as not-inserted.
-    try:
-        def _is_stale_buy() -> bool:
-            # Normalize context to dict if possible
-            ctx = context if isinstance(context, dict) else {}
-            # If context was passed as JSON string in some callers, try to decode it
-            if isinstance(context, str):
-                try:
-                    ctx = json.loads(context)
-                except Exception:
-                    ctx = {}
-
-            # Check common stale indicators
-            stale_indicators = ("CACHED_PREV_DAY", "CACHED_MULTI_DAY", "MISSING_PARTIAL")
-            if isinstance(ctx, dict):
-                if bool(ctx.get("used_fallback_data")):
-                    return True
-                if str(ctx.get("data_quality", "")).upper() in stale_indicators:
-                    return True
-
-            # Inspect kwargs for similar indicators (some callers pass them there)
-            if bool(kwargs.get("used_fallback_data", False)):
-                return True
-            if str(kwargs.get("data_quality", "")).upper() in stale_indicators:
-                return True
-
-            # Some scanners attach a richer alert_details / alert_context containing timestamps or flags
-            alert_details = kwargs.get("alert_details") or kwargs.get("alert_context") or kwargs.get("context")
-            if isinstance(alert_details, dict) and bool(alert_details.get("used_fallback_data", False)):
-                return True
-
-            # Conservative default: not stale
-            return False
-
-        if _is_stale_buy():
-            logger.warning(f"🛡️ save_alert_if_new: Suppressing persistence for {symbol} due to stale/fallback data in context")
-            return False, "Stale/fallback data or DB constraint", 0.0, 0
-    except Exception:
-        # If the check fails for any reason, prefer to continue and allow the insert (fail-open)
-        logger.exception("⚠️ save_alert_if_new: stale-data guard check failed unexpectedly — allowing insert")
+    # Safety: DB stale-buy check removed in v6 as scanners now reliably handle stale
+    # price data at the individual stock level during extraction.
     
     # Calculate portfolio allocation dynamically if not provided
     from portfolio_engine import calculate_trade_allocation

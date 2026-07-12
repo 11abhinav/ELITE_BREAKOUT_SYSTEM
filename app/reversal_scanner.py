@@ -864,13 +864,21 @@ def _run_scan(force: bool = False):
                     )
                     return total_alerts
                     
+            status = "OK"
+            error_msg = None
+            stale_count = rejected.get("stale_data", 0)
+            total_symbols = len(watchlist)
+            if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
+                status = "DEGRADED"
+                error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+
             upsert_scanner_health(
                 scanner_name="REVERSAL",
-                status="OK",
+                status=status,
                 last_success=ist_now.isoformat(),
                 today_alerts=total_alerts,
-                total_count=len(watchlist),
-                error_msg=None
+                total_count=total_symbols,
+                error_msg=error_msg
             )
         except Exception as e:
             logger.exception("Failed to save REVERSAL alerts")

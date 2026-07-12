@@ -365,7 +365,7 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["zero_avg_volume"] += 1
                     continue
 
-                volume_ratio = latest_volume / avg_volume
+                volume_ratio = float(latest["Volume"]) / avg_volume
 
                 candle_high  = float(latest["High"])
                 candle_low   = float(latest["Low"])
@@ -738,6 +738,13 @@ def _start_wrapper(force: bool = False):
 
         status = "OK"
         error_msg = None
+        
+        # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
+        stale_count = rejection_counts.get("stale_data", 0)
+        total_symbols = len(watchlist)
+        if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
+            status = "DEGRADED"
+            error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
         
         # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
         active_threads = threading.active_count()
