@@ -2390,7 +2390,8 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
             if date_col:
                 date_col_safe = date_col.replace("%", "%%")
                 table_name_safe = table_name.replace("%", "%%")
-                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" < %s', (today_str,))
+                # [VERSION: DB_PATCH_v1.1] Explicitly delete NULL dates to prevent orphaned rows from throwing UniqueViolations
+                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL OR "{date_col_safe}" < %s', (today_str,))
                 # Also delete today's data just to be safe from duplicates on retry
                 cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
             else:
