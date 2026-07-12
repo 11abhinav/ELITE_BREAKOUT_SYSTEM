@@ -2501,13 +2501,13 @@
           const meta = SCANNER_META[sc] || { label: sc, desc: '' };
           const isAck = data.is_acknowledged !== false;
 
-          // NEW LOGIC: Show RED if status=DOWN and not acknowledged. (All DOWNs are crashes).
-          const isCriticalError = data.status === 'DOWN' && !isAck;
+          // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
+          const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
           const isDown = isCriticalError;
           const isIdle = !data.last_success;
           const statusClass = isDown ? 'status-down' : isIdle ? 'status-idle' : 'status-ok';
           const badgeClass = isDown ? 'badge-down' : isIdle ? 'badge-idle' : 'badge-ok';
-          const badgeText = isDown ? '● DOWN' : isIdle ? '○ IDLE' : '● LIVE';
+          const badgeText = isDown ? (data.status === 'DEGRADED' ? '● DEGRADED' : '● DOWN') : isIdle ? '○ IDLE' : '● LIVE';
           const alertColor = data.today_alerts > 0 ? 'green' : 'amber';
 
           // For RED scanners, fetch error details from fetch_errors table
@@ -2693,7 +2693,7 @@
       window.activeScannerDrill = sc;
 
       // If RED scanner, fetch and show error table
-      if (data.status === 'DOWN' && !data.is_acknowledged) {
+      if ((data.status === 'DOWN' || data.status === 'DEGRADED') && !data.is_acknowledged) {
         document.getElementById('drill-title').textContent = `${meta.label} — API Errors`;
 
         try {
@@ -2743,7 +2743,7 @@
         }
       }
       // If API worker, show error trace
-      else if (sc.startsWith('API_') || (data.status === 'DOWN' && data.error && (!data.today_trades || data.today_trades.length === 0))) {
+      else if (sc.startsWith('API_') || ((data.status === 'DOWN' || data.status === 'DEGRADED') && data.error && (!data.today_trades || data.today_trades.length === 0))) {
         const fails = data.today_alerts;
         const plural = fails !== 1 ? 's' : '';
         document.getElementById('drill-title').textContent = `${meta.label} — Error Trace`;

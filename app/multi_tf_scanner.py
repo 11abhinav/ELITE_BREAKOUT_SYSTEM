@@ -812,11 +812,10 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 try:
                     from database import insert_notification
                     total_scanned = metrics_a.get("total", 0) + metrics_b.get("total", 0)
-                    insert_notification(
-                        "admin", 
-                        "🚀 MULTI_TF Scanner ran successfully.",
-                        f"Evaluated {total_scanned} setups across multiple timeframes."
-                    )
+                    if status == "OK":
+                        insert_notification("admin", "🚀 MULTI_TF Scanner ran successfully.", f"Evaluated {total_scanned} setups across multiple timeframes.")
+                    elif status == "DEGRADED":
+                        insert_notification("admin", f"⚠️ MULTI_TF Scanner finished with DEGRADED status", error_msg or f"Evaluated {total_scanned} setups but data was degraded.")
                 except Exception:
                     pass
                 return {"total_count": total_symbols}
@@ -834,6 +833,8 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         error_msg=str(e)[:500],
                         scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
                     )
+                    from database import insert_notification
+                    insert_notification("admin", f"❌ MULTI_TF Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
                 except Exception as ex:
                     logger.exception("Failed to update scanner health to DOWN")
 

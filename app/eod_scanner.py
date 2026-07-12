@@ -776,6 +776,11 @@ def _start_wrapper(force: bool = False):
                     insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
                 except Exception:
                     pass
+            elif status == "DEGRADED":
+                try:
+                    insert_notification("admin", f"⚠️ EOD Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
+                except Exception:
+                    pass
 
         elapsed_time = (datetime.now(IST) - start_time).total_seconds()
         logger.info("\n" + "=" * 80)
@@ -788,6 +793,7 @@ def _start_wrapper(force: bool = False):
         if not is_test_mode:
             try:
                 upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=str(e))
+                insert_notification("admin", f"❌ EOD Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
             except Exception:
                 pass
         raise  # re-raise so caller can send Telegram crash alert
