@@ -1083,6 +1083,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             # INJECT REAL-TIME PRICE SO EXIT MONITOR SEES LIVE CRASHES
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
+                row["used_fallback_data"] = False
                 
             portfolio_rows.append(row)
             
