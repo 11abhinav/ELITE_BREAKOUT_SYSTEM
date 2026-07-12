@@ -790,8 +790,9 @@ def calculate_score(
             from fundamentals_cache import get_piotroski_score
             p_score = get_piotroski_score(symbol)
             if p_score >= 0 and p_score <= 3:
-                logger.warning(f"🚫 {tag}DISQ: Piotroski F-Score {p_score} <= 3 (Fundamental weakness)")
-                return 0, model_version, weights
+                # [VERSION: FUNC_PIOTROSKI_FIX] Removed hard disqualifier for low Piotroski to allow high-growth companies to pass. Converted to a minor penalty.
+                f_score_pts = -3
+                logger.warning(f"⚠️ {tag}Penalty: Piotroski F-Score {p_score} <= 3 (Fundamental weakness/Growth cash-burn, -3 pts)")
             elif p_score >= 7:
                 f_score_pts = 12
                 logger.debug(f"  +12 {tag}Piotroski F-Score {p_score} >= 7 bonus")
