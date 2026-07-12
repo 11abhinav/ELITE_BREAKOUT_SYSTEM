@@ -3601,13 +3601,8 @@ def upsert_breakout_watchlist(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                if clear_context:
-                    # Explicitly clear stale context on downgrade so COALESCE doesn't retain old values
-                    cur.execute("""
-                        UPDATE breakout_watchlist 
-                        SET armed_at = NULL, context_json = NULL, expires_at = NULL, invalidated_at = NULL, cooldown_until = NULL
-                        WHERE symbol = %s
-                    """, (symbol,))
+                # clear_context logic is now seamlessly integrated into the ON CONFLICT DO UPDATE block
+                # to prevent sledgehammering contextual variables like armed_at out of existence
                 
                 session_date = datetime.now(IST).strftime("%Y-%m-%d")
                 cur.execute("""
@@ -3641,15 +3636,35 @@ def upsert_breakout_watchlist(
                         breakout_level = COALESCE(EXCLUDED.breakout_level, breakout_watchlist.breakout_level),
                         support_level = COALESCE(EXCLUDED.support_level, breakout_watchlist.support_level),
                         trigger_level = COALESCE(EXCLUDED.trigger_level, breakout_watchlist.trigger_level),
-                        invalidation_level = COALESCE(EXCLUDED.invalidation_level, breakout_watchlist.invalidation_level),
+                        invalidation_level = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.invalidation_level
+                            ELSE COALESCE(EXCLUDED.invalidation_level, breakout_watchlist.invalidation_level)
+                        END,
                         max_extension_atr = COALESCE(EXCLUDED.max_extension_atr, breakout_watchlist.max_extension_atr),
                         buffer_pct = COALESCE(EXCLUDED.buffer_pct, breakout_watchlist.buffer_pct),
-                        armed_at = COALESCE(EXCLUDED.armed_at, breakout_watchlist.armed_at),
+                        armed_at = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.armed_at
+                            ELSE COALESCE(EXCLUDED.armed_at, breakout_watchlist.armed_at)
+                        END,
                         session_date = EXCLUDED.session_date,
-                        context_json = COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json),
+                        context_json = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.context_json
+                            ELSE COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json)
+                        END,
                         signal_timestamp = COALESCE(EXCLUDED.signal_timestamp, breakout_watchlist.signal_timestamp),
-                        expires_at = COALESCE(EXCLUDED.expires_at, breakout_watchlist.expires_at),
+                        expires_at = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.expires_at
+                            ELSE COALESCE(EXCLUDED.expires_at, breakout_watchlist.expires_at)
+                        END,
                         timeframe = COALESCE(EXCLUDED.timeframe, breakout_watchlist.timeframe),
+                        invalidated_at = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN NULL
+                            ELSE breakout_watchlist.invalidated_at
+                        END,
+                        cooldown_until = CASE 
+                            WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN NULL
+                            ELSE breakout_watchlist.cooldown_until
+                        END,
                         last_updated = NOW()
                 """, {
                     'symbol': symbol, 'category': category, 'current_state': current_state,
@@ -3658,7 +3673,7 @@ def upsert_breakout_watchlist(
                     'invalidation_level': invalidation_level, 'max_extension_atr': max_extension_atr, 'buffer_pct': buffer_pct,
                     'armed_at': armed_at, 'session_date': session_date, 'context_json': context_json,
                     'signal_timestamp': signal_timestamp, 'expires_at': expires_at, 'timeframe': timeframe,
-                    'force': force
+                    'force': force, 'clear_context': clear_context
                 })
                 conn.commit()
 
