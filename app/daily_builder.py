@@ -1109,14 +1109,16 @@ def _main_impl(force_rebuild: bool = False):
         if EXCLUSION_LOG:
             with _exclusion_lock:
                 exclusion_snapshot = list(EXCLUSION_LOG)
-            pd.DataFrame(exclusion_snapshot).to_csv(EXCLUSION_CSV, index=False)
-            logger.info(f"📋 Exclusion log saved to {EXCLUSION_CSV} ({len(exclusion_snapshot)} skipped)")
+            # [VERSION: DAILY_BUILDER_PATCH_v1.9] Deduplicate on exact Stock symbol after normalization
+            ex_df = pd.DataFrame(exclusion_snapshot).drop_duplicates(subset=["Stock"], keep="first")
+            ex_df.to_csv(EXCLUSION_CSV, index=False)
+            logger.info(f"📋 Exclusion log saved to {EXCLUSION_CSV} ({len(ex_df)} skipped)")
             try:
                 from database import upload_parquet_to_db, save_df_to_table
                 upload_parquet_to_db("daily_builder_excluded", EXCLUSION_CSV)
                 logger.info("☁️ [DAILY BUILDER] Backed up exclusion log to Postgres cache.")
                 
-                save_df_to_table("daily_excluded_watchlist", pd.DataFrame(exclusion_snapshot))
+                save_df_to_table("daily_excluded_watchlist", ex_df)
                 logger.info("☁️ [DAILY BUILDER] Saved exclusion log to the 'daily_excluded_watchlist' database table.")
 
             except Exception as e:
@@ -1241,6 +1243,10 @@ def _main_impl(force_rebuild: bool = False):
         if "source_status" not in final_df.columns:
             final_df["source_status"] = "live"
         final_df["build_date"] = str(datetime.now(IST).date())
+        
+        # [VERSION: DAILY_BUILDER_PATCH_v1.9] Deduplicate on exact Stock symbol after normalization to prevent DB PK violations
+        final_df = final_df.drop_duplicates(subset=["Stock"], keep="first")
+        
         logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
 
         tmp_csv = OUTPUT_CSV + ".tmp"
