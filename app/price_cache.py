@@ -225,8 +225,11 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str) -> bool:
             try: req = int(p[:-1]) - 1
             except: pass
             
-        if req > 0 and days_diff < req and len(cached_df) < (req * 0.6):
-            return False
+        if req > 0:
+            # A requested period of N calendar days will have at least N * 0.65 calendar days diff
+            # between the first and last candle. If days_diff is smaller, we are missing historical data.
+            if days_diff < (req * 0.65):
+                return False
             
         return True
     except Exception:
