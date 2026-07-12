@@ -1151,6 +1151,15 @@ def save_alert_if_new(
             success = False
             try:
                 with conn.cursor() as cur:
+                    # Prevent cross-day duplicates: if the stock already has an OPEN alert from this scanner, skip it.
+                    cur.execute("""
+                        SELECT 1 FROM alerts 
+                        WHERE symbol = %s AND scanner = %s AND status = 'OPEN' AND is_rejected = FALSE
+                    """, (symbol, scanner))
+                    if cur.fetchone():
+                        logger.info(f"⏭️  Alert skipped for {symbol}: Already has an OPEN {scanner} alert.")
+                        return False, "Already OPEN", 0.0, 0
+
                     cur.execute("""
                         INSERT INTO alerts
                             (symbol, breakout_type, alert_time, scanner, category,
