@@ -128,7 +128,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
     data_as_of = None
     if result:
         timestamps = []
-        for df in result.values():
+        for symbol, df in result.items():
             if not df.empty:
                 try:
                     ts = None
@@ -144,8 +144,16 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     else:
                         ts = ts.tz_convert(IST)
                     timestamps.append(ts)
-                except Exception:
+                except (ValueError, TypeError, KeyError, IndexError, AttributeError) as e:
+                    logger.warning(f"Failed to parse timestamp for {symbol} in price_cache: {e}")
                     pass
+                    
+        # CRITICAL FIX: If we expected timestamps (result is not empty) but failed to parse ALL of them,
+        # we cannot confidently determine data freshness. We must invalidate this fetch.
+        if not timestamps and any(not df.empty for df in result.values()):
+            logger.error("DataFetchError: All dataframes returned malformed or missing timestamps. Aborting cache update.")
+            raise ValueError("DataFetchError: Malformed timestamps across entire batch.")
+            
         if timestamps:
             data_as_of = min(timestamps)
             if data_as_of.tzinfo is None:

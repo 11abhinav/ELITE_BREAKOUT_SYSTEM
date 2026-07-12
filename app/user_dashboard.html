@@ -2195,8 +2195,8 @@ function playSoftTickSound() {
 
 async function fetchTodaysAlertsAndBlink_User(){
   try{
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0,10);
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const todayStr = formatter.format(new Date());
     
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
     if (!isFirstUserAlertFetch && data.length > lastUserAlertCount) {

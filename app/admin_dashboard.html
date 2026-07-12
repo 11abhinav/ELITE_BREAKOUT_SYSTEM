@@ -2801,7 +2801,7 @@
         const sc = t.score != null ? `<span class="score-ring ${scoreClass(t.score)}">${t.score}</span>` : '—';
         const key = t.symbol + '|' + (t.alert_time || t.entry_date);
 
-        const isMissingSLTarget = (!t.stop_loss || t.stop_loss <= 0 || !t.target_price || t.target_price <= 0) && t.status === 'OPEN';
+        const isMissingSLTarget = (!t.stop_loss || t.stop_loss <= 0 || !t.target_price || t.target_price <= 0) && t.status === 'OPEN' && t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH';
         const missingStyle = isMissingSLTarget ? 'background-color: rgba(255, 77, 109, 0.15); border-left: 3px solid #ff4d6d;' : '';
 
         return `
@@ -3281,11 +3281,14 @@
       const st = document.getElementById('filterStatus').value;
       const sym = document.getElementById('filterSymbol').value.trim().toUpperCase();
       const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
+      
       const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const todayStr = formatter.format(now);
+      const todayStart = new Date(todayStr + 'T00:00:00');
       const ytd = new Date(now.getFullYear(), 0, 1);
       const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
       const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const weekStart = new Date(todayStart);
       const dayOfWeek = weekStart.getDay() || 7;
       weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
