@@ -404,7 +404,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     steady_compounder = (yoy_sales >= STEADY_YOY and yoy_profit >= STEADY_YOY and roe >= 14 and opm >= 10)
 
     # NEW: Safest wealth creators
-    debt_free_cash = (debt_equity <= 0.1 and roe >= 20 and market_cap >= 100_000_000_000 and (fcf_margin is None or fcf_margin > 0))
+    debt_free_cash = (debt_equity is not None and debt_equity <= 0.1 and roe >= 20 and market_cap >= 100_000_000_000 and (fcf_margin is None or fcf_margin > 0))
     # NEW: Undervalued growth
     # Guard: P/E > 0, growth > 0, growth rate meaningful (>5%), PEG in GARP range
     undervalued_growth = (yoy_sales > 15.0 and yoy_profit >= 15.0 and pe is not None and pe > 0 and peg is not None and 0.0 < peg <= 1.0)
@@ -801,7 +801,7 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "ROA %":                round(roa, 2) if roa is not None else None,
         "OPM %":                round(opm, 2) if opm is not None else None,
         "FCF Margin %":         round(fcf_margin, 2) if fcf_margin is not None else None,
-        "Debt/Equity":          round(debt_equity, 2),
+        "Debt/Equity":          round(debt_equity, 2) if debt_equity is not None else None,
         "D/E Missing":          debt_missing,
         "QOQ Revenue %":        round(qoq_rev,    2) if qoq_rev is not None else None,
         "YOY Revenue %":        round(yoy_rev,    2),
