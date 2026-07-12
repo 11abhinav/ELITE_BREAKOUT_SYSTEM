@@ -34,12 +34,29 @@ class DataFetcher(ABC):
 
 class YFinanceFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
-        # Strip trailing .NS if already present for cleaner mapping
-        base_sym = symbol[:-3] if symbol.endswith(".NS") else symbol
+        # [VERSION: DATA_PROV_SYMBOL_FIX_v1.1] Support both NSE and BSE symbols dynamically.
+        # Check if the symbol is a BSE symbol (ends with .BO, starts with BSE:, or is completely numeric)
+        is_bse = symbol.endswith(".BO") or symbol.startswith("BSE:")
         
-        # [VERSION: DATA_PROV_SYMBOL_FIX_v1.0] Fix ampersand symbols.
-        # Since daily_builder might have cached the broken M-M format, we must map 
-        # both the original underscore and the stale hyphenated format to the correct ampersand.
+        if symbol.endswith(".NS"):
+            base_sym = symbol[:-3]
+        elif symbol.endswith(".BO"):
+            base_sym = symbol[:-3]
+            is_bse = True
+        else:
+            base_sym = symbol
+
+        if base_sym.startswith("BSE:"):
+            base_sym = base_sym[4:]
+            is_bse = True
+        elif base_sym.startswith("NSE:"):
+            base_sym = base_sym[4:]
+            is_bse = False
+
+        if base_sym.isdigit():
+            is_bse = True
+        
+        # Fix ampersand symbols.
         from daily_builder import SYMBOL_CORRECTIONS
         STALE_MAP = {
             "M-M": "M&M",
@@ -55,13 +72,12 @@ class YFinanceFetcher(DataFetcher):
         elif base_sym in STALE_MAP:
             base_sym = STALE_MAP[base_sym]
         else:
-            # yfinance requires .NS suffix; KiteConnect uses raw NSE symbol
-            # also handle underscore to hyphen conversion commonly needed for yfinance
+            # handle underscore to hyphen conversion commonly needed for yfinance
             base_sym = base_sym.replace("_", "-")
             
         if base_sym.startswith("^"):
             return base_sym
-        return f"{base_sym}.NS"
+        return f"{base_sym}.BO" if is_bse else f"{base_sym}.NS"
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)

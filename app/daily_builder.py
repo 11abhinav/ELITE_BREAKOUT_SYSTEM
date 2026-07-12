@@ -187,7 +187,9 @@ def fetch_universe() -> pd.DataFrame:
         "total_revenue_5y_growth",
         "earnings_per_share_basic_5y_growth",
         "free_cash_flow_margin_ttm",
-        "dividend_yield_recent"
+        "dividend_yield_recent",
+        "float_shares_outstanding",                      # [VERSION: DAILY_BUILDER_PATCH_v1.8] Added for Promoter MCAP calculation
+        "total_shares_outstanding_fundamental"           # [VERSION: DAILY_BUILDER_PATCH_v1.8] Added for Promoter MCAP calculation
     ]
 
     q = (
@@ -195,7 +197,8 @@ def fetch_universe() -> pd.DataFrame:
         .set_markets("india")
         .select(*fields)
         .where(
-            col("exchange")                     == "NSE",
+            # [VERSION: DAILY_BUILDER_PATCH_v1.8] Query both exchanges to fetch BSE-exclusive tickers
+            col("exchange").isin(["NSE", "BSE"]),
             col("close")                        >= MIN_PRICE,
             col("market_cap_basic")             >= MIN_MARKET_CAP,
             col("earnings_per_share_basic_ttm") >  0,
@@ -213,9 +216,16 @@ def fetch_universe() -> pd.DataFrame:
             "Delisted/suspended tickers excluded. Backtest results will be overstated."
         )
         total, df = q.get_scanner_data()
+        
+        # [VERSION: DAILY_BUILDER_PATCH_v1.8] Deduplicate cross-listed stocks, keeping NSE representation when available.
+        # Since 'N' > 'B', sorting descending by 'ticker' puts 'NSE:' above 'BSE:'
+        if not df.empty:
+            df = df.sort_values(by="ticker", ascending=False)
+            df = df.drop_duplicates(subset=["name"], keep="first")
+            
         from data_fetch_status import mark_success
         mark_success('tradingview')
-        logger.info(f"✅ Universe fetched: {total} stocks")
+        logger.info(f"✅ Universe fetched and deduplicated: {len(df)} unique stocks (from {total} records)")
         return df
     except Exception as e:
         from data_fetch_status import mark_failure
@@ -309,14 +319,14 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # [VERSION: DAILY_BUILDER_PATCH_v1.7] Preserve None for missing ROCE (don't collapse to 0.0)
     roce        = _raw_roce
 
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Removed total_revenue_qoq_growth_fq and earnings_per_share_diluted_qoq_growth_fq
+    # from the hard-exclusion checklist to allow stocks with temporary database lags to pass.
     missing = [
         name for name, val in [
             ("close", close_price), ("average_volume_30d_calc", avg_volume),
             ("market_cap_basic", market_cap), ("return_on_equity_fy", roe),
             ("operating_margin", opm), ("total_revenue_yoy_growth_ttm", yoy_sales),
-            ("total_revenue_qoq_growth_fq", qoq_sales),
             ("earnings_per_share_diluted_yoy_growth_ttm", yoy_profit),
-            ("earnings_per_share_diluted_qoq_growth_fq", qoq_profit),
         ] if val is None
     ]
     if missing:
@@ -339,10 +349,22 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     if forensic_flags >= 2:
         return skip(f"JUNK BLOCKED: Forensic Red Flags ({forensic_flags} detected)")
 
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Calculate promoter market cap using float and total outstanding shares
+    float_shares = fv("float_shares_outstanding")
+    total_shares = fv("total_shares_outstanding_fundamental")
+    promoter_mcap = None
+    if float_shares is not None and total_shares is not None and total_shares > 0 and market_cap is not None:
+        non_float_shares = total_shares - float_shares
+        promoter_mcap = (non_float_shares / total_shares) * market_cap
+
     # ── JUNK-KILL GATE — Non-negotiable hard blocks ──────────────────────────────────
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED: Promoter Blacklist / NSE Surveillance (ASM/GSM)")
     
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
+    if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
+        return skip(f"JUNK BLOCKED: Promoter Market Cap ₹{promoter_mcap/1e7:.1f} Cr is below min ₹500 Cr")
+
     sector = str(row.get("sector", ""))
     # High debt: D/E > 1.0 is dangerously leveraged for most businesses.
     # Exception: Utilities naturally carry higher leverage. Banks/NBFCs use PATH B.
@@ -363,7 +385,8 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         peg = pe / yoy_profit
 
     yoy_margin_expanding = (yoy_profit >= yoy_sales)
-    qoq_margin_expanding = (qoq_profit > 0 and qoq_profit >= qoq_sales)
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Guard QoQ margin check to prevent TypeErrors on None
+    qoq_margin_expanding = (qoq_profit is not None and qoq_sales is not None and qoq_profit > 0 and qoq_profit >= qoq_sales)
     turnaround = (yoy_profit >= TURNAROUND_PROFIT and yoy_margin_expanding and opm >= 12 and yoy_sales >= -10.0 and roe >= 12)
 
     if cfo_pat_ratio is not None and cfo_pat_ratio < 0.5 and not turnaround:
@@ -522,13 +545,14 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     # [VERSION: DAILY_BUILDER_PATCH_v1.7] Preserve None for missing ROCE
     roce        = _raw_roce
 
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Removed total_revenue_qoq_growth_fq and net_income_qoq_growth_fq
+    # from the hard-exclusion checklist to allow stocks with temporary database lags to pass.
     missing = [
         name for name, val in [
             ("close", close_price), ("average_volume_30d_calc", avg_volume),
             ("market_cap_basic", market_cap), ("return_on_equity_fy", roe),
             ("return_on_assets_fq", roa), ("total_revenue_yoy_growth_ttm", yoy_rev),
-            ("total_revenue_qoq_growth_fq", qoq_rev), ("net_income_yoy_growth_ttm", yoy_profit),
-            ("net_income_qoq_growth_fq", qoq_profit),
+            ("net_income_yoy_growth_ttm", yoy_profit),
         ] if val is None
     ]
     if missing:
@@ -545,9 +569,21 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     if anomaly:
         return skip(anomaly)
 
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Calculate promoter market cap using float and total outstanding shares
+    float_shares = fv("float_shares_outstanding")
+    total_shares = fv("total_shares_outstanding_fundamental")
+    promoter_mcap = None
+    if float_shares is not None and total_shares is not None and total_shares > 0 and market_cap is not None:
+        non_float_shares = total_shares - float_shares
+        promoter_mcap = (non_float_shares / total_shares) * market_cap
+
     # ── JUNK-KILL GATE (Financial) — Non-negotiable hard blocks ─────────────────────
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED (FIN): Promoter Blacklist / NSE Surveillance (ASM/GSM)")
+
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
+    if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
+        return skip(f"JUNK BLOCKED (FIN): Promoter Market Cap ₹{promoter_mcap/1e7:.1f} Cr is below min ₹500 Cr")
         
     if forensic_flags >= 2:
         return skip(f"JUNK BLOCKED (FIN): Forensic Red Flags ({forensic_flags} detected)")
@@ -651,10 +687,13 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
     elif yoy_sales >= 10: score += 10
     if yoy_profit >= 25: score += 25
     elif yoy_profit >= 10: score += 12
-    if qoq_sales >= 10: score += 8
-    elif qoq_sales >= 5: score += 4
-    if qoq_profit >= 10: score += 12
-    elif qoq_profit >= 5: score += 6
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Guard QoQ growth score checks to prevent TypeErrors on None
+    if qoq_sales is not None:
+        if qoq_sales >= 10: score += 8
+        elif qoq_sales >= 5: score += 4
+    if qoq_profit is not None:
+        if qoq_profit >= 10: score += 12
+        elif qoq_profit >= 5: score += 6
     if roe >= 25: score += 15
     elif roe >= 20: score += 10
     elif roe >= 15: score += 5
@@ -716,7 +755,7 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
     if roa >= 2.0: score += 15 
     elif roa >= 1.5: score += 10
     elif roa >= 1.0: score += 5
-    if yoy_margin: score += 5
+    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Removed duplicate yoy_margin score contribution line here
     if fin_mature: score += 10
     if fin_compounder: score += 5
     if dividend_aristocrat: score += 5
@@ -764,10 +803,10 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "FCF Margin %":         round(fcf_margin, 2) if fcf_margin is not None else None,
         "Debt/Equity":          round(debt_equity, 2),
         "D/E Missing":          debt_missing,
-        "QOQ Revenue %":        round(qoq_rev,    2),
+        "QOQ Revenue %":        round(qoq_rev,    2) if qoq_rev is not None else None,
         "YOY Revenue %":        round(yoy_rev,    2),
         "5Y Revenue %":         round(rev_5y,     2) if rev_5y is not None else None,
-        "QOQ Profit %":         round(qoq_profit, 2),
+        "QOQ Profit %":         round(qoq_profit, 2) if qoq_profit is not None else None,
         "YOY Profit %":         round(yoy_profit, 2),
         "5Y EPS %":             round(eps_5y,     2) if eps_5y is not None else None,
         "Fundamental Score":    score,

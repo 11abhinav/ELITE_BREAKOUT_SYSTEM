@@ -26,7 +26,16 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             chunk_size = 50
             for i in range(0, len(symbols), chunk_size):
                 chunk = symbols[i:i + chunk_size]
-                fyers_symbols = [f"NSE:{sym}-EQ" for sym in chunk]
+                
+                # [VERSION: LIVE_PRICES_BSE_FIX_v1.0] Route BSE-only or numeric tickers to BSE and others to NSE
+                fyers_symbols = []
+                for sym in chunk:
+                    is_bse = sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                    clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
+                    if is_bse:
+                        fyers_symbols.append(f"BSE:{clean}-EQ")
+                    else:
+                        fyers_symbols.append(f"NSE:{clean}-EQ")
                 
                 try:
                     response = fyers.quotes({"symbols": ",".join(fyers_symbols)})
@@ -55,8 +64,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         
         def _get_yf_price(sym: str):
             try:
-                # Append .NS for Yahoo Finance standard equity formatting
-                val = float(yf.Ticker(f"{sym}.NS").fast_info.last_price)
+                # [VERSION: LIVE_PRICES_BSE_FIX_v1.0] Resolve BSE-only or numeric tickers to .BO and others to .NS
+                is_bse = sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
+                suffix = ".BO" if is_bse else ".NS"
+                val = float(yf.Ticker(f"{clean}{suffix}").fast_info.last_price)
                 return sym, val
             except Exception:
                 return sym, None
