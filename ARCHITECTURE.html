@@ -627,6 +627,22 @@ Browsers block tab reuse for cross-origin targets that serve strict security hea
 - **The COOP Header:** TradingView servers respond with `Cross-Origin-Opener-Policy: same-origin-allow-popups`.
 - **Targeting Failures:** Because the target domain (`tradingview.com`) is cross-origin to the dashboard server, the browser isolates the target tab into a separate context group, severing the opener link.
 - **Strict Compliance:** Any named targets (like `target="tradingview_chart_window"`) are treated as `_blank`. As a standard, external links are explicitly formatted with `target="_blank"` and `rel="noopener noreferrer"` to prevent security vulnerability exploits (like reverse tabnabbing).
+
+## 16. Persistent BSE Fallback Mapping Architecture
+
+To support BSE-exclusive listings (such as SME or recently listed companies like `NSDL`, `YASHHV`, `CIANAGRO` which do not trade on NSE) without cluttering logs with redundant `Quote not found / possibly delisted` warnings, the system employs a persistent fallback mapping architecture.
+
+### 16.1 Mappings Schema & Storage
+* **File Location:** `data/bse_symbol_mappings.json`
+* **Format:** Standard JSON key-value dictionary, mapping the base alphabetical symbol to its verified Yahoo Finance BSE ticker format (e.g. `{"YASHHV": "YASHHV.BO"}`).
+
+### 16.2 Resolution & Fallback Flow
+1. **Cache Inspection:** During symbol normalization (`_normalize_symbol` in `app/data_provider.py`, `_symbol_to_yf` in `app/price_fetcher.py`, `app/live_prices.py`, etc.), the system loads the JSON cache. If the symbol (or its `.NS` version) exists in the cache, it routes directly to the mapped `.BO` target.
+2. **First-Time Try & Fallback:** If a symbol is not in the cache, the system attempts the default NSE fetch first. If the NSE query returns empty or raises an exception, the provider dynamically:
+   - Formulates the BSE equivalent (`.BO` suffix).
+   - Retries the download.
+   - If the BSE fallback succeeds, it dynamically registers the mapping by appending it to `data/bse_symbol_mappings.json`.
+3. **Efficiency gains:** Subsequent cycles immediately query the cached BSE ticker directly. No `.NS` query is ever attempted again, completely avoiding redundant rate limits, delay retries, and error logs.
 </textarea>
 
     <!-- Rendering Script -->
