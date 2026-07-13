@@ -739,7 +739,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         upsert_scanner_health(
                             scanner_name="MULTI_TF",
                             status="IDLE",
-                            scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                            scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
                         )
                     except Exception:
                         pass
@@ -803,7 +803,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         last_success=datetime.now(IST).isoformat(),
                         total_count=metrics_a.get("total", 0),
                         error_msg=error_msg,
-                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
                     )
                 except Exception:
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")
@@ -831,7 +831,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         scanner_name="MULTI_TF",
                         status="DOWN",
                         error_msg=str(e)[:500],
-                        scheduled_for="Every 5min (10:17 AM - 3:30 PM)"
+                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
                     )
                     from database import insert_notification
                     insert_notification("admin", f"❌ MULTI_TF Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
