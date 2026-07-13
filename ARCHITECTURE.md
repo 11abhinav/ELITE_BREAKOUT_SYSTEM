@@ -1,0 +1,212 @@
+# Scanner Architecture and Design Principles
+
+## 1. Market Regime Definitions & Fallbacks
+
+The system uses two independent regime systems to govern breakout risk. **Rule of thumb: Regimes should tighten quality gates, not blindly kill scans.**
+
+### 1.1 Short-Term Momentum Regime (`macro_utils.get_macro_regime`)
+Used by: **EOD, Reversal, Multi-TF Scanners**
+Measures: 20-day Nifty return vs ADX trend strength.
+- **Trending Market (ADX >= 20):**
+  - BULL: > +3.0%
+  - BEAR: < -5.0%
+  - NEUTRAL: otherwise
+- **Rangebound Market (ADX < 20):**
+  - BULL: > +5.0%
+  - BEAR: < -8.0%
+  - NEUTRAL: otherwise
+
+**Fail-Safe:** If API fetch fails or regime cannot be computed, this function MUST default to `NEUTRAL` (not BULL or BEAR). This ensures scans can proceed normally.
+
+### 1.2 Structural Regime (`multibagger.py`)
+Used by: **Multibagger System Only**
+Measures: Nifty Close vs 200-DMA.
+- BULL: Nifty > 200-DMA
+- BEAR: Nifty < 200-DMA
+
+**Fail-Safe:** If data is unavailable, Multibagger MUST default to `BEAR` (conservative fail-direction). Quality-over-quantity dictates we assume high risk if we cannot prove otherwise.
+
+---
+
+## 2. Scanner Reactions to BEAR Regimes
+
+Scanners react to BEAR markets by raising the bar for conviction, not by turning off completely (except Multibagger gating).
+
+| Scanner | Reaction to BEAR |
+|---------|------------------|
+| **EOD** | Global minimum score threshold raised by +5 (e.g. 82 -> 87) |
+| **Multi-TF** | Bayesian engine uses bearish historical weights to penalize weak setups |
+| **Multibagger** | No penalty. The Scoring Pipeline already grades weak fundamentals aggressively; no artificial BEAR downgrades are applied to HIGH_QUALITY setups. |
+| **Reversal** | No penalty. Reversals naturally occur in weak/bear markets |
+
+---
+
+## 3. Data Freshness & Stale Data Logic
+
+**Weekend & Holiday Integrity (CRITICAL):**
+When running EOD or Reversal scanners, `ist_now.date()` may be a non-trading day.
+- **NEVER** use `if last_bar.date() != ist_now.date(): reject()` as this will reject the entire universe on weekends.
+- **INSTEAD**, use a maximum age check: `_bar_age_days = (ist_now.date() - last_ts.date()).days <= 4` (to cover Fri->Mon and long weekends).
+
+**Timezone Provenance:**
+- yfinance `.NS` tickers return **naive timestamps** that represent IST local time.
+- If you `tz_localize("UTC")` on a `.NS` ticker, you shift the time by +5.5 hours. At 6:30 PM IST, this pushes the timestamp past midnight into tomorrow, breaking date matching.
+- **ALWAYS** localize `.NS` naive timestamps directly to `Asia/Kolkata`.
+
+**Fallback Watchlist Degradation (Soft-Degrade vs Hard-Abort):**
+- If the upstream `daily_builder` fails and uses yesterday's fallback universe, downstream scanners (EOD, Reversal) MUST NOT hard-abort. 
+- **Rule:** Scanners must process the fallback universe and fetch *live* market data for those symbols. Any symbols that didn't trade (stale data) are naturally rejected by the standard freshness checks. Valid alerts generated from fresh data must be preserved.
+- **Observability:** If the number of individual stale-data rejections exceeds 30% of the total universe, the scanner must gracefully downgrade its final DB health status to `DEGRADED`. This ensures the UI reflects the degraded upstream data without sacrificing the valid alerts that survived the scan.
+
+---
+
+## 4. Filter Cascade Anti-Patterns
+
+When building scanner gates, avoid **Structural Contradictions**.
+
+### Anti-Pattern: Reversal vs Trend Contradiction
+*Example:* Requiring a stock to be 30% below its 52W High (Reversal) while also requiring `Close >= SMA50` (Trend).
+*Why it fails:* A stock 30% down is mathematically almost guaranteed to be below its 50-DMA. The gate will reject 95% of valid setups until they have already recovered 15-20% (too late).
+*Solution (Soft Gate):* If below SMA50, check if it is within 3% of reclaiming it (approaching recovery).
+
+### Anti-Pattern: Window Constraint Contradiction
+*Example:* Requiring a fresh MACD Crossover in the last 2 bars for a swing trade.
+*Why it fails:* If the scanner runs once a day, the cross might have happened 3-4 days ago on the initial thrust. A 2-bar window rejects stocks that are still perfectly in play.
+*Solution:* Expand the window to 5 bars for swing timeframe indicators.
+
+### Anti-Pattern: Hard Gate vs Soft Scoring Contradiction
+*Example:* Using strict Value Investing hard-gates (e.g., ROCE > 15%, Revenue CAGR > 8%) to preemptively filter a Breakout/Momentum scanner.
+*Why it fails:* Hard gates act as blind guillotines. Mature blue-chip leaders (like TCS/INFY) that naturally have slower growth (e.g., 5% CAGR) will be instantly killed before they even reach the Scoring Engine, completely starving the breakout alerts.
+*Solution:* Use Hard Gates ONLY for baseline survivability (e.g., negative revenue, extreme debt). Let the quantitative Scoring Pipeline grade the metrics (0-100) and balance tradeoffs dynamically.
+
+### Anti-Pattern: Valuation (Margin of Safety) in Breakout Strategies
+*Example:* Anchoring the final Composite Score heavily to a Margin of Safety (intrinsic value) requirement.
+*Why it fails:* Breakout strategies by definition seek stocks making new highs or exhibiting extreme relative strength. These stocks almost always trade at a premium to calculated fair value. Punishing them heavily for having negative Margin of Safety zeroes out the score of genuine market leaders.
+*Solution:* Flatten the Valuation penalty curve. Only penalize absurd mania pricing (e.g., MoS < -50%). Treat premium-priced quality (MoS -10% to -30%) as acceptable context rather than a fatal flaw.
+
+## Admin Manual Triggers (Market Bypass)
+
+Whenever an administrator manually triggers a scanner (e.g., via the dashboard UI), the scanner runner receives a `run_once=True` or `force=True` flag. 
+**Architectural Rule:** All scanners MUST interpret this flag as an explicit override to bypass the `is_market_open()` check. If `run_once=True`, the scanner must execute immediately, even if it is a weekend or outside of market hours. Do NOT tie the bypass strictly to `is_test_mode`.
+
+## Caching & Rate Limit Protections
+* **Global Fetch Locks:** `price_cache.py` uses `_fetch_lock` to serialize API calls across all scanners to prevent thundering herd API spam (reducing Fyers hits by up to 25x during heavy parallel scanning).
+* **Smart Disk Caching (Off-Hours Optimization):** Scanners like `performance_tracker.py` run continuously. To avoid useless API calls when the market is closed, `_download_all_robust()` checks if the locally cached Parquet file contains data up to the most recent possible market close (15:30 IST). If it does, the API delta fetch is skipped completely. This ensures zero API drain on weekends or nights when the cache is already fully up to date. However, this optimization is suspended during live market hours (09:15 - 15:30) to guarantee live candles are always pulled.
+
+## 6. Wealth Engine: Dual-Gate Signal Architecture
+
+The Wealth Engine completely avoids the "Hard Gate vs Soft Scoring Contradiction" (see section 4) by utilizing a strictly tiered **Dual-Gate Architecture** for generating Buy Signals:
+
+### Gate 1: The Bucket Prerequisite (Quality Enforcement)
+A stock is evaluated against 4 rigid fundamental templates (Core Compounder, Growth Multiplier, Opportunistic, Quality-On-Sale). These act as strict Hard Gates (e.g., ROCE >= 20%, Debt <= 0.5 for Core; YoY Growth >= 20% for Growth). 
+- If a stock fails all templates, it is cast to the "REVIEW" bucket.
+- **Architectural Rule:** *A stock MUST pass the Bucket Prerequisite to even be evaluated for a Buy signal.* This prevents low-quality anomalies (e.g. poor ROCE with temporary momentum) from polluting the alert stream.
+
+### Gate 2: The Timing Check (Value + Momentum)
+If a stock safely lands in a bucket, it is then subjected to the Timing Gates:
+- **Baseline Fundamentals:** `FM_Score >= 55` (Soft Scoring check)
+- **Momentum Strength:** `momentum_score >= 25` (Institutional buying check)
+- **Trend Confirmation:** `Close > 200 SMA`
+
+By cleanly separating the Structural Quality (Gate 1) from the Tactical Entry (Gate 2), the system guarantees that every buy signal is both highly durable and actively trending.
+
+---
+
+## 7. Daily Builder: Exchange Routing and Junk Filtration
+
+The Daily Builder script builds the primary watchlist universe by querying third-party fundamental data. It enforces the following core architectural rules:
+
+### 7.1 Cross-Exchange Deduplication
+- **Universal Capture:** To capture BSE-exclusive value opportunities, the TradingView query retrieves both `"NSE"` and `"BSE"` exchange data.
+- **De-duplication Policy:** To avoid duplicate processing of cross-listed companies, the raw scan must be sorted descending by `ticker` (placing `"NSE:"` above `"BSE:"`) and deduplicated on the `name` column using a `"first"` match constraint. This guarantees a clean, single-record representation per ticker, preferring the liquid NSE listings where available.
+
+### 7.2 Promoter Holdings & Market Cap Gates
+- **Shell Prevention:** To block shell companies with artificial capital metrics, the system filters out companies whose promoter-backed market cap is below `MIN_PROMOTER_MCAP` (₹500 Cr).
+- **Float-Based Calculation:** Since direct promoter holdings percentages are prone to missing API data, the builder computes the promoter holdings ratio via shares outstanding:
+  $$\text{Promoter MCAP} = \frac{\text{Total Shares Outstanding} - \text{Float Shares Outstanding}}{\text{Total Shares Outstanding}} \times \text{Market Capitalization}$$
+- **Mandatory Validation:** The calculated Promoter MCAP must be actively compared against `MIN_PROMOTER_MCAP` in both financial and non-financial pipelines. Any stock failing this check must be skipped.
+
+### 7.3 Transient Database Lag Resilience
+- **Soft Evaluation vs. Hard Skips:** Transient quarterly database lags (missing QoQ sales/profit growth fields) must never lead to a hard exclusion at the classification gate.
+- **Scoring Penalization:** The stock should be allowed to proceed through classification (subject to standard annual criteria), but receives zero points in the scoring engine for the missing parameters. This automatically lowers its rank on the leaderboard while preventing system blindness.
+
+
+## 8. Database & Persistence Principles
+
+### Generic DataFrame to Table (`save_df_to_table`)
+When using `database.py:save_df_to_table()` to persist a daily snapshot (like `daily_watchlist`) where the primary key is just the symbol (e.g. `PRIMARY KEY ("Stock")`), it attempts to clean up the table by deleting rows older than today.
+
+**CRITICAL LESSON:** Always guard against orphaned `NULL` values when performing time-series cleanups on snapshot tables.
+- **The Bug:** `DELETE FROM table WHERE "Date" < 'today'` will silently skip any rows where `Date` is `NULL`. When the script then attempts to `INSERT` today's fresh data for a stock that was orphaned, it will hit a `UniqueViolation` on the primary key and crash the pipeline.
+- **The Fix:** The cleanup logic must explicitly target `IS NULL`. The correct purge sequence is:
+  `DELETE FROM table WHERE "Date" IS NULL OR "Date" < today_str`
+
+### Multi-TF Pipeline: State Transition Context Clearing
+When Phase A evaluates the hourly timeframe and assigns a stock the `HOURLY_APPROVED` status, it must explicitly clear any lingering state attributes (`expires_at`, `invalidated_at`, `cooldown_until`) from previous sessions.
+- **The Bug:** The DB `upsert_breakout_watchlist` uses `COALESCE(EXCLUDED.invalidated_at, breakout_watchlist.invalidated_at)` to protect existing state during minor updates. If Phase A doesn't explicitly wipe these fields, the DB preserves yesterday's `invalidated_at`. Phase B will then silently drop the stock on the next query because `invalidated_at > NOW()` evaluates to False.
+- **The Fix:** Phase A must pass `clear_context=True`, and the underlying database logic must execute an explicit `UPDATE SET invalidated_at = NULL, cooldown_until = NULL` before proceeding with the `ON CONFLICT DO UPDATE`.
+
+---
+
+## 9. Promoter Pledge Data Handling & Null Safety
+
+### 9.1 Sentinel Handling and Null Propagation
+- **DB Sentinel Representation:** The pledge scraper (`pledge_worker.py`) stores a sentinel value of `-1.0` in `promoter_pledge_cache` to indicate a fetch failure (such as a 404 error, missing pledge page text, or API timeout) and sets a 7-day retry cooldown.
+- **Null Safety in Scrapers:** The fetcher (`fetch_promoter_pledge()`) must map this `-1.0` sentinel as well as any missing DB cache records to Python's `None` (representing an unknown/unverified state) instead of defaulting to `0.0` (which is a perfect score of no pledge).
+- **Quality Gate Tolerance (No-Data Bypass):** Downstream scanners and kill gates (e.g., Multibagger Quality Gate checking `pledge > 0.20` and core `Kill Gates` checking `pledge > 0.50`) must explicitly allow `None`/`NaN` to pass the gate. They must **not** fail the gate on missing data to prevent temporary scraper/network errors from hard-excluding healthy stocks (preventing high false-negative exclusion rates).
+- **No Score Advantage:** Although missing data passes the gate, it must not be treated as a `0%` pledge in any scoring evaluations (e.g., in `wealth_engine.py` scoring). Since it is `None`, it is excluded from receiving the score bonuses that are strictly reserved for verified `0%` pledge holdings.
+
+### 9.2 Non-Blocking Progress Metrics & Attempt Tracking
+- **Progress Tracking Column:** The `promoter_pledge_cache` database table contains a `last_attempted_at` timestamp column. Every time the worker processes a stock (whether the scrape succeeds, returns missing/404, or hard-fails), it sets `last_attempted_at = NOW()`.
+- **Cumulative Processed Progress:** The progress metrics display the **cumulative processed counts** (already up-to-date from previous days + today's processed) against the **total combined universe size** (watchlist + excluded + constituents). For example, it starts around `1126 / 1181` and increments to `1181 / 1181` on success.
+- **Non-Blocking Status Dashboard Refresh:** To prevent the web server dashboard status API `/api/scanner_status` from freezing when querying progress metrics, all slow external network dependencies (such as downloading index constituents from the NSE website) are kept out of the web server request thread.
+- **Delegated Metric Updates:** The background `Pledge Worker` daemon compiles the stale universe and writes its own live progress counts (`today_alerts` representing processed today, and `total_count` representing total eligible today) directly to the `scanner_health` database table.
+- **Database-Driven Fallback:** If the database health columns are empty/null (e.g., on first boot before the loop updates), the dashboard status API dynamically queries the database tables (`daily_watchlist` and `daily_excluded_watchlist`) directly to reconstruct the universe and calculate the cumulative status metrics in less than 2ms.
+- **Constituents Caching:** To prevent overloading the NSE site, the constituents list is cached in memory for the current calendar day (fetched at most once per day). Subsequent loops reuse the cache instantly (0ms with no network calls).
+
+---
+
+## 10. AI Worker Daemon & Manual Trigger Architecture
+
+### 10.1 Background Execution & Scheduling Window
+The `AI Worker` runs continuously as a background daemon thread (`run_worker_loop` under `RESTARTABLE_THREADS` in `main.py`). It is active during its designated scheduling window of **7 PM to 7 AM IST**, checking every 5 minutes for missing concall cache records and analyzing them.
+
+### 10.2 Single-Scan Extraction & Thread Safety
+- **Core Scan Extraction:** The concall extraction logic is separated from the infinite loop into `run_ai_worker_scan_once()`.
+- **Manual Trigger:** The admin dashboard control endpoint is mapped to `"AI Worker"`, allowing administrators to manually trigger a single full scan cycle on-demand.
+- **Execution Lock:** To prevent manual scans from overlapping with background scheduled scans or causing API rate-limit starvation, a threading lock (`_scan_lock`) protects the execution. If a scan is already running, subsequent manual triggers are rejected immediately with a warning.
+
+### 10.3 Expiration and Retry Policy (Dynamic Caching)
+- **Successful Cache Expiration:** Valid AI concall analyses (not containing `"error"`) are cached with a **60-day expiration window** (approx. one earnings season). The worker checks Nifty/NSE for fresh transcripts once this window expires.
+- **Failed Cache Expiration (Negative Cache):** Any failed fetch or analysis (where the returned JSON contains an `"error"` field) is cached with a **1-day expiration window**. This prevents the worker from repeatedly querying failed stocks or consuming API quotas on the same day, while ensuring they are automatically retried on the next day's run.
+
+### 10.4 Wealth Engine Scoring Integration
+- **Soft Integration & Graceful Failure:** If a symbol has no cached AI concall analysis or the cache query fails, the Wealth Engine defaults `AI_Confidence` to `0`. It does **not** reject or filter the stock, ensuring quantitative evaluation continues uninterrupted.
+- **Alpha Adjustments Rubric:** Under Gate 5 of the Wealth Engine scoring rubric:
+  - `AI_Confidence >= 7` adds a **`+15` points bonus** to the composite score.
+  - `AI_Confidence >= 4` adds a **`+5` points bonus** to the composite score.
+  - The final score is capped at `100`. High AI confidence directly increases the stock's visibility on the leaderboards.
+
+---
+
+## 11. Dynamic BSE Fallback Resolver
+
+### 11.1 BSE-Only Listings & Default Normalization
+- **Default Exchange Normalization:** The system default is to normalize raw symbol names to `.NS` (NSE) for fetching pricing/OHLCV data from Yahoo Finance.
+- **Dynamic Fallback:** To support BSE-exclusive listings (such as SME or recently listed companies like `NSDL`, `YASHHV`, `CIANAGRO` which do not trade on NSE), the data fetcher implements an automatic fallback mechanism.
+
+### 11.2 Single and Batch Resolver Policies
+- **Single Ticker Fallback:** For single-ticker OHLCV fetches (`get_ohlcv`) and quotes (`get_quote`), if the primary `.NS` fetch returns empty or fails, the fetcher immediately retries with the `.BO` (BSE) equivalent.
+- **Batch Deduplication & Single-BSE-Batch Query:** For batch queries (`get_batch_ohlcv`), symbols that fail to return data during the initial `.NS` batch call are collected and resolved in exactly **one single BSE batch query** (replacing the suffix with `.BO`). This avoids thundering rate-limit storms of individual single-symbol calls.
+
+---
+
+## 12. Corporate Filings PDF Parsing & AES Decryption
+
+### 12.1 Digitally Signed / Encrypted Documents
+- **Encryption Detection:** Corporate filings downloaded from NSE archives are frequently digitally signed or locked with certificate authorities using AES encryption algorithms.
+- **Standard Decryption Bypass:** The PDF text extractor (`pdf_parser.py`) checks `reader.is_encrypted`. If true, it automatically calls `reader.decrypt("")` to unlock standard digitally signed files with an empty password, allowing text extraction to proceed.
+- **AES Dependency:** AES-encrypted PDFs require `pycryptodome` to decrypt the streams in PyPDF2. This package must be explicitly listed in `requirements.txt` to prevent runtime `DependencyError` exceptions during scans.
+
+
+
