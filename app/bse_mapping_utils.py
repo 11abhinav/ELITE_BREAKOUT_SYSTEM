@@ -8,22 +8,25 @@ _BSE_MAPPING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..
 _bse_mappings_cache = None
 _mapping_lock = Lock()
 
+_last_mtime = 0.0
+
 def load_bse_mappings() -> dict[str, str]:
-    global _bse_mappings_cache
-    if _bse_mappings_cache is not None:
-        return _bse_mappings_cache
+    global _bse_mappings_cache, _last_mtime
     with _mapping_lock:
-        if _bse_mappings_cache is not None:
-            return _bse_mappings_cache
         try:
             if os.path.exists(_BSE_MAPPING_FILE):
-                with open(_BSE_MAPPING_FILE, 'r') as f:
-                    _bse_mappings_cache = json.load(f)
+                current_mtime = os.path.getmtime(_BSE_MAPPING_FILE)
+                if _bse_mappings_cache is None or current_mtime > _last_mtime:
+                    with open(_BSE_MAPPING_FILE, 'r') as f:
+                        _bse_mappings_cache = json.load(f)
+                    _last_mtime = current_mtime
             else:
-                _bse_mappings_cache = {}
+                if _bse_mappings_cache is None:
+                    _bse_mappings_cache = {}
         except Exception as e:
             logger.warning(f"Failed to load BSE symbol mappings: {e}")
-            _bse_mappings_cache = {}
+            if _bse_mappings_cache is None:
+                _bse_mappings_cache = {}
         return _bse_mappings_cache
 
 def save_bse_mapping(original_sym: str, mapped_sym: str) -> None:
