@@ -968,8 +968,8 @@ def check_scanner_staleness(now):
 # exit.  The watchdog will see completed_cleanly=True and simply drop them.
 # =====================================================================================
 
-# Only intraday/live/performance get auto-restarted on crash
-# from ai_worker import run_worker_loop
+# [VERSION: TRIGGER_AI_WORKER_v1.2] Uncomment AI Worker thread and imports to enable background concall worker daemon
+from ai_worker import run_worker_loop
 from pledge_worker import worker_loop as run_pledge_loop
 
 def run_multibagger_scanner():
@@ -1029,7 +1029,8 @@ RESTARTABLE_THREADS = {
     # "LiveScanner":        run_live_scanner,
     "MultiTFScanner":     run_multi_tf_scanner,
     "PerformanceTracker": run_performance_tracker,
-    # "AI Worker":          run_worker_loop,
+    # [VERSION: TRIGGER_AI_WORKER_v1.3] Uncomment AI Worker thread
+    "AI Worker":          run_worker_loop,
     "Pledge Worker":      run_pledge_loop,
     # "BayesianUpdater":    run_bayesian_loop,
     "SystemScheduler":    run_system_scheduler,
@@ -1117,6 +1118,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     from database import upsert_scanner_health
     
     TRIGGER_MAP = {
+        # [VERSION: TRIGGER_AI_WORKER_v1.0] Add AI Worker trigger mapping and lock resolution
         "DAILY_BUILDER": _trigger_daily_builder,
         "MULTI_TF":      _trigger_multi_tf,
         "EOD":           _trigger_eod,
@@ -1125,6 +1127,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "INTRADAY":      _trigger_intraday,
         "1H":            _trigger_live_scanner,
         "MULTIBAGGER":    _trigger_multibagger,
+        "AI Worker":     _trigger_ai_worker,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -1141,6 +1144,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "INTRADAY":      lambda: __import__('intraday')._scan_lock,
         "1H":            lambda: __import__('live_scanner')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
+        "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
     }
     
     lock_fn = LOCK_MAP.get(scanner_key)
@@ -1249,6 +1253,11 @@ def _trigger_live_scanner():
 def _trigger_multibagger():
     import multibagger
     return multibagger.start()
+
+# [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
+def _trigger_ai_worker():
+    from ai_worker import run_ai_worker_scan_once
+    return run_ai_worker_scan_once()
 
 
 # ENTRY POINT
