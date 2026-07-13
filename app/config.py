@@ -55,8 +55,9 @@ SCORE_THRESHOLDS = {
 }
 
 # =====================================================================================
-# SCAN CONFIGURATION
+# SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
+ACTIVE_ALGO_VERSION = "V1"
 
 INTRADAY_CONFIG = {
     "MIN_SIGNALS":        2,
