@@ -79,9 +79,8 @@ class YFinanceFetcher(DataFetcher):
             return base_sym
         return f"{base_sym}.BO" if is_bse else f"{base_sym}.NS"
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
-        ns_sym = self._normalize_symbol(symbol)
-        logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
+    # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to perform the raw single download
+    def _get_ohlcv_raw(self, ns_sym: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         for attempt in range(retries):
             try:
                 # Add night buffer to avoid rate limits at 1 AM
@@ -93,7 +92,7 @@ class YFinanceFetcher(DataFetcher):
                     time.sleep(1.5)
 
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
-                yf_acquire(context=f"DataFetcher.get_ohlcv | {ns_sym}")
+                yf_acquire(context=f"DataFetcher._get_ohlcv_raw | {ns_sym}")
                 try:
                     if range_from and range_to:
                         from datetime import datetime, timedelta
@@ -101,7 +100,6 @@ class YFinanceFetcher(DataFetcher):
                             start_date = range_from
                             end_dt = datetime.strptime(range_to, "%Y-%m-%d") + timedelta(days=1)
                             end_date = end_dt.strftime("%Y-%m-%d")
-                            # [VERSION: EOD_PATCH_v1.1] [BUG FIX 7 REGRESSION FIX] Added timeout=60 to yfinance calls to prevent thread hangs
                             df = yf.download(ns_sym, interval=interval, start=start_date, end=end_date, progress=False, auto_adjust=True, threads=False, timeout=60)
                         except Exception as e:
                             df = yf.download(ns_sym, interval=interval, period=period, progress=False, auto_adjust=True, threads=False, timeout=60)
@@ -112,7 +110,6 @@ class YFinanceFetcher(DataFetcher):
 
                 if df is not None and not df.empty:
                     # Flatten MultiIndex if it exists
-                    # For default yfinance (no group_by): Level 0 = Price types, Level 1 = Tickers
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
                     # Reset index so 'Date' or 'Datetime' is a column
@@ -123,10 +120,8 @@ class YFinanceFetcher(DataFetcher):
                 return None
             except Exception as e:
                 msg = str(e).lower()
-                # Detect Yahoo rate-limiting patterns
                 if 'too many requests' in msg or 'rate limit' in msg or 'yf' in msg and 'rate' in msg:
-                    record_rate_limit(context=f"DataFetcher.get_ohlcv | {ns_sym}")
-                    # Use aggressive backoff schedule for 429s
+                    record_rate_limit(context=f"DataFetcher._get_ohlcv_raw | {ns_sym}")
                     delay = get_backoff_delay(attempt)
                     logger.warning(f"⚠️ Single fetch rate-limited for {ns_sym} (Attempt {attempt+1}/{retries}). Backing off {delay:.1f}s")
                     time.sleep(delay)
@@ -134,25 +129,26 @@ class YFinanceFetcher(DataFetcher):
                     logger.warning(f"⚠️ Single fetch failed for {ns_sym} (Attempt {attempt+1}/{retries}): {e}")
                     wait = (2 ** attempt) * random.uniform(0.5, 1.5)
                     time.sleep(wait)
-        logger.error(f"❌ Exhausted retries fetching {symbol}")
+        logger.error(f"❌ Exhausted retries fetching {ns_sym}")
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
-        prefix = f"[{caller}] " if caller else ""
-        logger.info(f"{prefix}📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via YFinance...")
-        # Use centralized PriceProvider batching to minimize calls and share caching across scanners
-        provider = _price_provider
-        normalized_map = {}
-        for s in symbols:
-            ns_sym = self._normalize_symbol(s)
-            if ns_sym not in normalized_map:
-                normalized_map[ns_sym] = []
-            normalized_map[ns_sym].append(s)
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
+        ns_sym = self._normalize_symbol(symbol)
+        logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
+        df = self._get_ohlcv_raw(ns_sym, interval, period, retries, range_from, range_to)
+        
+        # If NSE query failed, retry once using the BSE (.BO) equivalent!
+        if (df is None or df.empty) and ns_sym.endswith(".NS"):
+            bse_sym = ns_sym[:-3] + ".BO"
+            logger.info(f"🔄 NSE fetch failed or returned empty for {symbol}. Retrying with BSE symbol {bse_sym}...")
+            df = self._get_ohlcv_raw(bse_sym, interval, period, retries, range_from, range_to)
             
-        ns_symbols = list(normalized_map.keys())
+        return df
 
+    # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to perform the raw batch download
+    def _fetch_batch_raw(self, ns_symbols: list[str], period: str, interval: str, range_from: str = None, range_to: str = None) -> dict:
+        provider = _price_provider
         try:
-            # Add night buffer to avoid rate limits at 1 AM
             from zoneinfo import ZoneInfo
             from datetime import datetime
             IST = ZoneInfo("Asia/Kolkata")
@@ -172,36 +168,69 @@ class YFinanceFetcher(DataFetcher):
                     logger.warning(f"Error parsing range dates: {e}")
                     start_date, end_date = None, None
 
-            fetched = provider.fetch_batch(ns_symbols, period=period, interval=interval, start=start_date, end=end_date)
+            return provider.fetch_batch(ns_symbols, period=period, interval=interval, start=start_date, end=end_date)
         except Exception as e:
-            logger.warning(f"Batch provider fetch failed: {e}")
-            fetched = {}
+            logger.warning(f"Raw batch provider fetch failed: {e}")
+            return {}
 
+    # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to format/clean retrieved df
+    def _clean_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        try:
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(1)
+            df = df.reset_index().copy()
+            if getattr(df, 'attrs', {}).get('is_stale'):
+                try:
+                    df.attrs['is_stale'] = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return df
+
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
+        prefix = f"[{caller}] " if caller else ""
+        logger.info(f"{prefix}📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via YFinance...")
+        
+        normalized_map = {}
+        for s in symbols:
+            ns_sym = self._normalize_symbol(s)
+            normalized_map.setdefault(ns_sym, []).append(s)
+            
+        ns_symbols = list(normalized_map.keys())
+        fetched = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
+        
         all_data = {}
+        missing_symbols_to_retry = []
+        
         for ns_sym, orig_syms in normalized_map.items():
             df = fetched.get(ns_sym)
             if df is not None and not df.empty:
-                # ensure a consistent format (reset index)
-                try:
-                    if isinstance(df.columns, pd.MultiIndex):
-                        # For group_by='ticker' (from PriceProvider): Level 0 = Tickers, Level 1 = Price types
-                        # So we need to flatten to the price types (level 1)
-                        df.columns = df.columns.get_level_values(1)
-                    df = df.reset_index().copy()
-                    # preserve any stale marker set by provider
-                    if getattr(df, 'attrs', {}).get('is_stale'):
-                        try:
-                            df.attrs['is_stale'] = True
-                        except Exception:
-                            pass
-                    for orig_sym in orig_syms:
-                        all_data[orig_sym] = df.copy() if len(orig_syms) > 1 else df
-                except Exception:
-                    for orig_sym in orig_syms:
-                        all_data[orig_sym] = df.copy() if len(orig_syms) > 1 else df
+                df_clean = self._clean_df(df)
+                for orig_sym in orig_syms:
+                    all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
+            else:
+                if ns_sym.endswith(".NS"):
+                    missing_symbols_to_retry.extend(orig_syms)
 
-        # Do NOT perform aggressive single-symbol fallbacks. If a symbol is missing from the batch
-        # response it will be treated as missing for this scan cycle. This avoids generating a storm
+        # If any NSE symbols failed, do exactly ONE batch retry using their BSE (.BO) equivalents!
+        if missing_symbols_to_retry:
+            bse_normalized_map = {}
+            for s in missing_symbols_to_retry:
+                bse_sym = self._normalize_symbol(s)[:-3] + ".BO"
+                bse_normalized_map.setdefault(bse_sym, []).append(s)
+                
+            bse_symbols = list(bse_normalized_map.keys())
+            logger.info(f"🔄 {prefix}Retrying {len(bse_symbols)} missing/failed symbols via BSE batch query...")
+            bse_fetched = self._fetch_batch_raw(bse_symbols, period, interval, range_from, range_to)
+            
+            for bse_sym, orig_syms in bse_normalized_map.items():
+                df = bse_fetched.get(bse_sym)
+                if df is not None and not df.empty:
+                    df_clean = self._clean_df(df)
+                    for orig_sym in orig_syms:
+                        all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
+
         return all_data
 
     def get_quote(self, symbol: str) -> dict:
@@ -211,9 +240,25 @@ class YFinanceFetcher(DataFetcher):
             yf_acquire(context=f"DataFetcher.get_quote | {ns_sym}")
             try:
                 ticker = yf.Ticker(ns_sym)
-                return ticker.info
+                info = ticker.info
+                if info and 'regularMarketPrice' in info:
+                    return info
+            except Exception:
+                pass
             finally:
                 yf_release()
+                
+            # If quote failed, retry once with BSE symbol equivalent
+            if ns_sym.endswith(".NS"):
+                bse_sym = ns_sym[:-3] + ".BO"
+                logger.info(f"🔄 Quote fetch failed for {ns_sym}. Retrying with BSE symbol {bse_sym}...")
+                yf_acquire(context=f"DataFetcher.get_quote | {bse_sym}")
+                try:
+                    ticker = yf.Ticker(bse_sym)
+                    return ticker.info
+                finally:
+                    yf_release()
+            return {}
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; abort quote fetch for {ns_sym}: {ce}")
             return {}

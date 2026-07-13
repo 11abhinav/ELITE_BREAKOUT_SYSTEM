@@ -47,8 +47,8 @@ def test_get_batch_ohlcv_duplicate_mapping(mock_fetch_batch):
     
     # Verify that mock was called with correct deduplicated symbols
     # 'RELIANCE' will be normalized to 'RELIANCE.NS'
-    args, kwargs = mock_fetch_batch.call_args
-    ns_symbols_called = args[0]
+    # [VERSION: UNIT_TEST_CALL_ARGS_FIX_v1.0] Check first call's symbols list in call_args_list
+    ns_symbols_called = mock_fetch_batch.call_args_list[0][0][0]
     assert set(ns_symbols_called) == {'FIVESTAR.NS', 'RELIANCE.NS'}
     
     # Ensure BOTH original 'FIVESTAR' and 'FIVESTAR.NS' are present in the output
