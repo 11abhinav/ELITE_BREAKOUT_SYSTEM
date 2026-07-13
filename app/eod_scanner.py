@@ -143,7 +143,7 @@ def _start_wrapper(force: bool = False):
             try:
                 # [VERSION: EOD_PATCH_v1.4] Dynamic timeout based on watchlist size (~1.5s per symbol, min 180s)
                 # Previous 120s was too tight for 300+ symbol watchlists fetched in 30-symbol batches
-                _fetch_timeout = max(180, int(len(watchlist) * 1.5))
+                _fetch_timeout = 900  # 15 minutes to allow for massive YFinance .BO fallbacks and retries
                 logger.info(f"⏱️ Fetch timeout set to {_fetch_timeout}s for {len(watchlist)} symbols")
                 for future in as_completed([future_delivery, future_prices], timeout=_fetch_timeout):
                     if future is future_delivery:

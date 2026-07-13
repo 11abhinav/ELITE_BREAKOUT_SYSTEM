@@ -871,7 +871,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         if all_historical_data is None:
             all_historical_data = {}
         
-        fetched_count = len(all_historical_data)
+        fetched_count = sum(1 for v in all_historical_data.values() if v is not None and not v.empty)
         required_count = int(len(df) * 0.70)
         
         if fetched_count < required_count:

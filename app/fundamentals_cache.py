@@ -145,19 +145,30 @@ def fetch_single_piotroski(symbol: str) -> dict:
             success = True
             break
         except Exception as e:
+            msg = str(e)
+            retry_syms = []
             if yf_sym.endswith(".NS"):
-                bse_sym = yf_sym[:-3] + ".BO"
-                logger.info(f"🔄 fundamentals exception for {yf_sym}, retrying with BSE {bse_sym}...")
+                retry_syms.append(yf_sym[:-3] + ".BO")
+            if "-" in yf_sym:
+                retry_syms.append(yf_sym.replace("-", "&"))
+                if yf_sym.endswith(".NS"):
+                    retry_syms.append(yf_sym.replace("-", "&")[:-3] + ".BO")
+
+            for alt_sym in retry_syms:
+                logger.info(f"🔄 fundamentals exception for {yf_sym}, retrying with alt {alt_sym}...")
                 try:
-                    t, info, fin, bs = try_fetch(bse_sym)
+                    t, info, fin, bs = try_fetch(alt_sym)
                     if not (fin.empty and bs.empty):
-                        yf_sym = bse_sym
-                        save_bse_mapping(symbol, bse_sym)
+                        yf_sym = alt_sym
+                        save_bse_mapping(symbol, alt_sym)
                         success = True
                         break
                 except Exception:
                     pass
             
+            if success:
+                break
+                
             if attempt < max_retries - 1:
                 backoff = 5 * (2 ** attempt) + random.uniform(0, 2)
                 logger.warning(f"⚠️ {yf_sym}: Fetch failed on attempt {attempt+1}/{max_retries} due to {e}. Retrying in {backoff:.1f}s...")

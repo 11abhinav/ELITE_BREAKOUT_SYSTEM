@@ -233,7 +233,8 @@ class PriceProvider:
         try:
             from bse_mapping_utils import load_bse_mappings
             mappings = load_bse_mappings()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to load bse mappings in price_provider: {e}")
             mappings = {}
 
         # Map each input ticker to its resolved yfinance ticker, preserving the original ticker key
@@ -335,6 +336,42 @@ class PriceProvider:
         # ensure all resolved tickers present in outputs (None if missing)
         for t in resolved_tickers:
             outputs.setdefault(t, None)
+
+        # Batch-level .BO Fallback
+        missing_ns_to_bo = {}
+        for t, val in outputs.items():
+            # Only fallback if it's completely missing (or stale but we want to try BO for fresh)
+            # Actually, if we have a stale fallback, val is the stale df, so `val is None` is safer to avoid overriding valid stale data.
+            # But if we want fresh data, we should try .BO if the current output is either None or stale.
+            is_stale_df = hasattr(val, 'attrs') and val.attrs.get('is_stale', False)
+            if (val is None or is_stale_df) and t.endswith(".NS"):
+                bo_sym = t[:-3] + ".BO"
+                missing_ns_to_bo[bo_sym] = t
+
+        if missing_ns_to_bo and not circuit_open:
+            bo_symbols = list(missing_ns_to_bo.keys())
+            logger.info(f"🔄 price_provider: {len(bo_symbols)} .NS symbols missing. Attempting .BO fallback...")
+            try:
+                bo_res = self._download_batch(bo_symbols, period, interval, start, end)
+                if bo_res:
+                    from bse_mapping_utils import save_bse_mapping
+                    for bo_sym, frame in bo_res.items():
+                        if frame is not None and not frame.empty:
+                            orig_ns = missing_ns_to_bo[bo_sym]
+                            orig_req = resolved_to_orig.get(orig_ns, orig_ns)
+                            
+                            # Clean up the original request symbol for mapping (remove any trailing .NS or .BO)
+                            clean_orig = orig_req
+                            if clean_orig.endswith(".NS") or clean_orig.endswith(".BO"):
+                                clean_orig = clean_orig[:-3]
+                                
+                            save_bse_mapping(clean_orig, bo_sym)
+                            logger.info(f"✅ price_provider: Recovered {orig_ns} via {bo_sym}")
+                            
+                            self._cache_set((bo_sym, period, interval, start, end), frame)
+                            outputs[orig_ns] = frame
+            except Exception as e:
+                logger.warning(f"Failed during .BO batch fallback: {e}")
 
         # Map output keys back to original requested tickers
         final_outputs = {}
