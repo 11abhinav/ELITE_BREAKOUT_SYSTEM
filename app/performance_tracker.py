@@ -28,15 +28,6 @@ from datetime import datetime, date, timedelta, time
 from zoneinfo import ZoneInfo
 from price_cache import fetch_watchlist_data
 
-# Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
-try:
-    import app.yf_bootstrap
-except Exception:
-    try:
-        import yf_bootstrap
-    except Exception:
-        pass
-import yfinance as yf
 
 from config import MIN_STOCK_PRICE
 from database import get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
