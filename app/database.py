@@ -1713,9 +1713,9 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 last_symbol = last[0] if last else None
                 last_updated = last[1] if last else None
 
-                # [VERSION: PLEDGE_STATS_DB_v1.4] Update processed_today query to count all up-to-date (old + todays) symbols
+                # [VERSION: PLEDGE_STATS_DB_v1.5] Remove pledge_pct filter to ensure processed count never exceeds total cached/universe count
                 if not symbols:
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0")
+                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache")
                     total_row = cur.fetchone()
                     total = total_row[0] if total_row else 0
                     
@@ -1735,7 +1735,7 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 placeholders = ','.join(['%s'] * len(symbols))
                 
                 # 1. Total cached in the universe (active symbols)
-                cur.execute(f"SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0 AND symbol IN ({placeholders})", tuple(symbols))
+                cur.execute(f"SELECT COUNT(*) FROM promoter_pledge_cache WHERE symbol IN ({placeholders})", tuple(symbols))
                 total_row = cur.fetchone()
                 total = total_row[0] if total_row else 0
 

@@ -1665,17 +1665,41 @@ def api_scanner_status():
             except Exception:
                 logger.exception('Failed to compute AI worker progress metrics')
     
-            # [VERSION: PLEDGE_STATS_API_v1.2] Apply non-blocking dynamic fallback for Pledge Worker progress counts
+            # [VERSION: PLEDGE_STATS_API_v1.4] Load local symbols list to pass to get_promoter_pledge_stats for correct universe fallback counts
             processed_count = row.get("processed_count")
             total_count = row.get("total_count")
             if sc == "Pledge Worker" and (processed_count is None or total_count is None or total_count == 0):
                 try:
-                    from database import get_promoter_pledge_stats
-                    stats = get_promoter_pledge_stats(None)
-                    processed_count = stats.get("processed_today", 0)
-                    total_count = stats.get("eligible_today", 0)
+                    import pandas as pd
+                    from config import DATA_DIR
+                    symbols_set = set()
+                    try:
+                        parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
+                        if os.path.exists(parquet_path):
+                            symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
+                    except Exception:
+                        pass
+                    
+                    for f in [
+                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
+                        os.path.join(DATA_DIR, 'elite_fundamental_watchlist-excluded.csv'),
+                    ]:
+                        try:
+                            if os.path.exists(f):
+                                dfw = pd.read_csv(f)
+                                if 'Stock' in dfw.columns:
+                                    symbols_set.update(dfw['Stock'].dropna().tolist())
+                        except Exception:
+                            pass
+
+                    symbol_list = list(symbols_set)
+                    if symbol_list:
+                        from database import get_promoter_pledge_stats
+                        stats = get_promoter_pledge_stats(symbol_list)
+                        processed_count = stats.get("processed_today", 0)
+                        total_count = stats.get("eligible_today", 0)
                 except Exception:
-                    logger.exception("Failed to query fallback pledge stats")
+                    logger.exception("Failed to query fallback pledge stats using symbols")
 
             result[sc] = {
                     "status":        row["status"],
