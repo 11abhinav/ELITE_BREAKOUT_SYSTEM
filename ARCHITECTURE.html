@@ -643,6 +643,19 @@ To support BSE-exclusive listings (such as SME or recently listed companies like
    - Retries the download.
    - If the BSE fallback succeeds, it dynamically registers the mapping by appending it to `data/bse_symbol_mappings.json`.
 3. **Efficiency gains:** Subsequent cycles immediately query the cached BSE ticker directly. No `.NS` query is ever attempted again, completely avoiding redundant rate limits, delay retries, and error logs.
+
+### 16.3 System-Wide Integration Points
+
+The BSE fallback mapping resolution is implemented in the following modules across the codebase:
+1. [app/price_provider.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/price_provider.py) (`PriceProvider.fetch_batch`): Tickers are mapped to their BSE counterparts prior to batch download, and keys are restored to original watchlist formats in outputs.
+2. [app/live_prices.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/live_prices.py) (`get_live_prices`): Normalizes tickers before routing them to Fyers or YFinance CMP quote fetches.
+3. [app/wealth_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/wealth_engine.py): Delegates current price fetching to the centralized `get_live_prices` engine, inheriting its automatic BSE resolution.
+4. [app/multibagger.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/multibagger.py) (`batch_download_market_data` & `fetch_ticker_fundamentals`): Integrates mappings lookup for price downloads and Piotroski scans. Writes new entries to the mappings database on successful fallback retrievals.
+5. [app/fundamentals_cache.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/fundamentals_cache.py) (`fetch_single_piotroski`): Checks the persistent mappings database before running Piotroski scores fetches and caches new entries dynamically.
+6. [app/valuation_utils.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/valuation_utils.py) (`extract_raw_metrics`): Verifies mappings before performing Graham-Intrinsic and DCF valuations.
+7. [app/dashboard_server.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py):
+   - **`/api/news/<symbol>`:** Looks up mappings to fetch news headlines matching the correct trading exchange.
+   - **`fetch_cmp` inside `api_breakout_watchlist`:** Uses mapped BSE targets to prevent dashboard charts and stats from loading stale values.
 </textarea>
 
     <!-- Rendering Script -->
