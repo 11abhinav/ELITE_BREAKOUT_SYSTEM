@@ -260,6 +260,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     fetch_groups = {}
     
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    fresh_count = 0
     
     for sym in symbols:
         file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
@@ -318,8 +319,6 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             if "FULL" not in fetch_groups:
                 fetch_groups["FULL"] = []
             fetch_groups["FULL"].append((sym, None))
-
-    fresh_count = 0
 
     # Process each group
     for group_key, items in fetch_groups.items():
