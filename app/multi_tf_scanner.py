@@ -17,7 +17,7 @@ from database import (
     upsert_scanner_health
 )
 import json
-from config import MIN_STOCK_PRICE
+from config import MIN_STOCK_PRICE, ACTIVE_ALGO_VERSION, INTRADAY_CONFIG, LIVE_1H_CONFIG
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -628,15 +628,21 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 continue
 
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))
-                            ctx = json.dumps({
+                            ctx = {
                                 "ladder": "TRADE_ACTIVE",
                                 "breakout_level": round(trigger_level, 2),
                                 "trigger": trigger_type,
                                 "vol_ratio": round(vol_ratio, 2),
                                 "final_sl": round(final_sl, 2),
                                 "invalidation_level": round(invalidation_level, 2),
-                                "stop_basis": sl_result.get("sl_method", "Structural SL")
-                            })
+                                "stop_basis": sl_result.get("sl_method", "Structural SL"),
+                                "algo_version": ACTIVE_ALGO_VERSION,
+                                "algo_params": {
+                                    **INTRADAY_CONFIG,
+                                    "MIN_BREAKOUT_MARGIN": 0.003, # 15m default
+                                    "MAX_TARGET_ATR": 5.0
+                                }
+                            }
                         
                             if is_test_mode:
                                 inserted, reason = True, "TEST_MODE"

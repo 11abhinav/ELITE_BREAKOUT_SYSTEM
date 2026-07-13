@@ -32,6 +32,7 @@ import database
 from config import (
     EOD_CONFIG,
     EOD_ADVANCED_CONFIG,
+    ACTIVE_ALGO_VERSION,
     ALERT_COOLDOWN_MINUTES,
     ADX_MIN_THRESHOLD,
     MIN_STOCK_PRICE,
@@ -644,6 +645,16 @@ def _start_wrapper(force: bool = False):
                         "t_method":         sl_result.get("t_method"),
                         "trail_note":       sl_result.get("trail_note")
                     }
+                }
+                
+                # Append configuration metadata for forward-testing and analytics
+                context["algo_version"] = ACTIVE_ALGO_VERSION
+                context["algo_params"] = {
+                    **EOD_CONFIG,
+                    **EOD_ADVANCED_CONFIG,
+                    "MIN_BREAKOUT_MARGIN_1D": MIN_BREAKOUT_MARGIN.get("1d"),
+                    "MIN_BREAKOUT_VOLUME_RATIO": MIN_BREAKOUT_VOLUME_RATIO,
+                    "BASE_TIGHTNESS_THRESHOLD": BASE_TIGHTNESS_THRESHOLD
                 }
 
                 if not is_test_mode:

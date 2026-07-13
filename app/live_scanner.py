@@ -26,7 +26,9 @@ from watchlist_cache import get_watchlist
 
 from config import (
     MIN_STOCK_PRICE,
-    ALERT_COOLDOWN_MINUTES
+    ALERT_COOLDOWN_MINUTES,
+    ACTIVE_ALGO_VERSION,
+    LIVE_1H_CONFIG
 )
 
 
@@ -404,7 +406,9 @@ def _start_wrapper(run_once=False):
                             "breakout_level":   round(breakout_level, 2),
                             "atr":              round(atr, 2),
                             "stop_basis":       sl_result.get("sl_method", "Structural SL")
-                        }
+                        },
+                        "algo_version": ACTIVE_ALGO_VERSION,
+                        "algo_params": LIVE_1H_CONFIG
                     }
 
                     if is_active_window:

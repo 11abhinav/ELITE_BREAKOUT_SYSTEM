@@ -2990,7 +2990,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         position_shares: int = None,
                         portfolio_bucket: str = None, valuation_score: float = None,
                         momentum_score: int = None, momentum_confidence: str = None,
-                        data_quality: str = None, fallback_timestamp: str = None) -> bool:
+                        data_quality: str = None, fallback_timestamp: str = None,
+                        engine_version: str = None, config_version: str = None) -> bool:
     """Save BUY alert to wealth_buy_alert with position sizing. Deduplicates by (symbol, alert_date, breakout_type)."""
 
     from datetime import datetime
@@ -3082,8 +3083,9 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                             INSERT INTO wealth_buy_alert 
                             (symbol, alert_price, breakout_type, fm_score, status, notes, alert_date, alert_time,
                             position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score)
-                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score,
+                            engine_version, config_version)
+                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
                             DO UPDATE SET 
                                 fm_score = EXCLUDED.fm_score, 
@@ -3092,7 +3094,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                                 updated_at = NOW()
                         """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S.%f%z'),
                             position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score))
+                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score,
+                            engine_version, config_version))
                         
                         if cur.rowcount == 0:
                             logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")

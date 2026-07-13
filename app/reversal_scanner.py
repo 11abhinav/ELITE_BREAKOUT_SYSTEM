@@ -31,7 +31,8 @@ from config import (
     MIN_CANDLE_RANGE_PCT, 
     MIN_STOCK_PRICE,
     REVERSAL_CONFIG,
-    ALERT_COOLDOWN_MINUTES
+    ALERT_COOLDOWN_MINUTES,
+    ACTIVE_ALGO_VERSION
 )
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
@@ -742,6 +743,14 @@ def _run_scan(force: bool = False):
                     "t_method":         sl_result.get("t_method"),
                     "trail_note":       sl_result.get("trail_note")
                 }
+            }
+            
+            # Append configuration metadata for forward-testing and analytics
+            context["algo_version"] = ACTIVE_ALGO_VERSION
+            context["algo_params"] = {
+                **REVERSAL_CONFIG,
+                "CLIMAX_VOLUME_LOOKBACK": CLIMAX_VOLUME_LOOKBACK,
+                "MIN_CANDLE_RANGE_PCT": MIN_CANDLE_RANGE_PCT,
             }
 
             shortlisted_alerts.append({

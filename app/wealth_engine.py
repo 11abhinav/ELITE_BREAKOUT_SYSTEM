@@ -1023,7 +1023,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                             position_amount=row.get("position_amount"), position_shares=max(1, int(row.get("position_amount", 0) / cmp)) if cmp > 0 else 0,
                             portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
                             momentum_score=row.get("momentum_score"), momentum_confidence=row.get("momentum_confidence"),
-                            data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp")
+                            data_quality=row.get("data_quality"), fallback_timestamp=row.get("fallback_timestamp"),
+                            engine_version=ACTIVE_ALGO_VERSION, config_version=json.dumps({"WEALTH_ENGINE_ENABLED": True})
                         )
                     if not inserted:
                         # Mutate the dataframe to reflect suppression so parquet dashboard is correct
