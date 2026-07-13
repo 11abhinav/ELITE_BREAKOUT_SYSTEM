@@ -670,6 +670,10 @@ To prevent redundant rate limiting and code duplication across the ecosystem, al
 ### 17.2 Surveillance Network Resilience
 - **Rapid Timeouts:** Background scanner dependencies (such as NSE ASM/GSM surveillance lists) operate with strict 5-second `curl_cffi` network timeouts, preventing temporary NSE website blocks from indefinitely locking the backend execution threads.
 - **Persistent JSON Fallback:** On successful surveillance fetches, the lists are saved to a local JSON cache (`data/surveillance_blacklist.json`). If the cloud server's IP is blocked by NSE during subsequent loops, the system automatically falls back to loading this local JSON file. This guarantees that background loops never fail completely and always operate with the most recently known valid blacklist.
+
+### 17.3 The Fetcher Fallback Contract & Drop-Out Protection
+- **Strict Return Schemas:** When batch fetching via `get_batch_ohlcv`, both `FyersFetcher` and `YFinanceFetcher` are bound by a strict contract: they **MUST** return a dictionary containing keys for *every* symbol requested, even if the value is `None`. 
+- **Preventing Silent Drops:** If a fetcher is rate-limited, blocked, or a circuit breaker trips, returning an empty `{}` would cause the upstream cache manager (`price_cache.py`) to bypass its fallback stale-cache injection, silently omitting all failed symbols from downstream engines like Wealth and Reversal (triggering "Incomplete Data" abortions). The strict contract guarantees the cache manager detects all missing data and activates the necessary fallbacks safely.
 </textarea>
 
     <!-- Rendering Script -->

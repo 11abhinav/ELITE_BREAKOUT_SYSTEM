@@ -10,7 +10,7 @@
 #   "INTRADAY" → 15m early-momentum scalp (hold position until SL or Target is hit)
 #   "LIVE_1H"  → Hourly swing continuation (hold 1–5 days)
 #   "REVERSAL" → Counter-trend oversold bounce (mean reversion, hold days–weeks)
-import pandas as pd
+#
 #
 # v5 UPGRADES:
 #   1. MULTI-SWING CLUSTERING — scans last 3 swing lows; if 2+ cluster within 1%,
@@ -51,6 +51,7 @@ import pandas as pd
 # =====================================================================================
 
 from __future__ import annotations
+import pandas as pd
 from typing import Optional
 import math
 

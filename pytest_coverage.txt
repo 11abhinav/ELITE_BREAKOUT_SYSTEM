@@ -1,0 +1,109 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM
+configfile: pytest.ini
+plugins: mock-3.15.1, cov-7.1.0
+collected 62 items
+
+tests/test_api.py ...                                                    [  4%]
+tests/test_audit_fixes.py .....                                          [ 12%]
+tests/test_config.py ..                                                  [ 16%]
+tests/test_data_provider.py ....                                         [ 22%]
+tests/test_database.py ....                                              [ 29%]
+tests/test_fundamentals_cache.py .                                       [ 30%]
+tests/test_institutional_scoring.py ....                                 [ 37%]
+tests/test_macro_utils.py ....                                           [ 43%]
+tests/test_scheduler.py ...                                              [ 48%]
+tests/test_scoring.py ...                                                [ 53%]
+tests/test_v5_financial.py ....                                          [ 59%]
+tests/test_v5_gates.py .......                                           [ 70%]
+tests/test_v5_growth.py ...                                              [ 75%]
+tests/test_v5_market.py ...                                              [ 80%]
+tests/test_v5_quality.py ...                                             [ 85%]
+tests/test_v5_technical.py ....                                          [ 91%]
+tests/test_v5_valuation.py ...                                           [ 96%]
+tests/test_wealth_engine.py ..                                           [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.9.6-final-0 ________________
+
+Name                                        Stmts   Miss  Cover
+---------------------------------------------------------------
+app/__init__.py                                 1      0   100%
+app/ai_analyzer.py                             66     66     0%
+app/ai_worker.py                              209    209     0%
+app/bayesian_updater.py                        57     57     0%
+app/block_deal_detector.py                    187     99    47%
+app/breakout_engine.py                        109    109     0%
+app/bse_mapping_utils.py                       38      7    82%
+app/config.py                                  50      0   100%
+app/core/__init__.py                            0      0   100%
+app/core/audit_engine.py                       21      5    76%
+app/core/emerging_engine.py                    29     29     0%
+app/core/exit_engine.py                        28     28     0%
+app/core/financial_strength_engine.py          87      4    95%
+app/core/gate_engine.py                        54     11    80%
+app/core/growth_engine.py                      55      6    89%
+app/core/improvement_engine.py                 24     24     0%
+app/core/market_structure_engine.py            45      3    93%
+app/core/metric_engine.py                      43     43     0%
+app/core/models.py                             76      0   100%
+app/core/multibagger_pipeline.py               57     57     0%
+app/core/portfolio_engine.py                   17     17     0%
+app/core/quality_engine.py                    101     12    88%
+app/core/score_engine.py                       32     32     0%
+app/core/technical_engine.py                   33      4    88%
+app/core/valuation_engine.py                  143     20    86%
+app/daily_builder.py                          718    653     9%
+app/dashboard_server.py                      1711   1342    22%
+app/data_fetch_status.py                       43     29    33%
+app/data_provider.py                          309    193    38%
+app/data_providers/__init__.py                  0      0   100%
+app/data_providers/fyers_fetcher.py           381    381     0%
+app/data_providers/fyers_mapping_utils.py      78     78     0%
+app/data_registry.py                            2      2     0%
+app/database.py                              2022   1618    20%
+app/db_logger.py                               53     53     0%
+app/delivery_data.py                           93     93     0%
+app/email_engine.py                            48     48     0%
+app/eod_scanner.py                            454    454     0%
+app/fundamentals_cache.py                     236    135    43%
+app/fyers_auth.py                             176    132    25%
+app/institutional_data.py                      73     73     0%
+app/intraday.py                               325    325     0%
+app/live_prices.py                             72     39    46%
+app/live_scanner.py                           327    327     0%
+app/lock_utils.py                              68     51    25%
+app/macro_utils.py                            129     50    61%
+app/main.py                                   745    745     0%
+app/market_utils.py                            17     12    29%
+app/message_formatter.py                      111    111     0%
+app/multi_tf_scanner.py                       520    479     8%
+app/multibagger.py                            997    997     0%
+app/pdf_parser.py                              45     45     0%
+app/performance_tracker.py                    379    379     0%
+app/pledge_scraper.py                          91     91     0%
+app/pledge_worker.py                          331    331     0%
+app/portfolio_engine.py                        55     45    18%
+app/price_cache.py                            415    376     9%
+app/price_provider.py                         229    192    16%
+app/push_service.py                            26     22    15%
+app/reversal_scanner.py                       485    485     0%
+app/scoring_engine.py                         432    362    16%
+app/sector_rotation.py                        222    222     0%
+app/surveillance.py                            99     86    13%
+app/technical_indicators.py                   142    137     4%
+app/telegram_engine.py                         57     57     0%
+app/test_daily_builder_fixes.py                80     80     0%
+app/valuation_utils.py                        313    313     0%
+app/watchlist_cache.py                         39     29    26%
+app/wealth_engine.py                          714    641    10%
+app/wealth_hold_tracking.py                    33     33     0%
+app/wealth_mean_reversion.py                   19     19     0%
+app/wealth_momentum_filter.py                  73     73     0%
+app/wealth_risk_adjusted_sizing.py             35     35     0%
+app/yf_bootstrap.py                            19      6    68%
+app/yf_rate_limiter.py                         87     54    38%
+---------------------------------------------------------------
+TOTAL                                       15690  13375    15%
+============================= 62 passed in 50.07s ==============================

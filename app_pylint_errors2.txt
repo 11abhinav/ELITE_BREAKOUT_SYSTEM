@@ -1,0 +1,51 @@
+************* Module app.fyers_auth
+app/fyers_auth.py:80:8: E0401: Unable to import 'pyotp' (import-error)
+************* Module app.wealth_engine
+app/wealth_engine.py:1015:20: E0611: No name 'get_wealth_admission_state' in module 'config' (no-name-in-module)
+************* Module app.data_provider
+app/data_provider.py:404:8: E0401: Unable to import 'data_providers.kite_fetcher' (import-error)
+app/data_provider.py:404:8: E0611: No name 'kite_fetcher' in module 'data_providers' (no-name-in-module)
+************* Module app.main
+app/main.py:448:12: E1123: Unexpected keyword argument 'retry_count' in function call (unexpected-keyword-arg)
+app/main.py:576:12: E1123: Unexpected keyword argument 'retry_count' in function call (unexpected-keyword-arg)
+************* Module app.valuation_utils
+app/valuation_utils.py:384:8: E0401: Unable to import 'config.industry_normalizer' (import-error)
+app/valuation_utils.py:384:8: E0611: No name 'industry_normalizer' in module 'config' (no-name-in-module)
+************* Module app.dashboard_server
+app/dashboard_server.py:2459:8: E0611: No name 'get_multibagger_alerts' in module 'database' (no-name-in-module)
+************* Module app.push_service
+app/push_service.py:4:0: E0401: Unable to import 'pywebpush' (import-error)
+************* Module app.block_deal_detector
+app/block_deal_detector.py:331:0: E0102: function already defined line 202 (function-redefined)
+************* Module app.core.improvement_engine
+app/core/improvement_engine.py:2:0: E0611: No name 'ImprovementResult' in module 'core.models' (no-name-in-module)
+************* Module app.core.emerging_engine
+app/core/emerging_engine.py:2:0: E0611: No name 'PillarResult' in module 'core.models' (no-name-in-module)
+app/core/emerging_engine.py:2:0: E0611: No name 'EmergingScoreResult' in module 'core.models' (no-name-in-module)
+app/core/emerging_engine.py:2:0: E0611: No name 'ImprovementResult' in module 'core.models' (no-name-in-module)
+************* Module app.core.portfolio_engine
+app/core/portfolio_engine.py:2:0: E0611: No name 'FinalScannerResult' in module 'core.models' (no-name-in-module)
+************* Module app.core.score_engine
+app/core/score_engine.py:2:0: E0611: No name 'PillarResult' in module 'core.models' (no-name-in-module)
+app/core/score_engine.py:2:0: E0611: No name 'CoreScoreResult' in module 'core.models' (no-name-in-module)
+************* Module app.core.metric_engine
+app/core/metric_engine.py:29:32: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:29:32: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:45:15: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:45:15: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:45:15: E1123: Unexpected keyword argument 'history_length_used' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:51:15: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:51:15: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:51:15: E1123: Unexpected keyword argument 'history_length_used' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:64:23: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:64:23: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:64:23: E1123: Unexpected keyword argument 'history_length_used' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:75:11: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:75:11: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:75:11: E1123: Unexpected keyword argument 'history_length_used' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:89:15: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:89:15: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:98:11: E1123: Unexpected keyword argument 'coverage' in constructor call (unexpected-keyword-arg)
+app/core/metric_engine.py:98:11: E1123: Unexpected keyword argument 'freshness_days' in constructor call (unexpected-keyword-arg)
+************* Module app.data_providers.fyers_fetcher
+app/data_providers/fyers_fetcher.py:513:17: E0601: Using variable 'fyers_auth' before assignment (used-before-assignment)

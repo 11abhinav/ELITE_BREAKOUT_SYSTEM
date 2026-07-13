@@ -1,0 +1,904 @@
+app/wealth_mean_reversion.py:1: error: Library stubs not installed for "pandas"  [import-untyped]
+app/breakout_engine.py:29: error: Library stubs not installed for "pandas"  [import-untyped]
+app/breakout_engine.py:31: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/breakout_engine.py:123: error: Incompatible default for argument "min_ratio" (default has type "None", argument has type "float")  [assignment]
+app/breakout_engine.py:123: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/breakout_engine.py:123: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/breakout_engine.py:152: error: Incompatible default for argument "threshold" (default has type "None", argument has type "float")  [assignment]
+app/breakout_engine.py:152: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/breakout_engine.py:152: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/core/technical_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/technical_engine.py:3: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/technical_engine.py:4: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/score_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/quality_engine.py:1: error: Library stubs not installed for "pandas"  [import-untyped]
+app/core/quality_engine.py:3: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/quality_engine.py:4: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/portfolio_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/portfolio_engine.py:9: error: Incompatible default for argument "current_portfolio" (default has type "None", argument has type "dict[str, Any]")  [assignment]
+app/core/portfolio_engine.py:9: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/core/portfolio_engine.py:9: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/core/market_structure_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/market_structure_engine.py:3: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/market_structure_engine.py:4: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/market_structure_engine.py:7: error: Library stubs not installed for "pandas"  [import-untyped]
+app/core/improvement_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/growth_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/growth_engine.py:3: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/growth_engine.py:4: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/gate_engine.py:2: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/gate_engine.py:6: error: Library stubs not installed for "pandas"  [import-untyped]
+app/core/financial_strength_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/financial_strength_engine.py:3: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/financial_strength_engine.py:4: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/financial_strength_engine.py:7: error: Library stubs not installed for "pandas"  [import-untyped]
+app/core/financial_strength_engine.py:7: note: Hint: "python3 -m pip install pandas-stubs"
+app/core/financial_strength_engine.py:7: note: (or run "mypy --install-types" to install all missing stub packages)
+app/core/exit_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/emerging_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/wealth_momentum_filter.py:22: error: Library stubs not installed for "pandas"  [import-untyped]
+app/sl_target_helper.py:54: error: Library stubs not installed for "pandas"  [import-untyped]
+app/sl_target_helper.py:58: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/sl_target_helper.py:92: error: Need type annotation for "best_cluster" (hint: "best_cluster: list[<type>] = ...")  [var-annotated]
+app/sl_target_helper.py:789: error: Unsupported operand types for * ("None" and "float")  [operator]
+app/sl_target_helper.py:789: note: Left operand is of type "Optional[float]"
+app/sl_target_helper.py:813: error: Argument 1 to "_compute_eod" has incompatible type "**dict[str, Optional[float]]"; expected "float"  [arg-type]
+app/sl_target_helper.py:815: error: Argument 1 to "_compute_intraday" has incompatible type "**dict[str, Optional[float]]"; expected "float"  [arg-type]
+app/sl_target_helper.py:817: error: Argument 1 to "_compute_live_1h" has incompatible type "**dict[str, Optional[float]]"; expected "float"  [arg-type]
+app/sl_target_helper.py:819: error: Argument 1 to "_compute_reversal" has incompatible type "**dict[str, Optional[float]]"; expected "float"  [arg-type]
+app/sl_target_helper.py:821: error: Argument 1 to "_compute_eod" has incompatible type "**dict[str, Optional[float]]"; expected "float"  [arg-type]
+app/core/valuation_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/valuation_engine.py:3: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/valuation_engine.py:4: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:3: error: Library stubs not installed for "yaml"  [import-untyped]
+app/core/multibagger_pipeline.py:3: note: Hint: "python3 -m pip install types-PyYAML"
+app/core/multibagger_pipeline.py:6: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/multibagger_pipeline.py:7: error: Cannot find implementation or library stub for module named "core.audit_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:8: error: Cannot find implementation or library stub for module named "core.gate_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:9: error: Cannot find implementation or library stub for module named "core.quality_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:10: error: Cannot find implementation or library stub for module named "core.growth_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:11: error: Cannot find implementation or library stub for module named "core.financial_strength_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:12: error: Cannot find implementation or library stub for module named "core.valuation_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:13: error: Cannot find implementation or library stub for module named "core.market_structure_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:14: error: Cannot find implementation or library stub for module named "core.technical_engine"  [import-not-found]
+app/core/multibagger_pipeline.py:25: error: Incompatible default for argument "technicals" (default has type "None", argument has type "dict[str, Any]")  [assignment]
+app/core/multibagger_pipeline.py:25: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/core/multibagger_pipeline.py:25: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/market_utils.py:6: error: Incompatible default for argument "now_dt" (default has type "None", argument has type "datetime")  [assignment]
+app/market_utils.py:6: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/market_utils.py:6: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/market_utils.py:19: error: Incompatible default for argument "now_dt" (default has type "None", argument has type "datetime")  [assignment]
+app/market_utils.py:19: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/market_utils.py:19: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/yf_bootstrap.py:19: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/wealth_hold_tracking.py:19: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/wealth_hold_tracking.py:20: error: Library stubs not installed for "psycopg2.extras"  [import-untyped]
+app/watchlist_cache.py:4: error: Library stubs not installed for "pandas"  [import-untyped]
+app/watchlist_cache.py:8: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/watchlist_cache.py:32: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/telegram_engine.py:33: error: Library stubs not installed for "requests"  [import-untyped]
+app/telegram_engine.py:35: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/telegram_engine.py:37: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/telegram_engine.py:80: error: Incompatible default for argument "scan_type" (default has type "None", argument has type "str")  [assignment]
+app/telegram_engine.py:80: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/telegram_engine.py:80: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/telegram_engine.py:110: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/telegram_engine.py:131: error: Argument "scan_type" to "send_telegram_message" has incompatible type "None"; expected "str"  [arg-type]
+app/telegram_engine.py:155: error: Incompatible default for argument "alert_id" (default has type "None", argument has type "int")  [assignment]
+app/telegram_engine.py:155: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/telegram_engine.py:155: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/sector_rotation.py:48: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/sector_rotation.py:49: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/sector_rotation.py:50: error: Library stubs not installed for "pandas"  [import-untyped]
+app/sector_rotation.py:481: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/sector_rotation.py:545: error: Need type annotation for "buckets"  [var-annotated]
+app/sector_rotation.py:711: error: Incompatible default for argument "sector" (default has type "None", argument has type "str")  [assignment]
+app/sector_rotation.py:711: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/sector_rotation.py:711: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/scoring_engine.py:98: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/scoring_engine.py:420: error: Library stubs not installed for "pandas"  [import-untyped]
+app/scoring_engine.py:693: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/scoring_engine.py:762: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/scoring_engine.py:791: error: Cannot find implementation or library stub for module named "fundamentals_cache"  [import-not-found]
+app/reversal_scanner.py:19: error: Library stubs not installed for "pandas"  [import-untyped]
+app/reversal_scanner.py:25: error: Cannot find implementation or library stub for module named "technical_indicators"  [import-not-found]
+app/reversal_scanner.py:26: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/reversal_scanner.py:27: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/reversal_scanner.py:28: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/reversal_scanner.py:29: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/reversal_scanner.py:37: error: Cannot find implementation or library stub for module named "sl_target_helper"  [import-not-found]
+app/reversal_scanner.py:38: error: Cannot find implementation or library stub for module named "delivery_data"  [import-not-found]
+app/reversal_scanner.py:39: error: Cannot find implementation or library stub for module named "macro_utils"  [import-not-found]
+app/reversal_scanner.py:229: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/reversal_scanner.py:375: error: Cannot find implementation or library stub for module named "surveillance"  [import-not-found]
+app/reversal_scanner.py:932: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/push_service.py:4: error: Cannot find implementation or library stub for module named "pywebpush"  [import-not-found]
+app/push_service.py:5: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/portfolio_engine.py:4: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/performance_tracker.py:25: error: Library stubs not installed for "pandas"  [import-untyped]
+app/performance_tracker.py:29: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/performance_tracker.py:32: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/performance_tracker.py:33: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/performance_tracker.py:54: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/performance_tracker.py:70: error: Cannot find implementation or library stub for module named "live_prices"  [import-not-found]
+app/performance_tracker.py:74: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/performance_tracker.py:561: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+app/multi_tf_scanner.py:7: error: Cannot find implementation or library stub for module named "technical_indicators"  [import-not-found]
+app/multi_tf_scanner.py:8: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/multi_tf_scanner.py:9: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/multi_tf_scanner.py:10: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/multi_tf_scanner.py:20: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/multi_tf_scanner.py:31: error: Library stubs not installed for "pandas"  [import-untyped]
+app/multi_tf_scanner.py:69: error: Cannot find implementation or library stub for module named "macro_utils"  [import-not-found]
+app/multi_tf_scanner.py:77: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/multi_tf_scanner.py:592: error: Cannot find implementation or library stub for module named "sl_target_helper"  [import-not-found]
+app/multi_tf_scanner.py:654: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/multi_tf_scanner.py:718: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/macro_utils.py:3: error: Library stubs not installed for "pandas"  [import-untyped]
+app/macro_utils.py:37: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/macro_utils.py:98: error: Skipping analyzing "ta": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/lock_utils.py:8: error: Library stubs not installed for "psycopg2"  [import-untyped]
+app/lock_utils.py:33: error: Incompatible types in assignment (expression has type "int", variable has type "None")  [assignment]
+app/lock_utils.py:39: error: Argument 1 to "flock" has incompatible type "None"; expected "Union[int, HasFileno]"  [arg-type]
+app/lock_utils.py:47: error: "None" has no attribute "autocommit"  [attr-defined]
+app/lock_utils.py:49: error: "None" has no attribute "cursor"  [attr-defined]
+app/fyers_auth.py:4: error: Skipping analyzing "fyers_apiv3": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/fyers_auth.py:5: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/fyers_auth.py:49: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/fyers_auth.py:78: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:80: error: Cannot find implementation or library stub for module named "pyotp"  [import-not-found]
+app/fyers_auth.py:82: error: Library stubs not installed for "requests"  [import-untyped]
+app/fyers_auth.py:97: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:101: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:111: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:120: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:141: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:151: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/fyers_auth.py:217: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/email_engine.py:27: error: Incompatible default for argument "attachment_path" (default has type "None", argument has type "str")  [assignment]
+app/email_engine.py:27: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/email_engine.py:27: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/db_logger.py:13: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/data_fetch_status.py:21: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/data_fetch_status.py:88: error: Incompatible types in assignment (expression has type "Optional[str]", variable has type "str")  [assignment]
+app/bayesian_updater.py:6: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/ai_worker.py:5: error: Library stubs not installed for "pandas"  [import-untyped]
+app/ai_worker.py:11: error: Cannot find implementation or library stub for module named "pledge_worker"  [import-not-found]
+app/ai_worker.py:38: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/ai_worker.py:39: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/ai_worker.py:40: error: Cannot find implementation or library stub for module named "dashboard_server"  [import-not-found]
+app/ai_analyzer.py:4: error: Library stubs not installed for "requests"  [import-untyped]
+app/ai_analyzer.py:4: note: Hint: "python3 -m pip install types-requests"
+app/ai_analyzer.py:103: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/core/audit_engine.py:4: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/audit_engine.py:4: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+app/core/audit_engine.py:11: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+app/core/audit_engine.py:28: error: Incompatible default for argument "symbol" (default has type "None", argument has type "str")  [assignment]
+app/core/audit_engine.py:28: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/core/audit_engine.py:28: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/yf_rate_limiter.py:58: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/yf_rate_limiter.py:81: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/price_cache.py:10: error: Library stubs not installed for "pandas"  [import-untyped]
+app/price_cache.py:15: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/price_cache.py:16: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/price_cache.py:17: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/price_cache.py:18: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/price_cache.py:28: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/price_cache.py:93: error: Incompatible default for argument "requester" (default has type "None", argument has type "str")  [assignment]
+app/price_cache.py:93: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_cache.py:93: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_cache.py:246: error: Incompatible default for argument "requester" (default has type "None", argument has type "str")  [assignment]
+app/price_cache.py:246: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_cache.py:246: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_cache.py:260: error: Need type annotation for "fetch_groups" (hint: "fetch_groups: dict[<type>, <type>] = ...")  [var-annotated]
+app/price_cache.py:328: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
+app/price_cache.py:446: error: Incompatible default for argument "requester" (default has type "None", argument has type "str")  [assignment]
+app/price_cache.py:446: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_cache.py:446: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_cache.py:495: error: Incompatible default for argument "requester" (default has type "None", argument has type "str")  [assignment]
+app/price_cache.py:495: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_cache.py:495: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_cache.py:576: error: Incompatible default for argument "requester" (default has type "None", argument has type "str")  [assignment]
+app/price_cache.py:576: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_cache.py:576: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_cache.py:590: error: Need type annotation for "result"  [var-annotated]
+app/price_cache.py:610: error: Item "None" of "Optional[dict[Any, Any]]" has no attribute "values"  [union-attr]
+app/price_cache.py:649: error: Unsupported target for indexed assignment ("Optional[dict[Any, Any]]")  [index]
+app/price_cache.py:651: error: Item "None" of "Optional[dict[Any, Any]]" has no attribute "get"  [union-attr]
+app/price_cache.py:654: error: Unsupported target for indexed assignment ("Optional[dict[Any, Any]]")  [index]
+app/price_cache.py:659: error: Unsupported target for indexed assignment ("Optional[dict[Any, Any]]")  [index]
+app/price_cache.py:661: error: Unsupported target for indexed assignment ("Optional[dict[Any, Any]]")  [index]
+app/price_cache.py:663: error: Unsupported target for indexed assignment ("Optional[dict[Any, Any]]")  [index]
+app/main.py:38: error: Cannot find implementation or library stub for module named "db_logger"  [import-not-found]
+app/main.py:48: error: Cannot find implementation or library stub for module named "diagnostics"  [import-not-found]
+app/main.py:72: error: Cannot find implementation or library stub for module named "dashboard_server"  [import-not-found]
+app/main.py:99: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/main.py:142: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/main.py:154: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/main.py:191: error: Cannot find implementation or library stub for module named "intraday"  [import-not-found]
+app/main.py:196: error: Cannot find implementation or library stub for module named "live_scanner"  [import-not-found]
+app/main.py:201: error: Cannot find implementation or library stub for module named "multi_tf_scanner"  [import-not-found]
+app/main.py:206: error: Cannot find implementation or library stub for module named "performance_tracker"  [import-not-found]
+app/main.py:225: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/main.py:257: error: Library stubs not installed for "pandas"  [import-untyped]
+app/main.py:299: error: Cannot find implementation or library stub for module named "daily_builder"  [import-not-found]
+app/main.py:390: error: Cannot find implementation or library stub for module named "eod_scanner"  [import-not-found]
+app/main.py:459: error: Cannot find implementation or library stub for module named "telegram_engine"  [import-not-found]
+app/main.py:518: error: Cannot find implementation or library stub for module named "reversal_scanner"  [import-not-found]
+app/main.py:612: error: Cannot find implementation or library stub for module named "bayesian_updater"  [import-not-found]
+app/main.py:640: error: Cannot find implementation or library stub for module named "wealth_engine"  [import-not-found]
+app/main.py:750: error: Cannot find implementation or library stub for module named "multibagger"  [import-not-found]
+app/main.py:986: error: Cannot find implementation or library stub for module named "ai_worker"  [import-not-found]
+app/main.py:987: error: Cannot find implementation or library stub for module named "pledge_worker"  [import-not-found]
+app/main.py:1064: error: Need type annotation for "ONE_SHOT_THREADS" (hint: "ONE_SHOT_THREADS: dict[<type>, <type>] = ...")  [var-annotated]
+app/data_provider.py:1: error: Library stubs not installed for "pandas"  [import-untyped]
+app/data_provider.py:3: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/data_provider.py:8: error: Cannot find implementation or library stub for module named "yf_rate_limiter"  [import-not-found]
+app/data_provider.py:10: error: Cannot find implementation or library stub for module named "price_provider"  [import-not-found]
+app/data_provider.py:11: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/data_provider.py:20: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:20: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:20: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:20: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:25: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:25: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:25: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:25: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:25: error: Incompatible default for argument "caller" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:39: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/data_provider.py:72: error: Cannot find implementation or library stub for module named "daily_builder"  [import-not-found]
+app/data_provider.py:95: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:95: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:95: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:95: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:147: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:147: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:147: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:147: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:167: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:167: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:167: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:167: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:209: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:209: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:209: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:209: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:209: error: Incompatible default for argument "caller" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:213: error: Need type annotation for "normalized_map" (hint: "normalized_map: dict[<type>, <type>] = ...")  [var-annotated]
+app/data_provider.py:236: error: Need type annotation for "bse_normalized_map" (hint: "bse_normalized_map: dict[<type>, <type>] = ...")  [var-annotated]
+app/data_provider.py:303: error: Cannot find implementation or library stub for module named "data_providers.fyers_fetcher"  [import-not-found]
+app/data_provider.py:312: error: Cannot find implementation or library stub for module named "fyers_auth"  [import-not-found]
+app/data_provider.py:333: error: Cannot find implementation or library stub for module named "telegram_engine"  [import-not-found]
+app/data_provider.py:344: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/data_provider.py:361: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:361: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:361: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:361: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:372: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:372: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_provider.py:372: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_provider.py:372: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:372: error: Incompatible default for argument "caller" (default has type "None", argument has type "str")  [assignment]
+app/data_provider.py:404: error: Cannot find implementation or library stub for module named "data_providers.kite_fetcher"  [import-not-found]
+app/live_scanner.py:6: error: Library stubs not installed for "pandas"  [import-untyped]
+app/live_scanner.py:12: error: Cannot find implementation or library stub for module named "yf_bootstrap"  [import-not-found]
+app/live_scanner.py:22: error: Cannot find implementation or library stub for module named "technical_indicators"  [import-not-found]
+app/live_scanner.py:23: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/live_scanner.py:24: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/live_scanner.py:25: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/live_scanner.py:27: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/live_scanner.py:79: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/live_scanner.py:98: error: Cannot find implementation or library stub for module named "surveillance"  [import-not-found]
+app/live_scanner.py:106: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/live_scanner.py:160: error: Cannot find implementation or library stub for module named "macro_utils"  [import-not-found]
+app/live_scanner.py:368: error: Cannot find implementation or library stub for module named "sl_target_helper"  [import-not-found]
+app/intraday.py:6: error: Library stubs not installed for "pandas"  [import-untyped]
+app/intraday.py:12: error: Cannot find implementation or library stub for module named "yf_bootstrap"  [import-not-found]
+app/intraday.py:23: error: Cannot find implementation or library stub for module named "technical_indicators"  [import-not-found]
+app/intraday.py:24: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/intraday.py:25: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/intraday.py:26: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/intraday.py:28: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/intraday.py:240: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/intraday.py:259: error: Cannot find implementation or library stub for module named "surveillance"  [import-not-found]
+app/intraday.py:266: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/intraday.py:401: error: Cannot find implementation or library stub for module named "sl_target_helper"  [import-not-found]
+app/daily_builder.py:9: error: Library stubs not installed for "pandas"  [import-untyped]
+app/daily_builder.py:16: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/daily_builder.py:28: error: Need type annotation for "_DELIVERY_DATA" (hint: "_DELIVERY_DATA: dict[<type>, <type>] = ...")  [var-annotated]
+app/daily_builder.py:29: error: Need type annotation for "_INST_BUYS" (hint: "_INST_BUYS: dict[<type>, <type>] = ...")  [var-annotated]
+app/daily_builder.py:30: error: Need type annotation for "_BLACKLIST_SYMBOLS" (hint: "_BLACKLIST_SYMBOLS: set[<type>] = ...")  [var-annotated]
+app/daily_builder.py:76: error: Need type annotation for "_SECTOR_MEDIANS" (hint: "_SECTOR_MEDIANS: dict[<type>, <type>] = ...")  [var-annotated]
+app/daily_builder.py:231: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/daily_builder.py:245: error: Cannot find implementation or library stub for module named "surveillance"  [import-not-found]
+app/daily_builder.py:256: error: Incompatible return value type (got "Optional[float]", expected "float")  [return-value]
+app/daily_builder.py:258: error: Incompatible return value type (got "None", expected "float")  [return-value]
+app/daily_builder.py:268: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/daily_builder.py:281: error: Cannot find implementation or library stub for module named "fundamentals_cache"  [import-not-found]
+app/daily_builder.py:877: error: Incompatible return value type (got "None", expected "dict[Any, Any]")  [return-value]
+app/daily_builder.py:883: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/daily_builder.py:903: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/daily_builder.py:1016: error: Cannot find implementation or library stub for module named "delivery_data"  [import-not-found]
+app/daily_builder.py:1017: error: Cannot find implementation or library stub for module named "institutional_data"  [import-not-found]
+app/daily_builder.py:1018: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/wealth_engine.py:6: error: Library stubs not installed for "pandas"  [import-untyped]
+app/wealth_engine.py:9: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/wealth_engine.py:15: error: Cannot find implementation or library stub for module named "yf_bootstrap"  [import-not-found]
+app/wealth_engine.py:38: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/wealth_engine.py:77: error: Cannot find implementation or library stub for module named "macro_utils"  [import-not-found]
+app/wealth_engine.py:80: error: Dict entry 2 has incompatible type "str": "float"; expected "str": "None"  [dict-item]
+app/wealth_engine.py:99: error: Missing return statement  [return]
+app/wealth_engine.py:99: error: Incompatible default for argument "historical_cache" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+app/wealth_engine.py:99: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/wealth_engine.py:99: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/wealth_engine.py:168: error: Cannot find implementation or library stub for module named "wealth_momentum_filter"  [import-not-found]
+app/wealth_engine.py:274: error: Incompatible default for argument "sector_stats" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+app/wealth_engine.py:274: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/wealth_engine.py:274: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/wealth_engine.py:279: error: Cannot find implementation or library stub for module named "core.multibagger_pipeline"  [import-not-found]
+app/wealth_engine.py:375: error: Need type annotation for "sector_counts"  [var-annotated]
+app/wealth_engine.py:376: error: Need type annotation for "industry_counts"  [var-annotated]
+app/wealth_engine.py:500: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/wealth_engine.py:526: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/wealth_engine.py:634: error: Cannot find implementation or library stub for module named "wealth_mean_reversion"  [import-not-found]
+app/wealth_engine.py:676: error: Cannot find implementation or library stub for module named "wealth_risk_adjusted_sizing"  [import-not-found]
+app/wealth_engine.py:729: error: Cannot find implementation or library stub for module named "wealth_hold_tracking"  [import-not-found]
+app/wealth_engine.py:802: error: Cannot find implementation or library stub for module named "daily_builder"  [import-not-found]
+app/wealth_engine.py:830: error: Library stubs not installed for "psycopg2.extras"  [import-untyped]
+app/wealth_engine.py:868: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/wealth_engine.py:966: error: Cannot find implementation or library stub for module named "valuation_utils"  [import-not-found]
+app/wealth_engine.py:997: error: Cannot find implementation or library stub for module named "telegram_engine"  [import-not-found]
+app/wealth_engine.py:1000: error: Cannot find implementation or library stub for module named "push_service"  [import-not-found]
+app/wealth_engine.py:1056: error: Cannot find implementation or library stub for module named "live_prices"  [import-not-found]
+app/price_provider.py:28: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/price_provider.py:31: error: Library stubs not installed for "pandas"  [import-untyped]
+app/price_provider.py:103: error: Incompatible default for argument "rate_limiter" (default has type "None", argument has type "RateLimiter")  [assignment]
+app/price_provider.py:103: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_provider.py:103: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_provider.py:136: error: Incompatible default for argument "ttl" (default has type "None", argument has type "int")  [assignment]
+app/price_provider.py:136: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_provider.py:136: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_provider.py:142: error: Incompatible default for argument "start" (default has type "None", argument has type "str")  [assignment]
+app/price_provider.py:142: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_provider.py:142: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_provider.py:142: error: Incompatible default for argument "end" (default has type "None", argument has type "str")  [assignment]
+app/price_provider.py:224: error: Incompatible default for argument "start" (default has type "None", argument has type "str")  [assignment]
+app/price_provider.py:224: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/price_provider.py:224: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/price_provider.py:224: error: Incompatible default for argument "end" (default has type "None", argument has type "str")  [assignment]
+app/price_provider.py:234: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/multibagger.py:25: error: Library stubs not installed for "requests"  [import-untyped]
+app/multibagger.py:27: error: Library stubs not installed for "pandas"  [import-untyped]
+app/multibagger.py:28: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/multibagger.py:33: error: Library stubs not installed for "requests.adapters"  [import-untyped]
+app/multibagger.py:34: error: Library stubs not installed for "psycopg2.extras"  [import-untyped]
+app/multibagger.py:36: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/multibagger.py:37: error: Cannot find implementation or library stub for module named "telegram_engine"  [import-not-found]
+app/multibagger.py:38: error: Cannot find implementation or library stub for module named "wealth_risk_adjusted_sizing"  [import-not-found]
+app/multibagger.py:39: error: Cannot find implementation or library stub for module named "core.multibagger_pipeline"  [import-not-found]
+app/multibagger.py:113: error: Cannot find implementation or library stub for module named "yf_rate_limiter"  [import-not-found]
+app/multibagger.py:196: error: Cannot find implementation or library stub for module named "daily_builder"  [import-not-found]
+app/multibagger.py:213: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/multibagger.py:214: error: Cannot find implementation or library stub for module named "market_utils"  [import-not-found]
+app/multibagger.py:548: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/multibagger.py:656: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:664: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:678: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:686: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:687: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:696: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:698: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:700: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:706: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:710: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:714: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:733: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:740: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:742: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:743: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:753: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:758: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:761: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/multibagger.py:865: error: Incompatible default for argument "debug_limit" (default has type "None", argument has type "int")  [assignment]
+app/multibagger.py:865: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/multibagger.py:865: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/multibagger.py:1093: error: Cannot find implementation or library stub for module named "fundamentals_cache"  [import-not-found]
+app/multibagger.py:1103: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/multibagger.py:1106: error: Incompatible default for argument "debug_limit" (default has type "None", argument has type "int")  [assignment]
+app/multibagger.py:1106: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/multibagger.py:1106: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/multibagger.py:1114: error: Incompatible default for argument "debug_limit" (default has type "None", argument has type "int")  [assignment]
+app/multibagger.py:1114: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/multibagger.py:1114: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/multibagger.py:1269: error: Cannot find implementation or library stub for module named "valuation_utils"  [import-not-found]
+app/multibagger.py:1275: error: Need type annotation for "categorized_stocks" (hint: "categorized_stocks: dict[<type>, <type>] = ...")  [var-annotated]
+app/multibagger.py:1326: error: Cannot find implementation or library stub for module named "pledge_scraper"  [import-not-found]
+app/multibagger.py:1377: error: Cannot find implementation or library stub for module named "block_deal_detector"  [import-not-found]
+app/multibagger.py:1465: error: Argument "symbol" to "ScreenerResult" has incompatible type "Optional[Any]"; expected "str"  [arg-type]
+app/multibagger.py:1493: error: Cannot find implementation or library stub for module named "live_prices"  [import-not-found]
+app/live_prices.py:3: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/live_prices.py:22: error: Cannot find implementation or library stub for module named "fyers_auth"  [import-not-found]
+app/live_prices.py:32: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/fundamentals_cache.py:4: error: Library stubs not installed for "pandas"  [import-untyped]
+app/fundamentals_cache.py:10: error: Cannot find implementation or library stub for module named "yf_bootstrap"  [import-not-found]
+app/fundamentals_cache.py:13: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/fundamentals_cache.py:17: error: Cannot find implementation or library stub for module named "yf_rate_limiter"  [import-not-found]
+app/fundamentals_cache.py:33: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/fundamentals_cache.py:98: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/fundamentals_cache.py:169: error: Item "None" of "Optional[Any]" has no attribute "empty"  [union-attr]
+app/fundamentals_cache.py:174: error: Argument 1 to "compute_piotroski" has incompatible type "Optional[Any]"; expected "dict[Any, Any]"  [arg-type]
+app/fundamentals_cache.py:178: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:179: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:182: error: Item "None" of "Optional[Any]" has no attribute "loc"  [union-attr]
+app/fundamentals_cache.py:182: error: Item "None" of "Optional[Any]" has no attribute "index"  [union-attr]
+app/fundamentals_cache.py:192: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:196: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:199: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:200: error: Item "None" of "Optional[Any]" has no attribute "get"  [union-attr]
+app/fundamentals_cache.py:205: error: Item "None" of "Optional[Any]" has no attribute "loc"  [union-attr]
+app/fundamentals_cache.py:205: error: Item "None" of "Optional[Any]" has no attribute "index"  [union-attr]
+app/fundamentals_cache.py:206: error: Item "None" of "Optional[Any]" has no attribute "loc"  [union-attr]
+app/fundamentals_cache.py:206: error: Item "None" of "Optional[Any]" has no attribute "index"  [union-attr]
+app/fundamentals_cache.py:266: error: Argument 1 to "is_stale" has incompatible type "Optional[Any]"; expected "dict[Any, Any]"  [arg-type]
+app/eod_scanner.py:6: error: Library stubs not installed for "pandas"  [import-untyped]
+app/eod_scanner.py:14: error: Cannot find implementation or library stub for module named "technical_indicators"  [import-not-found]
+app/eod_scanner.py:15: error: Cannot find implementation or library stub for module named "breakout_engine"  [import-not-found]
+app/eod_scanner.py:16: error: Cannot find implementation or library stub for module named "scoring_engine"  [import-not-found]
+app/eod_scanner.py:17: error: Cannot find implementation or library stub for module named "sector_rotation"  [import-not-found]
+app/eod_scanner.py:18: error: Cannot find implementation or library stub for module named "surveillance"  [import-not-found]
+app/eod_scanner.py:19: error: Cannot find implementation or library stub for module named "macro_utils"  [import-not-found]
+app/eod_scanner.py:20: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/eod_scanner.py:25: error: Cannot find implementation or library stub for module named "delivery_data"  [import-not-found]
+app/eod_scanner.py:26: error: Cannot find implementation or library stub for module named "price_cache"  [import-not-found]
+app/eod_scanner.py:27: error: Cannot find implementation or library stub for module named "sl_target_helper"  [import-not-found]
+app/eod_scanner.py:28: error: Cannot find implementation or library stub for module named "watchlist_cache"  [import-not-found]
+app/eod_scanner.py:32: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/eod_scanner.py:61: error: Cannot find implementation or library stub for module named "lock_utils"  [import-not-found]
+app/eod_scanner.py:214: error: Need type annotation for "alerts_by_category" (hint: "alerts_by_category: dict[<type>, <type>] = ...")  [var-annotated]
+app/data_providers/fyers_fetcher.py:7: error: Library stubs not installed for "pandas"  [import-untyped]
+app/data_providers/fyers_fetcher.py:8: error: Library stubs not installed for "pytz"  [import-untyped]
+app/data_providers/fyers_fetcher.py:8: note: Hint: "python3 -m pip install types-pytz"
+app/data_providers/fyers_fetcher.py:16: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/data_providers/fyers_fetcher.py:17: error: Cannot find implementation or library stub for module named "fyers_auth"  [import-not-found]
+app/data_providers/fyers_fetcher.py:18: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/data_providers/fyers_fetcher.py:143: error: Cannot find implementation or library stub for module named "data_providers.fyers_mapping_utils"  [import-not-found]
+app/data_providers/fyers_fetcher.py:196: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_providers/fyers_fetcher.py:196: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_providers/fyers_fetcher.py:196: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_providers/fyers_fetcher.py:196: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_providers/fyers_fetcher.py:340: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/data_providers/fyers_fetcher.py:342: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/data_providers/fyers_fetcher.py:402: error: Trying to read deleted variable "e"  [misc]
+app/data_providers/fyers_fetcher.py:406: error: Trying to read deleted variable "e"  [misc]
+app/data_providers/fyers_fetcher.py:421: error: Trying to read deleted variable "e"  [misc]
+app/data_providers/fyers_fetcher.py:424: error: Trying to read deleted variable "e"  [misc]
+app/data_providers/fyers_fetcher.py:429: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/data_providers/fyers_fetcher.py:435: error: Incompatible default for argument "range_from" (default has type "None", argument has type "str")  [assignment]
+app/data_providers/fyers_fetcher.py:435: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/data_providers/fyers_fetcher.py:435: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/data_providers/fyers_fetcher.py:435: error: Incompatible default for argument "range_to" (default has type "None", argument has type "str")  [assignment]
+app/data_providers/fyers_fetcher.py:435: error: Incompatible default for argument "caller" (default has type "None", argument has type "str")  [assignment]
+app/data_providers/fyers_fetcher.py:448: error: Need type annotation for "normalized_map" (hint: "normalized_map: dict[<type>, <type>] = ...")  [var-annotated]
+app/data_providers/fyers_fetcher.py:577: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/test_daily_builder_fixes.py:2: error: Library stubs not installed for "pandas"  [import-untyped]
+app/test_daily_builder_fixes.py:9: error: Cannot find implementation or library stub for module named "daily_builder"  [import-not-found]
+app/test_daily_builder_fixes.py:151: error: Cannot find implementation or library stub for module named "data_provider"  [import-not-found]
+app/test_daily_builder_fixes.py:174: error: Cannot find implementation or library stub for module named "multibagger"  [import-not-found]
+app/test_daily_builder_fixes.py:205: error: Cannot find implementation or library stub for module named "reversal_scanner"  [import-not-found]
+app/pledge_worker.py:4: error: Library stubs not installed for "requests"  [import-untyped]
+app/pledge_worker.py:8: error: Library stubs not installed for "pandas"  [import-untyped]
+app/pledge_worker.py:12: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/pledge_worker.py:13: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/pledge_worker.py:14: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/pledge_worker.py:15: error: Cannot find implementation or library stub for module named "pledge_scraper"  [import-not-found]
+app/pledge_worker.py:94: error: Item "AttributeValueList" of "Union[str, AttributeValueList]" has no attribute "upper"  [union-attr]
+app/pledge_worker.py:95: error: Item "AttributeValueList" of "Union[str, AttributeValueList]" has no attribute "split"  [union-attr]
+app/pledge_worker.py:96: error: Item "AttributeValueList" of "Union[str, Any, AttributeValueList]" has no attribute "startswith"  [union-attr]
+app/pledge_worker.py:100: error: Argument 2 to "search" has incompatible type "Union[str, Any, AttributeValueList]"; expected "str"  [arg-type]
+app/pledge_worker.py:105: error: Incompatible return value type (got "Union[str, Any, AttributeValueList]", expected "str")  [return-value]
+app/pledge_worker.py:122: error: Cannot find implementation or library stub for module named "multibagger"  [import-not-found]
+app/pledge_worker.py:460: error: Cannot find implementation or library stub for module named "dotenv"  [import-not-found]
+app/pledge_scraper.py:2: error: Library stubs not installed for "requests"  [import-untyped]
+app/pledge_scraper.py:11: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/pledge_scraper.py:12: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/pledge_scraper.py:13: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/valuation_utils.py:2: error: Library stubs not installed for "pandas"  [import-untyped]
+app/valuation_utils.py:6: error: Library stubs not installed for "requests"  [import-untyped]
+app/valuation_utils.py:121: error: Incompatible default for argument "known_sectors" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+app/valuation_utils.py:121: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/valuation_utils.py:121: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/valuation_utils.py:210: error: Dict entry 0 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:211: error: Dict entry 1 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:212: error: Dict entry 2 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:219: error: Dict entry 9 has incompatible type "str": "str"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:227: error: Unsupported operand types for * ("None" and "float")  [operator]
+app/valuation_utils.py:227: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:228: error: Unsupported operand types for - ("None" and "int")  [operator]
+app/valuation_utils.py:228: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:228: error: Unsupported operand types for + ("None" and "int")  [operator]
+app/valuation_utils.py:229: error: Unsupported operand types for - ("None" and "int")  [operator]
+app/valuation_utils.py:229: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:229: error: Unsupported operand types for + ("None" and "int")  [operator]
+app/valuation_utils.py:234: error: Unsupported operand types for * ("None" and "float")  [operator]
+app/valuation_utils.py:234: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:235: error: Unsupported operand types for - ("None" and "int")  [operator]
+app/valuation_utils.py:235: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:235: error: Unsupported operand types for + ("None" and "int")  [operator]
+app/valuation_utils.py:240: error: Unsupported operand types for * ("None" and "float")  [operator]
+app/valuation_utils.py:240: note: Left operand is of type "Optional[Any]"
+app/valuation_utils.py:300: error: Dict entry 0 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:301: error: Dict entry 1 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:302: error: Dict entry 2 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:303: error: Dict entry 3 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:304: error: Dict entry 4 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:309: error: Dict entry 9 has incompatible type "str": "float"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:309: error: Argument 1 to "float" has incompatible type "Optional[Any]"; expected "Union[str, Buffer, SupportsFloat, SupportsIndex]"  [arg-type]
+app/valuation_utils.py:310: error: Dict entry 10 has incompatible type "str": "Optional[float]"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:310: error: Argument 1 to "float" has incompatible type "Optional[Any]"; expected "Union[str, Buffer, SupportsFloat, SupportsIndex]"  [arg-type]
+app/valuation_utils.py:311: error: Dict entry 11 has incompatible type "str": "str"; expected "str": "Optional[int]"  [dict-item]
+app/valuation_utils.py:332: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/valuation_utils.py:333: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/valuation_utils.py:364: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/valuation_utils.py:384: error: Cannot find implementation or library stub for module named "config.industry_normalizer"  [import-not-found]
+app/technical_indicators.py:17: error: Library stubs not installed for "pandas"  [import-untyped]
+app/technical_indicators.py:18: error: Skipping analyzing "ta": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/database.py:36: error: Library stubs not installed for "pandas"  [import-untyped]
+app/database.py:39: error: Library stubs not installed for "psycopg2"  [import-untyped]
+app/database.py:40: error: Library stubs not installed for "psycopg2.extras"  [import-untyped]
+app/database.py:162: error: Incompatible default for argument "symbol" (default has type "None", argument has type "str")  [assignment]
+app/database.py:162: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:162: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1093: error: Incompatible default for argument "scanner" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1093: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1093: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1094: error: Incompatible default for argument "category" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1094: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1094: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1095: error: Incompatible default for argument "entry_price" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1095: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1095: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1096: error: Incompatible default for argument "stop_loss" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1096: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1096: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1097: error: Incompatible default for argument "target_price" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1097: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1097: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1098: error: Incompatible default for argument "signals" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1098: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1098: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1099: error: Incompatible default for argument "score" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1099: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1099: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1100: error: Incompatible default for argument "rsi" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1100: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1100: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1101: error: Incompatible default for argument "volume_ratio" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1101: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1101: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1102: error: Incompatible default for argument "context" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+app/database.py:1102: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1102: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1106: error: Incompatible default for argument "bayesian_weights" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+app/database.py:1106: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1106: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1107: error: Incompatible default for argument "cash_in_hand" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1107: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1107: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1146: error: Cannot find implementation or library stub for module named "live_prices"  [import-not-found]
+app/database.py:1158: error: Cannot find implementation or library stub for module named "portfolio_engine"  [import-not-found]
+app/database.py:1208: error: Cannot find implementation or library stub for module named "push_service"  [import-not-found]
+app/database.py:1229: error: Incompatible default for argument "pnl_rs" (default has type "None", argument has type "float")  [assignment]
+app/database.py:1229: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1229: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1353: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/database.py:1413: error: Incompatible default for argument "status" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1413: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1413: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1414: error: Incompatible default for argument "last_success" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1414: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1414: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1415: error: Incompatible default for argument "today_alerts" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1415: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1415: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1416: error: Incompatible default for argument "error_msg" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1416: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1416: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1417: error: Incompatible default for argument "scheduled_for" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1417: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1417: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1418: error: Incompatible default for argument "processed_count" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1418: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1418: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1419: error: Incompatible default for argument "total_count" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1419: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1419: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1449: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
+app/database.py:1470: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "str"  [arg-type]
+app/database.py:1485: error: Argument 1 to "append" of "list" has incompatible type "bool"; expected "str"  [arg-type]
+app/database.py:1491: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "str"  [arg-type]
+app/database.py:1494: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "str"  [arg-type]
+app/database.py:1509: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "str"  [arg-type]
+app/database.py:1512: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "str"  [arg-type]
+app/database.py:1702: error: Incompatible default for argument "symbols" (default has type "None", argument has type "list[Any]")  [assignment]
+app/database.py:1702: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1702: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1726: error: Incompatible default for argument "symbols" (default has type "None", argument has type "list[Any]")  [assignment]
+app/database.py:1726: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1726: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1863: error: Incompatible return value type (got "None", expected "dict[Any, Any]")  [return-value]
+app/database.py:1866: error: Incompatible return value type (got "None", expected "dict[Any, Any]")  [return-value]
+app/database.py:1885: error: Incompatible default for argument "rows" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1885: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1885: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1885: error: Incompatible default for argument "etag" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1885: error: Incompatible default for argument "source" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1909: error: Incompatible default for argument "last_success" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1909: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:1909: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:1909: error: Incompatible default for argument "last_failure" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1909: error: Incompatible default for argument "consecutive_failures" (default has type "None", argument has type "int")  [assignment]
+app/database.py:1909: error: Incompatible default for argument "error_msg" (default has type "None", argument has type "str")  [assignment]
+app/database.py:1996: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/database.py:2035: error: Incompatible default for argument "error_msg" (default has type "None", argument has type "str")  [assignment]
+app/database.py:2035: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:2035: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:2605: error: Incompatible return value type (got "Optional[Any]", expected "str")  [return-value]
+app/database.py:2608: error: Incompatible return value type (got "None", expected "str")  [return-value]
+app/database.py:2612: error: Incompatible default for argument "alert_id" (default has type "None", argument has type "int")  [assignment]
+app/database.py:2612: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:2612: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:2850: error: Incompatible return value type (got "None", expected "int")  [return-value]
+app/database.py:2885: error: Incompatible return value type (got "None", expected "int")  [return-value]
+app/database.py:3026: error: Incompatible default for argument "regime" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3026: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3026: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3062: error: Incompatible default for argument "breakout_type" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3062: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3062: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3063: error: Incompatible default for argument "fm_score" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3063: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3063: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3063: error: Incompatible default for argument "notes" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3064: error: Incompatible default for argument "position_pct" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3064: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3064: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3064: error: Incompatible default for argument "position_amount" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3065: error: Incompatible default for argument "position_shares" (default has type "None", argument has type "int")  [assignment]
+app/database.py:3065: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3065: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3066: error: Incompatible default for argument "portfolio_bucket" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3066: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3066: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3066: error: Incompatible default for argument "valuation_score" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3067: error: Incompatible default for argument "momentum_score" (default has type "None", argument has type "int")  [assignment]
+app/database.py:3067: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3067: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3067: error: Incompatible default for argument "momentum_confidence" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3068: error: Incompatible default for argument "data_quality" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3068: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3068: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3068: error: Incompatible default for argument "fallback_timestamp" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3069: error: Incompatible default for argument "engine_version" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3069: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3069: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3069: error: Incompatible default for argument "config_version" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3107: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
+app/database.py:3202: error: Incompatible default for argument "is_closed" (default has type "None", argument has type "bool")  [assignment]
+app/database.py:3202: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3202: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3202: error: Incompatible default for argument "symbol" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3202: error: Incompatible default for argument "trade_date" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3202: error: Incompatible default for argument "days_back" (default has type "None", argument has type "int")  [assignment]
+app/database.py:3216: error: Argument 1 to "append" of "list" has incompatible type "str"; expected "bool"  [arg-type]
+app/database.py:3220: error: Argument 1 to "append" of "list" has incompatible type "str"; expected "bool"  [arg-type]
+app/database.py:3227: error: Argument 1 to "append" of "list" has incompatible type "int"; expected "bool"  [arg-type]
+app/database.py:3248: error: Incompatible default for argument "symbol" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3248: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3248: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3252: error: Incompatible default for argument "current_price" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3252: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3252: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3292: error: Incompatible default for argument "exit_signal" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3292: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3292: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3618: error: Incompatible default for argument "evaluation_date" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3618: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3618: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3670: error: Incompatible default for argument "breakout_level" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3670: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3670: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3671: error: Incompatible default for argument "support_level" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3671: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3671: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3672: error: Incompatible default for argument "trigger_level" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3672: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3672: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3673: error: Incompatible default for argument "invalidation_level" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3673: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3673: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3674: error: Incompatible default for argument "max_extension_atr" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3674: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3674: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3675: error: Incompatible default for argument "buffer_pct" (default has type "None", argument has type "float")  [assignment]
+app/database.py:3675: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3675: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3676: error: Incompatible default for argument "armed_at" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3676: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3676: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3677: error: Incompatible default for argument "context_json" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3677: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3677: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3678: error: Incompatible default for argument "signal_timestamp" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3678: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3678: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3679: error: Incompatible default for argument "expires_at" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3679: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3679: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:3680: error: Incompatible default for argument "timeframe" (default has type "None", argument has type "str")  [assignment]
+app/database.py:3680: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:3680: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4366: error: Incompatible default for argument "input_universe_count" (default has type "None", argument has type "int")  [assignment]
+app/database.py:4366: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4366: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4367: error: Incompatible default for argument "qualified_count" (default has type "None", argument has type "int")  [assignment]
+app/database.py:4367: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4367: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4369: error: Incompatible default for argument "fallback_source" (default has type "None", argument has type "str")  [assignment]
+app/database.py:4369: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4369: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4370: error: Incompatible default for argument "build_source_date" (default has type "None", argument has type "str")  [assignment]
+app/database.py:4370: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4370: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4371: error: Incompatible default for argument "scanner_version" (default has type "None", argument has type "str")  [assignment]
+app/database.py:4371: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4371: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4372: error: Incompatible default for argument "checksum" (default has type "None", argument has type "str")  [assignment]
+app/database.py:4372: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4372: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4403: error: Incompatible default for argument "date" (default has type "None", argument has type "str")  [assignment]
+app/database.py:4403: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+app/database.py:4403: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+app/database.py:4415: error: Incompatible return value type (got "Optional[dict[Any, Any]]", expected "dict[Any, Any]")  [return-value]
+app/database.py:4418: error: Incompatible return value type (got "None", expected "dict[Any, Any]")  [return-value]
+app/core/metric_engine.py:2: error: Cannot find implementation or library stub for module named "core.models"  [import-not-found]
+app/core/metric_engine.py:3: error: Library stubs not installed for "pandas"  [import-untyped]
+app/core/metric_engine.py:9: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+app/surveillance.py:2: error: Library stubs not installed for "requests"  [import-untyped]
+app/surveillance.py:5: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/surveillance.py:40: error: Library stubs not installed for "pandas"  [import-untyped]
+app/surveillance.py:62: error: Need type annotation for "session"  [var-annotated]
+app/surveillance.py:135: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/surveillance.py:142: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+app/pdf_parser.py:1: error: Library stubs not installed for "requests"  [import-untyped]
+app/pdf_parser.py:23: error: Need type annotation for "s"  [var-annotated]
+app/institutional_data.py:2: error: Library stubs not installed for "requests"  [import-untyped]
+app/institutional_data.py:3: error: Library stubs not installed for "pandas"  [import-untyped]
+app/institutional_data.py:8: error: Library stubs not installed for "requests.adapters"  [import-untyped]
+app/institutional_data.py:9: error: Skipping analyzing "urllib3.util.retry": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/delivery_data.py:9: error: Library stubs not installed for "requests"  [import-untyped]
+app/delivery_data.py:10: error: Library stubs not installed for "pandas"  [import-untyped]
+app/delivery_data.py:16: error: Library stubs not installed for "requests.adapters"  [import-untyped]
+app/delivery_data.py:17: error: Skipping analyzing "urllib3.util.retry": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/delivery_data.py:18: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/block_deal_detector.py:1: error: Library stubs not installed for "requests"  [import-untyped]
+app/block_deal_detector.py:139: error: Need type annotation for "_CACHE" (hint: "_CACHE: dict[<type>, <type>] = ...")  [var-annotated]
+app/block_deal_detector.py:218: error: Need type annotation for "session"  [var-annotated]
+app/block_deal_detector.py:256: error: Need type annotation for "results" (hint: "results: dict[<type>, <type>] = ...")  [var-annotated]
+app/block_deal_detector.py:331: error: Name "get_fii_buyers" already defined on line 202  [no-redef]
+app/dashboard_server.py:19: error: Skipping analyzing "flask_wtf.csrf": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/dashboard_server.py:24: error: Cannot find implementation or library stub for module named "database"  [import-not-found]
+app/dashboard_server.py:31: error: Cannot find implementation or library stub for module named "yf_bootstrap"  [import-not-found]
+app/dashboard_server.py:34: error: Skipping analyzing "yfinance": module is installed, but missing library stubs or py.typed marker  [import-untyped]
+app/dashboard_server.py:35: error: Cannot find implementation or library stub for module named "yf_rate_limiter"  [import-not-found]
+app/dashboard_server.py:36: error: Cannot find implementation or library stub for module named "data_fetch_status"  [import-not-found]
+app/dashboard_server.py:52: error: Cannot find implementation or library stub for module named "config"  [import-not-found]
+app/dashboard_server.py:74: error: Incompatible types in assignment (expression has type "Flask", variable has type Module)  [assignment]
+app/dashboard_server.py:76: error: Module has no attribute "wsgi_app"  [attr-defined]
+app/dashboard_server.py:78: error: Module has no attribute "secret_key"  [attr-defined]
+app/dashboard_server.py:79: error: Module has no attribute "config"  [attr-defined]
+app/dashboard_server.py:80: error: Module has no attribute "config"  [attr-defined]
+app/dashboard_server.py:81: error: Module has no attribute "config"  [attr-defined]
+app/dashboard_server.py:82: error: Module has no attribute "config"  [attr-defined]
+app/dashboard_server.py:84: error: Module has no attribute "config"  [attr-defined]
+app/dashboard_server.py:88: error: Argument "app" to "Limiter" has incompatible type Module; expected "Optional[Flask]"  [arg-type]
+app/dashboard_server.py:133: error: Module has no attribute "before_request"  [attr-defined]
+app/dashboard_server.py:152: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:162: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:170: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:178: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:203: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:208: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:244: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:279: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:306: error: Cannot find implementation or library stub for module named "telegram_engine"  [import-not-found]
+app/dashboard_server.py:315: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:320: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:375: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:393: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:420: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:455: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:477: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:482: error: Library stubs not installed for "psycopg2.extras"  [import-untyped]
+app/dashboard_server.py:482: note: Hint: "python3 -m pip install types-psycopg2"
+app/dashboard_server.py:507: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:521: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:535: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:549: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:564: error: Module has no attribute "after_request"  [attr-defined]
+app/dashboard_server.py:577: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:593: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:610: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:624: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:648: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:655: error: Cannot find implementation or library stub for module named "performance_tracker"  [import-not-found]
+app/dashboard_server.py:701: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:730: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:735: error: Cannot find implementation or library stub for module named "fyers_auth"  [import-not-found]
+app/dashboard_server.py:743: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:811: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:850: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:872: error: Library stubs not installed for "pandas"  [import-untyped]
+app/dashboard_server.py:892: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:910: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:927: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:945: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:971: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:976: error: Cannot find implementation or library stub for module named "wealth_engine"  [import-not-found]
+app/dashboard_server.py:991: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1003: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1038: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1056: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1070: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1086: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1099: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1112: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1132: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1144: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1159: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1236: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1256: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1269: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1302: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1318: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1333: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1350: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1373: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1390: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1421: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1444: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1456: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1468: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1495: error: Cannot find implementation or library stub for module named "main"  [import-not-found]
+app/dashboard_server.py:1503: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1507: error: Cannot find implementation or library stub for module named "pledge_worker"  [import-not-found]
+app/dashboard_server.py:1530: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1536: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1560: error: Need type annotation for "_cached_worker_symbols" (hint: "_cached_worker_symbols: set[<type>] = ...")  [var-annotated]
+app/dashboard_server.py:1563: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1640: error: Cannot find implementation or library stub for module named "ai_worker"  [import-not-found]
+app/dashboard_server.py:1691: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1767: error: Need type annotation for "_news_cache" (hint: "_news_cache: dict[<type>, <type>] = ...")  [var-annotated]
+app/dashboard_server.py:1770: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1775: error: Cannot find implementation or library stub for module named "bse_mapping_utils"  [import-not-found]
+app/dashboard_server.py:1856: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:1873: error: Library stubs not installed for "requests"  [import-untyped]
+app/dashboard_server.py:1914: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2030: error: Cannot find implementation or library stub for module named "pdf_parser"  [import-not-found]
+app/dashboard_server.py:2047: error: Cannot find implementation or library stub for module named "ai_analyzer"  [import-not-found]
+app/dashboard_server.py:2062: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2077: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2123: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2145: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2181: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2204: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2217: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2232: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2325: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2338: error: Library stubs not installed for "pytz"  [import-untyped]
+app/dashboard_server.py:2340: error: Cannot find implementation or library stub for module named "live_prices"  [import-not-found]
+app/dashboard_server.py:2393: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2416: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2429: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2442: error: Module has no attribute "route"  [attr-defined]
+app/dashboard_server.py:2455: error: Module has no attribute "route"  [attr-defined]
+Found 696 errors in 66 files (checked 77 source files)

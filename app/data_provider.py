@@ -254,6 +254,9 @@ class YFinanceFetcher(DataFetcher):
                         except Exception as e:
                             logger.warning(f"Failed to save BSE mapping inside get_batch_ohlcv: {e}")
 
+        for s in symbols:
+            all_data.setdefault(s, None)
+
         return all_data
 
     def get_quote(self, symbol: str) -> dict:
@@ -380,10 +383,16 @@ class AutoSwitchingFetcher(DataFetcher):
                     for s in missing_symbols:
                         if s in yf_results:
                             results[s] = yf_results[s]
+                for s in symbols:
+                    results.setdefault(s, None)
                 return results
             except Exception as e:
                 logger.error(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
-        return self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
+        
+        yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
+        for s in symbols:
+            yf_fallback_results.setdefault(s, None)
+        return yf_fallback_results
 
     def get_quote(self, symbol: str) -> dict:
         if self._should_use_fyers():

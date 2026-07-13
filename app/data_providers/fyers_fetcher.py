@@ -287,7 +287,10 @@ class FyersFetcher(DataFetcher):
                 if response.get("s") != "ok":
                     error_msg = response.get("message", "Unknown error")
                     code = response.get("code", "NO_CODE")
-                    logger.warning(f"Fyers API warning for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
+                    if "Invalid symbol provided" in error_msg:
+                        logger.info(f"Fyers API symbol miss for {ns_symbol} - will attempt fallback")
+                    else:
+                        logger.warning(f"Fyers API warning for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
                     
                     if str(code) in ["494", "-401", "401"]:
                         logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
@@ -475,6 +478,9 @@ class FyersFetcher(DataFetcher):
                     logger.exception(f"Error fetching batch OHLCV for {ns_sym}")
                     for orig_sym in normalized_map[ns_sym]:
                         results[orig_sym] = None
+                        
+        for s in symbols:
+            results.setdefault(s, None)
                         
         return results
 
