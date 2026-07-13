@@ -1713,24 +1713,28 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 last_symbol = last[0] if last else None
                 last_updated = last[1] if last else None
 
-                # [VERSION: PLEDGE_STATS_DB_v1.5] Remove pledge_pct filter to ensure processed count never exceeds total cached/universe count
+                # [VERSION: PLEDGE_STATS_DB_v1.6] If symbols not provided, query daily watchlist tables to reconstruct universe dynamically from DB
                 if not symbols:
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache")
-                    total_row = cur.fetchone()
-                    total = total_row[0] if total_row else 0
+                    cur.execute("""
+                        SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != ''
+                        UNION
+                        SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != ''
+                    """)
+                    symbols = [r[0] for r in cur.fetchall() if r[0]]
                     
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE")
-                    proc_today_row = cur.fetchone()
-                    processed_today = proc_today_row[0] if proc_today_row else 0
-                    
-                    eligible_today = total
-                    return {
-                        "total_cached": int(total),
-                        "processed_today": int(processed_today),
-                        "eligible_today": int(eligible_today),
-                        "last_symbol": last_symbol,
-                        "last_updated": last_updated
-                    }
+                    if not symbols:
+                        # Database fallback if daily tables are empty
+                        cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache")
+                        total = cur.fetchone()[0] or 0
+                        cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE")
+                        processed_today = cur.fetchone()[0] or 0
+                        return {
+                            "total_cached": int(total),
+                            "processed_today": int(processed_today),
+                            "eligible_today": int(total),
+                            "last_symbol": last_symbol,
+                            "last_updated": last_updated
+                        }
 
                 placeholders = ','.join(['%s'] * len(symbols))
                 
