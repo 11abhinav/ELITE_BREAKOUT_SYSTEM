@@ -1614,58 +1614,7 @@ def api_scanner_status():
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
 
-            # [VERSION: PLEDGE_STATS_API_v1.1] Remove Pledge Worker from blocking status queries
-            # Enrich AI Worker with progress metrics (Pledge Worker progress is computed in background by its own thread)
-            try:
-                if sc == "AI Worker":
-                    if time.time() - _cached_worker_symbols_time > 3600:
-                        # Rebuild cache once per hour max
-                        import pandas as pd
-                        symbols_set = set()
-                        from config import DATA_DIR
-                        try:
-                            parquet_path = os.path.join(DATA_DIR, 'elite_fundamental_watchlist.parquet')
-                            if os.path.exists(parquet_path):
-                                symbols_set.update(pd.read_parquet(parquet_path)['Stock'].dropna().tolist())
-                        except Exception as e:
-                            logger.warning(f"⚠️ Failed to read elite_fundamental_watchlist.parquet: {e}")
-                        
-                        for f in [
-                            os.path.join(DATA_DIR, 'elite_fundamental_watchlist_excluded.csv'),
-                            os.path.join(DATA_DIR, 'elite_fundamental_watchlist-excluded.csv'),
-                        ]:
-                            try:
-                                if os.path.exists(f):
-                                    dfw = pd.read_csv(f)
-                                    if 'Stock' in dfw.columns:
-                                        symbols_set.update(dfw['Stock'].dropna().tolist())
-                            except Exception as e:
-                                logger.warning(f"⚠️ Failed to read excluded csv: {e}")
-                        
-                        try:
-                            from multibagger import fetch_constituents
-                            symbols_set.update(fetch_constituents())
-                        except Exception as e:
-                            logger.warning(f"⚠️ Failed to fetch NSE constituents for progress calculation: {e}")
-                            
-                        _cached_worker_symbols = symbols_set
-                        _cached_worker_symbols_time = time.time()
-                    
-                    total_needed = len(_cached_worker_symbols)
-                    from database import get_ai_concall_stats
-                    
-                    symbol_list = list(_cached_worker_symbols)
-                    stats = get_ai_concall_stats(symbol_list)
-                    row["total_count"] = total_needed
-                    row["processed_count"] = stats.get('total_cached', 0)
-                    
-                    if stats.get('last_symbol'):
-                        if not row.get("error_msg") or row["error_msg"] == "system healthy":
-                            row["error_msg"] = f"Last processed: {stats['last_symbol']}"
-            except Exception:
-                logger.exception('Failed to compute AI worker progress metrics')
-    
-            # [VERSION: PLEDGE_STATS_API_v1.5] Call get_promoter_pledge_stats(None) and delegate active symbols resolution to DB queries
+            # [VERSION: AI_STATS_API_v1.0] Add dynamic fallback for AI Worker to align with Pledge Worker fallback
             processed_count = row.get("processed_count")
             total_count = row.get("total_count")
             if sc == "Pledge Worker" and (processed_count is None or total_count is None or total_count == 0):
@@ -1676,6 +1625,30 @@ def api_scanner_status():
                     total_count = stats.get("eligible_today", 0)
                 except Exception:
                     logger.exception("Failed to query fallback pledge stats")
+            elif sc == "AI Worker" and (processed_count is None or total_count is None or total_count == 0):
+                try:
+                    from database import get_ai_concall_stats
+                    from database import get_connection
+                    symbols_set = set()
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                            symbols_set.update(r[0] for r in cur.fetchall())
+                            cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                            symbols_set.update(r[0] for r in cur.fetchall())
+                    try:
+                        from ai_worker import get_constituents_cached
+                        idx_symbols = get_constituents_cached()
+                        if idx_symbols:
+                            symbols_set.update(idx_symbols)
+                    except Exception:
+                        pass
+                    symbols = list(symbols_set)
+                    stats = get_ai_concall_stats(symbols)
+                    processed_count = stats.get("total_cached", 0)
+                    total_count = len(symbols)
+                except Exception:
+                    logger.exception("Failed to query fallback AI worker stats")
 
             result[sc] = {
                     "status":        row["status"],
@@ -1684,8 +1657,8 @@ def api_scanner_status():
                     "error":         row["error_msg"],
                     "updated_at":    row["updated_at"],
                     "is_acknowledged": row["is_acknowledged"],
-                    "processed_count": processed_count if sc == "Pledge Worker" else row.get("processed_count"),
-                    "total_count":   total_count if sc == "Pledge Worker" else row.get("total_count"),
+                    "processed_count": processed_count if sc in ["Pledge Worker", "AI Worker"] else row.get("processed_count"),
+                    "total_count":   total_count if sc in ["Pledge Worker", "AI Worker"] else row.get("total_count"),
                     "scheduled_for": row.get("scheduled_for"),
                     "today_trades":  [
                         {

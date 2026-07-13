@@ -93,6 +93,7 @@ def run_ai_worker_scan_once() -> dict:
         max_retries = 3
         global_penalty_idx = 0
         final_failed_count = 0
+        db_processed_count = total_stocks - len(actual_pending)
         
         for attempt in range(max_retries):
             failed_stocks = []
@@ -106,17 +107,16 @@ def run_ai_worker_scan_once() -> dict:
                         conf = result.get("management_confidence", "N/A")
                         key_used = result.get("key_used", "Key 1")
                         logger.info(f"✅ [AI WORKER] Successfully cached analysis for {sym} | Confidence: {conf} | {key_used}")
-                        db_processed_count = get_total_cached_concalls()
-                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
+                        db_processed_count += 1
+                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
                     else:
                         error_msg = result.get('error', 'Unknown Error')
                         logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
-                        db_processed_count = get_total_cached_concalls()
                         try:
                             upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall', error_msg)
                         except Exception:
                             logger.exception("Failed to upsert fetch_error for AI Worker")
-                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=f"Last: {sym} | Total: {total_stocks}")
+                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
                         
                         if "429" in error_msg or "All AI models" in error_msg:
                             failed_stocks.append(sym)
@@ -153,7 +153,6 @@ def run_ai_worker_scan_once() -> dict:
                     except Exception:
                         logger.exception(f"Failed to upsert final fetch_error for {fsym}")
                         
-        db_processed_count = get_total_cached_concalls()
         return {"total_count": total_stocks, "processed_count": db_processed_count}
         
     finally:
@@ -161,27 +160,101 @@ def run_ai_worker_scan_once() -> dict:
 
 def run_worker_loop():
     """Infinite loop that scans the watchlist CSV and fetches AI concall reports."""
-    from database import upsert_scanner_health, get_total_cached_concalls
+    from database import upsert_scanner_health, get_ai_concall_stats
+    from config import WATCHLIST_PATH
     
     logger.info("🤖 AI Worker Thread Started. Monitoring watchlist for missing caches...")
     
-    db_processed_count = get_total_cached_concalls()
-    upsert_scanner_health("AI Worker", "IDLE", last_success=None, today_alerts=db_processed_count, error_msg="Status: Booting up")
+    # [VERSION: AI_WORKER_PROGRESS_v1.0] Calculate initial dynamic counts on boot
+    try:
+        symbols_set = set()
+        if os.path.exists(WATCHLIST_PATH):
+            df = pd.read_parquet(WATCHLIST_PATH)
+            if "Stock" in df.columns:
+                symbols_set.update(df["Stock"].dropna().unique().tolist())
+                
+        excluded_paths = [
+            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist_excluded.csv'),
+            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist-excluded.csv'),
+            WATCHLIST_PATH.replace(".parquet", "_excluded.csv"),
+        ]
+        for f in excluded_paths:
+            if os.path.exists(f):
+                try:
+                    dfw = pd.read_csv(f)
+                    if 'Stock' in dfw.columns:
+                        symbols_set.update(dfw['Stock'].dropna().tolist())
+                        break
+                except Exception:
+                    pass
+                    
+        idx_symbols = get_constituents_cached()
+        if idx_symbols:
+            symbols_set.update(idx_symbols)
+            
+        symbols = list(symbols_set)
+        total_watch = len(symbols)
+        stats = get_ai_concall_stats(symbols)
+        processed_count = stats.get("total_cached", 0)
+    except Exception as e:
+        logger.warning(f"Failed to calculate boot progress stats: {e}")
+        total_watch = 0
+        processed_count = 0
+        
+    upsert_scanner_health("AI Worker", "IDLE", last_success=None, today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Status: Booting up")
     
     while True:
+        # Re-calculate on each loop iteration
+        try:
+            symbols_set = set()
+            if os.path.exists(WATCHLIST_PATH):
+                df = pd.read_parquet(WATCHLIST_PATH)
+                if "Stock" in df.columns:
+                    symbols_set.update(df["Stock"].dropna().unique().tolist())
+                    
+            for f in excluded_paths:
+                if os.path.exists(f):
+                    try:
+                        dfw = pd.read_csv(f)
+                        if 'Stock' in dfw.columns:
+                            symbols_set.update(dfw['Stock'].dropna().tolist())
+                            break
+                    except Exception:
+                        pass
+                        
+            idx_symbols = get_constituents_cached()
+            if idx_symbols:
+                symbols_set.update(idx_symbols)
+                
+            symbols = list(symbols_set)
+            total_watch = len(symbols)
+            stats = get_ai_concall_stats(symbols)
+            processed_count = stats.get("total_cached", 0)
+        except Exception as e:
+            logger.warning(f"Failed to calculate loop progress stats: {e}")
+            total_watch = total_watch or 0
+            processed_count = processed_count or 0
+            
         if not is_in_window():
             sleep_secs = wait_until_next_window()
             logger.info(f"🤖 [AI WORKER] Outside active window (7 PM - 7 AM IST). Sleeping {sleep_secs:.1f}s until 7 PM IST...")
-            upsert_scanner_health("AI Worker", "IDLE", today_alerts=get_total_cached_concalls(), error_msg="Outside active window (7 PM - 7 AM IST)")
+            upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Outside active window (7 PM - 7 AM IST)")
             time.sleep(sleep_secs)
             continue
 
         try:
-            stats = run_ai_worker_scan_once()
+            stats_scan = run_ai_worker_scan_once()
             status = "IDLE"
-            error_msg = f"Last: Finished | Total: {stats.get('total_count', 'N/A')}"
-            db_processed_count = get_total_cached_concalls()
-            upsert_scanner_health("AI Worker", status, last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, error_msg=error_msg)
+            error_msg = f"Last: Finished | Total: {stats_scan.get('total_count', 'N/A')}"
+            
+            # Recalculate after running scan
+            try:
+                stats = get_ai_concall_stats(symbols)
+                processed_count = stats.get("total_cached", 0)
+            except Exception:
+                pass
+                
+            upsert_scanner_health("AI Worker", status, last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg=error_msg)
         except RuntimeError:
             # Already running manually
             pass
