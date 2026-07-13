@@ -80,3 +80,45 @@ def test_get_batch_ohlcv_preserves_single_symbol(mock_fetch_batch):
     assert 'HDFCBANK' in result
     assert result['HDFCBANK'] is not None
     assert 'HDFCBANK.NS' not in result
+
+def test_bse_persistent_mapping_fallback(mocker):
+    from data_provider import YFinanceFetcher
+    from bse_mapping_utils import load_bse_mappings
+    import bse_mapping_utils
+    
+    # Use a temporary mapping file to avoid messing up production data
+    temp_mapping_file = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/temp_bse_mappings.json"
+    mocker.patch("bse_mapping_utils._BSE_MAPPING_FILE", temp_mapping_file)
+    
+    # Ensure starting clean
+    if os.path.exists(temp_mapping_file):
+        os.remove(temp_mapping_file)
+    bse_mapping_utils._bse_mappings_cache = None
+    
+    fetcher = YFinanceFetcher()
+    
+    # Mock _get_ohlcv_raw:
+    # First call (NSE query) returns empty/None
+    # Second call (BSE fallback query) returns data
+    dummy_df = pd.DataFrame({'Close': [500]})
+    mocker.patch.object(fetcher, "_get_ohlcv_raw", side_effect=[None, dummy_df])
+    
+    df = fetcher.get_ohlcv("YASHHV", "1d", "1y")
+    
+    # Should successfully return the BSE df
+    assert df is not None
+    assert df.iloc[0]['Close'] == 500
+    
+    # Verify that the mapping is saved to our temp file
+    mappings = load_bse_mappings()
+    assert mappings.get("YASHHV") == "YASHHV.BO"
+    
+    # Now, calling normalize_symbol on YASHHV should directly return YASHHV.BO
+    assert fetcher._normalize_symbol("YASHHV") == "YASHHV.BO"
+    assert fetcher._normalize_symbol("YASHHV.NS") == "YASHHV.BO"
+    
+    # Clean up temp file
+    if os.path.exists(temp_mapping_file):
+        os.remove(temp_mapping_file)
+    bse_mapping_utils._bse_mappings_cache = None
+

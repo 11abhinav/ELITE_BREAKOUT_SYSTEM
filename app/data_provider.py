@@ -34,6 +34,18 @@ class DataFetcher(ABC):
 
 class YFinanceFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
+        # [VERSION: DATA_PROV_SYMBOL_FIX_v1.2] Support persistent BSE symbol mappings to avoid redundant NSE failures
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            mappings = load_bse_mappings()
+            upper_sym = symbol.strip().upper()
+            if upper_sym in mappings:
+                return mappings[upper_sym]
+            if upper_sym.endswith(".NS") and upper_sym[:-3] in mappings:
+                return mappings[upper_sym[:-3]]
+        except Exception as e:
+            logger.warning(f"Error loading BSE mappings in _normalize_symbol: {e}")
+
         # [VERSION: DATA_PROV_SYMBOL_FIX_v1.1] Support both NSE and BSE symbols dynamically.
         # Check if the symbol is a BSE symbol (ends with .BO, starts with BSE:, or is completely numeric)
         is_bse = symbol.endswith(".BO") or symbol.startswith("BSE:")
@@ -142,6 +154,12 @@ class YFinanceFetcher(DataFetcher):
             bse_sym = ns_sym[:-3] + ".BO"
             logger.info(f"🔄 NSE fetch failed or returned empty for {symbol}. Retrying with BSE symbol {bse_sym}...")
             df = self._get_ohlcv_raw(bse_sym, interval, period, retries, range_from, range_to)
+            if df is not None and not df.empty:
+                try:
+                    from bse_mapping_utils import save_bse_mapping
+                    save_bse_mapping(symbol, bse_sym)
+                except Exception as e:
+                    logger.warning(f"Failed to save BSE mapping inside get_ohlcv: {e}")
             
         return df
 
@@ -230,6 +248,11 @@ class YFinanceFetcher(DataFetcher):
                     df_clean = self._clean_df(df)
                     for orig_sym in orig_syms:
                         all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
+                        try:
+                            from bse_mapping_utils import save_bse_mapping
+                            save_bse_mapping(orig_sym, bse_sym)
+                        except Exception as e:
+                            logger.warning(f"Failed to save BSE mapping inside get_batch_ohlcv: {e}")
 
         return all_data
 
