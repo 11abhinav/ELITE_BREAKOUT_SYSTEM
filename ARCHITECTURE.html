@@ -1,4 +1,282 @@
-# Scanner Architecture and Design Principles
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Architecture & Design Principles</title>
+    
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Marked.js for Markdown Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Mermaid.js for Diagram Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --text-color: #f1f5f9;
+            --text-muted: #94a3b8;
+            --primary: #00d4a1;
+            --secondary: #00b4d8;
+            --accent: #ff4d6d;
+            --card-bg: rgba(22, 28, 45, 0.6);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --code-bg: #1e293b;
+        }
+
+        /* Print Override Styles */
+        @media print {
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .container {
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
+            pre, code, blockquote, tr {
+                page-break-inside: avoid;
+            }
+            a {
+                text-decoration: underline !important;
+                color: #09090b !important;
+            }
+            h1, h2, h3, h4 {
+                color: #000000 !important;
+                page-break-after: avoid;
+            }
+            --border-color: #e4e4e7;
+            --card-bg: #f4f4f5;
+            --code-bg: #f4f4f5;
+            --text-color: #09090b;
+            --text-muted: #71717a;
+            --bg-color: #ffffff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Outfit', sans-serif;
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            padding: 40px 24px;
+            box-sizing: border-box;
+        }
+
+        /* Markdown Styling */
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 12px;
+            margin-top: 40px;
+            margin-bottom: 24px;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: var(--secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            margin-top: 36px;
+            margin-bottom: 16px;
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-top: 28px;
+            margin-bottom: 12px;
+        }
+
+        p, li {
+            font-size: 1.05rem;
+            color: #cbd5e1;
+            font-weight: 400;
+        }
+
+        strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.95em;
+            color: var(--secondary);
+        }
+
+        pre {
+            background-color: #111827;
+            padding: 16px;
+            border-radius: 12px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            border-radius: 0;
+            color: #f3f4f6;
+            font-size: 0.9em;
+        }
+
+        blockquote {
+            margin: 20px 0;
+            padding: 12px 24px;
+            background-color: var(--card-bg);
+            border-left: 4px solid var(--primary);
+            border-radius: 0 8px 8px 0;
+            color: var(--text-color);
+        }
+
+        blockquote p {
+            margin: 0;
+            font-style: italic;
+        }
+
+        ul, ol {
+            padding-left: 24px;
+            margin-bottom: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        hr {
+            border: 0;
+            height: 1px;
+            background-color: var(--border-color);
+            margin: 40px 0;
+        }
+
+        /* Styled Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 24px 0;
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 14px 18px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: rgba(255, 255, 255, 0.03);
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Action Buttons */
+        .no-print {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .btn {
+            background: rgba(22, 28, 45, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 500;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--primary);
+            background: rgba(0, 212, 161, 0.1);
+            color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        /* Mermaid Wrapper styling */
+        .mermaid {
+            background-color: #111827;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            margin: 24px 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Clickable absolute links styling */
+        a {
+            color: var(--secondary);
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+        a:hover {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Print / Back controls -->
+    <div class="no-print">
+        <button class="btn" onclick="window.print()">
+            🖨️ Save as PDF
+        </button>
+    </div>
+
+    <!-- Target area for rendered Markdown content -->
+    <div class="container" id="content"></div>
+
+    <!-- Hidden Raw Markdown Data Store -->
+    <textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
 
 ## 1. Market Regime Definitions & Fallbacks
 
@@ -56,7 +334,10 @@ When running EOD or Reversal scanners, `ist_now.date()` may be a non-trading day
 **Fallback Watchlist Degradation (Soft-Degrade vs Hard-Abort):**
 - If the upstream `daily_builder` fails and uses yesterday's fallback universe, downstream scanners (EOD, Reversal) MUST NOT hard-abort. 
 - **Rule:** Scanners must process the fallback universe and fetch *live* market data for those symbols. Any symbols that didn't trade (stale data) are naturally rejected by the standard freshness checks. Valid alerts generated from fresh data must be preserved.
-- **Observability:** If the number of individual stale-data rejections exceeds 30% of the total universe, the scanner must gracefully downgrade its final DB health status to `DEGRADED`. This ensures the UI reflects the degraded upstream data without sacrificing the valid alerts that survived the scan.
+- **Observability:** If the number of individual stale-data rejections exceeds the scanner's own threshold, the scanner must gracefully downgrade its final DB health status to `DEGRADED`. This ensures the UI reflects the degraded upstream data without sacrificing the valid alerts that survived the scan. **Note:** the threshold is NOT uniform across scanners:
+  - **EOD:** `stale_count / total_symbols > 0.30` → `DEGRADED` (`eod_scanner.py:753-756`).
+  - **Reversal:** `stale_count / total_symbols > 0.05` → `DEGRADED` (`reversal_scanner.py:880-881`).
+  - (Both compute `_bar_age_days = (ist_now.date() - last_ts.date()).days` and reject when `> 4`, matching the Fri→Mon / long-weekend rule above.)
 
 ---
 
@@ -91,7 +372,7 @@ Whenever an administrator manually triggers a scanner (e.g., via the dashboard U
 
 ## Caching & Rate Limit Protections
 * **Global Fetch Locks:** `price_cache.py` uses `_fetch_lock` to serialize API calls across all scanners to prevent thundering herd API spam (reducing Fyers hits by up to 25x during heavy parallel scanning).
-* **Smart Disk Caching (Off-Hours Optimization):** Scanners like `performance_tracker.py` run continuously. To avoid useless API calls when the market is closed, `_download_all_robust()` checks if the locally cached Parquet file contains data up to the most recent possible market close (15:30 IST). If it does, the API delta fetch is skipped completely. This ensures zero API drain on weekends or nights when the cache is already fully up to date. However, this optimization is suspended during live market hours (09:15 - 15:30) to guarantee live candles are always pulled.
+* **Smart Disk Caching (Off-Hours Optimization):** The shared price-fetch layer (`price_cache.py`) serves all scanners (not `performance_tracker.py`). To avoid useless API calls when the market is closed, `_download_all_robust()` (in `price_cache.py`) checks — via `_is_cache_up_to_date()` — whether the locally cached Parquet file already contains data up to the most recent possible market close (15:30 IST). If it does, the API delta fetch is skipped completely. This ensures zero API drain on weekends or nights when the cache is already fully up to date. However, this optimization is suspended during live market hours (`is_market_active` = `09:15`–`15:30` IST, weekdays) to guarantee live candles are always pulled.
 
 ## 6. Wealth Engine: Dual-Gate Signal Architecture
 
@@ -260,6 +541,57 @@ graph TD
 - **Encryption Detection:** Corporate filings downloaded from NSE archives are frequently digitally signed or locked with certificate authorities using AES encryption algorithms.
 - **Standard Decryption Bypass:** The PDF text extractor (`pdf_parser.py`) checks `reader.is_encrypted`. If true, it automatically calls `reader.decrypt("")` to unlock standard digitally signed files with an empty password, allowing text extraction to proceed.
 - **AES Dependency:** AES-encrypted PDFs require `pycryptodome` to decrypt the streams in PyPDF2. This package must be explicitly listed in `requirements.txt` to prevent runtime `DependencyError` exceptions during scans.
+</textarea>
 
+    <!-- Rendering Script -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            // Configure marked options
+            marked.setOptions({
+                gfm: true,
+                breaks: true,
+                headerIds: true,
+                mangle: false
+            });
 
+            // Read raw markdown and render it as HTML
+            const markdownText = document.getElementById("markdown-content").value;
+            const contentDiv = document.getElementById("content");
+            contentDiv.innerHTML = marked.parse(markdownText);
 
+            // Initialize Mermaid with Dark theme settings
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'dark',
+                themeVariables: {
+                    background: '#111827',
+                    primaryColor: '#00d4a1',
+                    secondaryColor: '#00b4d8',
+                    lineColor: '#374151',
+                    textColor: '#f1f5f9'
+                },
+                flowchart: {
+                    useMaxWidth: true,
+                    htmlLabels: true
+                }
+            });
+
+            // Find all blocks of mermaid tags and convert them into interactive SVG elements
+            const codeBlocks = contentDiv.querySelectorAll("pre code");
+            codeBlocks.forEach(function (block) {
+                const codeText = block.textContent.trim();
+                if (codeText.startsWith("sequenceDiagram") || codeText.startsWith("graph") || codeText.startsWith("flowchart")) {
+                    const preElement = block.parentNode;
+                    const mermaidDiv = document.createElement("div");
+                    mermaidDiv.className = "mermaid";
+                    mermaidDiv.textContent = codeText;
+                    preElement.parentNode.replaceChild(mermaidDiv, preElement);
+                }
+            });
+
+            // Perform final Mermaid render
+            mermaid.init(undefined, document.querySelectorAll(".mermaid"));
+        });
+    </script>
+</body>
+</html>
