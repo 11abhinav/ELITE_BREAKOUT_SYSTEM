@@ -129,7 +129,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
     if result:
         timestamps = []
         for symbol, df in result.items():
-            if not df.empty:
+            if df is not None and not df.empty:
                 try:
                     ts = None
                     if "Datetime" in df.columns:
@@ -150,7 +150,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     
         # CRITICAL FIX: If we expected timestamps (result is not empty) but failed to parse ALL of them,
         # we cannot confidently determine data freshness. We must invalidate this fetch.
-        if not timestamps and any(not df.empty for df in result.values()):
+        if not timestamps and any(df is not None and not df.empty for df in result.values()):
             logger.error("DataFetchError: All dataframes returned malformed or missing timestamps. Aborting cache update.")
             raise ValueError("DataFetchError: Malformed timestamps across entire batch.")
             
