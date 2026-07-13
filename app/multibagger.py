@@ -1535,10 +1535,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             sym = cand["symbol"]
             price = cand["price"]
             
-            # [FIX] Force fetch live price for accurate entry price
+            # [VERSION: MULTIBAGGER_LIVE_PRICE_FIX_v1.0] Force fetch live price for accurate entry price via get_live_prices (centralized)
             try:
-                import yfinance as yf
-                live_p = yf.Ticker(f"{sym}.NS").fast_info.last_price
+                from live_prices import get_live_prices
+                live_prices_dict = get_live_prices([sym])
+                live_p = live_prices_dict.get(sym)
                 if live_p and live_p > 0:
                     price = live_p
             except Exception:

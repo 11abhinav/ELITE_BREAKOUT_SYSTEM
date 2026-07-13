@@ -2334,33 +2334,23 @@ def api_breakout_watchlist():
             try:
                 import pandas as pd
                 import os
-                import yfinance as yf
-                from concurrent.futures import ThreadPoolExecutor, as_completed
+                from datetime import datetime
+                import pytz
                 from config import DATA_DIR
+                from live_prices import get_live_prices
                 
+                ist = pytz.timezone('Asia/Kolkata')
                 symbols = list(set([d["symbol"] for d in data]))
                 prices = {}
 
-                def fetch_cmp(sym):
-                    from datetime import datetime
-                    import pytz
-                    ist = pytz.timezone('Asia/Kolkata')
-                    try:
-                        from bse_mapping_utils import load_bse_mappings
-                        mappings = load_bse_mappings()
-                        clean_sym = sym.strip().upper()
-                        if clean_sym in mappings:
-                            yf_sym = mappings[clean_sym]
-                        elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
-                            yf_sym = mappings[clean_sym[:-3]]
-                        else:
-                            yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
-                        t = yf.Ticker(yf_sym)
-                        price = float(t.fast_info.last_price)
-                        if pd.isna(price):
-                            raise ValueError("NaN price")
-                        return sym, price, datetime.now(ist).isoformat()
-                    except Exception as e:
+                # Centralized live prices query (attempts Fyers first, falls back to YFinance)
+                live_prices_dict = get_live_prices(symbols)
+
+                for sym in symbols:
+                    price = live_prices_dict.get(sym)
+                    if price is not None and price > 0:
+                        prices[sym] = {"price": price, "ts": datetime.now(ist).isoformat()}
+                    else:
                         # Fallback to local cache if live fetch fails
                         try:
                             sym_clean = sym.replace(':', '_')
@@ -2379,17 +2369,12 @@ def api_breakout_watchlist():
                                     df_valid = df.dropna(subset=["Close"])
                                     if not df_valid.empty:
                                         dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=pytz.utc)
-                                        return sym, float(df_valid["Close"].iloc[-1]), dt_utc.astimezone(ist).isoformat()
+                                        prices[sym] = {
+                                            "price": float(df_valid["Close"].iloc[-1]),
+                                            "ts": dt_utc.astimezone(ist).isoformat()
+                                        }
                         except Exception:
                             pass
-                        return sym, None, None
-
-                with ThreadPoolExecutor(max_workers=10) as executor:
-                    futures = {executor.submit(fetch_cmp, sym): sym for sym in symbols}
-                    for future in as_completed(futures):
-                        sym, price, ts = future.result()
-                        if price is not None:
-                            prices[sym] = {"price": price, "ts": ts}
                             
                 for d in data:
                     if d["symbol"] in prices:
