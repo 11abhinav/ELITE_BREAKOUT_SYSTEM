@@ -362,9 +362,9 @@ def worker_loop():
                 pending = total_stale - processed
                 logger.info(f"📊 PROGRESS: {processed}/{total_stale} Processed | {pending} Pending to fetch | {found_count} Found | {missing_count} Missing | {fail_404_count} Not Found (404) | {error_count} Errors")
                     
-                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.2] Pass processed_count parameter explicitly
+                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.3] Update total_count to use total_watch (watchlist + excluded universe)
                 now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=f"Last: {sym} | Total stale: {total_stale}")
+                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} | Total stale: {total_stale}")
 
             final_error_count = 0
             
@@ -400,7 +400,7 @@ def worker_loop():
                     time.sleep(3)
                     
                     now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
+                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
 
             # Loop done
             status = "IDLE" if final_error_count == 0 else "DOWN"
@@ -415,11 +415,11 @@ def worker_loop():
                 err_msg = f"Last: {last_sym} | Total stale: {total_stale}"
                 logger.info(f"✅ Pledge Worker completed successfully for all {total_stale} stale symbols")
             
-            upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=err_msg)
+            upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_watch, error_msg=err_msg)
             
             if quota_exhausted:
                 logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")
-                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg="Quota Exhausted - Waiting 1h")
+                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_watch, error_msg="Quota Exhausted - Waiting 1h")
                 sleep_with_mode_check(3600)
                 logger.info("⏰ Woke up from 1-hour sleep! Retrying scraper loop now...")
                 continue
@@ -429,7 +429,7 @@ def worker_loop():
             
         except Exception as e:
             logger.exception("Pledge worker loop crashed")
-            upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=0, processed_count=0, total_count=0)
+            upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=0, processed_count=0, total_count=total_watch)
             sleep_with_mode_check(300)
 
 if __name__ == "__main__":

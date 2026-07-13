@@ -1763,8 +1763,8 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 up_to_date_not_today_row = cur.fetchone()
                 up_to_date_not_today = up_to_date_not_today_row[0] if up_to_date_not_today_row else 0
 
-                # Eligible today = Total universe - Up-to-date not today
-                eligible_today = len(symbols) - up_to_date_not_today
+                # [VERSION: PLEDGE_STATS_DB_v1.3] Update eligible_today to represent the total watchlist + excluded universe size
+                eligible_today = len(symbols)
 
                 return {
                     "total_cached": int(total),
