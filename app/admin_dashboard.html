@@ -1711,6 +1711,9 @@
             onclick="document.getElementById('aiModal').style.display='flex'"
             style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖
             AI Deep Dive</button>
+          <!-- [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.0] Add Expand/Collapse All buttons to trade table -->
+          <button class="refresh-btn" onclick="expandAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">↔️ Expand All</button>
+          <button class="refresh-btn" onclick="collapseAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn);">↕️ Collapse All</button>
         </div>
         <div class="tbl-wrap">
           <table>
@@ -2931,6 +2934,20 @@
           fetchNotices(symbol, 'notices-' + id);
         }
       }
+    }
+
+    // [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.1] Implement expandAllTrades and collapseAllTrades
+    function expandAllTrades() {
+      const filtered = window._currentFilteredTrades || ALL_TRADES;
+      filtered.forEach((t, i) => {
+        expandedIds.add('main-' + i);
+      });
+      renderTradeTable();
+    }
+
+    function collapseAllTrades() {
+      expandedIds.clear();
+      renderTradeTable();
     }
 
     async function rejectAlert(id) {
