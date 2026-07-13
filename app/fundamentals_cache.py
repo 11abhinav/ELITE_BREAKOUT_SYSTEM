@@ -92,57 +92,87 @@ def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
     except Exception as e:
         return -1
 
-
 def fetch_single_piotroski(symbol: str) -> dict:
     import time
     import random
+    from bse_mapping_utils import load_bse_mappings, save_bse_mapping
     
-    yf_sym = f"{symbol.replace('_', '-')}.NS"
+    clean_sym = symbol.strip().upper()
+    mappings = load_bse_mappings()
+    if clean_sym in mappings:
+        yf_sym = mappings[clean_sym]
+    elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+        yf_sym = mappings[clean_sym[:-3]]
+    else:
+        yf_sym = f"{symbol.replace('_', '-')}.NS"
+        
+    def try_fetch(sym_name):
+        try:
+            yf_acquire(context=f"Piotroski Cache | {symbol}")
+            try:
+                t = yf.Ticker(sym_name)
+                info = t.info
+                fin = t.financials
+                bs = t.balance_sheet
+            finally:
+                yf_release()
+            return t, info, fin, bs
+        except Exception as inner_e:
+            msg = str(inner_e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg:
+                record_rate_limit(context=f"Piotroski Cache | {symbol}")
+            raise inner_e
+
     max_retries = 3
+    t, info, fin, bs = None, None, None, None
+    success = False
     
     for attempt in range(max_retries):
         try:
-            # Jitter to avoid instant spikes
             time.sleep(random.uniform(0.5, 2.0))
-            
-            try:
-                yf_acquire(context=f"Piotroski Cache | {symbol}")
-                try:
-                    t = yf.Ticker(yf_sym)
-                    info = t.info
-                    # Combine financials and balance sheet to have all required rows
-                    fin = t.financials
-                    bs = t.balance_sheet
-                finally:
-                    yf_release()
-            except Exception as inner_e:
-                # Catch yfinance fetch errors
-                msg = str(inner_e).lower()
-                if 'too many requests' in msg or 'rate limit' in msg:
-                    record_rate_limit(context=f"Piotroski Cache | {symbol}")
-                raise inner_e  # Bubble up to trigger retry
-
+            t, info, fin, bs = try_fetch(yf_sym)
             if fin.empty and bs.empty:
-                logger.warning(f"⚠️ {yf_sym}: Financials and Balance Sheet are both empty.")
-                return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
-                
-            combined = pd.concat([fin, bs])
-            score = compute_piotroski(info, combined)
-            record_success()
-            break  # Success, exit retry loop
-            
+                if yf_sym.endswith(".NS"):
+                    bse_sym = yf_sym[:-3] + ".BO"
+                    logger.info(f"🔄 fundamentals: {yf_sym} empty, retrying with BSE {bse_sym}...")
+                    t, info, fin, bs = try_fetch(bse_sym)
+                    if not (fin.empty and bs.empty):
+                        yf_sym = bse_sym
+                        save_bse_mapping(symbol, bse_sym)
+                        success = True
+                        break
+                raise ValueError("Financials and Balance Sheet are both empty.")
+            success = True
+            break
         except Exception as e:
-            msg = str(e).lower()
-            if 'too many requests' in msg or 'rate limit' in msg:
-                record_rate_limit(context=f"Piotroski Cache | {symbol}")
-                
+            if yf_sym.endswith(".NS"):
+                bse_sym = yf_sym[:-3] + ".BO"
+                logger.info(f"🔄 fundamentals exception for {yf_sym}, retrying with BSE {bse_sym}...")
+                try:
+                    t, info, fin, bs = try_fetch(bse_sym)
+                    if not (fin.empty and bs.empty):
+                        yf_sym = bse_sym
+                        save_bse_mapping(symbol, bse_sym)
+                        success = True
+                        break
+                except Exception:
+                    pass
+            
             if attempt < max_retries - 1:
                 backoff = 5 * (2 ** attempt) + random.uniform(0, 2)
                 logger.warning(f"⚠️ {yf_sym}: Fetch failed on attempt {attempt+1}/{max_retries} due to {e}. Retrying in {backoff:.1f}s...")
                 time.sleep(backoff)
             else:
-                logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts. Error")
+                logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts.")
                 return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
+
+    if not success or (fin.empty and bs.empty):
+        logger.warning(f"⚠️ {yf_sym}: Financials and Balance Sheet are both empty.")
+        return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
+        
+    combined = pd.concat([fin, bs])
+    score = compute_piotroski(info, combined)
+    record_success()
         
     # Multi-bagger enhancements extraction
     ocf = info.get("operatingCashflow")

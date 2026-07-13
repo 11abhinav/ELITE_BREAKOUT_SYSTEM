@@ -330,10 +330,30 @@ def norm_pct(x):
 def extract_raw_metrics(symbol, bse_code=None, ticker=None):
     try:
         import yfinance as yf
+        from bse_mapping_utils import load_bse_mappings, save_bse_mapping
+        
+        clean_sym = symbol.strip().upper()
+        mappings = load_bse_mappings()
+        target_sym = f"{symbol}.NS"
+        if clean_sym in mappings:
+            target_sym = mappings[clean_sym]
+        elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+            target_sym = mappings[clean_sym[:-3]]
+        elif bse_code:
+            target_sym = f"{bse_code}.BO"
+            
         if not ticker:
-            ticker = yf.Ticker(f"{symbol}.NS")
-            if ticker.history(period="1d").empty and bse_code:
-                ticker = yf.Ticker(f"{bse_code}.BO")
+            ticker = yf.Ticker(target_sym)
+            if ticker.history(period="1d").empty:
+                if target_sym.endswith(".NS"):
+                    bse_sym = target_sym[:-3] + ".BO"
+                    ticker = yf.Ticker(bse_sym)
+                    if not ticker.history(period="1d").empty:
+                        save_bse_mapping(symbol, bse_sym)
+                    elif bse_code:
+                        ticker = yf.Ticker(f"{bse_code}.BO")
+                elif bse_code:
+                    ticker = yf.Ticker(f"{bse_code}.BO")
                 
         try:
             info = ticker.info
@@ -346,10 +366,15 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
                 if os.path.exists(tz_path):
                     shutil.rmtree(tz_path, ignore_errors=True)
                 # Re-init ticker to clear any in-memory cached session
-                if not bse_code or ticker.ticker.endswith('.NS'):
-                    ticker = yf.Ticker(f"{symbol}.NS")
-                else:
-                    ticker = yf.Ticker(f"{bse_code}.BO")
+                mappings = load_bse_mappings()
+                target_sym = f"{symbol}.NS"
+                if clean_sym in mappings:
+                    target_sym = mappings[clean_sym]
+                elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+                    target_sym = mappings[clean_sym[:-3]]
+                elif bse_code:
+                    target_sym = f"{bse_code}.BO"
+                ticker = yf.Ticker(target_sym)
                 info = ticker.info
             else:
                 raise e
