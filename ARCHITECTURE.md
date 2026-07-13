@@ -150,6 +150,27 @@ When Phase A evaluates the hourly timeframe and assigns a stock the `HOURLY_APPR
 
 ## 9. Promoter Pledge Data Handling & Null Safety
 
+```mermaid
+sequenceDiagram
+    participant WebServer as Flask Web Server
+    participant DB as Postgres Database
+    participant Scraper as Pledge Worker Daemon
+    participant NSE as NSE Website (Constituents)
+
+    Note over Scraper: Background Loop Starts
+    Scraper->>NSE: Fetch Nifty constituents (Cached 1 day)
+    Scraper->>DB: Build target Watchlist + Excluded universe
+    Scraper->>DB: Query cached pledge records
+    Scraper->>DB: Write progress to scanner_health table (non-blocking)
+    
+    Note over WebServer: Admin Clicks Refresh
+    WebServer->>DB: Query scanner_health status row
+    alt Health row empty
+        WebServer->>DB: Quick dynamic count fallback (<2ms)
+    end
+    WebServer-->>Dashboard: Return JSON progress metrics
+```
+
 ### 9.1 Sentinel Handling and Null Propagation
 - **DB Sentinel Representation:** The pledge scraper (`pledge_worker.py`) stores a sentinel value of `-1.0` in `promoter_pledge_cache` to indicate a fetch failure (such as a 404 error, missing pledge page text, or API timeout) and sets a 7-day retry cooldown.
 - **Null Safety in Scrapers:** The fetcher (`fetch_promoter_pledge()`) must map this `-1.0` sentinel as well as any missing DB cache records to Python's `None` (representing an unknown/unverified state) instead of defaulting to `0.0` (which is a perfect score of no pledge).
@@ -167,6 +188,20 @@ When Phase A evaluates the hourly timeframe and assigns a stock the `HOURLY_APPR
 ---
 
 ## 10. AI Worker Daemon & Manual Trigger Architecture
+
+```mermaid
+graph TD
+    A[Background Daemon Schedule] -->|Check 7PM - 7AM IST| B{Lock Free?}
+    C[Admin Manual Trigger] -->|Click Scan| B
+    B -->|No| D[Reject Execution]
+    B -->|Yes| E[Acquire _scan_lock]
+    E -->|1. Read Transcripts| F[Analyze Concall]
+    F -->|2. Analysis Successful?| G{Success?}
+    G -->|Yes| H[Cache 60 Days]
+    G -->|No| I[Cache 1 Day retry]
+    H --> J[Release Lock]
+    I --> J
+```
 
 ### 10.1 Background Execution & Scheduling Window
 The `AI Worker` runs continuously as a background daemon thread (`run_worker_loop` under `RESTARTABLE_THREADS` in `main.py`). It is active during its designated scheduling window of **7 PM to 7 AM IST**, checking every 5 minutes for missing concall cache records and analyzing them.
@@ -190,6 +225,24 @@ The `AI Worker` runs continuously as a background daemon thread (`run_worker_loo
 ---
 
 ## 11. Dynamic BSE Fallback Resolver
+
+```mermaid
+graph TD
+    A[Scanner/Performance Tracker] -->|Request Price Data| B(AutoSwitchingFetcher)
+    B -->|Check Fyers Auth| C{Token Valid?}
+    C -->|Yes| D[FyersFetcher]
+    C -->|No| E[YFinanceFetcher]
+    
+    D -->|Fetch Price| F{Fyers API Success?}
+    F -->|Yes| G[Return OHLCV]
+    F -->|No| E
+    
+    E -->|1. Fetch Batch .NS| H{All Symbols Returned?}
+    H -->|Yes| G
+    H -->|No| I[Identify Failed Tickers]
+    I -->|2. Batch Request .BO equivalents| J[BSE Fallback Fetch]
+    J --> G
+```
 
 ### 11.1 BSE-Only Listings & Default Normalization
 - **Default Exchange Normalization:** The system default is to normalize raw symbol names to `.NS` (NSE) for fetching pricing/OHLCV data from Yahoo Finance.
