@@ -55,3 +55,65 @@ def test_init_db_creates_tables(mocker):
     assert any("create table if not exists alerts" in q for q in queries)
     assert any("create table if not exists scanner_health" in q for q in queries)
     assert any("create table if not exists breakout_watchlist" in q for q in queries)
+
+def test_save_alert_with_nan_sanitization(mocker):
+    import json
+    from app.database import save_alert_if_new
+    
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = None  # No duplicates
+    mock_cur.rowcount = 1
+    
+    mocker.patch("app.database.DONT_SAVE_ALERTS", False)
+    mocker.patch("portfolio_engine.calculate_trade_allocation", return_value=(10000.0, 100))
+    # Mock live_prices.get_live_prices if needed
+    try:
+        mocker.patch("live_prices.get_live_prices", return_value={})
+    except Exception:
+        pass
+
+
+    
+    context_with_nan = {
+        "peg": float("nan"),
+        "inf_val": float("inf"),
+        "nested": {"val": float("nan")},
+        "valid": 42.0
+    }
+    
+    save_alert_if_new(
+        symbol="TESTSTOCK",
+        breakout_type="resistance",
+        alert_time="2026-07-13 15:00:00",
+        scanner="TEST_SCAN",
+        category="CAT",
+        entry_price=100.0,
+        stop_loss=90.0,
+        target_price=120.0,
+        signals="sig",
+        score=85,
+        rsi=60.0,
+        volume_ratio=2.0,
+        context=context_with_nan
+    )
+    
+    # Assert query execution parameters
+    execute_calls = mock_cur.execute.call_args_list
+    insert_call = None
+    for call in execute_calls:
+        sql = call[0][0]
+        if "INSERT INTO alerts" in sql:
+            insert_call = call
+            break
+            
+    assert insert_call is not None
+    params = insert_call[0][1]
+    context_json_str = params[12]
+    
+    context_dict = json.loads(context_json_str)
+    assert context_dict["peg"] is None
+    assert context_dict["inf_val"] is None
+    assert context_dict["nested"]["val"] is None
+    assert context_dict["valid"] == 42.0
+

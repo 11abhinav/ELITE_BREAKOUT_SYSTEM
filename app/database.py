@@ -1116,8 +1116,30 @@ def save_alert_if_new(
     - bayesian_weights: Actual weights used for scoring
     """
 
-    context_str = json.dumps(context) if context is not None else None
-    weights_str = json.dumps(bayesian_weights) if bayesian_weights is not None else None
+    # [VERSION: DB_ALERT_JSON_NAN_FIX] Sanitize NaN, Inf, and NA values to prevent PostgreSQL JSON syntax errors
+    def sanitize(obj):
+        import math
+        if isinstance(obj, dict):
+            return {k: sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [sanitize(x) for x in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        try:
+            import pandas as pd
+            if pd.isna(obj):
+                return None
+        except ImportError:
+            pass
+        return obj
+
+    sanitized_context = sanitize(context) if context is not None else None
+    context_str = json.dumps(sanitized_context) if sanitized_context is not None else None
+    sanitized_weights = sanitize(bayesian_weights) if bayesian_weights is not None else None
+    weights_str = json.dumps(sanitized_weights) if sanitized_weights is not None else None
+
 
     # [FIX] Force fetch live price for accurate entry price across all scanners
     try:
