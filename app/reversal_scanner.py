@@ -384,7 +384,7 @@ def _run_scan(force: bool = False):
                 continue
 
             if symbol not in all_ticker_data or all_ticker_data[symbol] is None or all_ticker_data[symbol].empty:
-                logger.warning(f"[REVERSAL] {symbol} rejected: no historical data")
+                logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
                 rejected["no_data"] += 1
                 continue
 
