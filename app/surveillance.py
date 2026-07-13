@@ -53,6 +53,8 @@ def get_live_blacklist() -> set[str]:
         "Referer": "https://www.nseindia.com"
     }
     
+    json_path = os.path.join(os.path.dirname(WATCHLIST_PATH), "surveillance_blacklist.json")
+    
     try:
         # Establish session first to get cookies
         try:
@@ -61,14 +63,14 @@ def get_live_blacklist() -> set[str]:
         except ImportError:
             session = requests.Session()
             
-        # Try fetching with retries
+        # Try fetching with retries (reduced timeout from 15s to 5s to avoid blocking scanner threads)
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                session.get("https://www.nseindia.com", headers=headers, timeout=15)
+                session.get("https://www.nseindia.com", headers=headers, timeout=5)
                 
                 # Fetch ASM (Additional Surveillance Measure)
-                asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=15)
+                asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=5)
                 if asm_res.status_code == 200:
                     data = asm_res.json()
                     for key in ["longterm", "shortterm"]:
@@ -78,7 +80,7 @@ def get_live_blacklist() -> set[str]:
                                     blacklist.add(item["symbol"].strip().upper())
                                     
                 # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
-                gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=15)
+                gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=5)
                 if gsm_res.status_code == 200:
                     data = gsm_res.json()
                     if isinstance(data, list):
@@ -92,6 +94,16 @@ def get_live_blacklist() -> set[str]:
                                 blacklist.add(item["symbol"].strip().upper())
                                 
                 logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
+                
+                # Save to local JSON backup
+                try:
+                    import json
+                    with open(json_path, "w") as f:
+                        json.dump(list(blacklist), f)
+                    logger.info("💾 Saved refreshed NSE surveillance list to local JSON backup.")
+                except Exception as cache_err:
+                    logger.warning(f"Failed to write surveillance JSON backup: {cache_err}")
+                    
                 break # Success, exit retry loop
                 
             except Exception as e:
@@ -103,10 +115,27 @@ def get_live_blacklist() -> set[str]:
         
     except Exception as e:
         logger.exception(f"Failed to fetch live NSE surveillance lists")
-        # On failure, if we have a stale cache, keep using it rather than returning empty
+        # On failure, check if we have in-memory or on-disk cache
         if _blacklist_cache is not None:
-            logger.warning("Using stale surveillance cache due to fetch failure.")
+            logger.warning("Using stale in-memory surveillance cache due to fetch failure.")
             return _blacklist_cache
+            
+        if os.path.exists(json_path):
+            try:
+                import json
+                with open(json_path, "r") as f:
+                    cached_list = json.load(f)
+                if cached_list:
+                    # Merge with whatever promoters were already successfully loaded
+                    for sym in cached_list:
+                        blacklist.add(str(sym).strip().upper())
+                    logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from local JSON backup due to fetch failure.")
+                    # Keep a copy in memory so we don't reload from disk every time
+                    _blacklist_cache = blacklist
+                    _blacklist_ts = time.monotonic()
+                    return _blacklist_cache
+            except Exception as cache_err:
+                logger.warning(f"Failed to read surveillance JSON backup: {cache_err}")
             
     # Update cache
     _blacklist_cache = blacklist

@@ -34,9 +34,10 @@ def _get_daily_nifty() -> pd.DataFrame:
             return _cache.daily_data
             
     try:
-        from price_fetcher import _fetch_history_with_retry
+        from price_cache import fetch_unified_historical
         # We need at least 1 year for the 6-month returns and 52W high
-        df = _fetch_history_with_retry("^NSEI", period="1y", interval="1d")
+        fetched = fetch_unified_historical(["^NSEI"], period="1y", interval="1d", requester="macro_daily")
+        df = fetched.get("^NSEI")
         if df is not None and not df.empty:
             with _cache.lock:
                 _cache.daily_data = df
@@ -55,8 +56,9 @@ def _get_intraday_nifty() -> pd.DataFrame:
             return _cache.intraday_data
             
     try:
-        from price_fetcher import _fetch_history_with_retry
-        df = _fetch_history_with_retry("^NSEI", period="5d", interval="15m")
+        from price_cache import fetch_unified_historical
+        fetched = fetch_unified_historical(["^NSEI"], period="5d", interval="15m", requester="macro_intraday")
+        df = fetched.get("^NSEI")
         if df is not None and not df.empty:
             with _cache.lock:
                 _cache.intraday_data = df

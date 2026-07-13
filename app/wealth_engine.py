@@ -13,7 +13,6 @@ except Exception:
         import yf_bootstrap
     except Exception:
         pass
-import yfinance as yf
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")
@@ -34,7 +33,6 @@ def _safe_num(val, default=0):
 from config import ENABLE_AI_SENTIMENT_SCORE
 from collections import defaultdict
 import concurrent.futures
-from price_fetcher import clear_price_cache
 from database import get_recent_concall_analysis
 
 # Concurrency and retry tuning
@@ -859,7 +857,6 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         else:
             logger.info(f"💰 [WEALTH ENGINE] Nifty 6M Return: {nifty_6m_ret:.1f}%")
 
-        clear_price_cache()
         rejection_counts = {}
         import threading
         _rejection_lock = threading.Lock()

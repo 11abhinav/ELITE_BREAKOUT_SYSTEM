@@ -656,6 +656,20 @@ The BSE fallback mapping resolution is implemented in the following modules acro
 7. [app/dashboard_server.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py):
    - **`/api/news/<symbol>`:** Looks up mappings to fetch news headlines matching the correct trading exchange.
    - **`fetch_cmp` inside `api_breakout_watchlist`:** Uses mapped BSE targets to prevent dashboard charts and stats from loading stale values.
+
+---
+
+## 17. Unified Market Data Fetching & NSE Surveillance Caching
+
+### 17.1 Centralized Fyers-First Data Routing
+To prevent redundant rate limiting and code duplication across the ecosystem, all data requests (Multibagger bulk downloads, Nifty Macro regimes, live Dashboard CMPs, and Wealth Engine pricing) are routed through a singular, factory-based `get_fetcher()` abstraction located in `data_provider.py`.
+- **Primary Source (Fyers):** If the Fyers API token is valid, data is streamed rapidly through `FyersFetcher`.
+- **Secondary Fallback (Yahoo Finance):** If Fyers is unauthenticated or fails, `AutoSwitchingFetcher` automatically degrades gracefully to `YFinanceFetcher`.
+- **Legacy Elimination:** The duplicate `price_fetcher.py` file has been completely removed to enforce this single point of routing truth.
+
+### 17.2 Surveillance Network Resilience
+- **Rapid Timeouts:** Background scanner dependencies (such as NSE ASM/GSM surveillance lists) operate with strict 5-second `curl_cffi` network timeouts, preventing temporary NSE website blocks from indefinitely locking the backend execution threads.
+- **Persistent JSON Fallback:** On successful surveillance fetches, the lists are saved to a local JSON cache (`data/surveillance_blacklist.json`). If the cloud server's IP is blocked by NSE during subsequent loops, the system automatically falls back to loading this local JSON file. This guarantees that background loops never fail completely and always operate with the most recently known valid blacklist.
 </textarea>
 
     <!-- Rendering Script -->
