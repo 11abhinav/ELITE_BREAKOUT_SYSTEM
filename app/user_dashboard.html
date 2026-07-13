@@ -1890,7 +1890,8 @@ async function doRefresh(isAuto = false) {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
   await loadCapitalInfo();
-  const data = await loadData(false);
+  // [VERSION: MANUAL_REFRESH_REBUILD_v1.0] Force rebuild performance data on manual refresh
+  const data = await loadData(!isAuto);
   window.DATA_GENERATED_AT = data.generated_at;
 
   ALL_TRADES = data.trades || [];
