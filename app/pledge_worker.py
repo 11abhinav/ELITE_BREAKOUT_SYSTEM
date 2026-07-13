@@ -109,6 +109,27 @@ def discover_trendlyne_url(symbol: str) -> str:
     # 3. Fallback to the fast_url so it fails naturally downstream
     return fast_url
 
+_cached_constituents = None
+_cached_constituents_date = None
+
+def get_constituents_cached() -> list:
+    global _cached_constituents, _cached_constituents_date
+    today = datetime.now(IST_ZONE).date()
+    if _cached_constituents is not None and _cached_constituents_date == today:
+        return _cached_constituents
+    
+    try:
+        from multibagger import fetch_constituents
+        symbols = fetch_constituents()
+        if symbols:
+            _cached_constituents = symbols
+            _cached_constituents_date = today
+            return symbols
+    except Exception as e:
+        logger.warning(f"Could not fetch NSE constituents: {e}")
+        
+    return _cached_constituents or []
+
 def worker_loop():
     logger.info("🚀 Starting Pledge Worker Daemon")
     init_db()
@@ -121,14 +142,79 @@ def worker_loop():
         mode = get_worker_mode()
         now = datetime.now(IST_ZONE)
         
+        # [VERSION: PLEDGE_WORKER_PROGRESS_v1.6] Load universe and check DB on every loop iteration
+        # to ensure dashboard stats show correct cumulative counts (old + todays) instantly on boot.
+        symbols_set = set()
+        watchlist_count = 0
+        if os.path.exists(WATCHLIST_PATH):
+            try:
+                df = pd.read_parquet(WATCHLIST_PATH)
+                if "Stock" in df.columns:
+                    watch_symbols = df["Stock"].unique().tolist()
+                    symbols_set.update(watch_symbols)
+                    watchlist_count = len(watch_symbols)
+            except Exception as e:
+                logger.warning(f"Could not read watchlist parquet: {e}")
+                
+        excluded_count = 0
+        excluded_paths = [
+            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist_excluded.csv'),
+            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist-excluded.csv'),
+            WATCHLIST_PATH.replace(".parquet", "_excluded.csv"),
+        ]
+        for excluded_path in excluded_paths:
+            if os.path.exists(excluded_path):
+                try:
+                    ex_df = pd.read_csv(excluded_path)
+                    if "Stock" in ex_df.columns:
+                        ex_symbols = ex_df["Stock"].dropna().unique().tolist()
+                        symbols_set.update(ex_symbols)
+                        excluded_count = len(ex_symbols)
+                        break
+                except Exception as e:
+                    logger.warning(f"Could not read excluded csv {excluded_path}: {e}")
+                    
+        idx_symbols = get_constituents_cached()
+        constituents_count = len(idx_symbols) if idx_symbols else 0
+        if idx_symbols:
+            symbols_set.update(idx_symbols)
+            
+        if not symbols_set:
+            logger.warning("No symbols found in watchlist, excluded list, or constituents. Sleeping 60s...")
+            time.sleep(60)
+            continue
+            
+        symbols = sorted(list(symbols_set))
+        total_watch = len(symbols)
+        
+        # Check DB for stale pledges and calculate processed_base
+        processed_base = 0
+        stale_symbols = []
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    for sym in symbols:
+                        cur.execute("""
+                            SELECT updated_at 
+                            FROM promoter_pledge_cache 
+                            WHERE symbol = %s 
+                              AND (updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE)
+                        """, (sym,))
+                        if cur.fetchone():
+                            processed_base += 1
+                        else:
+                            stale_symbols.append(sym)
+        except Exception as e:
+            logger.exception("Failed to check database for stale symbols")
+            
         if mode == 'manual_stop':
-            upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=0, error_msg="Stopped by Admin")
+            upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Stopped by Admin")
             sleep_with_mode_check(60)
             continue
             
         if mode == 'auto':
             if not (6 <= now.hour < 8):
-                upsert_scanner_health("Pledge Worker", "WAITING", last_success=now.isoformat(), today_alerts=0, error_msg="Waiting for 06:00 - 08:00 IST Window")
+                upsert_scanner_health("Pledge Worker", "WAITING", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Waiting for 06:00 - 08:00 IST Window")
                 sleep_with_mode_check(300)
                 continue
 
@@ -138,72 +224,9 @@ def worker_loop():
                 time.sleep(3600)
                 continue
                 
-            symbols_set = set()
-            watchlist_count = 0
-            if os.path.exists(WATCHLIST_PATH):
-                df = pd.read_parquet(WATCHLIST_PATH)
-                if "Stock" in df.columns:
-                    watch_symbols = df["Stock"].unique().tolist()
-                    symbols_set.update(watch_symbols)
-                    watchlist_count = len(watch_symbols)
-            
-            excluded_count = 0
-            excluded_paths = [
-                os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist_excluded.csv'),
-                os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist-excluded.csv'),
-                WATCHLIST_PATH.replace(".parquet", "_excluded.csv"),
-            ]
-            for excluded_path in excluded_paths:
-                if os.path.exists(excluded_path):
-                    try:
-                        ex_df = pd.read_csv(excluded_path)
-                        if "Stock" in ex_df.columns:
-                            ex_symbols = ex_df["Stock"].dropna().unique().tolist()
-                            symbols_set.update(ex_symbols)
-                            excluded_count = len(ex_symbols)
-                            logger.info(f"📋 Loaded {excluded_count} stocks from excluded list: {excluded_path}")
-                            break  # Stop after first successful load
-                    except Exception as e:
-                        logger.warning(f"Could not read excluded csv {excluded_path}: {e}")
-            
-            if excluded_count == 0:
-                logger.warning("⚠️ No excluded stocks loaded — will only process watchlist")
-
-            
-            constituents_count = 0
-            try:
-                from multibagger import fetch_constituents
-                idx_symbols = fetch_constituents()
-                if idx_symbols:
-                    symbols_set.update(idx_symbols)
-                    constituents_count = len(idx_symbols)
-                    logger.info(f"📋 Loaded {constituents_count} stocks from NSE constituents.")
-            except Exception as e:
-                logger.warning(f"Could not fetch NSE constituents: {e}")
-
-            if not symbols_set:
-                logger.warning(f"No symbols found in watchlist, excluded list, or constituents. Sleeping 60s...")
-                time.sleep(60)
-                continue
-                
-            symbols = sorted(list(symbols_set))
-            total_watch = len(symbols)
             logger.info(f"📋 Loaded {watchlist_count} (watchlist) + {excluded_count} (excluded) + {constituents_count} (constituents) = {total_watch} unique symbols")
-            
-            # 2. Check DB for stale pledges (refresh every 28 days = ~1 month)
-            # This ensures data freshness while not overloading the API and syncing with Live Scanner
-            stale_symbols = []
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    for sym in symbols:
-                        cur.execute("""
-                            SELECT updated_at 
-                            FROM promoter_pledge_cache 
-                            WHERE symbol = %s 
-                              AND updated_at >= NOW() - INTERVAL '28 days'
-                        """, (sym,))
-                        if not cur.fetchone():
-                            stale_symbols.append(sym)
+            logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
+            upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
                             
             processed_base = total_watch - len(stale_symbols)
 
