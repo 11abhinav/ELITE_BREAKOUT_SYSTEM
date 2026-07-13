@@ -443,6 +443,20 @@ When Phase A evaluates the hourly timeframe and assigns a stock the `HOURLY_APPR
 - **The Bug:** The DB `upsert_breakout_watchlist` uses `COALESCE(EXCLUDED.invalidated_at, breakout_watchlist.invalidated_at)` to protect existing state during minor updates. If Phase A doesn't explicitly wipe these fields, the DB preserves yesterday's `invalidated_at`. Phase B will then silently drop the stock on the next query because `invalidated_at > NOW()` evaluates to False.
 - **The Fix:** Phase A must pass `clear_context=True, force=True`, and the underlying database logic must execute an explicit `UPDATE SET invalidated_at = NULL, cooldown_until = NULL` before proceeding with the `ON CONFLICT DO UPDATE`.
 
+### Multi-TF Pipeline: Session Transition State Resets and Expiry Mechanics
+To prevent false positive buy alerts during the volatile market-open period, the system enforces a strict end-of-session state reset and expiration sweeper (`sweep_stale_breakout_watchlist`):
+
+- **End-of-Session Resets (Resetting Intraday Triggers):**
+  At the end of the day, any setups that were in `BREAKOUT_CONFIRMED` or `ENTRY_READY` but didn't trigger an active trade are updated:
+  * `current_state` is set back to `SETUP_ARMED`.
+  * `m15_status` and `m5_status` are set back to `PENDING`.
+  
+  *Rationale:* If setups stayed as `ENTRY_READY` overnight, they would bypass the 15-minute micro-alignment check (Phase C) on the following morning. During the market open, the 5m trigger (Phase D) would compare the opening 5-minute candle against the 3:25 PM candle from yesterday. Because opening volume and price movements are anomalously high, the system would immediately trigger a false positive "thrust" breakout on normal opening volatility. Resetting forces the stock to re-verify its 15m trend alignment and coiling proximity today before it is allowed to trade.
+
+- **Intraday Expirations:**
+  During active market hours, all new `HOURLY_APPROVED` setups have their database `expires_at` timestamp set to today's market close (**15:30 IST**). Once the session ends, the background sweeper marks these expired setups as `FAILED` (invalidated), clearing them from the active list. For post-market diagnostics or manual testing after 15:30 IST, setups are written with a short 15-minute TTL (`expires_at = now + 15 minutes`) before being swept to `FAILED`.
+
+
 ---
 
 ## 10. Promoter Pledge Data Handling & Null Safety
