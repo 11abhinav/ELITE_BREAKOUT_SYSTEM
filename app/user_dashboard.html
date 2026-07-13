@@ -960,7 +960,8 @@ const fmtDetailTime = ts => {
 function openChart(symbol, cmp) {
     const a = document.createElement('a');
     a.href = 'https://in.tradingview.com/chart/?symbol=NSE:' + symbol;
-    a.target = 'tradingview_chart_window';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1250,7 +1251,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
           <div class="detail-item">
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', 'tradingview_chart_window')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
+              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
             </div>
           </div>
           <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
@@ -2917,7 +2918,7 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:11px;">${bucket}</td>
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
-          <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="tradingview_chart_window" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
+          <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
         </td>
       </tr>
     `;
