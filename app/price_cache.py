@@ -423,6 +423,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
                 pass
+            all_data[sym] = None
 
     try:
         from data_fetch_status import mark_success, mark_failure
