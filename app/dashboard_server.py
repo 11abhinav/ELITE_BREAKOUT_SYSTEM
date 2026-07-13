@@ -1665,6 +1665,18 @@ def api_scanner_status():
             except Exception:
                 logger.exception('Failed to compute AI worker progress metrics')
     
+            # [VERSION: PLEDGE_STATS_API_v1.2] Apply non-blocking dynamic fallback for Pledge Worker progress counts
+            processed_count = row.get("processed_count")
+            total_count = row.get("total_count")
+            if sc == "Pledge Worker" and (processed_count is None or total_count is None or total_count == 0):
+                try:
+                    from database import get_promoter_pledge_stats
+                    stats = get_promoter_pledge_stats(None)
+                    processed_count = stats.get("processed_today", 0)
+                    total_count = stats.get("eligible_today", 0)
+                except Exception:
+                    logger.exception("Failed to query fallback pledge stats")
+
             result[sc] = {
                     "status":        row["status"],
                     "last_success":  row["last_success"],
@@ -1672,8 +1684,8 @@ def api_scanner_status():
                     "error":         row["error_msg"],
                     "updated_at":    row["updated_at"],
                     "is_acknowledged": row["is_acknowledged"],
-                    "processed_count": row.get("processed_count"),
-                    "total_count":   row.get("total_count"),
+                    "processed_count": processed_count if sc == "Pledge Worker" else row.get("processed_count"),
+                    "total_count":   total_count if sc == "Pledge Worker" else row.get("total_count"),
                     "scheduled_for": row.get("scheduled_for"),
                     "today_trades":  [
                         {
