@@ -148,6 +148,16 @@ def _write_cache_file(df: pd.DataFrame, path: str) -> None:
 
 
 def _symbol_to_yf(symbol: str) -> str:
+    try:
+        from bse_mapping_utils import load_bse_mappings
+        mappings = load_bse_mappings()
+        clean_sym = symbol.strip().upper()
+        if clean_sym in mappings:
+            return mappings[clean_sym]
+        if clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+            return mappings[clean_sym[:-3]]
+    except Exception:
+        pass
     symbol = symbol.replace("_", "-")
     return symbol + ".NS" if not symbol.endswith(".NS") else symbol
 

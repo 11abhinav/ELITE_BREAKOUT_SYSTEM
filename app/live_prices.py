@@ -27,10 +27,21 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             for i in range(0, len(symbols), chunk_size):
                 chunk = symbols[i:i + chunk_size]
                 
-                # [VERSION: LIVE_PRICES_BSE_FIX_v1.0] Route BSE-only or numeric tickers to BSE and others to NSE
+                # [VERSION: LIVE_PRICES_BSE_FIX_v1.1] Route BSE-only, numeric, or cached BSE fallback tickers to BSE
+                try:
+                    from bse_mapping_utils import load_bse_mappings
+                    mappings = load_bse_mappings()
+                except Exception:
+                    mappings = {}
+
                 fyers_symbols = []
                 for sym in chunk:
-                    is_bse = sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                    clean_upper = sym.strip().upper()
+                    is_bse = (
+                        clean_upper in mappings or
+                        (clean_upper.endswith(".NS") and clean_upper[:-3] in mappings) or
+                        sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                    )
                     clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
                     if is_bse:
                         fyers_symbols.append(f"BSE:{clean}-EQ")
@@ -64,8 +75,19 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         
         def _get_yf_price(sym: str):
             try:
-                # [VERSION: LIVE_PRICES_BSE_FIX_v1.0] Resolve BSE-only or numeric tickers to .BO and others to .NS
-                is_bse = sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                # [VERSION: LIVE_PRICES_BSE_FIX_v1.1] Route BSE-only, numeric, or cached BSE fallback tickers to BSE
+                try:
+                    from bse_mapping_utils import load_bse_mappings
+                    mappings = load_bse_mappings()
+                except Exception:
+                    mappings = {}
+                    
+                clean_upper = sym.strip().upper()
+                is_bse = (
+                    clean_upper in mappings or
+                    (clean_upper.endswith(".NS") and clean_upper[:-3] in mappings) or
+                    sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
+                )
                 clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
                 suffix = ".BO" if is_bse else ".NS"
                 val = float(yf.Ticker(f"{clean}{suffix}").fast_info.last_price)

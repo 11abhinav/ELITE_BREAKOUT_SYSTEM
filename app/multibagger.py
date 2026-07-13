@@ -210,7 +210,25 @@ def fetch_constituents() -> list:
 
 def batch_download_market_data(symbols: list) -> dict:
     """Download historical price/volume data in bulk for all tickers using explicit auto_adjust=False."""
-    ticker_names = [f"{sym}.NS" for sym in symbols]
+    try:
+        from bse_mapping_utils import load_bse_mappings
+        mappings = load_bse_mappings()
+    except Exception:
+        mappings = {}
+        
+    ticker_names = []
+    symbol_to_ticker = {}
+    for sym in symbols:
+        clean_sym = sym.strip().upper()
+        if clean_sym in mappings:
+            yf_sym = mappings[clean_sym]
+        elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+            yf_sym = mappings[clean_sym[:-3]]
+        else:
+            yf_sym = f"{sym}.NS"
+        ticker_names.append(yf_sym)
+        symbol_to_ticker[yf_sym] = sym
+        
     logger.info(f"📥 Batch downloading 1y history for {len(ticker_names)} tickers...")
     
     # [VERSION: MULTIBAGGER_PATCH_v1.0] Determine if we need to strip forming candle for exit monitor
@@ -233,12 +251,12 @@ def batch_download_market_data(symbols: list) -> dict:
                 else:
                     df.index = df.index.tz_convert(IST)
                 if len(chunk) == 1:
-                    batch_res[chunk[0].replace('.NS', '')] = df
+                    batch_res[symbol_to_ticker.get(chunk[0], chunk[0].replace('.NS', '').replace('.BO', ''))] = df
                 elif isinstance(df.columns, pd.MultiIndex):
-                    for sym in [t.replace('.NS', '') for t in chunk]:
-                        ticker_name = f"{sym}.NS"
-                        if ticker_name in df.columns.levels[0]:
-                            batch_res[sym] = df[ticker_name]
+                    for yf_sym in chunk:
+                        if yf_sym in df.columns.levels[0]:
+                            orig_sym = symbol_to_ticker.get(yf_sym, yf_sym.replace('.NS', '').replace('.BO', ''))
+                            batch_res[orig_sym] = df[yf_sym]
                 else:
                     logger.warning(f"Batch downgraded. Re-chunking {len(chunk)} tickers into groups of 10...")
                     sub_chunks = [chunk[j:j+10] for j in range(0, len(chunk), 10)]
@@ -253,12 +271,12 @@ def batch_download_market_data(symbols: list) -> dict:
                             else:
                                 sub_df.index = sub_df.index.tz_convert(IST)
                             if len(sub) == 1:
-                                batch_res[sub[0].replace('.NS', '')] = sub_df
+                                batch_res[symbol_to_ticker.get(sub[0], sub[0].replace('.NS', '').replace('.BO', ''))] = sub_df
                             elif isinstance(sub_df.columns, pd.MultiIndex):
-                                for sym in [t.replace('.NS', '') for t in sub]:
-                                    ticker_name = f"{sym}.NS"
-                                    if ticker_name in sub_df.columns.levels[0]:
-                                        batch_res[sym] = sub_df[ticker_name]
+                                for yf_sym in sub:
+                                    if yf_sym in sub_df.columns.levels[0]:
+                                        orig_sym = symbol_to_ticker.get(yf_sym, yf_sym.replace('.NS', '').replace('.BO', ''))
+                                        batch_res[orig_sym] = sub_df[yf_sym]
                             else:
                                 logger.warning(f"Sub-chunk of {len(sub)} downgraded. Skipping to preserve rate limits.")
                         except Exception as e:
@@ -573,8 +591,22 @@ def compute_cagr(df, row_name, years=3):
     return None
 
 def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
-    ticker_name = f"{symbol}.NS"
+    try:
+        from bse_mapping_utils import load_bse_mappings, save_bse_mapping
+        clean_sym = symbol.strip().upper()
+        mappings = load_bse_mappings()
+        if clean_sym in mappings:
+            ticker_name = mappings[clean_sym]
+        elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+            ticker_name = mappings[clean_sym[:-3]]
+        else:
+            ticker_name = f"{symbol}.NS"
+    except Exception:
+        ticker_name = f"{symbol}.NS"
+        
     ticker = yf.Ticker(ticker_name)
+    info, fast_info, fin, bs, cf = None, None, None, None, None
+    success = False
     
     for attempt in range(3):
         try:
@@ -582,167 +614,203 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
             try:
                 info = ticker.info
                 fast_info = ticker.fast_info
-                
-                market_cap = info.get("marketCap")
-                if market_cap is None:
-                    market_cap = fast_info.get("marketCap")
-                    
-                # Always fetch financials independently of info
                 fin = ticker.financials
                 bs = ticker.balance_sheet
                 cf = ticker.cashflow
             finally:
                 yf_release()
                 
-            if market_cap:
-                
-                pat = safe_extract(fin, 'Net Income')
-                cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
-                revenue = safe_extract(fin, 'Total Revenue')
-                assets = safe_extract(bs, 'Total Assets')
-                ebit = safe_extract(fin, 'EBIT')
-                current_liab = safe_extract(bs, 'Current Liabilities')
-                working_capital = safe_extract(bs, 'Working Capital')
-                retained_earnings = safe_extract(bs, 'Retained Earnings')
-                total_liab = safe_extract(bs, 'Total Liabilities Net Minority Interest') or safe_extract(bs, 'Total Liabilities')
-                
-                cfo_pat = cfo / pat if pat and cfo and pat > 0 else None
-                ato = revenue / assets if revenue and assets and assets > 0 else None
-                roic = ebit / (assets - current_liab) if ebit and assets and current_liab and (assets - current_liab) > 0 else None
-                
-                altman_z = None
-                market_cap = info.get('marketCap')
-                if all(v is not None for v in [working_capital, retained_earnings, ebit, market_cap, total_liab, assets]) and assets > 0 and total_liab > 0:
-                    x1 = working_capital / assets
-                    x2 = retained_earnings / assets
-                    x3 = ebit / assets
-                    x4 = market_cap / total_liab
-                    
-                    # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Determine Z''-score for service/non-manufacturing firms vs standard Z-score for manufacturing firms
-                    is_svc = any(k in str(info.get("sector", "")).lower() for k in ["technology", "communication", "services"]) or \
-                             any(k in str(info.get("industry", "")).lower() for k in ["services", "software", "consulting", "internet", "retail", "media"])
-                             
-                    if is_svc:
-                        altman_z = (6.56 * x1) + (3.26 * x2) + (6.72 * x3) + (1.05 * x4)
-                    else:
-                        x5 = revenue / assets if revenue else 0
-                        altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
-                
-                # Map to V5 Engine Expected Keys
-                price = info.get("currentPrice")
-                if not price:
-                    price = fast_info.get("lastPrice")
-                    logger.debug(f"[DATA] {symbol}: Primary currentPrice missing, falling back to fast_info.lastPrice")
-                shares = info.get("sharesOutstanding")
-                if not shares and market_cap and price is not None and price > 0:
-                    shares = market_cap / price
-                elif not shares:
-                    shares = 1.0
-                    
-                eps = safe_float(info.get("trailingEps"))
-                if not eps and pat is not None:
-                    eps = pat / shares
-                    
-                bv = safe_float(info.get("bookValue"))
-                if not bv and assets and total_liab:
-                    bv = (assets - total_liab) / shares
-                    
-                fcf = info.get("freeCashflow")
-                if fcf is None and cfo is not None:
-                    capex = abs(safe_extract(cf, 'Capital Expenditure', default=0.0))
-                    fcf = cfo - capex
-                
-                total_equity = safe_extract(bs, 'Stockholders Equity') or safe_extract(bs, 'Total Stockholder Equity')
-                if not total_equity and assets and total_liab:
-                    total_equity = assets - total_liab
-                if not total_equity and bv and shares:
-                    total_equity = bv * shares
-                    
-                roe = None
-                # [VERSION: MULTIBAGGER_ROE_FIX_v1.0] Added ROE calculation with safeguards
-                if pat is not None and not pd.isna(pat) and total_equity is not None and total_equity > 0:
-                    roe = pat / total_equity
-                
-                fund = {
-                    "symbol": symbol,
-                    "roe": roe,
-                    "sector": info.get("sector", "Unknown"),
-                    "market_cap": market_cap,
-                    "shares_outstanding": shares,
-                    "eps": eps,
-                    "book_value_per_share": bv,
-                    "free_cash_flow": fcf,
-                    "ebit": ebit,
-                    "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
-                    
-                    "operating_margin_ttm": info.get("operatingMargins"),
-                    "gross_margin_stability": (info.get("grossMargins") or 0.0) * 0.1, # Proxy
-                    "roce": roic,
-                    "cfo_pat_ratio": cfo_pat,
-                    "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
-                    
-                    "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
-                    "pat_cagr_3y": compute_cagr(fin, 'Net Income', 3),  # [FIX #6] Renamed: this is PAT CAGR, not per-share EPS CAGR
-                    "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
-                    "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
-                    
-                    "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
-                    # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention
-                    "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit and ie and abs(ie) > 1) else 100.0)(safe_extract(fin, 'Interest Expense')),
-                    "debt_yoy_growth": 0.0, # Dummy for now
-                    "altman_z": altman_z,
-                    "current_ratio": info.get("currentRatio"),
-                    
-                    "price": price,
-                    "is_financial": is_financial_sector(info.get("sector")),
-                    "data_freshness": "LIVE",
-                    "total_equity": total_equity
-                }
-                
-                return fund
-                
-            # If we reach here, YF returned data but lacked market_cap (either obscure stock or silent block)
-            # DO NOT call record_rate_limit here as it penalizes the whole system for obscure stocks!
-            logger.debug(f"Multibagger Scanner | {symbol} returned empty fundamental data. Trying fallback.")
+            if (fin is None or fin.empty) and ticker_name.endswith(".NS"):
+                bse_sym = ticker_name[:-3] + ".BO"
+                logger.info(f"🔄 Multibagger: fundamentals empty for {ticker_name}, retrying with {bse_sym}...")
+                yf_acquire(context=f"Multibagger Scanner | {symbol}")
+                try:
+                    ticker = yf.Ticker(bse_sym)
+                    info = ticker.info
+                    fast_info = ticker.fast_info
+                    fin = ticker.financials
+                    bs = ticker.balance_sheet
+                    cf = ticker.cashflow
+                    ticker_name = bse_sym
+                    try:
+                        from bse_mapping_utils import save_bse_mapping
+                        save_bse_mapping(symbol, bse_sym)
+                    except Exception:
+                        pass
+                finally:
+                    yf_release()
+            success = True
             break
-            
-        except CircuitOpenError as ce:
-            logger.error(f"YFinance circuit open; aborting fetch for {symbol}: {ce}")
-            return None
         except Exception as e:
+            if ticker_name.endswith(".NS"):
+                bse_sym = ticker_name[:-3] + ".BO"
+                logger.info(f"🔄 Multibagger exception for {ticker_name}, retrying with BSE {bse_sym}...")
+                try:
+                    yf_acquire(context=f"Multibagger Scanner | {symbol}")
+                    try:
+                        ticker = yf.Ticker(bse_sym)
+                        info = ticker.info
+                        fast_info = ticker.fast_info
+                        fin = ticker.financials
+                        bs = ticker.balance_sheet
+                        cf = ticker.cashflow
+                        ticker_name = bse_sym
+                        try:
+                            from bse_mapping_utils import save_bse_mapping
+                            save_bse_mapping(symbol, bse_sym)
+                        except Exception:
+                            pass
+                        success = True
+                        break
+                    finally:
+                        yf_release()
+                except Exception:
+                    pass
+            
             msg = str(e).lower()
-            if "401" in msg or "crumb" in msg or "unauthorized" in msg:
-                import shutil, os
-                from config import BASE_DIR
-                tz_path = os.path.join(BASE_DIR, "data", "tzcache")
-                if os.path.exists(tz_path):
-                    shutil.rmtree(tz_path, ignore_errors=True)
-                ticker = yf.Ticker(f"{symbol}.NS")
             if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
                 record_rate_limit(context=f"Multibagger Scanner | {symbol}")
+                
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
             else:
                 logger.warning(f"Error for {symbol}: {e}")
-                
-    # Fallback Alternative: If YF completely blocked fundamentals, salvage basic info
-    try:
-        fast = ticker.fast_info
-        fallback_mc = fast.get("marketCap")
-        fallback_price = fast.get("lastPrice")
-        if fallback_mc and fallback_price:
-            logger.info(f"🔄 Salvaging basic data for {symbol} via fast_info fallback.")
-            return {
-                "symbol": symbol,
-                "sector": "Unknown",
-                "market_cap": fallback_mc,
-                "shares_outstanding": fallback_mc / fallback_price,
-                "price": fallback_price,
-                "data_freshness": "FALLBACK",
-                "is_financial": False
-            }
-    except Exception:
-        pass
+
+    # Fallback salvage function definition
+    def try_salvage():
+        try:
+            fast = ticker.fast_info
+            fallback_mc = fast.get("marketCap")
+            fallback_price = fast.get("lastPrice")
+            if fallback_mc and fallback_price:
+                logger.info(f"🔄 Salvaging basic data for {symbol} via fast_info fallback.")
+                return {
+                    "symbol": symbol,
+                    "sector": "Unknown",
+                    "market_cap": fallback_mc,
+                    "shares_outstanding": fallback_mc / fallback_price,
+                    "price": fallback_price,
+                    "data_freshness": "FALLBACK",
+                    "is_financial": False
+                }
+        except Exception:
+            pass
+        return None
+
+    if not success or fin is None or fin.empty:
+        return try_salvage()
         
-    return None
+    market_cap = info.get("marketCap")
+    if market_cap is None and fast_info is not None:
+        market_cap = fast_info.get("marketCap")
+        
+    if not market_cap:
+        return try_salvage()
+        
+    pat = safe_extract(fin, 'Net Income')
+    cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
+    revenue = safe_extract(fin, 'Total Revenue')
+    assets = safe_extract(bs, 'Total Assets')
+    ebit = safe_extract(fin, 'EBIT')
+    current_liab = safe_extract(bs, 'Current Liabilities')
+    working_capital = safe_extract(bs, 'Working Capital')
+    retained_earnings = safe_extract(bs, 'Retained Earnings')
+    total_liab = safe_extract(bs, 'Total Liabilities Net Minority Interest') or safe_extract(bs, 'Total Liabilities')
+    
+    cfo_pat = cfo / pat if pat and cfo and pat > 0 else None
+    ato = revenue / assets if revenue and assets and assets > 0 else None
+    roic = ebit / (assets - current_liab) if ebit and assets and current_liab and (assets - current_liab) > 0 else None
+    
+    altman_z = None
+    market_cap = info.get('marketCap')
+    if all(v is not None for v in [working_capital, retained_earnings, ebit, market_cap, total_liab, assets]) and assets > 0 and total_liab > 0:
+        x1 = working_capital / assets
+        x2 = retained_earnings / assets
+        x3 = ebit / assets
+        x4 = market_cap / total_liab
+        
+        # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Determine Z''-score for service/non-manufacturing firms vs standard Z-score for manufacturing firms
+        is_svc = any(k in str(info.get("sector", "")).lower() for k in ["technology", "communication", "services"]) or \
+                 any(k in str(info.get("industry", "")).lower() for k in ["services", "software", "consulting", "internet", "retail", "media"])
+                 
+        if is_svc:
+            altman_z = (6.56 * x1) + (3.26 * x2) + (6.72 * x3) + (1.05 * x4)
+        else:
+            x5 = revenue / assets if revenue else 0
+            altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
+    
+    # Map to V5 Engine Expected Keys
+    price = info.get("currentPrice")
+    if not price:
+        price = fast_info.get("lastPrice")
+        logger.debug(f"[DATA] {symbol}: Primary currentPrice missing, falling back to fast_info.lastPrice")
+    shares = info.get("sharesOutstanding")
+    if not shares and market_cap and price is not None and price > 0:
+        shares = market_cap / price
+    elif not shares:
+        shares = 1.0
+        
+    eps = safe_float(info.get("trailingEps"))
+    if not eps and pat is not None:
+        eps = pat / shares
+        
+    bv = safe_float(info.get("bookValue"))
+    if not bv and assets and total_liab:
+        bv = (assets - total_liab) / shares
+        
+    fcf = info.get("freeCashflow")
+    if fcf is None and cfo is not None:
+        capex = abs(safe_extract(cf, 'Capital Expenditure', default=0.0))
+        fcf = cfo - capex
+    
+    total_equity = safe_extract(bs, 'Stockholders Equity') or safe_extract(bs, 'Total Stockholder Equity')
+    if not total_equity and assets and total_liab:
+        total_equity = assets - total_liab
+    if not total_equity and bv and shares:
+        total_equity = bv * shares
+        
+    roe = None
+    # [VERSION: MULTIBAGGER_ROE_FIX_v1.0] Added ROE calculation with safeguards
+    if pat is not None and not pd.isna(pat) and total_equity is not None and total_equity > 0:
+        roe = pat / total_equity
+    
+    fund = {
+        "symbol": symbol,
+        "roe": roe,
+        "sector": info.get("sector", "Unknown"),
+        "market_cap": market_cap,
+        "shares_outstanding": shares,
+        "eps": eps,
+        "book_value_per_share": bv,
+        "free_cash_flow": fcf,
+        "ebit": ebit,
+        "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
+        
+        "operating_margin_ttm": info.get("operatingMargins"),
+        "gross_margin_stability": (info.get("grossMargins") or 0.0) * 0.1, # Proxy
+        "roce": roic,
+        "cfo_pat_ratio": cfo_pat,
+        "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
+        
+        "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
+        "pat_cagr_3y": compute_cagr(fin, 'Net Income', 3),  # [FIX #6] Renamed: this is PAT CAGR, not per-share EPS CAGR
+        "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
+        "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
+        
+        "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
+        # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention
+        "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit and ie and abs(ie) > 1) else 100.0)(safe_extract(fin, 'Interest Expense')),
+        "debt_yoy_growth": 0.0, # Dummy for now
+        "altman_z": altman_z,
+        "current_ratio": info.get("currentRatio"),
+        
+        "price": price,
+        "is_financial": is_financial_sector(info.get("sector")),
+        "data_freshness": "LIVE",
+        "total_equity": total_equity
+    }
+    
+    return fund
 
 
 
