@@ -1,23 +1,210 @@
 import requests
 import json
 import logging
-from rapidfuzz import fuzz
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Set, Dict, List, Optional
 from zoneinfo import ZoneInfo
-IST = ZoneInfo("Asia/Kolkata")
-import pandas as pd
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
-KNOWN_FII_PATTERNS = [
-    "MORGAN STANLEY", "GOLDMAN SACHS", "NOMURA", "SOCIETE GENERALE", 
-    "VANGUARD", "BLACKROCK", "GOVERNMENT PENSION FUND", "FIDELITY", "JP MORGAN",
-    "COPTHALL MAURITIUS", "CITIGROUP", "MERRILL LYNCH", "BNP PARIBAS", "BOFA SECURITIES",
-    "NORGES BANK", "ABU DHABI INVESTMENT AUTHORITY"
+CACHE_FILE = "data/fii_block_deals.json"
+
+@dataclass(frozen=True)
+class EntityPattern:
+    name: str                 # Canonical label: "GOLDMAN SACHS"
+    tokens: Set[str]          # Primary tokens to match
+    min_tokens: int = 2       # How many tokens must match
+    aliases: Set[str] = field(default_factory=set) # Alternative acronyms/shorthands
+
+KNOWN_FII_PATTERNS: List[EntityPattern] = [
+    EntityPattern("MORGAN STANLEY", {"MORGAN", "STANLEY"}, 2),
+    EntityPattern("GOLDMAN SACHS", {"GOLDMAN", "SACHS"}, 2),
+    EntityPattern("NOMURA", {"NOMURA"}, 1),
+    EntityPattern("SOCIETE GENERALE", {"SOCIETE", "GENERALE"}, 2),
+    EntityPattern("VANGUARD", {"VANGUARD"}, 1),
+    EntityPattern("BLACKROCK", {"BLACKROCK"}, 1),
+    EntityPattern("FIDELITY", {"FIDELITY"}, 1),
+    EntityPattern("JP MORGAN", {"JP", "MORGAN"}, 2),
+    EntityPattern("CITIGROUP", {"CITIGROUP"}, 1),
+    EntityPattern("MERRILL LYNCH", {"MERRILL", "LYNCH"}, 2),
+    EntityPattern("BNP PARIBAS", {"BNP", "PARIBAS"}, 2),
+    EntityPattern("BOFA SECURITIES", {"BOFA", "SECURITIES"}, 2),
+    EntityPattern("NORGES BANK", {"NORGES", "BANK"}, 2),
+    EntityPattern("ADIA", {"ABU", "DHABI", "INVESTMENT", "AUTHORITY"}, 3, {"ADIA"})
 ]
 
-def get_nse_bulk_block_deals():
-    """Fetches block/bulk deals from NSE"""
+KNOWN_DII_SUPER_PATTERNS: List[EntityPattern] = [
+    # Marquee Individuals
+    EntityPattern("ASHISH KACHOLIA", {"ASHISH", "KACHOLIA"}, 2),
+    EntityPattern("MUKUL AGRAWAL", {"MUKUL", "AGRAWAL"}, 2),
+    EntityPattern("VIJAY KEDIA", {"VIJAY", "KEDIA"}, 2),
+    EntityPattern("DOLLY KHANNA", {"DOLLY", "KHANNA"}, 2),
+    EntityPattern("RADHAKISHAN DAMANI", {"RADHAKISHAN", "DAMANI"}, 2),
+    EntityPattern("RARE ENTERPRISES", {"RARE", "ENTERPRISES"}, 2),
+    
+    # Mutual Funds & Domestic Institutions
+    EntityPattern("SBI MUTUAL FUND", {"SBI", "MUTUAL", "FUND"}, 2, {"SBI", "MF", "SBIMF"}),
+    EntityPattern("HDFC MUTUAL FUND", {"HDFC", "MUTUAL", "FUND"}, 2, {"HDFC", "MF", "HDFCMF"}),
+    EntityPattern("ICICI PRUDENTIAL MUTUAL FUND", {"ICICI", "PRUDENTIAL", "MUTUAL", "FUND"}, 3, {"ICICIPRU", "ICICI", "MF"}),
+    EntityPattern("NIPPON INDIA MUTUAL FUND", {"NIPPON", "INDIA", "MUTUAL", "FUND"}, 3, {"NIPPON", "MF"}),
+    EntityPattern("KOTAK MUTUAL FUND", {"KOTAK", "MUTUAL", "FUND"}, 2, {"KOTAK", "MF"}),
+    EntityPattern("AXIS MUTUAL FUND", {"AXIS", "MUTUAL", "FUND"}, 2, {"AXIS", "MF"}),
+    EntityPattern("DSP MUTUAL FUND", {"DSP", "MUTUAL", "FUND"}, 2, {"DSP", "MF"}),
+    EntityPattern("UTI MUTUAL FUND", {"UTI", "MUTUAL", "FUND"}, 2, {"UTI", "MF"}),
+    EntityPattern("TATA MUTUAL FUND", {"TATA", "MUTUAL", "FUND"}, 2, {"TATA", "MF"}),
+    EntityPattern("MIRAE ASSET MUTUAL FUND", {"MIRAE", "ASSET", "MUTUAL", "FUND"}, 3, {"MIRAE", "MF"}),
+    EntityPattern("ABAKKUS", {"ABAKKUS"}, 1),
+    EntityPattern("WHITE OAK", {"WHITE", "OAK"}, 2),
+    EntityPattern("MALABAR", {"MALABAR"}, 1)
+]
+
+CORE_TOKENS: Dict[str, Set[str]] = {
+    "ADANIENT": {"ADANI"},
+    "ADANIPOWER": {"ADANI"},
+    "ADANIPORTS": {"ADANI"},
+    "TATAPOWER": {"TATA"},
+    "TATAMOTORS": {"TATA"},
+    "TATASTEEL": {"TATA"},
+    "TATACOMM": {"TATA"},
+    "TATACHEM": {"TATA"},
+    "TATAELXSI": {"TATA"},
+    "TATACONSUM": {"TATA"},
+    "M&M": {"MAHINDRA"},
+    "RELIANCE": {"RELIANCE"},
+    "MARUTI": {"MARUTI", "SUZUKI"},
+    "BIRLACORPN": {"BIRLA"},
+    "JINDALSTEL": {"JINDAL"}
+}
+
+def normalize_client_name(raw: str) -> str:
+    """Normalizes raw client names to standard uppercase, strips punctuation and suffixes."""
+    if not raw or not isinstance(raw, str):
+        return ""
+    s = raw.upper()
+    s = re.sub(r"[^\w\s]", " ", s)  # Drop punctuation
+    s = re.sub(r"\s+", " ", s).strip()
+    
+    # Pad with spaces to prevent edge position misses during replacements
+    s = f" {s} "
+    s = s.replace(" MF ", " MUTUAL FUND ")
+    s = s.replace(" AMC ", " ASSET MANAGEMENT COMPANY ")
+    s = re.sub(r"\s+", " ", s).strip()
+    
+    # Drop corporate suffixes
+    for suffix in (" PRIVATE LIMITED", " PVT LTD", " LIMITED", " LTD", " PLC"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+    return s.strip()
+
+def name_tokens(raw: str) -> Set[str]:
+    """Returns a set of normalized name tokens."""
+    return set(normalize_client_name(raw).split())
+
+def match_patterns(tokens: Set[str], raw: str, patterns: List[EntityPattern]) -> List[str]:
+    """Matches a client's normalized tokens and raw string against standard EntityPattern definitions."""
+    norm = normalize_client_name(raw)
+    matches: List[str] = []
+    for p in patterns:
+        # Token-set match
+        if len(tokens & p.tokens) >= p.min_tokens:
+            matches.append(p.name)
+            continue
+        # Alias match (checks normalized string substring or token matching)
+        if any(alias in norm for alias in p.aliases) or (tokens & p.aliases):
+            matches.append(p.name)
+    return matches
+
+def is_promoter_client(symbol: str, client_name: str) -> bool:
+    """Returns True if the client name indicates promoter or promoter group buying."""
+    tokens = name_tokens(client_name)
+    if "PROMOTER" in tokens or "PROMOTERS" in tokens:
+        return True
+        
+    sym = symbol.upper()
+    group_tokens = CORE_TOKENS.get(sym, set())
+    if group_tokens and (tokens & group_tokens):
+        return True
+        
+    # Ticker prefix fallback matcher (e.g. RELIANCE in RELIANCE INDUSTRIES)
+    core_sym = sym.split(".")[0]
+    if len(core_sym) >= 4 and core_sym in tokens:
+        return True
+        
+    return False
+
+# Lazy-loaded cache
+_CACHE = {}
+_LAST_LOADED_DATE = None
+
+def load_cache_if_needed():
+    global _CACHE, _LAST_LOADED_DATE
+    import os
+    today = str(datetime.now(IST).date())
+    if _LAST_LOADED_DATE != today or not _CACHE:
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, "r") as f:
+                    data = json.load(f)
+                    if data.get("date") == today:
+                        # Normalize symbol keys to uppercase
+                        raw_deals = data.get("deals", {})
+                        normalized_deals = {}
+                        for k, v in raw_deals.items():
+                            normalized_deals[k.upper()] = {
+                                "fii": list(v.get("fii", [])),
+                                "dii_super": list(v.get("dii_super", [])),
+                                "promoter": list(v.get("promoter", []))
+                            }
+                        _CACHE = {
+                            "date": today,
+                            "version": data.get("version", 1),
+                            "deals": normalized_deals
+                        }
+                        _LAST_LOADED_DATE = today
+                        return
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to parse institutional block deals JSON cache: {e}")
+        # Default empty cache
+        _CACHE = {"date": today, "version": 1, "deals": {}}
+        _LAST_LOADED_DATE = today
+
+def get_inst_footprints(symbol: str) -> dict[str, list[str]]:
+    """Side-effect free and shape-stable function returning FII, DII, and Promoter footprints."""
+    load_cache_if_needed()
+    sym = symbol.strip().upper()
+    deals = _CACHE.get("deals", {}).get(sym, {})
+    return {
+        "fii": list(deals.get("fii", [])),
+        "dii_super": list(deals.get("dii_super", [])),
+        "promoter": list(deals.get("promoter", []))
+    }
+
+def compute_inst_bonus(symbol: str, base_score: Optional[int] = None) -> int:
+    """Unified scoring helper to add FII, DII, and Promoter bonuses with score ceiling enforcements."""
+    footprints = get_inst_footprints(symbol)
+    bonus = 0
+    if footprints["fii"]:
+        bonus += 8
+    if footprints["dii_super"]:
+        bonus += 6
+    if footprints["promoter"]:
+        bonus += 6
+
+    if base_score is None:
+        return bonus
+
+    base = max(0, min(100, int(base_score)))
+    return min(100 - base, bonus)
+
+def get_fii_buyers(symbol: str) -> list:
+    """Thin backward compatibility wrapper."""
+    return get_inst_footprints(symbol).get("fii", [])
+
+def get_nse_bulk_block_deals() -> list:
+    """Fetches block/bulk deals from NSE."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0',
         'Accept': '*/*',
@@ -33,7 +220,7 @@ def get_nse_bulk_block_deals():
         session = requests.Session()
     session.headers.update(headers)
     
-    # 1. Hit main page to get cookies
+    # Hit main page to get cookies
     try:
         session.get("https://www.nseindia.com", timeout=10)
     except Exception:
@@ -45,7 +232,6 @@ def get_nse_bulk_block_deals():
     ]
     
     all_deals = []
-    
     for url in urls:
         try:
             resp = session.get(url, timeout=10)
@@ -61,88 +247,91 @@ def get_nse_bulk_block_deals():
             
     return all_deals
 
-def detect_fii_deals() -> dict:
-    """Returns a dict of symbol -> list of FII buyers"""
+def detect_all_deals() -> dict:
+    """Fetches NSE deals and parses FII, DII, and Promoter matches."""
     deals = get_nse_bulk_block_deals()
     if not deals:
         return {}
         
-    fii_stocks = {}
-    
+    results = {}
     for deal in deals:
         client = str(deal.get("clientName", "")).upper()
         symbol = str(deal.get("symbol", "")).upper()
         buy_sell = str(deal.get("buyOrSell", deal.get("remarks", ""))).upper()
         
-        if "BUY" not in buy_sell:
+        # Accept 'BUY' or 'B'
+        if "BUY" not in buy_sell and buy_sell != "B":
             continue
             
-        # Check against patterns using fuzzy match
-        is_fii = False
-        matched_fii = ""
-        for pattern in KNOWN_FII_PATTERNS:
-            # simple substring first
-            if pattern in client:
-                is_fii = True
-                matched_fii = pattern
-                break
-            # fuzzy match if not substring
-            score = fuzz.partial_ratio(pattern, client)
-            if score >= 85:  # high confidence match
-                is_fii = True
-                matched_fii = pattern
-                break
-                
-        if is_fii:
-            if symbol not in fii_stocks:
-                fii_stocks[symbol] = []
-            fii_stocks[symbol].append(matched_fii)
+        sym = symbol.strip().upper()
+        tokens = name_tokens(client)
+        
+        fii_matches = match_patterns(tokens, client, KNOWN_FII_PATTERNS)
+        dii_super_matches = match_patterns(tokens, client, KNOWN_DII_SUPER_PATTERNS)
+        is_prom = is_promoter_client(sym, client)
+        
+        if fii_matches or dii_super_matches or is_prom:
+            if sym not in results:
+                results[sym] = {"fii": [], "dii_super": [], "promoter": []}
             
-    return fii_stocks
+            for match in fii_matches:
+                if match not in results[sym]["fii"]:
+                    results[sym]["fii"].append(match)
+            for match in dii_super_matches:
+                if match not in results[sym]["dii_super"]:
+                    results[sym]["dii_super"].append(match)
+            if is_prom:
+                if client not in results[sym]["promoter"]:
+                    results[sym]["promoter"].append(client)
+                    
+    return results
 
-CACHE_FILE = "data/fii_block_deals.json"
+def detect_fii_deals() -> dict:
+    """Legacy backward compatibility method returning FII deals only."""
+    all_deals = detect_all_deals()
+    return {sym: val.get("fii", []) for sym, val in all_deals.items() if val.get("fii")}
 
 def get_cached_fii_deals() -> dict:
-    import os
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r") as f:
-                data = json.load(f)
-                if data.get("date") == str(datetime.now(IST).date()):
-                    return data.get("deals", {})
-        except Exception:
-            pass
-    return {}
+    """Legacy backward compatibility method."""
+    load_cache_if_needed()
+    return {sym: data.get("fii", []) for sym, data in _CACHE.get("deals", {}).items() if data.get("fii")}
 
 def run_fii_detector() -> dict:
+    """Main execution entrypoint from daily watchlist builder."""
     logger.info("🔍 Running FII Block/Bulk Deal Detector...")
-    
-    # Check cache first to avoid hammering NSE
-    cached = get_cached_fii_deals()
-    if cached:
-        logger.info(f"✅ Loaded {len(cached)} FII deals from cache.")
-        return cached
+    load_cache_if_needed()
+    if _CACHE and _CACHE.get("deals"):
+        logger.info(f"✅ Loaded {len(_CACHE.get('deals', {}))} deals from cache.")
+        return _CACHE.get("deals", {})
 
-    results = detect_fii_deals()
+    results = detect_all_deals()
     
     # Save cache
     import os
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-    with open(CACHE_FILE, "w") as f:
-        json.dump({
-            "date": str(datetime.now(IST).date()),
-            "deals": results
-        }, f, indent=2)
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump({
+                "date": str(datetime.now(IST).date()),
+                "version": 1,
+                "deals": results
+            }, f, indent=2)
+        logger.info(f"✅ FII/DII/Promoter deals detected in {len(results)} stocks today and cached.")
+    except Exception as e:
+        logger.error(f"Failed to write cache file {CACHE_FILE}: {e}")
         
-    logger.info(f"✅ FII deals detected in {len(results)} stocks today and cached.")
+    global _LAST_LOADED_DATE
+    _CACHE["deals"] = results
+    _CACHE["date"] = str(datetime.now(IST).date())
+    _CACHE["version"] = 1
+    _LAST_LOADED_DATE = str(datetime.now(IST).date())
+    
     return results
 
 def get_fii_buyers(symbol: str) -> list:
-    deals = get_cached_fii_deals()
-    if not deals:
-        # Don't run the detector synchronously during scoring, just return empty
-        return []
-    return deals.get(symbol, [])
+    """Backward compatibility resolver."""
+    return get_inst_footprints(symbol).get("fii", [])
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     print(run_fii_detector())

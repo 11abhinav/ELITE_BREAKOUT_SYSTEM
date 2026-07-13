@@ -686,16 +686,17 @@ def bonus_modifiers(
             )
             bonus -= 3
 
-    # ── BONUS: FII BLOCK DEAL FOOTPRINT (+8 pts) ─────────────────────────────────
-    # If a recognized FII bought this stock recently, it shows institutional sponsorship.
-    try:
-        from block_deal_detector import get_fii_buyers
-        buyers = get_fii_buyers(symbol)
-        if buyers:
-            logger.info(f"  +8 {tag}FII Footprint Detected ({', '.join(buyers)})")
-            bonus += 8
-    except Exception as e:
-        pass
+    # ── BONUS: INSTITUTIONAL / INSIDER / PROMOTER FOOTPRINT ─────────────────────
+    # Adds points for FII (+8), DII/Super-Investor (+6), or Promoter (+6) buying.
+    if symbol:
+        try:
+            from block_deal_detector import compute_inst_bonus
+            inst_bonus = compute_inst_bonus(symbol)
+            if inst_bonus > 0:
+                logger.info(f"  +{inst_bonus} {tag}Institutional/Insider Footprint Detected")
+                bonus += inst_bonus
+        except Exception as e:
+            logger.warning(f"Error checking institutional footprints: {e}")
 
     # ── PENALTY: BASE MATURITY (LATE STAGE BREAKOUT) ─────────────────────────────
     # Proxy to penalize Stage 3/4 breakouts without needing a pattern recognition engine.

@@ -648,6 +648,16 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 inserted, reason = True, "TEST_MODE"
                                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {symbol}")
                             else:
+                                base_score = int(80 + (vol_ratio * 5))
+                                base_score = max(0, min(100, base_score))
+                                try:
+                                    from block_deal_detector import compute_inst_bonus
+                                    inst_bonus = compute_inst_bonus(symbol, base_score)
+                                except Exception as e:
+                                    logger.warning(f"Error checking institutional footprints in Multi-TF: {e}")
+                                    inst_bonus = 0
+                                final_score = min(100, base_score + inst_bonus)
+
                                 inserted, reason, _, _ = save_alert_if_new(
                                     symbol=symbol,
                                     breakout_type="INTRADAY",
@@ -658,7 +668,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                     stop_loss=final_sl,
                                     target_price=calc_target,
                                     signals=f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
-                                    score=min(100, int(80 + (vol_ratio * 5))), # Dynamic conviction
+                                    score=final_score,
                                     rsi=float(latest.get("RSI", 0)),
                                     volume_ratio=vol_ratio,
                                     context=ctx,

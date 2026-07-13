@@ -1351,6 +1351,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         trend = pipeline_result.market_structure.score
         total = pipeline_result.composite_score
         
+        # Apply institutional, promoter, and super-investor bonuses
+        try:
+            from block_deal_detector import compute_inst_bonus
+            inst_bonus = float(compute_inst_bonus(sym, int(total)))
+        except Exception as e:
+            logger.warning(f"Error checking institutional footprints in Multibagger: {e}")
+            inst_bonus = 0.0
+        total = min(100.0, total + inst_bonus)
+        
         buy_low = pipeline_result.buy_zone.buy_zone_low
         buy_high = pipeline_result.buy_zone.buy_zone_high
         

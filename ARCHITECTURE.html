@@ -557,6 +557,40 @@ graph TD
 - **Encryption Detection:** Corporate filings downloaded from NSE archives are frequently digitally signed or locked with certificate authorities using AES encryption algorithms.
 - **Standard Decryption Bypass:** The PDF text extractor (`pdf_parser.py`) checks `reader.is_encrypted`. If true, it automatically calls `reader.decrypt("")` to unlock standard digitally signed files with an empty password, allowing text extraction to proceed.
 - **AES Dependency:** AES-encrypted PDFs require `pycryptodome` to decrypt the streams in PyPDF2. This package must be explicitly listed in `requirements.txt` to prevent runtime `DependencyError` exceptions during scans.
+
+---
+
+## 14. Institutional & Insider Bulk Deal Detection
+
+To capture institutional momentum and corporate insider conviction, the system scans daily bulk and block deal logs. It translates high-impact buying activities into score enhancements across all scanning engines.
+
+### 14.1 Data Sources & Refresh Cadence
+The system fetches bulk and block deal sheets daily from the NSE Equities archives. Scrapes are initiated by the background scheduler during daily universe updates, and the results are cached case-insensitively in `data/fii_block_deals.json`.
+
+### 14.2 Normalization & Token Matching Heuristics
+Client names are standardized via a normalization pipeline:
+1. Standardizes name to uppercase, removing all punctuation and duplicate spaces.
+2. Expands abbreviations (e.g. `MF` -> `MUTUAL FUND`, `AMC` -> `ASSET MANAGEMENT COMPANY`).
+3. Strips corporate legal suffixes (e.g., `PRIVATE LIMITED`, `LTD`, `LTD`, `PLC`).
+
+Matching utilizes token set logic:
+* **FII & DII/Super-Investors:** Checked against token sets and shorthand aliases (such as `ADIA` or `SBIMF`) to avoid false-negatives due to variable phrasing.
+* **Promoters:** Identified via `PROMOTER` keywords or when the buyer name shares key tokens with the underlying ticker symbol (e.g., `ADANI` buying `ADANIENT`).
+
+### 14.3 Scoring Integration & Mode Mappings
+Scoring is processed via `compute_inst_bonus` under one of two operational modes:
+
+| Mode | Input | Output Range | Use Cases | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Raw** | `symbol` only | `0` to `20` points | Wealth Engine, EOD `bonus_modifiers` | Returns the raw footprint scores. The final cap (100) is enforced downstream at the scanner execution level. |
+| **Capped** | `symbol` + `base_score` | `0` to `min(20, 100 - base)` | Reversal, Multi-TF, Multibagger | Calculates and returns a capped bonus based on the current base score to prevent score overflows. |
+
+#### Concrete Examples
+| Symbol | Footprints Detected | System | Base Score | Inst Bonus | Final Score |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **RELIANCE** | FII (NOMURA), DII (HDFC MF) | Breakout | 86 | 14 | 100 (Capped) |
+| **TATAPOWER** | Promoter only | Reversal | 72 | 6 | 78 (Uncapped) |
+| **SBIN** | FII, Promoter, DII | Breakout | 100 | 0 | 100 (Capped) |
 </textarea>
 
     <!-- Rendering Script -->

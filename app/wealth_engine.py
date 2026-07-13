@@ -520,6 +520,16 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
 
     scores_df = wealth_df.apply(lambda r: apply_core_engine_scores(r, sector_stats), axis=1)
     wealth_df["FM_Score"] = scores_df["CIS"]
+    
+    unique_symbols = wealth_df["Stock"].astype(str).unique()
+    try:
+        from block_deal_detector import compute_inst_bonus
+        bonus_map = {sym: float(compute_inst_bonus(sym)) for sym in unique_symbols}
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Error building institutional bonus map in Wealth: {e}")
+        bonus_map = {sym: 0.0 for sym in unique_symbols}
+        
+    wealth_df["FM_Score"] = (wealth_df["FM_Score"] + wealth_df["Stock"].map(bonus_map).fillna(0.0)).clip(upper=100.0)
     wealth_df["Valuation_Score"] = scores_df["RVS"]
     wealth_df["Consistency_Score"] = scores_df["BQS"]
     wealth_df["Reliability"] = scores_df["Reliability"]

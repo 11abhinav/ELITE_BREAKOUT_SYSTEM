@@ -123,6 +123,7 @@ def _score_reversal(
         obv_trend: Optional[int] = None,
         delivery_pct: Optional[float] = None,
         close_price: Optional[float] = None,
+        symbol: Optional[str] = None,
 ) -> int:
     """Score a reversal setup from 0-100 based on quality dimensions (v6 weights)."""
     score = 0
@@ -220,7 +221,18 @@ def _score_reversal(
         elif delivery_pct >= 35.0: score += 3   # moderate positional buying
         elif delivery_pct >= 25.0: score += 1   # mild conviction
 
-    return min(score, 100)
+    if symbol is None:
+        logger.warning("REVERSAL score warning: symbol is None, skipping institutional bonus detection.")
+        inst_bonus = 0
+    else:
+        try:
+            from block_deal_detector import compute_inst_bonus
+            inst_bonus = compute_inst_bonus(symbol, score)
+        except Exception as e:
+            logger.warning(f"Error checking institutional footprints in Reversal: {e}")
+            inst_bonus = 0
+
+    return min(score + inst_bonus, 100)
 
 
 # [FIX 1] FAILED-REVERSAL COOLDOWN HELPER ──────────────────────────────────────────────
@@ -691,6 +703,7 @@ def _run_scan(force: bool = False):
                 obv_trend=obv_trend_val,
                 delivery_pct=delivery_pct,
                 close_price=close_price,       # [VERSION: REVERSAL_MACD_NORM_v1.0]
+                symbol=symbol,
             )
 
             if reversal_score < MIN_REVERSAL_SCORE:
