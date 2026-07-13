@@ -591,6 +591,28 @@ Scoring is processed via `compute_inst_bonus` under one of two operational modes
 | **RELIANCE** | FII (NOMURA), DII (HDFC MF) | Breakout | 86 | 14 | 100 (Capped) |
 | **TATAPOWER** | Promoter only | Reversal | 72 | 6 | 78 (Uncapped) |
 | **SBIN** | FII, Promoter, DII | Breakout | 100 | 0 | 100 (Capped) |
+
+---
+
+## 15. Web Dashboard UI Component Architecture & UX Controls
+
+To optimize administrative control and viewing layouts without layout shifting or page load freezes, the UI employs collapsible component panels and secure external link sandboxing.
+
+### 15.1 Collapsible Panel Architecture
+To manage large data volumes cleanly on single-page views, secondary components and auxiliary data cards (e.g. System Health, User Management, Multibagger Watchlist, and All Trades) are wrapped in collapsible container states.
+
+- **Header Controls:** Panels are headed by an interactive header block (`cursor: pointer`, styled with `var(--card2)` background).
+- **Icons & Animations:** Contain a right-aligned SVG chevron indicator. Toggling scales/rotates the chevron via CSS transitions (`transition: transform 0.2s`).
+- **State Behavior:**
+  - **Primary cards** (e.g., *All Trades*) start in an **expanded** state by default (`Click to collapse`) to show core features immediately.
+  - **Auxiliary panels** (e.g., *System Health* and *Multibagger Watchlist*) start in a **collapsed** state by default (`Click to expand` / `Click to load`) to minimize loading latency and screen clutter.
+
+### 15.2 Cross-Origin COOP Link Restrictions
+Browsers block tab reuse for cross-origin targets that serve strict security headers.
+
+- **The COOP Header:** TradingView servers respond with `Cross-Origin-Opener-Policy: same-origin-allow-popups`.
+- **Targeting Failures:** Because the target domain (`tradingview.com`) is cross-origin to the dashboard server, the browser isolates the target tab into a separate context group, severing the opener link.
+- **Strict Compliance:** Any named targets (like `target="tradingview_chart_window"`) are treated as `_blank`. As a standard, external links are explicitly formatted with `target="_blank"` and `rel="noopener noreferrer"` to prevent security vulnerability exploits (like reverse tabnabbing).
 </textarea>
 
     <!-- Rendering Script -->
