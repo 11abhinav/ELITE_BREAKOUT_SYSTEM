@@ -1713,20 +1713,17 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 last_symbol = last[0] if last else None
                 last_updated = last[1] if last else None
 
+                # [VERSION: PLEDGE_STATS_DB_v1.4] Update processed_today query to count all up-to-date (old + todays) symbols
                 if not symbols:
                     cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0")
                     total_row = cur.fetchone()
                     total = total_row[0] if total_row else 0
                     
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE")
+                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE")
                     proc_today_row = cur.fetchone()
                     processed_today = proc_today_row[0] if proc_today_row else 0
                     
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE updated_at < NOW() - INTERVAL '28 days' AND COALESCE(last_attempted_at, updated_at) < CURRENT_DATE")
-                    expired_row = cur.fetchone()
-                    expired_count = expired_row[0] if expired_row else 0
-                    
-                    eligible_today = processed_today + expired_count
+                    eligible_today = total
                     return {
                         "total_cached": int(total),
                         "processed_today": int(processed_today),
@@ -1742,28 +1739,17 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 total_row = cur.fetchone()
                 total = total_row[0] if total_row else 0
 
-                # 2. Processed Today (COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE in session timezone)
+                # 2. Processed (old + todays) count in the universe
                 cur.execute(f"""
                     SELECT COUNT(*) 
                     FROM promoter_pledge_cache 
                     WHERE symbol IN ({placeholders}) 
-                      AND COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE
+                      AND (updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE)
                 """, tuple(symbols))
                 proc_today_row = cur.fetchone()
                 processed_today = proc_today_row[0] if proc_today_row else 0
 
-                # 3. Up-to-date not today (updated in last 28 days, and NOT attempted today)
-                cur.execute(f"""
-                    SELECT COUNT(*) 
-                    FROM promoter_pledge_cache 
-                    WHERE symbol IN ({placeholders}) 
-                      AND updated_at >= NOW() - INTERVAL '28 days'
-                      AND COALESCE(last_attempted_at, updated_at) < CURRENT_DATE
-                """, tuple(symbols))
-                up_to_date_not_today_row = cur.fetchone()
-                up_to_date_not_today = up_to_date_not_today_row[0] if up_to_date_not_today_row else 0
-
-                # [VERSION: PLEDGE_STATS_DB_v1.3] Update eligible_today to represent the total watchlist + excluded universe size
+                # 3. Eligible today = Total universe size
                 eligible_today = len(symbols)
 
                 return {
