@@ -5,6 +5,8 @@ import logging
 import threading
 import pandas as pd
 from typing import Optional, Tuple
+import json
+from config import ACTIVE_ALGO_VERSION
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
     import app.yf_bootstrap

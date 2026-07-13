@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 IST_ZONE = ZoneInfo("Asia/Kolkata")
+from pledge_worker import get_constituents_cached
 
 def is_in_window() -> bool:
     """Check if current time is between 7 PM IST and 7 AM IST."""
