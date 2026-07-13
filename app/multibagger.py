@@ -419,9 +419,12 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         if safe_float(rev_cagr) < 0.00:
             return False, f"Revenue CAGR 3Y negative ({safe_float(rev_cagr)*100:.1f}%)"
         
-    pledge = safe_float(f.get("promoter_pledge_pct", 0.0))
-    if pledge > 0.20:
-        return False, f"High promoter pledge ({pledge*100:.1f}%)"
+    # [VERSION: PLEDGE_GATE_FIX_v1.0] Safe handling of None/null for promoter_pledge_pct in quality gate
+    pledge_val = f.get("promoter_pledge_pct")
+    if pledge_val is not None and not pd.isna(pledge_val):
+        pledge = safe_float(pledge_val)
+        if pledge > 0.20:
+            return False, f"High promoter pledge ({pledge*100:.1f}%)"
         
     if f.get("auditor_flags") is True:
         return False, "Auditor/Forensic red flags"
@@ -1295,8 +1298,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         forensic_count = raw_fundamentals.get("forensic_flags", 0)
         raw_fundamentals["auditor_flags"] = (forensic_count >= 2)
         
-        # [FIX] Issue #3: Populate promoter_pledge_pct from pledge cache DB
-        # so Gate Engine Kill Gate #2 can actually catch high-pledge stocks
+        # [VERSION: PLEDGE_EXTRACT_FIX_v1.0] Populate promoter_pledge_pct from pledge cache DB
+        # Set to None/null if missing or unverified instead of defaulting to 0.0
         if "promoter_pledge_pct" not in raw_fundamentals or raw_fundamentals.get("promoter_pledge_pct") in (None, 0.0):
             try:
                 from pledge_scraper import fetch_promoter_pledge
@@ -1305,16 +1308,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     # Gate engine expects a ratio (0.0-1.0), not a percentage
                     raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
                 else:
-                    # [FINDING-A FIX] Default missing pledge to 0.0 (no pledge assumed).
-                    # Previously 0.99 which instantly killed the quality gate for ~50% of stocks
-                    # when the pledge scraper returned None (network error, NSE format change, etc.)
                     unverified_pledge_count += 1
-                    raw_fundamentals["promoter_pledge_pct"] = 0.0
-                    logger.debug(f"⚠️ {sym}: Pledge data unavailable — defaulting to 0% (not penalizing)")
+                    raw_fundamentals["promoter_pledge_pct"] = None
+                    logger.debug(f"⚠️ {sym}: Pledge data unavailable — setting to None")
             except Exception:
-                # [FINDING-A FIX] Same fix for exception branch
                 unverified_pledge_count += 1
-                raw_fundamentals["promoter_pledge_pct"] = 0.0
+                raw_fundamentals["promoter_pledge_pct"] = None
         
         technicals = {
             "price": price_data.price,

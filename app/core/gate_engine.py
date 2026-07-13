@@ -41,13 +41,18 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
     else:
         audit_engine.log(symbol, "Kill Gates", "Passed", "Equity Data Missing (Fallback to Market Cap)", "total_equity", "None")
 
-    # 2. Promoter Pledge > 50%
-    pledge = safe_float(raw_data.get("promoter_pledge_pct", 0.0))
-    if pledge > 0.50:
-        audit_engine.log(symbol, "Kill Gates", "Failed", "Promoter Pledge > 50%", "promoter_pledge_pct", pledge)
-        return False, "Promoter Pledge > 50%"
+    # [VERSION: PLEDGE_GATE_CORE_v1.0] Do not default null/None pledge to 0.0 in gate_engine
+    raw_pledge = raw_data.get("promoter_pledge_pct")
+    import pandas as pd
+    if raw_pledge is not None and not pd.isna(raw_pledge):
+        pledge = safe_float(raw_pledge)
+        if pledge > 0.50:
+            audit_engine.log(symbol, "Kill Gates", "Failed", "Promoter Pledge > 50%", "promoter_pledge_pct", pledge)
+            return False, "Promoter Pledge > 50%"
+        else:
+            audit_engine.log(symbol, "Kill Gates", "Passed", "Acceptable Pledge", "promoter_pledge_pct", pledge)
     else:
-        audit_engine.log(symbol, "Kill Gates", "Passed", "Acceptable Pledge", "promoter_pledge_pct", pledge)
+        audit_engine.log(symbol, "Kill Gates", "Passed", "Pledge Data Missing", "promoter_pledge_pct", "None")
 
     # 3. Auditor Flags / Fraud
     fraud = raw_data.get("auditor_flags", False)

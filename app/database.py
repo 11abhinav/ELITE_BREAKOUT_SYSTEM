@@ -410,6 +410,7 @@ def init_db():
                 """)
 
                 # ── Promoter Pledge Cache table ────────────────────────────────────
+                # [VERSION: PLEDGE_STATS_DB_v1.1] Add last_attempted_at column for progress tracking
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS promoter_pledge_cache (
                         symbol        TEXT PRIMARY KEY,
@@ -417,6 +418,7 @@ def init_db():
                         updated_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
                     )
                 """)
+                cur.execute("ALTER TABLE promoter_pledge_cache ADD COLUMN IF NOT EXISTS last_attempted_at TIMESTAMP WITH TIME ZONE")
 
                 # ── Fetch error aggregation table (skipped records / fetch failures) ──
                 cur.execute("""
@@ -1698,27 +1700,88 @@ def get_ai_concall_stats(symbols: list = None) -> dict:
                 return {"total_cached": 0, "last_symbol": None, "last_updated": None}
 
 
+# [VERSION: PLEDGE_STATS_DB_v1.2] Update get_promoter_pledge_stats to use last_attempted_at
 def get_promoter_pledge_stats(symbols: list = None) -> dict:
-    """Return stats for promoter_pledge_cache: total symbols cached, last processed symbol and timestamp."""
+    """Return stats for promoter_pledge_cache: processed today, eligible today, total cached, last processed symbol and timestamp."""
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                if symbols:
-                    placeholders = ','.join(['%s'] * len(symbols))
-                    cur.execute(f"SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0 AND symbol IN ({placeholders})", tuple(symbols))
-                else:
-                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0")
-                total_row = cur.fetchone()
-                total = total_row[0] if total_row else 0
+                # Get the last processed symbol and timestamp
                 cur.execute("SELECT symbol, updated_at FROM promoter_pledge_cache ORDER BY updated_at DESC LIMIT 1")
                 last = cur.fetchone()
-                if last:
-                    return {"total_cached": int(total), "last_symbol": last[0], "last_updated": last[1]}
-                return {"total_cached": int(total), "last_symbol": None, "last_updated": None}
+                last_symbol = last[0] if last else None
+                last_updated = last[1] if last else None
+
+                if not symbols:
+                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0")
+                    total_row = cur.fetchone()
+                    total = total_row[0] if total_row else 0
+                    
+                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE")
+                    proc_today_row = cur.fetchone()
+                    processed_today = proc_today_row[0] if proc_today_row else 0
+                    
+                    cur.execute("SELECT COUNT(*) FROM promoter_pledge_cache WHERE updated_at < NOW() - INTERVAL '28 days' AND COALESCE(last_attempted_at, updated_at) < CURRENT_DATE")
+                    expired_row = cur.fetchone()
+                    expired_count = expired_row[0] if expired_row else 0
+                    
+                    eligible_today = processed_today + expired_count
+                    return {
+                        "total_cached": int(total),
+                        "processed_today": int(processed_today),
+                        "eligible_today": int(eligible_today),
+                        "last_symbol": last_symbol,
+                        "last_updated": last_updated
+                    }
+
+                placeholders = ','.join(['%s'] * len(symbols))
+                
+                # 1. Total cached in the universe (active symbols)
+                cur.execute(f"SELECT COUNT(*) FROM promoter_pledge_cache WHERE pledge_pct >= 0 AND symbol IN ({placeholders})", tuple(symbols))
+                total_row = cur.fetchone()
+                total = total_row[0] if total_row else 0
+
+                # 2. Processed Today (COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE in session timezone)
+                cur.execute(f"""
+                    SELECT COUNT(*) 
+                    FROM promoter_pledge_cache 
+                    WHERE symbol IN ({placeholders}) 
+                      AND COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE
+                """, tuple(symbols))
+                proc_today_row = cur.fetchone()
+                processed_today = proc_today_row[0] if proc_today_row else 0
+
+                # 3. Up-to-date not today (updated in last 28 days, and NOT attempted today)
+                cur.execute(f"""
+                    SELECT COUNT(*) 
+                    FROM promoter_pledge_cache 
+                    WHERE symbol IN ({placeholders}) 
+                      AND updated_at >= NOW() - INTERVAL '28 days'
+                      AND COALESCE(last_attempted_at, updated_at) < CURRENT_DATE
+                """, tuple(symbols))
+                up_to_date_not_today_row = cur.fetchone()
+                up_to_date_not_today = up_to_date_not_today_row[0] if up_to_date_not_today_row else 0
+
+                # Eligible today = Total universe - Up-to-date not today
+                eligible_today = len(symbols) - up_to_date_not_today
+
+                return {
+                    "total_cached": int(total),
+                    "processed_today": int(processed_today),
+                    "eligible_today": int(eligible_today),
+                    "last_symbol": last_symbol,
+                    "last_updated": last_updated
+                }
             except Exception as e:
                 logger.exception(f"Error getting pledge stats")
-                return {"total_cached": 0, "last_symbol": None, "last_updated": None}
+                return {
+                    "total_cached": 0,
+                    "processed_today": 0,
+                    "eligible_today": 0,
+                    "last_symbol": None,
+                    "last_updated": None
+                }
 
 def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
     """Retrieves cached AI analysis for a symbol if it is less than max_age_days old."""

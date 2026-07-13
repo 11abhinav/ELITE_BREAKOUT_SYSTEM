@@ -213,14 +213,15 @@ def worker_loop():
                     set_worker_mode('auto')
                     
                 sleep_secs = 3600 # Check every hour
+                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.0] Update start loops to upsert correct progress counts
                 logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
-                upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, error_msg=f"All processed | Total: {total_watch}")
+                upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, processed_count=total_watch, total_count=total_watch, error_msg=f"All processed | Total: {total_watch}")
                 sleep_with_mode_check(sleep_secs)
                 logger.info("⏰ Woke up from daily sleep! Starting fresh scan...")
                 continue
                 
             logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
-            upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, error_msg=f"Last: Starting... | Total: {total_watch}")
+            upsert_scanner_health("Pledge Worker", "OK", today_alerts=0, processed_count=0, total_count=len(stale_symbols), error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
             
             def process_symbol(sym, i_total, is_retry=False):
                 """Returns 'FOUND', 'MISSING', '404', or 'ERROR'."""
@@ -275,14 +276,15 @@ def worker_loop():
                                         if m:
                                             pledge_val = float(m.group(1))
                                             break
+                        # [VERSION: PLEDGE_WORKER_STAT_v1.0] Update cache inserts to populate last_attempted_at column
                         if pledge_val is not None:
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
                                     cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, %s, NOW())
+                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                                        VALUES (%s, %s, NOW(), NOW())
                                         ON CONFLICT (symbol) DO UPDATE 
-                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW()
+                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW(), last_attempted_at = NOW()
                                     """, (sym, pledge_val))
                                     conn.commit()
                             logger.info(f"✅ Saved pledge for {sym}: {pledge_val}%")
@@ -291,10 +293,10 @@ def worker_loop():
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
                                     cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, -1.0, NOW() - INTERVAL '21 days')
+                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                                        VALUES (%s, -1.0, NOW() - INTERVAL '21 days', NOW())
                                         ON CONFLICT (symbol) DO UPDATE 
-                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days'
+                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days', last_attempted_at = NOW()
                                     """, (sym,))
                                     conn.commit()
                         mark_success('scraperapi')
@@ -306,10 +308,10 @@ def worker_loop():
                         with get_connection() as conn:
                             with conn.cursor() as cur:
                                 cur.execute("""
-                                    INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                    VALUES (%s, %s, NOW() - INTERVAL '21 days')
+                                    INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                                    VALUES (%s, %s, NOW() - INTERVAL '21 days', NOW())
                                     ON CONFLICT (symbol) DO UPDATE 
-                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days'
+                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days', last_attempted_at = NOW()
                                 """, (sym, -1.0))
                                 conn.commit()
                         return "404"
@@ -360,10 +362,9 @@ def worker_loop():
                 pending = total_stale - processed
                 logger.info(f"📊 PROGRESS: {processed}/{total_stale} Processed | {pending} Pending to fetch | {found_count} Found | {missing_count} Missing | {fail_404_count} Not Found (404) | {error_count} Errors")
                     
-                # Update health with processed count
+                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.2] Pass processed_count parameter explicitly
                 now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                current_processed = processed_base + successful_in_first_pass
-                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} | Total: {total_watch}")
+                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=f"Last: {sym} | Total stale: {total_stale}")
 
             final_error_count = 0
             
@@ -385,11 +386,12 @@ def worker_loop():
                         try:
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
+                                    # [VERSION: PLEDGE_WORKER_STAT_v1.1] Update retry failure cache insert to populate last_attempted_at
                                     cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at)
-                                        VALUES (%s, 0.0, NOW() - INTERVAL '27 days')
+                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                                        VALUES (%s, 0.0, NOW() - INTERVAL '27 days', NOW())
                                         ON CONFLICT (symbol) DO UPDATE 
-                                        SET updated_at = NOW() - INTERVAL '27 days'
+                                        SET updated_at = NOW() - INTERVAL '27 days', last_attempted_at = NOW()
                                     """, (sym,))
                                     conn.commit()
                             logger.info(f"⚠️ Saved temporary failure negative cache for {sym}")
@@ -398,39 +400,37 @@ def worker_loop():
                     time.sleep(3)
                     
                     now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                    current_processed = processed_base + successful_in_first_pass
-                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=current_processed, error_msg=f"Last: {sym} (Retry) | Total: {total_watch}")
+                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
 
             # Loop done
             status = "IDLE" if final_error_count == 0 else "DOWN"
             last_sym = stale_symbols[-1] if stale_symbols else "None"
-            current_processed = processed_base + successful_in_first_pass
             
             now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
             
             if final_error_count > 0:
-                err_msg = f"Last: {last_sym} | Total: {total_watch} | Failed: {final_error_count}"
+                err_msg = f"Last: {last_sym} | Total stale: {total_stale} | Failed: {final_error_count}"
                 logger.warning(f"⚠️ Pledge Worker completed with {final_error_count} failures")
             else:
-                err_msg = f"Last: {last_sym} | Total: {total_watch}"
-                logger.info(f"✅ Pledge Worker completed successfully for all {total_watch} symbols")
+                err_msg = f"Last: {last_sym} | Total stale: {total_stale}"
+                logger.info(f"✅ Pledge Worker completed successfully for all {total_stale} stale symbols")
             
-            upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=current_processed, error_msg=err_msg)
+            upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg=err_msg)
             
             if quota_exhausted:
                 logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")
-                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), error_msg="Quota Exhausted - Waiting 1h")
-                time.sleep(3600)
+                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=successful_in_first_pass, processed_count=successful_in_first_pass, total_count=total_stale, error_msg="Quota Exhausted - Waiting 1h")
+                sleep_with_mode_check(3600)
                 logger.info("⏰ Woke up from 1-hour sleep! Retrying scraper loop now...")
                 continue
                 
             # Sleep for 5 minutes before rechecking (allows watchlist updates)
-            time.sleep(300)
+            sleep_with_mode_check(300)
             
         except Exception as e:
             logger.exception("Pledge worker loop crashed")
-            upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=1)
-            time.sleep(300)
+            upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=0, processed_count=0, total_count=0)
+            sleep_with_mode_check(300)
 
 if __name__ == "__main__":
     try:

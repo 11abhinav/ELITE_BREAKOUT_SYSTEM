@@ -89,6 +89,7 @@ def _mark_failed_today(symbol: str):
     except Exception as e:
         logger.debug(f"Failed to write pledge failure cache: {e}")
 
+# [VERSION: PLEDGE_NULL_v1.0] Treat missing/failed pledge data as None
 @lru_cache(maxsize=5000)
 def fetch_promoter_pledge(symbol: str):
     """
@@ -100,7 +101,7 @@ def fetch_promoter_pledge(symbol: str):
 
     # 0. Check Daily Negative Cache
     if _is_failed_today(symbol):
-        return 0.0
+        return None
 
     # 1. Check DB Cache
     try:
@@ -114,11 +115,13 @@ def fetch_promoter_pledge(symbol: str):
                 """, (symbol,))
                 row = cur.fetchone()
                 if row:
-                    return float(row[0])
+                    val = float(row[0])
+                    # Treat negative sentinel values (like -1.0 for 404/Not Found) as None
+                    return None if val < 0 else val
     except Exception as e:
         logger.warning(f"Database error checking pledge cache for {symbol}: {e}")
 
-    # 2. Return 0.0 if not in database
+    # 2. Return None if not in database
     # We DO NOT fallback to hitting the API synchronously because it halts the scanner.
     # The pledge_worker daemon will pick up the missing stock tonight.
-    return 0.0
+    return None

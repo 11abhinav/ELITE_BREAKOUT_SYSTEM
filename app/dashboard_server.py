@@ -1614,9 +1614,10 @@ def api_scanner_status():
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
 
-            # Enrich AI/Pledge workers with progress metrics
+            # [VERSION: PLEDGE_STATS_API_v1.1] Remove Pledge Worker from blocking status queries
+            # Enrich AI Worker with progress metrics (Pledge Worker progress is computed in background by its own thread)
             try:
-                if sc in ("AI Worker", "Pledge Worker"):
+                if sc == "AI Worker":
                     if time.time() - _cached_worker_symbols_time > 3600:
                         # Rebuild cache once per hour max
                         import pandas as pd
@@ -1651,14 +1652,10 @@ def api_scanner_status():
                         _cached_worker_symbols_time = time.time()
                     
                     total_needed = len(_cached_worker_symbols)
-                    from database import get_ai_concall_stats, get_promoter_pledge_stats
+                    from database import get_ai_concall_stats
                     
                     symbol_list = list(_cached_worker_symbols)
-                    if sc == 'AI Worker':
-                        stats = get_ai_concall_stats(symbol_list)
-                    else:
-                        stats = get_promoter_pledge_stats(symbol_list)
-                    
+                    stats = get_ai_concall_stats(symbol_list)
                     row["total_count"] = total_needed
                     row["processed_count"] = stats.get('total_cached', 0)
                     
@@ -1666,7 +1663,7 @@ def api_scanner_status():
                         if not row.get("error_msg") or row["error_msg"] == "system healthy":
                             row["error_msg"] = f"Last processed: {stats['last_symbol']}"
             except Exception:
-                logger.exception('Failed to compute worker progress metrics')
+                logger.exception('Failed to compute AI worker progress metrics')
     
             result[sc] = {
                     "status":        row["status"],
