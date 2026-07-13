@@ -593,6 +593,22 @@ function playDing() {
 }
 
 
+    function toggleTradesSection() {
+      const body = document.getElementById('trades-body');
+      const icon = document.getElementById('trades-icon');
+      const status = document.getElementById('trades-status');
+
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+        status.textContent = 'Click to collapse';
+      } else {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        status.textContent = 'Click to expand';
+      }
+    }
+
     function toggleMbWatchlist() {
       const body = document.getElementById('mb-watchlist-card-body');
       const icon = document.getElementById('mb-watchlist-icon');
@@ -712,8 +728,22 @@ function playDing() {
   </div>
 
     <!-- TRADES TABLE -->
-    <div class="section-label">All Trades</div>
-    <div class="card" style="margin-bottom:28px">
+    <div class="card" style="margin-bottom:28px; overflow: hidden; padding: 0;">
+      <div id="trades-header"
+        style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
+        onclick="toggleTradesSection()">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-weight: 600; color: var(--text); font-size:16px;">📈 All Trades</span>
+        </div>
+        <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+          <span id="trades-status">Click to collapse</span>
+          <svg id="trades-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      </div>
+      <div id="trades-body" style="padding: 20px; background: var(--bg);">
       <div class="filter-bar">
         <select id="filterDate">
           <option value="ALL">All Time</option>
@@ -762,6 +792,7 @@ function playDing() {
           </thead>
           <tbody id="tradeBody"></tbody>
         </table>
+      </div>
       </div>
     </div>
 
