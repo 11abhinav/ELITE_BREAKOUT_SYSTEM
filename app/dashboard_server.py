@@ -1771,8 +1771,19 @@ _news_lock = threading.Lock()
 @login_required
 def api_news(symbol):
     """Fetch recent 3 news headlines for a symbol with 15-min caching."""
-    # Append .NS for Yahoo Finance compatibility if not present and if it doesn't have an extension
-    yf_symbol = symbol.replace('_', '-') if "." in symbol else f"{symbol.replace('_', '-')}.NS"
+    try:
+        from bse_mapping_utils import load_bse_mappings
+        mappings = load_bse_mappings()
+        clean_upper = symbol.strip().upper()
+        if clean_upper in mappings:
+            yf_symbol = mappings[clean_upper]
+        elif clean_upper.endswith(".NS") and clean_upper[:-3] in mappings:
+            yf_symbol = mappings[clean_upper[:-3]]
+        else:
+            yf_symbol = symbol.replace('_', '-') if "." in symbol else f"{symbol.replace('_', '-')}.NS"
+    except Exception:
+        yf_symbol = symbol.replace('_', '-') if "." in symbol else f"{symbol.replace('_', '-')}.NS"
+
     
     with _news_lock:
         cached = _news_cache.get(yf_symbol)
@@ -2335,7 +2346,15 @@ def api_breakout_watchlist():
                     import pytz
                     ist = pytz.timezone('Asia/Kolkata')
                     try:
-                        yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
+                        from bse_mapping_utils import load_bse_mappings
+                        mappings = load_bse_mappings()
+                        clean_sym = sym.strip().upper()
+                        if clean_sym in mappings:
+                            yf_sym = mappings[clean_sym]
+                        elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+                            yf_sym = mappings[clean_sym[:-3]]
+                        else:
+                            yf_sym = sym if sym.endswith(".NS") else f"{sym}.NS"
                         t = yf.Ticker(yf_sym)
                         price = float(t.fast_info.last_price)
                         if pd.isna(price):

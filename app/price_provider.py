@@ -230,8 +230,29 @@ class PriceProvider:
         if not tickers:
             return {}
 
-        # normalize tickers order and dedupe
-        tickers = list(dict.fromkeys(tickers))
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            mappings = load_bse_mappings()
+        except Exception:
+            mappings = {}
+
+        # Map each input ticker to its resolved yfinance ticker, preserving the original ticker key
+        resolved_to_orig = {}
+        resolved_tickers = []
+        for t in tickers:
+            clean_sym = t.strip().upper()
+            if clean_sym in mappings:
+                res_sym = mappings[clean_sym]
+            elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+                res_sym = mappings[clean_sym[:-3]]
+            else:
+                res_sym = t if t.endswith(".NS") or t.endswith(".BO") or t.startswith("^") else f"{t}.NS"
+            
+            resolved_tickers.append(res_sym)
+            resolved_to_orig[res_sym] = t
+
+        # normalize resolved_tickers order and dedupe
+        resolved_tickers = list(dict.fromkeys(resolved_tickers))
 
         outputs: Dict[str, object] = {}
         missing = []
@@ -242,7 +263,7 @@ class PriceProvider:
         circuit_open = now < self.cooldown_until
 
         # First consult per-symbol cache. If stale exists, keep it in stale_map and schedule for refresh.
-        for t in tickers:
+        for t in resolved_tickers:
             key = (t, period, interval, start, end)
             val, is_stale = self._cache_get(key, allow_stale=True)
             if val is not None and not is_stale:
@@ -255,7 +276,7 @@ class PriceProvider:
 
         # If circuit open, return stale values where available and None for the rest
         if circuit_open:
-            for t in tickers:
+            for t in resolved_tickers:
                 if outputs.get(t) is None:
                     stale_val = stale_map.get(t)
                     if stale_val is not None:
@@ -267,22 +288,39 @@ class PriceProvider:
                         outputs[t] = stale_val
                     else:
                         outputs[t] = None
-            return outputs
-
-        # Batch missing symbols and download
-        batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
-        if batches:
-            with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
-                futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
-                for fut in as_completed(futures):
-                    idx = futures[fut]
-                    batch = batches[idx]
-                    try:
-                        res = fut.result()
-                        # cache per-symbol and merge
-                        for t, frame in res.items():
-                            # if frame is None and we had a stale fallback, preserve stale
-                            if frame is None:
+        else:
+            # Batch missing symbols and download
+            batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
+            if batches:
+                with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
+                    futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
+                    for fut in as_completed(futures):
+                        idx = futures[fut]
+                        batch = batches[idx]
+                        try:
+                            res = fut.result()
+                            # cache per-symbol and merge
+                            for t, frame in res.items():
+                                # if frame is None and we had a stale fallback, preserve stale
+                                if frame is None:
+                                    if t in stale_map:
+                                        stale_val = stale_map[t]
+                                        try:
+                                            if hasattr(stale_val, 'attrs'):
+                                                stale_val.attrs['is_stale'] = True
+                                        except Exception:
+                                            pass
+                                        outputs[t] = stale_val
+                                    else:
+                                        outputs[t] = None
+                                    # don't overwrite cache in this case
+                                else:
+                                    self._cache_set((t, period, interval, start, end), frame)
+                                    outputs[t] = frame
+                        except Exception as e:
+                            # On failure (possibly rate limit), return stale values for this batch where available
+                            logger.warning(f"Batch download failed for batch of {len(batch)} tickers: {e}")
+                            for t in batch:
                                 if t in stale_map:
                                     stale_val = stale_map[t]
                                     try:
@@ -293,30 +331,22 @@ class PriceProvider:
                                     outputs[t] = stale_val
                                 else:
                                     outputs[t] = None
-                                # don't overwrite cache in this case
-                            else:
-                                self._cache_set((t, period, interval, start, end), frame)
-                                outputs[t] = frame
-                    except Exception as e:
-                        # On failure (possibly rate limit), return stale values for this batch where available
-                        logger.warning(f"Batch download failed for batch of {len(batch)} tickers: {e}")
-                        for t in batch:
-                            if t in stale_map:
-                                stale_val = stale_map[t]
-                                try:
-                                    if hasattr(stale_val, 'attrs'):
-                                        stale_val.attrs['is_stale'] = True
-                                except Exception:
-                                    pass
-                                outputs[t] = stale_val
-                            else:
-                                outputs[t] = None
 
-        # ensure all requested tickers present in outputs (None if missing)
-        for t in tickers:
+        # ensure all resolved tickers present in outputs (None if missing)
+        for t in resolved_tickers:
             outputs.setdefault(t, None)
 
-        return outputs
+        # Map output keys back to original requested tickers
+        final_outputs = {}
+        for res_sym, frame in outputs.items():
+            orig = resolved_to_orig.get(res_sym, res_sym)
+            final_outputs[orig] = frame
+
+        # ensure all originally requested tickers are present in the final output
+        for t in tickers:
+            final_outputs.setdefault(t, None)
+
+        return final_outputs
 
 
 __all__ = ["PriceProvider", "RateLimiter"]
