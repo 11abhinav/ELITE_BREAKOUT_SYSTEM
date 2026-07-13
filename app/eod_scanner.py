@@ -37,6 +37,9 @@ from config import (
     ADX_MIN_THRESHOLD,
     MIN_STOCK_PRICE,
     SCORE_THRESHOLDS,
+    MIN_BREAKOUT_MARGIN,
+    MIN_BREAKOUT_VOLUME_RATIO,
+    BASE_TIGHTNESS_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
