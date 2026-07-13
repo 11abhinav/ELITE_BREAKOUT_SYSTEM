@@ -408,6 +408,13 @@ def run_eod_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
+            # [VERSION: TRIGGER_PERF_REBUILD_v1.1] Rebuild performance data on scheduled EOD completion
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data(fast_mode=True)
+                logger.info("📈 Completed post-EOD scheduled scan performance data rebuild")
+            except Exception as pe:
+                logger.error(f"Failed to rebuild performance data post-EOD: {pe}")
             logger.info("✅ EOD SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
             continue
@@ -529,6 +536,13 @@ def run_reversal_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
+            # [VERSION: TRIGGER_PERF_REBUILD_v1.1] Rebuild performance data on scheduled REVERSAL completion
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data(fast_mode=True)
+                logger.info("📈 Completed post-REVERSAL scheduled scan performance data rebuild")
+            except Exception as pe:
+                logger.error(f"Failed to rebuild performance data post-REVERSAL: {pe}")
             logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
             continue
@@ -1001,6 +1015,13 @@ def run_multibagger_scanner():
                     processed_count=stats.get("processed_count"),
                     today_alerts=stats.get("today_alerts", 0)
                 )
+                # [VERSION: TRIGGER_PERF_REBUILD_v1.1] Rebuild performance data on scheduled MULTIBAGGER completion
+                try:
+                    from performance_tracker import build_performance_data
+                    build_performance_data(fast_mode=True)
+                    logger.info("📈 Completed post-MULTIBAGGER scheduled scan performance data rebuild")
+                except Exception as pe:
+                    logger.error(f"Failed to rebuild performance data post-MULTIBAGGER: {pe}")
                 logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
             
             # Reset flag outside 7 PM window
@@ -1170,6 +1191,14 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                                   total_count=stats.get("total_count") if isinstance(stats, dict) else None,
                                   processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
                                   today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
+            
+            # [VERSION: TRIGGER_PERF_REBUILD_v1.0] Rebuild performance data on manual trigger completion
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data(fast_mode=True)
+                logger.info(f"📈 Completed post-scan performance data rebuild for {scanner_key}")
+            except Exception as pe:
+                logger.error(f"Failed to rebuild performance data post-scan for {scanner_key}: {pe}")
             
             try:
                 from database import insert_notification
