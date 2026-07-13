@@ -291,6 +291,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         if is_long_enough:
                             all_data[sym] = cached_df
                             needs_full = False
+                            fresh_count += 1
                             continue
                         else:
                             # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
