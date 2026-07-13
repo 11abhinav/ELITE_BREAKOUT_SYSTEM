@@ -39,6 +39,12 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
         text = ""
         try:
             reader = PdfReader(tmp_path)
+            # [VERSION: PDF_DECRYPT_PATCH_v1.0] Decrypt encrypted/digitally-signed PDFs
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception as dec_err:
+                    logger.warning(f"Failed to decrypt PDF with empty password: {dec_err}")
             for page in reader.pages:
                 page_text = page.extract_text()
                 if page_text:
