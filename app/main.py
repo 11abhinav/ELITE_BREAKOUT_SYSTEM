@@ -186,20 +186,29 @@ def _run(name, fn):
         except Exception:
             pass
 
+# GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
+scanner_execution_lock = threading.Lock()
+
 def run_intraday_scanner():
     wait_for_window("intraday")
-    import intraday
-    intraday.start()
+    with scanner_execution_lock:
+        import intraday
+        intraday.start()
+        time.sleep(15)
 
 def run_live_scanner():
     wait_for_window("live")
-    import live_scanner
-    live_scanner.start()
+    with scanner_execution_lock:
+        import live_scanner
+        live_scanner.start()
+        time.sleep(15)
 
 def run_multi_tf_scanner():
     wait_for_window("live")
-    import multi_tf_scanner
-    multi_tf_scanner.start()
+    with scanner_execution_lock:
+        import multi_tf_scanner
+        multi_tf_scanner.start()
+        time.sleep(15)
 
 def run_performance_tracker():
     """Refreshes dashboard data every 5 minutes all day on weekdays."""
@@ -388,7 +397,9 @@ def run_eod_scanner():
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
             import eod_scanner
-            total = eod_scanner.start()   # returns int
+            with scanner_execution_lock:
+                total = eod_scanner.start()   # returns int
+                time.sleep(15)
             if total == 0:
                 msg = (
                     f"📊 EOD SCAN — {today_str}\n"
@@ -516,7 +527,9 @@ def run_reversal_scanner():
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
             import reversal_scanner
-            total = reversal_scanner.start()   # returns int
+            with scanner_execution_lock:
+                total = reversal_scanner.start()   # returns int
+                time.sleep(15)
             if total == 0:
                 msg = (
                     f"🔄 REVERSAL SCAN — {today_str}\n"
@@ -1001,7 +1014,9 @@ def run_multibagger_scanner():
             if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
                 logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
                 import multibagger
-                stats = multibagger.start() or {}
+                with scanner_execution_lock:
+                    stats = multibagger.start() or {}
+                    time.sleep(15)
                 multibagger_ran = True
                 
                 # Mark success in health table
@@ -1183,8 +1198,11 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Run in background thread so the API returns immediately
     def _run():
         try:
-            logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
-            stats = fn() or {}
+            logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
+            with scanner_execution_lock:
+                logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
+                stats = fn() or {}
+                time.sleep(15)
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
                                   error_msg=None,

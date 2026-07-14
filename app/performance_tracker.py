@@ -311,12 +311,22 @@ def build_performance_data(fast_mode=False):
         })
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
+    from market_utils import is_market_open
+    is_open = is_market_open()
+    
     unique_symbols = list({t["symbol"] for t in trades})
-    logger.info(f"📈 Fetching current prices for {len(unique_symbols)} symbols...")
-    current_prices = _fetch_current_prices(unique_symbols)
+    if is_open:
+        logger.info(f"📈 Fetching current prices for {len(unique_symbols)} symbols...")
+        current_prices = _fetch_current_prices(unique_symbols)
+    else:
+        logger.info(f"⏸️ Market is closed. Skipping live quote fetch for {len(unique_symbols)} symbols.")
+        current_prices = {}
 
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
-    logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")
+    if is_open and not fast_mode:
+        logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")
+    else:
+        logger.info("⏭️ Skipping SL/Target intraday bar checks (fast_mode or market closed)")
 
     # [OPTIMIZATION] Pre-fetch all required intraday histories in big batches to avoid individual API hits
     fetch_groups = {}
@@ -346,7 +356,7 @@ def build_performance_data(fast_mode=False):
         fetch_groups.setdefault(key, []).append(t["symbol"])
 
     prefetched_data = {}
-    if fetch_groups:
+    if is_open and not fast_mode and fetch_groups:
         for (interval, period_str), syms in fetch_groups.items():
             logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades ({interval}/{period_str}) to prevent API spam...")
             df_request = pd.DataFrame({"Stock": syms})
@@ -381,7 +391,7 @@ def build_performance_data(fast_mode=False):
         if sl and tp and alert_time:
             # ── Full SL + Target detection ───────────────────────────────────────
             hist = None
-            if not fast_mode:
+            if is_open and not fast_mode:
                 pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                 hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 

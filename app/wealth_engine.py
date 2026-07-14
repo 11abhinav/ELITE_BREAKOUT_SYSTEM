@@ -875,10 +875,25 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         required_count = int(len(df) * 0.70)
         
         if fetched_count < required_count:
-            logger.error(f"❌ INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. Aborting Wealth Engine run to protect dashboard.")
+            # Diagnose the exact reason why APIs are failing
+            exact_reason = ""
+            try:
+                from data_providers.fyers_fetcher import _fyers_circuit_breaker
+                from data_provider import _price_provider
+                import time
+                if _fyers_circuit_breaker.is_open:
+                    exact_reason += "Fyers Circuit Breaker OPEN (API rate-limited). "
+                if _price_provider.cooldown_until > time.time():
+                    exact_reason += f"YFinance Circuit Breaker OPEN (cooldown={int(_price_provider.cooldown_until - time.time())}s). "
+            except Exception:
+                pass
+            
+            error_details = exact_reason if exact_reason else "Unknown APIs fail / no cache available"
+            
+            logger.error(f"❌ INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. EXACT REASON: {error_details}. Aborting Wealth Engine run to protect dashboard.")
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
-                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"INCOMPLETE DATA: Fetched {fetched_count}")
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {fetched_count}/{len(df)} | {error_details}")
                 except Exception:
                     pass
             # Return empty DataFrame to safely abort without throwing an unhandled exception traceback

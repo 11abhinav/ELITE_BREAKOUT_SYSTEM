@@ -303,11 +303,26 @@ def _run_scan(force: bool = False):
 
     fetched_count = len(all_ticker_data) if all_ticker_data else 0
     if fetched_count < len(watchlist) * 0.70:
-        logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols (likely rate-limited).")
+        # Diagnose the exact reason why APIs are failing
+        exact_reason = ""
+        try:
+            from data_providers.fyers_fetcher import _fyers_circuit_breaker
+            from data_provider import _price_provider
+            import time
+            if _fyers_circuit_breaker.is_open:
+                exact_reason += "Fyers Circuit Breaker OPEN (API rate-limited). "
+            if _price_provider.cooldown_until > time.time():
+                exact_reason += f"YFinance Circuit Breaker OPEN (cooldown={int(_price_provider.cooldown_until - time.time())}s). "
+        except Exception:
+            pass
+            
+        error_details = exact_reason if exact_reason else "Unknown APIs fail / no cache available"
+        logger.warning(f"⚠️ Data Provider returned data for only {fetched_count}/{len(watchlist)} symbols. EXACT REASON: {error_details}")
+        
         # [VERSION: REV_FETCH_ABORT_FIX] Gracefully degrade instead of crashing the runner
         if not is_test_mode:
             try:
-                upsert_scanner_health(scanner_name="REVERSAL", status="DEGRADED", error_msg=f"Partial Fetch: {fetched_count}/{len(watchlist)} symbols")
+                upsert_scanner_health(scanner_name="REVERSAL", status="DEGRADED", error_msg=f"Partial Fetch: {fetched_count}/{len(watchlist)} | {error_details}")
             except Exception:
                 pass
         # Proceed with partial data rather than aborting the entire nightly run
