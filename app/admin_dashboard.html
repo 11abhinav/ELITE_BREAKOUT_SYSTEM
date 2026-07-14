@@ -726,6 +726,8 @@
 
     .tbl-wrap {
       overflow-x: auto;
+      overflow-y: auto;
+      max-height: calc(100vh - 300px);
     }
 
     table {
@@ -735,6 +737,9 @@
     }
 
     thead th {
+      position: sticky;
+      top: 0;
+      z-index: 10;
       background: var(--card2);
       color: var(--muted);
       font-size: 10px;
@@ -2326,7 +2331,7 @@
 
       const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100);
       const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) <min ? (t.pnl_pct || 0) : min, 100);
-      const openPositions = filteredTrades.filter(t => t.status === 'OPEN').length;
+      const openPositions = filteredTrades.filter(t => t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))).length;
 
       const defs = [
         { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
@@ -2339,7 +2344,7 @@
         { id: 'expect', label: 'Expectancy', value: pct(expectancy), cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) },
         { id: 'best', label: 'Best Trade', value: pct(bestTrade), cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
         { id: 'worst', label: 'Worst Trade', value: pct(worstTrade), cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
-        { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'awaiting close', filter: t => t.status === 'OPEN' },
+        { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'awaiting close', filter: t => t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN')) },
       ];
       document.getElementById('kpis').innerHTML = defs.map(d => `
     <div class="kpi ${activeKpi === d.id ? 'active' : ''}" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
@@ -2822,14 +2827,35 @@
     let expandedIds = new Set();
     let sortCol = 'status', sortDir = 1;
 
+    function calcFloatingPnl(t) {
+      let realizedRs = 0;
+      if (t.exit_history) {
+        try {
+          let hist = typeof t.exit_history === 'string' ? JSON.parse(t.exit_history) : t.exit_history;
+          hist.forEach(e => { realizedRs += (e.pnl || 0); });
+        } catch (e) {}
+      }
+      let floatingRs = 0;
+      if ((t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))) && t.current_price && t.entry_price) {
+        let shares = (t.remaining_shares !== undefined && t.remaining_shares !== null) ? t.remaining_shares : t.shares_bought;
+        if (shares) {
+          floatingRs = (t.current_price - t.entry_price) * shares;
+        }
+      }
+      let totalRs = t.pnl_rs != null ? t.pnl_rs : (realizedRs + floatingRs);
+      let totalPct = t.pnl_pct != null ? t.pnl_pct : (t.capital_allocated ? (totalRs / t.capital_allocated) * 100 : 0);
+      return { totalRs, totalPct };
+    }
+
     function buildTradeRows(trades, maxAbs, prefix) {
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
       const todayStr = formatter.format(new Date());
 
       return trades.map((t, i) => {
         const id = prefix + i;
-        const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
-        const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
+        const pnlData = calcFloatingPnl(t);
+        const barW = pnlData.totalPct != null ? Math.min(100, Math.abs(pnlData.totalPct) / maxAbs * 100).toFixed(1) : 0;
+        const barColor = pnlData.totalPct == null ? C.muted : pnlData.totalPct >= 0 ? C.accent : C.warn;
         const isOpen = expandedIds.has(id);
         const sc = t.score != null ? `<span class="score-ring ${scoreClass(t.score)}">${t.score}</span>` : '—';
         const key = t.symbol + '|' + (t.alert_time || t.entry_date);
@@ -2852,8 +2878,8 @@
       </td>
       <td>${fmt(t.capital_allocated)}</td>
       <td>${t.shares_bought || '\u2014'}</td>
-      <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(t.pnl_pct)}">${pct(t.pnl_pct)}</span></div></td>
-      <td class="${pctClass(t.status === 'OPEN' && t.shares_bought && t.current_price ? (t.current_price - t.entry_price) * t.shares_bought : t.pnl_rs)}">${t.status === 'OPEN' && t.shares_bought && t.current_price ? fmt((t.current_price - t.entry_price) * t.shares_bought) : (t.pnl_rs != null ? fmt(t.pnl_rs) : '\u2014')}</td>
+      <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(pnlData.totalPct)}">${pct(pnlData.totalPct)}</span></div></td>
+      <td class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(t.alert_time || t.entry_date)}</div>
@@ -2866,7 +2892,10 @@
         <div class="detail-panel ${isOpen ? 'open' : 'closed'}" id="dp-${id}">
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
-            <div class="detail-val neg">${fmt(t.stop_loss)}</div>
+            <div class="detail-val neg" style="font-size:11px;">
+              ${fmt(t.stop_loss)}
+              ${t.initial_stop_loss && t.initial_stop_loss !== t.stop_loss ? '<br><span style="color:var(--muted); font-size:10px;">Initial SL: ' + fmt(t.initial_stop_loss) + '</span>' : ''}
+            </div>
             ${t.status === 'LOSS' && t.exit_price ? `
               <div style="font-size:11px;color:var(--warn);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
                 Booked: ${fmt(t.exit_price)}<br>
@@ -2875,14 +2904,30 @@
           }
           </div>
           <div class="detail-item">
-            <div class="detail-label">Target</div>
-            <div class="detail-val pos">${fmt(t.target_price)}</div>
+            <div class="detail-label">Targets (T1/T2/T3)</div>
+            <div class="detail-val pos" style="font-size:11px;">
+              ${t.target_1 ? 'T1: ' + fmt(t.target_1) : (t.target_price ? 'TP: ' + fmt(t.target_price) : '—')}
+              ${t.target_2 ? '<br>T2: ' + fmt(t.target_2) : ''}
+              ${t.target_3 ? '<br>T3: ' + fmt(t.target_3) : ''}
+            </div>
             ${t.status === 'WIN' && t.exit_price ? `
               <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
                 Booked: ${fmt(t.exit_price)}<br>
                 @ ${fmtClosedAt(t.closed_at)}
               </div>` : ''
           }
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Exit History</div>
+            <div class="detail-val" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; color:var(--muted)">
+              ${(() => {
+                let eh = t.exit_history;
+                if (typeof eh === 'string') {
+                  try { eh = JSON.parse(eh); } catch(e) { eh = []; }
+                }
+                return eh && eh.length > 0 ? eh.map(x => `${(x.time||x.timestamp||'').substring(5, 10)} ${(x.time||x.timestamp||'').substring(11, 16)} | Sold ${x.shares} @ ${x.price} (${x.type||x.reason||''})`).join('<br>') : '—';
+              })()}
+            </div>
           </div>
           <div class="detail-item">
             <div class="detail-label">Exit Price</div>
@@ -3050,7 +3095,11 @@
                 trade.capital_allocated = resTrade.capital_allocated;
                 trade.shares_bought = resTrade.shares_bought;
                 trade.stop_loss = resTrade.stop_loss;
+                trade.initial_stop_loss = resTrade.initial_stop_loss;
                 trade.target_price = resTrade.target_price;
+                trade.target_1 = resTrade.target_1;
+                trade.target_2 = resTrade.target_2;
+                trade.target_3 = resTrade.target_3;
                 if (trade.status === 'REJECTED') {
                   trade.status = 'OPEN';
                 }
@@ -3159,7 +3208,11 @@
             trade.capital_allocated = data.capital_allocated;
             trade.shares_bought = data.shares_bought;
             trade.stop_loss = data.stop_loss;
+            trade.initial_stop_loss = data.initial_stop_loss;
             trade.target_price = data.target_price;
+            trade.target_1 = data.target_1;
+            trade.target_2 = data.target_2;
+            trade.target_3 = data.target_3;
             if (trade.status === 'REJECTED') {
               trade.status = 'OPEN';
             }
@@ -3376,7 +3429,7 @@
       window._currentFilteredTrades = filtered;
       filtered = [...filtered].sort((a, b) => {
         if (sortCol === 'status') {
-          const p = { 'OPEN': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
+          const p = { 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
           const pA = p[a.status] ?? 4;
           const pB = p[b.status] ?? 4;
           if (pA !== pB) return sortDir * (pA - pB);
@@ -3708,13 +3761,13 @@
       let totalNet = currentEquity - cap;
 
       let totalFloating = 0;
-      let openTrades = ALL_TRADES.filter(t => t.status === 'OPEN');
+      let openTrades = ALL_TRADES.filter(t => t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN')));
       openTrades.forEach(t => {
         if (t.current_price == null || t.current_price === 0) return;
         let allocPct = (t.score >= 90) ? 0.15 : 0.10;
         let capitalForTrade = currentEquity * allocPct;
-        let floatingPct = ((t.current_price - t.entry_price) / t.entry_price);
-        let simulatedFloating = capitalForTrade * floatingPct;
+        let pnlData = calcFloatingPnl(t);
+        let simulatedFloating = capitalForTrade * (pnlData.totalPct / 100);
         totalFloating += simulatedFloating;
       });
 
@@ -3807,9 +3860,9 @@
 
     function exportCSV() {
       if (!window._currentFilteredTrades) return;
-      const rows = [['Symbol', 'Date', 'Scanner', 'Category', 'Signals', 'Entry Price', 'Stop Loss', 'Target', 'Exit Price', 'P&L %', 'P&L ₹', 'Capital', 'Shares', 'RSI', 'Vol Ratio', 'Status', 'Days Held', 'Score', 'Filters/Context']];
+      const rows = [['Symbol', 'Date', 'Scanner', 'Category', 'Signals', 'Entry Price', 'Stop Loss', 'Target 1', 'Target 2', 'Target 3', 'Target (Legacy)', 'Exit Price', 'P&L %', 'P&L ₹', 'Capital', 'Shares', 'RSI', 'Vol Ratio', 'Status', 'Days Held', 'Score', 'Filters/Context']];
       window._currentFilteredTrades.forEach(t => {
-        const pnl_rs = t.status === 'OPEN' && t.shares_bought ? ((t.current_price || t.entry_price) - t.entry_price) * t.shares_bought : (t.pnl_rs || '');
+        const pnlData = calcFloatingPnl(t);
         rows.push([
           t.symbol,
           (t.alert_time || t.entry_date || '').slice(0, 16),
@@ -3818,10 +3871,13 @@
           t.signals || '',
           t.entry_price || '',
           t.stop_loss || '',
+          t.target_1 || '',
+          t.target_2 || '',
+          t.target_3 || '',
           t.target_price || '',
           t.exit_price || '',
-          t.pnl_pct || '',
-          pnl_rs,
+          pnlData.totalPct || '',
+          pnlData.totalRs || '',
           t.capital_allocated || '',
           t.shares_bought || '',
           t.rsi || '',
@@ -5545,6 +5601,6 @@ function renderMultibaggerWatchlist() {
 </script>
 
 <script src="/static/push.js"></script>
-
+<script src="/static/table_sorter.js"></script>
 </body>
 </html>

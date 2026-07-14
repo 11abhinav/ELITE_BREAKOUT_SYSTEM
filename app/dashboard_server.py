@@ -1434,7 +1434,7 @@ def api_reallocate_alert():
             from database import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT capital_allocated, shares_bought, stop_loss, target_price FROM alerts WHERE id = %s", (alert_id,))
+                    cur.execute("SELECT capital_allocated, shares_bought, stop_loss, target_price, initial_stop_loss, target_1, target_2, target_3 FROM alerts WHERE id = %s", (alert_id,))
                     row = cur.fetchone()
                     if row:
                         return jsonify({
@@ -1442,7 +1442,11 @@ def api_reallocate_alert():
                             'capital_allocated': float(row[0] or 0),
                             'shares_bought': int(row[1] or 0),
                             'stop_loss': float(row[2] or 0),
-                            'target_price': float(row[3] or 0)
+                            'target_price': float(row[3] or 0),
+                            'initial_stop_loss': float(row[4] or 0) if row[4] else None,
+                            'target_1': float(row[5] or 0) if row[5] else None,
+                            'target_2': float(row[6] or 0) if row[6] else None,
+                            'target_3': float(row[7] or 0) if row[7] else None
                         })
         return jsonify({'success': bool(ok)})
     except Exception as e:
@@ -1703,8 +1707,12 @@ def api_scanner_status():
                             "entry_price":  float(t["entry_price"]) if t["entry_price"] else None,
                             "entry_time":   t["alert_time"] or "",
                             "stop_loss":    float(t["stop_loss"]) if t["stop_loss"] else None,
+                            "initial_stop_loss": float(t.get("initial_stop_loss", 0)) if t.get("initial_stop_loss") else None,
+                            "target_1":     float(t.get("target_1", 0)) if t.get("target_1") else None,
+                            "target_2":     float(t.get("target_2", 0)) if t.get("target_2") else None,
+                            "target_3":     float(t.get("target_3", 0)) if t.get("target_3") else None,
                             "target_price": float(t["target_price"]) if t["target_price"] else None,
-                            "exit_price":   float(t["exit_price"]) if t["exit_price"] else None,
+                            "exit_price":   float(t.get("exit_price", 0)) if t.get("exit_price") else None,
                             "closed_at":    t["closed_at"],
                             "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
                             "status":       t["status"] or "OPEN",

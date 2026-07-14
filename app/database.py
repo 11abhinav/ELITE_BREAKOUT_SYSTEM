@@ -278,6 +278,13 @@ def init_db():
                 for col_sql in [
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stop_loss    REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_price REAL",
+                    # Partial Exits & V2 Multi-Target Schema
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_1 REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_2 REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_3 REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS initial_stop_loss REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS remaining_shares INTEGER",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_history JSONB DEFAULT '[]'::jsonb",
                     # Performance tracker write-back columns
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status       TEXT    DEFAULT 'OPEN'",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_price   REAL",
@@ -304,6 +311,19 @@ def init_db():
 
                 # ── DROP LEGACY TABLES ──
                 cur.execute("DROP TABLE IF EXISTS multibagger_alerts CASCADE;")
+
+                # ── Trade Audit Log (Immutable History) ────────────────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trade_audit_log (
+                        id SERIAL PRIMARY KEY,
+                        alert_id INTEGER NOT NULL,
+                        action TEXT NOT NULL,
+                        timestamp TIMESTAMPTZ DEFAULT NOW(),
+                        old_state JSONB,
+                        new_state JSONB
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_alert_id ON trade_audit_log(alert_id)")
 
                 # ── Breakout Watchlist Metadata Columns (Multi-TF Funnel) ─────────
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
@@ -1105,7 +1125,10 @@ def save_alert_if_new(
     category: str = None,
     entry_price: float = None,
     stop_loss: float = None,
-    target_price: float = None,
+    target_1: float = None,
+    target_2: float = None,
+    target_3: float = None,
+    target_price: float = None,  # Legacy
     signals: str = None,
     score: int = None,
     rsi: float = None,
@@ -1198,20 +1221,20 @@ def save_alert_if_new(
                     cur.execute("""
                         INSERT INTO alerts
                             (symbol, breakout_type, alert_time, scanner, category,
-                            entry_price, stop_loss, target_price, signals, score,
-                            rsi, volume_ratio, status, context, capital_allocated, shares_bought,
+                            entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, 
+                            signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                             model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                     """, (symbol, breakout_type, alert_time, scanner, category,
-                        entry_price, stop_loss, target_price, signals, score,
-                        rsi, volume_ratio, context_str, capital_allocated, shares_bought,
+                        entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, 
+                        signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
                         model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
                     conn.commit()
                     success = True
                     inserted = cur.rowcount > 0
                     if inserted:
-                        msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | TGT: ₹{target_price}'
+                        msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
                         insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
                         
                         # Trigger web push notification
@@ -1231,6 +1254,55 @@ def save_alert_if_new(
                 if not success:
                     conn.rollback()
 
+
+def update_partial_exit(
+    alert_id: int,
+    new_status: str,
+    new_sl: float,
+    shares_sold: int,
+    remaining_shares: int,
+    realized_pnl_rs: float,
+    exit_event: dict
+) -> None:
+    """Handle a partial exit (e.g. T1 hit). Logs event, raises SL, updates shares."""
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            success = False
+            try:
+                with conn.cursor() as cur:
+                    # Fetch current state for audit log
+                    cur.execute("SELECT status, stop_loss, remaining_shares, exit_history FROM alerts WHERE id = %s", (alert_id,))
+                    row = cur.fetchone()
+                    if not row: return
+                    old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
+                    exit_hist = row[3] if row[3] else []
+                    
+                    if isinstance(exit_hist, str):
+                        exit_hist = json.loads(exit_hist)
+                    
+                    exit_hist.append(exit_event)
+                    new_hist_json = json.dumps(exit_hist)
+                    
+                    cur.execute("""
+                        UPDATE alerts
+                        SET status = %s,
+                            stop_loss = %s,
+                            remaining_shares = %s,
+                            exit_history = %s
+                        WHERE id = %s
+                    """, (new_status, new_sl, remaining_shares, new_hist_json, alert_id))
+                    
+                    new_state = {"status": new_status, "stop_loss": new_sl, "remaining_shares": remaining_shares, "exit_event": exit_event}
+                    cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
+                                (alert_id, 'PARTIAL_EXIT', json.dumps(old_state), json.dumps(new_state)))
+                    conn.commit()
+                    success = True
+                    logger.info(f"🔄 Alert {alert_id} partial exit: {new_status} | Booked {shares_sold} | Floating {remaining_shares} | SL raised to {new_sl}")
+            except Exception:
+                logger.exception(f"❌ update_partial_exit failed for alert_id={alert_id}")
+            finally:
+                if not success:
+                    conn.rollback()
 
 def update_alert_outcome(
     alert_id: int,
@@ -1253,6 +1325,12 @@ def update_alert_outcome(
             success = False
             try:
                 with conn.cursor() as cur:
+                    cur.execute("SELECT status, stop_loss, remaining_shares, exit_history FROM alerts WHERE id = %s", (alert_id,))
+                    row = cur.fetchone()
+                    if not row: return
+                    old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
+
+                    # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
                     cur.execute("""
                         UPDATE alerts
                         SET status      = %s,
@@ -1260,19 +1338,25 @@ def update_alert_outcome(
                             pnl_pct     = %s,
                             pnl_rs      = %s,
                             closed_at   = %s,
-                            exit_signal = %s
+                            exit_signal = %s,
+                            remaining_shares = 0
                         WHERE id = %s
-                        AND status = 'OPEN'   -- never overwrite an already-closed row
+                        AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')
                     """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
-                    conn.commit()
-                    success = True
+                    
                     if cur.rowcount:
+                        new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs}
+                        cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
+                                    (alert_id, 'FINAL_EXIT', json.dumps(old_state), json.dumps(new_state)))
+                        conn.commit()
+                        success = True
+                        
                         logger.info(f"🔒 Alert {alert_id} locked as {status} | exit={exit_price} pnl={pnl_pct}%")
                         # Fetch symbol to send notification
                         cur.execute("SELECT symbol FROM alerts WHERE id = %s", (alert_id,))
-                        row = cur.fetchone()
-                        if row:
-                            sym = row[0]
+                        row_sym = cur.fetchone()
+                        if row_sym:
+                            sym = row_sym[0]
                             p_str = f"₹{pnl_rs:.2f}" if pnl_rs is not None else f"{pnl_pct:.2f}%"
                             msg = f"{sym} | Exit: ₹{exit_price:.2f} | P&L: {p_str}"
                             insert_notification('sell', f'Exit Alert ({status})', msg, sym)
@@ -1324,10 +1408,11 @@ def get_all_alerts() -> list[dict]:
             cur.execute("""
                 SELECT
                     id, symbol, breakout_type, alert_time, alert_date,
-                    scanner, category, entry_price, stop_loss, target_price,
+                    scanner, category, entry_price, stop_loss, initial_stop_loss,
+                    target_price, target_1, target_2, target_3,
                     signals, score, rsi, volume_ratio,
                     status, exit_price, pnl_pct, closed_at, is_rejected,
-                    capital_allocated, shares_bought, pnl_rs, context,
+                    capital_allocated, shares_bought, remaining_shares, exit_history, pnl_rs, context,
                     model_version, data_partition
                 FROM alerts
                 ORDER BY alert_time DESC
@@ -1594,12 +1679,12 @@ def get_todays_alerts(today_str: str) -> list[dict]:
             try:
                 cur.execute("""
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, scanner, category, entry_price,
-                        stop_loss, target_price, signals, score::int as score, status, seen_by_user, seen_by_admin
+                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin
                     FROM alerts
                     WHERE alert_date = %s
                     UNION ALL
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
-                        NULL::real as stop_loss, NULL::real as target_price, entry_signal as signals, fm_score::int as score, 
+                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_price, NULL::int as remaining_shares, entry_signal as signals, fm_score::int as score, 
                         CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin
                     FROM wealth_buy_alert
                     WHERE alert_date = %s
@@ -4085,7 +4170,7 @@ def reallocate_capital_multiple(alert_ids: list):
     with get_connection() as conn:
         with conn.cursor() as cur:
             format_strings = ','.join(['%s'] * len(alert_ids))
-            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
+            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context, initial_stop_loss, target_1, target_2, target_3 FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
             rows = cur.fetchall()
             
             if not rows: return []
@@ -4107,7 +4192,7 @@ def reallocate_capital_multiple(alert_ids: list):
             results = []
             
             for row in rows:
-                a_id, entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str = row
+                a_id, entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str, initial_sl, t1, t2, t3 = row
                 
                 entry_price = float(entry_price) if entry_price else 0.0
                 stop_loss = float(stop_loss) if stop_loss else 0.0
@@ -4169,7 +4254,11 @@ def reallocate_capital_multiple(alert_ids: list):
                     "capital_allocated": new_cap,
                     "shares_bought": shares_to_buy,
                     "stop_loss": stop_loss,
-                    "target_price": target_price
+                    "target_price": target_price,
+                    "initial_stop_loss": float(initial_sl) if initial_sl else None,
+                    "target_1": float(t1) if t1 else None,
+                    "target_2": float(t2) if t2 else None,
+                    "target_3": float(t3) if t3 else None
                 })
             conn.commit()
             return results

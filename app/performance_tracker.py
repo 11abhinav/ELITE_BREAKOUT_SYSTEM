@@ -179,39 +179,174 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
 
 
 
-def _check_sl_and_target(
-    hist: pd.DataFrame,
-    stop_loss: float,
-    target_price: float,
-) -> Tuple[str, Optional[float], Optional[str]]:
+import json
+
+def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     """
-    Walk through post-alert 1h bars in chronological order.
-    Returns (outcome, exit_price, hit_time) where outcome is one of:
-        "SL_HIT"     — stop_loss breached first
-        "TARGET_HIT" — target_price breached first
-        "OPEN"       — neither hit yet
-    exit_price is the SL or target level (not the candle close) when hit.
-    hit_time is the formatted string of the candle timestamp when hit.
+    State Machine Evaluator for Partial Exits.
+    Walks forward through historical ticks and current price to execute trailing SLs and partial limits.
+    Mutates 't' in-memory and triggers database writes via database.py helpers.
     """
-    for ts, row in hist.iterrows():
-        open_price = float(row["Open"])
-        low  = float(row["Low"])
-        high = float(row["High"])
+    from database import update_partial_exit, update_alert_outcome
+    
+    t1 = t.get("target_1") or t.get("target_price")
+    t2 = t.get("target_2") or (t1 * 1.05 if t1 else None)
+    t3 = t.get("target_3") or (t1 * 1.10 if t1 else None)
+    
+    if not t1 or not t2 or not t3: return  # Sanity check
+    
+    shares_bought = t.get("shares_bought", 0)
+    if shares_bought == 0: return
 
-        # Check SL first (conservative — protect capital before counting gains)
-        if low <= stop_loss:
-            # If the candle opened below the SL (e.g., gap down), we take the loss 
-            # at the open price, not the theoretical SL level.
-            exit_price = open_price if open_price < stop_loss else stop_loss
-            return "SL_HIT", exit_price, ts.strftime("%Y-%m-%d %H:%M:%S")
-
-        # Then check target
-        if high >= target_price:
-            # Similarly, if it gapped up above target, book at open
-            exit_price = open_price if open_price > target_price else target_price
-            return "TARGET_HIT", exit_price, ts.strftime("%Y-%m-%d %H:%M:%S")
-
-    return "OPEN", None, None
+    # Build sequence of ticks to evaluate (history + live)
+    ticks = []
+    if hist is not None and not hist.empty:
+        for ts, row in hist.iterrows():
+            ticks.append((ts.strftime("%Y-%m-%d %H:%M:%S"), float(row["Open"]), float(row["Low"]), float(row["High"])))
+    if cur_p:
+        now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        ticks.append((now_str, cur_p, cur_p, cur_p))
+        
+    for ts_str, open_p, low, high in ticks:
+        if t["status"] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
+            break
+            
+        sl = t["stop_loss"]
+        status = t["status"]
+        rem_shares = t.get("remaining_shares")
+        if rem_shares is None: rem_shares = shares_bought
+        
+        # 1. Evaluate Stop Loss First (Protective)
+        if low <= sl:
+            exit_p = open_p if open_p < sl else sl
+            pnl_rs_event = rem_shares * (exit_p - t["entry_price"])
+            event = {"type": "SL_HIT", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
+            
+            final_status = "WIN" if "PARTIAL" in status else "LOSS"
+            
+            eh = t.get("exit_history")
+            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+            hist_list.append(event)
+            total_pnl_rs = sum(e["pnl"] for e in hist_list)
+            cap = t.get("capital_allocated") or 0.0
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            
+            update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event)
+            update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS")
+            
+            t["status"] = final_status
+            t["remaining_shares"] = 0
+            t["exit_history"] = json.dumps(hist_list)
+            t["pnl_pct"] = total_pnl_pct
+            t["pnl_rs"] = total_pnl_rs
+            continue
+            
+        # 2. Evaluate T1
+        if status == "OPEN" and high >= t1:
+            exit_p = open_p if open_p > t1 else t1
+            if not t.get("target_1"):
+                shares_to_sell = rem_shares
+            else:
+                shares_to_sell = int(shares_bought * 0.25)
+                if shares_to_sell == 0: shares_to_sell = rem_shares
+            
+            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
+            
+            new_rem = rem_shares - shares_to_sell
+            new_sl = t["entry_price"]  # Raise to Breakeven
+            new_status = "PARTIAL_WIN_1"
+            
+            update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
+            
+            t["status"] = new_status
+            t["stop_loss"] = new_sl
+            t["remaining_shares"] = new_rem
+            eh = t.get("exit_history")
+            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+            hist_list.append(event)
+            t["exit_history"] = json.dumps(hist_list)
+            
+            if new_rem <= 0:
+                t["status"] = "WIN"
+                total_pnl_rs = sum(e["pnl"] for e in hist_list)
+                cap = t.get("capital_allocated") or 0.0
+                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+            continue
+            
+        # 3. Evaluate T2
+        if status == "PARTIAL_WIN_1" and high >= t2:
+            exit_p = open_p if open_p > t2 else t2
+            shares_to_sell = int(shares_bought * 0.35)
+            if shares_to_sell > rem_shares: shares_to_sell = rem_shares
+            if shares_to_sell == 0: shares_to_sell = rem_shares
+            
+            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
+            
+            new_rem = rem_shares - shares_to_sell
+            new_sl = t1  # Raise SL to T1
+            new_status = "PARTIAL_WIN_2"
+            
+            update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
+            
+            t["status"] = new_status
+            t["stop_loss"] = new_sl
+            t["remaining_shares"] = new_rem
+            eh = t.get("exit_history")
+            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+            hist_list.append(event)
+            t["exit_history"] = json.dumps(hist_list)
+            
+            if new_rem <= 0:
+                t["status"] = "WIN"
+                total_pnl_rs = sum(e["pnl"] for e in hist_list)
+                cap = t.get("capital_allocated") or 0.0
+                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+            continue
+            
+        # 4. Evaluate T3
+        if status == "PARTIAL_WIN_2" and high >= t3:
+            exit_p = open_p if open_p > t3 else t3
+            shares_to_sell = rem_shares
+            
+            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            event = {"type": "T3_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
+            
+            update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event)
+            
+            eh = t.get("exit_history")
+            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+            hist_list.append(event)
+            total_pnl_rs = sum(e["pnl"] for e in hist_list)
+            cap = t.get("capital_allocated") or 0.0
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            
+            update_alert_outcome(t["id"], "WIN", exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+            
+            t["status"] = "WIN"
+            t["remaining_shares"] = 0
+            t["exit_history"] = json.dumps(hist_list)
+            t["pnl_pct"] = total_pnl_pct
+            t["pnl_rs"] = total_pnl_rs
+            continue
+            
+    # Calculate MTM (Mark-to-Market) for floating shares
+    if t["status"] in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2"):
+        if cur_p:
+            eh = t.get("exit_history")
+            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+            realized_pnl = sum(e["pnl"] for e in hist_list)
+            rem = t.get("remaining_shares")
+            if rem is None: rem = shares_bought
+            unrealized_pnl = rem * (cur_p - t["entry_price"])
+            total_pnl = realized_pnl + unrealized_pnl
+            
+            cap = t.get("capital_allocated") or 0.0
+            t["pnl_pct"] = round((total_pnl / cap) * 100, 2) if cap else 0.0
+            t["pnl_rs"] = round(total_pnl, 2)
 
 
 def _days_held(alert_date_str: str) -> int:
@@ -239,7 +374,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data(fast_mode=False):
+def build_performance_data(fast_mode=False, force_live_fetch=False):
     logger.info("=" * 70)
     logger.info("📊 PERFORMANCE TRACKER | Building performance data...")
     logger.info("=" * 70)
@@ -290,8 +425,12 @@ def build_performance_data(fast_mode=False):
             "alert_time":    alert_time,
             "entry_price":   entry_price,
             "stop_loss":     _f(row.get("stop_loss")),
+            "initial_stop_loss": _f(row.get("initial_stop_loss")),
             "target_price":  _f(row.get("target_price")),
-            "current_price": None,
+            "target_1":      _f(row.get("target_1")),
+            "target_2":      _f(row.get("target_2")),
+            "target_3":      _f(row.get("target_3")),
+            "current_price": _f(row.get("current_price")),
             "exit_price":    _f(row.get("exit_price")),   # pre-filled if already closed
             "pnl_pct":       _f(row.get("pnl_pct")),      # pre-filled if already closed
             "stopped_out":   row.get("status") == "LOSS",
@@ -305,6 +444,8 @@ def build_performance_data(fast_mode=False):
             "rsi":           _f(row.get("rsi")),
             "volume_ratio":  _f(row.get("volume_ratio")),
             "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
+            "remaining_shares": row.get("remaining_shares"),
+            "exit_history":  row.get("exit_history"),
             "context":       row.get("context"),          # Diagnostic filters and context
             "is_rejected":   row.get("is_rejected", False),
             "_db_closed":    row.get("status") in ("WIN", "LOSS"),  # internal flag
@@ -312,7 +453,7 @@ def build_performance_data(fast_mode=False):
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
     from market_utils import is_market_open
-    is_open = is_market_open()
+    is_open = is_market_open() or force_live_fetch
     
     unique_symbols = list({t["symbol"] for t in trades})
     if is_open:
@@ -370,9 +511,9 @@ def build_performance_data(fast_mode=False):
         sl         = t["stop_loss"]
         tp         = t["target_price"]
         alert_time = t["alert_time"]
-        cur_p      = current_prices.get(sym)
-
-        t["current_price"] = round(cur_p, 2) if cur_p else None
+        cur_p = current_prices.get(sym)
+        if cur_p:
+            t["current_price"] = round(cur_p, 2)
 
         # ── Already closed in DB — no bar download needed ────────────────────────
         if t["_db_closed"]:
@@ -388,79 +529,14 @@ def build_performance_data(fast_mode=False):
             t["status"]  = _trade_status(None, t["days_held"], False, False)
             continue
 
-        if sl and tp and alert_time:
-            # ── Full SL + Target detection ───────────────────────────────────────
+        if sl and alert_time and (t.get("target_1") or t.get("target_price")):
+            # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
             if is_open and not fast_mode:
                 pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                 hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
-            if hist is not None:
-                outcome, exit_p, hit_time = _check_sl_and_target(hist, sl, tp)
-
-                if outcome == "SL_HIT":
-                    t["stopped_out"] = True
-                    t["exit_price"]  = exit_p
-                    t["pnl_pct"]     = round((exit_p - ep) / ep * 100, 2)
-                    t["pnl_rs"]      = t["shares_bought"] * (exit_p - ep) if t["shares_bought"] else 0.0
-                    t["closed_at"]   = hit_time
-                    logger.debug(f"🛑 {sym} SL HIT | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
-                    update_alert_outcome(t["id"], "LOSS", exit_p, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
-
-                elif outcome == "TARGET_HIT":
-                    t["target_hit"] = True
-                    t["exit_price"] = exit_p
-                    t["pnl_pct"]    = round((exit_p - ep) / ep * 100, 2)
-                    t["pnl_rs"]      = t["shares_bought"] * (exit_p - ep) if t["shares_bought"] else 0.0
-                    t["closed_at"]   = hit_time
-                    logger.debug(f"🎯 {sym} TARGET HIT | entry={ep} target={tp} pnl={t['pnl_pct']}%")
-                    update_alert_outcome(t["id"], "WIN", exit_p, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="TARGET_HIT")
-
-                else:
-                    # Still open — check if live price breached it
-                    if cur_p and cur_p <= sl:
-                        t["stopped_out"] = True
-                        t["exit_price"]  = sl
-                        t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
-                        t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
-                        hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                        t["closed_at"]   = hit_time
-                        logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
-                        update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
-                    elif cur_p and cur_p >= tp:
-                        t["target_hit"] = True
-                        t["exit_price"] = tp
-                        t["pnl_pct"]    = round((tp - ep) / ep * 100, 2)
-                        t["pnl_rs"]      = t["shares_bought"] * (tp - ep) if t["shares_bought"] else 0.0
-                        hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                        t["closed_at"]   = hit_time
-                        logger.debug(f"🎯 {sym} TARGET HIT (LIVE) | entry={ep} target={tp} pnl={t['pnl_pct']}%")
-                        update_alert_outcome(t["id"], "WIN", tp, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="TARGET_HIT")
-                    else:
-                        t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2) if cur_p else None
-
-            else:
-                # No bar data — check live price
-                if cur_p and cur_p <= sl:
-                    t["stopped_out"] = True
-                    t["exit_price"]  = sl
-                    t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
-                    t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
-                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                    t["closed_at"]   = hit_time
-                    logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
-                    update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
-                elif cur_p and cur_p >= tp:
-                    t["target_hit"] = True
-                    t["exit_price"] = tp
-                    t["pnl_pct"]    = round((tp - ep) / ep * 100, 2)
-                    t["pnl_rs"]      = t["shares_bought"] * (tp - ep) if t["shares_bought"] else 0.0
-                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                    t["closed_at"]   = hit_time
-                    logger.debug(f"🎯 {sym} TARGET HIT (LIVE) | entry={ep} target={tp} pnl={t['pnl_pct']}%")
-                    update_alert_outcome(t["id"], "WIN", tp, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="TARGET_HIT")
-                else:
-                    t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2) if cur_p else None
+            process_trade_history(t, hist, cur_p)
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)

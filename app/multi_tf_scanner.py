@@ -636,6 +636,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 "final_sl": round(final_sl, 2),
                                 "invalidation_level": round(invalidation_level, 2),
                                 "stop_basis": sl_result.get("sl_method", "Structural SL"),
+                                "sl_result": sl_result,
                                 "algo_version": ACTIVE_ALGO_VERSION,
                                 "algo_params": {
                                     **INTRADAY_CONFIG,
@@ -666,6 +667,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                     category=cat,
                                     entry_price=close,
                                     stop_loss=final_sl,
+                                    target_1=sl_result.get("target_1"),
+                                    target_2=sl_result.get("target_2"),
+                                    target_3=sl_result.get("target_3"),
                                     target_price=calc_target,
                                     signals=f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
                                     score=final_score,

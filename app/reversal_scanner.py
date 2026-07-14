@@ -772,7 +772,8 @@ def _run_scan(force: bool = False):
                     "sl_method":        sl_result.get("sl_method"),
                     "t_method":         sl_result.get("t_method"),
                     "trail_note":       sl_result.get("trail_note")
-                }
+                },
+                "sl_result": sl_result
             }
             
             # Append configuration metadata for forward-testing and analytics
@@ -794,6 +795,9 @@ def _run_scan(force: bool = False):
                 "rsi": round(current_rsi, 1),
                 "volume_ratio": round(vol_ratio, 2),
                 "stop_loss": suggested_stop,
+                "target_1": sl_result.get("target_1"),
+                "target_2": sl_result.get("target_2"),
+                "target_3": sl_result.get("target_3"),
                 "target_price": target_price,
                 "context": context
             })
@@ -884,6 +888,9 @@ def _run_scan(force: bool = False):
                     rsi=alert["rsi"],
                     volume_ratio=alert["volume_ratio"],
                     stop_loss=alert["stop_loss"],
+                    target_1=alert.get("target_1"),
+                    target_2=alert.get("target_2"),
+                    target_3=alert.get("target_3"),
                     target_price=alert["target_price"],
                     context=alert["context"],
                     model_version="v6",
@@ -954,19 +961,6 @@ def _run_scan(force: bool = False):
     elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks.")
     return total_alerts
-    
-except Exception as global_e:
-    logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
-    try:
-        from database import insert_notification, upsert_scanner_health
-        from push_service import send_push_to_all
-        upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(global_e)[:500])
-        insert_notification("admin", f"❌ REVERSAL Scanner CRASHED (DOWN)", f"Error: {str(global_e)[:200]}")
-        send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(global_e)[:100]}")
-    except Exception:
-        pass
-    raise
-
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("reversal_scanner")

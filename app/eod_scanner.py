@@ -664,7 +664,8 @@ def _start_wrapper(force: bool = False):
                         "sl_method":        sl_result.get("sl_method"),
                         "t_method":         sl_result.get("t_method"),
                         "trail_note":       sl_result.get("trail_note")
-                    }
+                    },
+                    "sl_result": sl_result
                 }
                 
                 # Append configuration metadata for forward-testing and analytics
@@ -690,6 +691,9 @@ def _start_wrapper(force: bool = False):
                         rsi=round(rsi_val, 1),
                         volume_ratio=round(volume_ratio, 2),
                         stop_loss=suggested_stop,
+                        target_1=sl_result.get("target_1"),
+                        target_2=sl_result.get("target_2"),
+                        target_3=sl_result.get("target_3"),
                         target_price=target_price,
                         context=context,
                         model_version=model_version,

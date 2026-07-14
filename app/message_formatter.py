@@ -185,14 +185,16 @@ def format_alert(a, scanner="1H"):
 
     lines.append("")
     lines.append(f"<b>🎯 Execution (R:R {a.get('rr_ratio', 'N/A')}:1):</b>")
-    if "atr_stop" in a:
-        lines.append(f"├─ SL: ₹{a['atr_stop']}")
-    if "target_price" in a:
-        lines.append(f"├─ T1: ₹{a['target_price']}")
+    if "stop_loss" in a or "atr_stop" in a:
+        lines.append(f"├─ SL: ₹{a.get('stop_loss', a.get('atr_stop'))}")
+    if "target_1" in a and a["target_1"]:
+        lines.append(f"├─ T1: ₹{a['target_1']} (Book 25%, Trail SL to Entry)")
         if a.get("target_2"):
-            lines.append(f"├─ T2: ₹{a['target_2']}")
+            lines.append(f"├─ T2: ₹{a['target_2']} (Book 35%, Trail SL to T1)")
         if a.get("target_3"):
-            lines.append(f"├─ T3: ₹{a['target_3']}")
+            lines.append(f"├─ T3: ₹{a['target_3']} (Hold Rest with trailing SL)")
+    elif "target_price" in a:
+        lines.append(f"├─ T1: ₹{a['target_price']}")
     lines[-1] = lines[-1].replace("├─", "└─")
     
     cap_alloc = a.get("capital_allocated", 0)

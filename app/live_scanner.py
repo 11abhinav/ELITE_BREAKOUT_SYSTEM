@@ -407,6 +407,7 @@ def _start_wrapper(run_once=False):
                             "atr":              round(atr, 2),
                             "stop_basis":       sl_result.get("sl_method", "Structural SL")
                         },
+                        "sl_result": sl_result,
                         "algo_version": ACTIVE_ALGO_VERSION,
                         "algo_params": LIVE_1H_CONFIG
                     }
@@ -424,6 +425,9 @@ def _start_wrapper(run_once=False):
                             rsi=round(float(latest["RSI"]), 1),
                             volume_ratio=round(volume_ratio, 2),
                             stop_loss=round(suggested_stop, 2),
+                            target_1=sl_result.get("target_1"),
+                            target_2=sl_result.get("target_2"),
+                            target_3=sl_result.get("target_3"),
                             target_price=round(calc_target, 2),
                             context=context,
                             model_version=model_version,

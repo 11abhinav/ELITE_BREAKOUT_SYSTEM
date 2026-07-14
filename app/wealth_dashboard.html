@@ -218,7 +218,7 @@
     .sector-tag {
       display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px;
       background: rgba(59,130,246,0.1); color: var(--blue); border: 1px solid rgba(59,130,246,0.2);
-      font-family: var(--font-mono); max-width: 120px; overflow: hidden; text-overflow: ellipsis;
+      font-family: var(--font-mono); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       transition: all 0.3s ease;
     }
     .sector-tag:hover { background: rgba(59,130,246,0.2); }
@@ -1401,7 +1401,7 @@
         const posAmt = parseFloat(alert.position_amount) || 0;
         const posShares = alert.position_shares || '-';
         const pnlRs = alertPrice > 0 && posAmt > 0 ? (posAmt * (currentPrice - alertPrice) / alertPrice) : 0;
-        const pnlRsFmt = posAmt > 0 ? (pnlRs >= 0 ? '+' : '') + '₹' + Math.abs(pnlRs).toLocaleString('en-IN', {maximumFractionDigits:0}) : '-';
+        const pnlRsFmt = posAmt > 0 ? (pnlRs >= 0 ? '+' : '-') + '₹' + Math.abs(pnlRs).toLocaleString('en-IN', {maximumFractionDigits:0}) : '-';
         const pnlRsColor = pnlRs > 0 ? 'var(--green)' : pnlRs < 0 ? 'var(--red)' : 'var(--muted)';
 
         const notes = alert.notes ? alert.notes.replace(/"/g, '&quot;') : '';
@@ -1831,5 +1831,6 @@ fetchNotifications();
 
 <script src="/static/push.js"></script>
 
+<script src="/static/table_sorter.js"></script>
 </body>
 </html>

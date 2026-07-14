@@ -1173,6 +1173,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "1H":            _trigger_live_scanner,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
+        "PERFORMANCE_TRACKER": _trigger_performance_tracker,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -1190,6 +1191,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "1H":            lambda: __import__('live_scanner')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
+        "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
     }
     
     lock_fn = LOCK_MAP.get(scanner_key)
@@ -1318,6 +1320,11 @@ def _trigger_multibagger():
 def _trigger_ai_worker():
     from ai_worker import run_ai_worker_scan_once
     return run_ai_worker_scan_once()
+
+def _trigger_performance_tracker():
+    from performance_tracker import build_performance_data
+    build_performance_data(force_live_fetch=True)
+    return {"total_count": "Dashboard Rebuild", "processed_count": "Prices Fetched"}
 
 
 # ENTRY POINT
