@@ -161,6 +161,20 @@ class YFinanceFetcher(DataFetcher):
                 except Exception as e:
                     logger.warning(f"Failed to save BSE mapping inside get_ohlcv: {e}")
             
+        # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback for poisoned BSE mappings
+        if (df is None or df.empty) and ns_sym.endswith(".BO"):
+            try:
+                from bse_mapping_utils import load_bse_mappings, invalidate_bse_mapping
+                mappings = load_bse_mappings()
+                orig_clean = symbol.strip().upper()
+                if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
+                    logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE...")
+                    invalidate_bse_mapping(symbol)
+                    recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
+                    df = self._get_ohlcv_raw(recovery_sym, interval, period, retries, range_from, range_to)
+            except Exception as e:
+                logger.warning(f"Failed during poisoned mapping recovery in get_ohlcv: {e}")
+
         return df
 
     # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to perform the raw batch download
@@ -223,6 +237,7 @@ class YFinanceFetcher(DataFetcher):
         
         all_data = {}
         missing_symbols_to_retry = []
+        poisoned_symbols_to_retry = []
         
         for ns_sym, orig_syms in normalized_map.items():
             df = fetched.get(ns_sym)
@@ -233,6 +248,17 @@ class YFinanceFetcher(DataFetcher):
             else:
                 if ns_sym.endswith(".NS"):
                     missing_symbols_to_retry.extend(orig_syms)
+                elif ns_sym.endswith(".BO"):
+                    # [VERSION: POISONED_MAPPING_FIX_v1.0] Identify mapped BSE symbols that failed
+                    try:
+                        from bse_mapping_utils import load_bse_mappings
+                        mappings = load_bse_mappings()
+                        for orig_sym in orig_syms:
+                            orig_clean = orig_sym.strip().upper()
+                            if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
+                                poisoned_symbols_to_retry.append(orig_sym)
+                    except Exception:
+                        pass
 
         # If any NSE symbols failed, do exactly ONE batch retry using their BSE (.BO) equivalents!
         if missing_symbols_to_retry:
@@ -256,6 +282,31 @@ class YFinanceFetcher(DataFetcher):
                             save_bse_mapping(orig_sym, bse_sym)
                         except Exception as e:
                             logger.warning(f"Failed to save BSE mapping inside get_batch_ohlcv: {e}")
+
+        # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback (BSE -> NSE) for poisoned mappings
+        if poisoned_symbols_to_retry:
+            logger.info(f"🗑️ {prefix}Invalidating {len(poisoned_symbols_to_retry)} poisoned BSE mappings and retrying via NSE...")
+            try:
+                from bse_mapping_utils import invalidate_bse_mapping
+                ns_recovery_map = {}
+                for s in poisoned_symbols_to_retry:
+                    invalidate_bse_mapping(s)
+                    clean_sym = s.strip().upper()
+                    ns_sym = (clean_sym[:-3] + ".NS") if (clean_sym.endswith(".NS") or clean_sym.endswith(".BO")) else (clean_sym + ".NS")
+                    ns_recovery_map.setdefault(ns_sym, []).append(s)
+
+                ns_symbols_to_fetch = list(ns_recovery_map.keys())
+                ns_fetched = self._fetch_batch_raw(ns_symbols_to_fetch, period, interval, range_from, range_to)
+                
+                for ns_sym, orig_syms in ns_recovery_map.items():
+                    df = ns_fetched.get(ns_sym)
+                    if df is not None and not df.empty:
+                        df_clean = self._clean_df(df)
+                        for orig_sym in orig_syms:
+                            all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
+                            logger.info(f"✅ Recovered poisoned symbol {orig_sym} via {ns_sym}")
+            except Exception as e:
+                logger.warning(f"Failed during poisoned mapping recovery in get_batch_ohlcv: {e}")
 
         for s in symbols:
             all_data.setdefault(s, None)
@@ -296,6 +347,28 @@ class YFinanceFetcher(DataFetcher):
                     pass
                 finally:
                     yf_release()
+            # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback for poisoned BSE mappings
+            elif ns_sym.endswith(".BO"):
+                try:
+                    from bse_mapping_utils import load_bse_mappings, invalidate_bse_mapping
+                    mappings = load_bse_mappings()
+                    orig_clean = symbol.strip().upper()
+                    if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
+                        logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE (quote)...")
+                        invalidate_bse_mapping(symbol)
+                        recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
+                        yf_acquire(context=f"DataFetcher.get_quote | {recovery_sym}")
+                        try:
+                            ticker = yf.Ticker(recovery_sym)
+                            info = ticker.info
+                            if info and 'regularMarketPrice' in info:
+                                return info
+                        except Exception:
+                            pass
+                        finally:
+                            yf_release()
+                except Exception as e:
+                    logger.warning(f"Failed during poisoned mapping recovery in get_quote: {e}")
             return {}
         except CircuitOpenError as ce:
             logger.error(f"YFinance circuit open; abort quote fetch for {ns_sym}: {ce}")

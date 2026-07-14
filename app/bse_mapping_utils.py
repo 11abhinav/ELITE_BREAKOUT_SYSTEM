@@ -56,3 +56,24 @@ def save_bse_mapping(original_sym: str, mapped_sym: str) -> None:
         logger.info(f"💾 Persistent DB fallback mapping saved: {orig_clean} -> {mapped_clean}")
     except Exception as e:
         logger.warning(f"Failed to save BSE symbol mapping to DB: {e}")
+
+# [VERSION: POISONED_MAPPING_FIX_v1.0] Invalidate a poisoned BSE mapping
+def invalidate_bse_mapping(original_sym: str) -> None:
+    global _bse_mappings_cache
+    orig_clean = original_sym.strip().upper()
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    UPDATE symbol_mappings 
+                    SET is_invalid = TRUE 
+                    WHERE mapping_type = 'BSE' AND original_sym = %s
+                ''', (orig_clean,))
+            conn.commit()
+            
+        if _bse_mappings_cache is not None and orig_clean in _bse_mappings_cache:
+            del _bse_mappings_cache[orig_clean]
+        logger.info(f"🗑️ Poisoned BSE mapping invalidated for: {orig_clean}")
+    except Exception as e:
+        logger.warning(f"Failed to invalidate BSE mapping for {orig_clean}: {e}")
