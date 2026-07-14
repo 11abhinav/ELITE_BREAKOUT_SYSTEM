@@ -943,11 +943,14 @@ def _main_wrapper(force_rebuild: bool = False):
         logger.exception("❌ CRITICAL ERROR in daily builder")
         try:
             upsert_scanner_health("DAILY_BUILDER", "DOWN", error_msg=str(exc)[:500])
-            from database import upsert_build_manifest
+            from database import upsert_build_manifest, insert_notification
+            from push_service import send_push_to_all
             upsert_build_manifest(
                 run_date=str(datetime.now(IST).date()),
                 status="FAILED"
             )
+            insert_notification("admin", f"❌ DAILY_BUILDER CRASHED (DOWN)", f"Error: {str(exc)[:200]}")
+            send_push_to_all("❌ DAILY_BUILDER DOWN", f"Crash: {str(exc)[:100]}")
         except Exception:
             pass
         raise

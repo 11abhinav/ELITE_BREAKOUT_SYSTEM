@@ -981,13 +981,15 @@ def check_scanner_staleness(now):
                     except Exception:
                         logger.exception(f"❌ Could not send staleness Telegram for {sc}")
                     
-                    # In-app notification
+                    # In-app notification and Push
                     try:
+                        from push_service import send_push_to_all
                         insert_notification(
                             notif_type="scanner_stale",
                             title=f"🕐 {sc} is STALE",
                             message=stale_msg
                         )
+                        send_push_to_all(f"❌ {sc} STALE/DOWN", stale_msg)
                     except Exception:
                         pass
                         

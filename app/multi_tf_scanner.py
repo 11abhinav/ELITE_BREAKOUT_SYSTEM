@@ -824,16 +824,20 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 except Exception:
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")
             
+            total_scanned = metrics_a.get("total", 0) + metrics_b.get("total", 0)
+            
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                if status == "OK" and run_once:
+                    insert_notification("admin", "🚀 MULTI_TF Scanner ran successfully.", f"Evaluated {total_scanned} setups across multiple timeframes.")
+                elif status == "DEGRADED":
+                    insert_notification("admin", f"⚠️ MULTI_TF Scanner finished with DEGRADED status", error_msg or f"Evaluated {total_scanned} setups but data was degraded.")
+                    send_push_to_all("⚠️ MULTI_TF Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
+            except Exception:
+                pass
+                
             if run_once:
-                try:
-                    from database import insert_notification
-                    total_scanned = metrics_a.get("total", 0) + metrics_b.get("total", 0)
-                    if status == "OK":
-                        insert_notification("admin", "🚀 MULTI_TF Scanner ran successfully.", f"Evaluated {total_scanned} setups across multiple timeframes.")
-                    elif status == "DEGRADED":
-                        insert_notification("admin", f"⚠️ MULTI_TF Scanner finished with DEGRADED status", error_msg or f"Evaluated {total_scanned} setups but data was degraded.")
-                except Exception:
-                    pass
                 return {"total_count": total_symbols}
                 
             logger.info("💤 Sleeping 5 minutes before next Multi-TF ladder run...")
@@ -850,7 +854,9 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
                     )
                     from database import insert_notification
+                    from push_service import send_push_to_all
                     insert_notification("admin", f"❌ MULTI_TF Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                    send_push_to_all("❌ MULTI_TF Scanner DOWN", f"Crash: {str(e)[:100]}")
                 except Exception as ex:
                     logger.exception("Failed to update scanner health to DOWN")
 

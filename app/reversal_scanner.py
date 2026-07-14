@@ -924,6 +924,18 @@ def _run_scan(force: bool = False):
                 total_count=total_symbols,
                 error_msg=error_msg
             )
+            
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                if status == "OK" and run_once:
+                    insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+                elif status == "DEGRADED":
+                    insert_notification("admin", f"⚠️ REVERSAL Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
+                    send_push_to_all("⚠️ REVERSAL Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
+            except Exception:
+                pass
+                
         except Exception as e:
             logger.exception("Failed to save REVERSAL alerts")
             try:
@@ -932,18 +944,28 @@ def _run_scan(force: bool = False):
                     status="DOWN",
                     error_msg=f"Persistence failure: {e}"
                 )
+                from database import insert_notification
+                from push_service import send_push_to_all
+                insert_notification("admin", f"❌ REVERSAL Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(e)[:100]}")
             except Exception:
                 pass
             
     elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks.")
-            
+    return total_alerts
+    
+except Exception as global_e:
+    logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
     try:
-        from database import insert_notification
-        insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new reversal alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+        from database import insert_notification, upsert_scanner_health
+        from push_service import send_push_to_all
+        upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(global_e)[:500])
+        insert_notification("admin", f"❌ REVERSAL Scanner CRASHED (DOWN)", f"Error: {str(global_e)[:200]}")
+        send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(global_e)[:100]}")
     except Exception:
         pass
-    return total_alerts
+    raise
 
 
 from lock_utils import ProcessLock
@@ -981,6 +1003,8 @@ def _start_wrapper(force: bool = False) -> int:
         if not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
                 upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(e))
+                from push_service import send_push_to_all
+                send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(e)[:100]}")
             except Exception:
                 pass
         raise

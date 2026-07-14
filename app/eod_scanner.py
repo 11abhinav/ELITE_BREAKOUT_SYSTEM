@@ -810,6 +810,8 @@ def _start_wrapper(force: bool = False):
             elif status == "DEGRADED":
                 try:
                     insert_notification("admin", f"⚠️ EOD Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
+                    from push_service import send_push_to_all
+                    send_push_to_all("⚠️ EOD Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
                 except Exception:
                     pass
 
@@ -825,6 +827,8 @@ def _start_wrapper(force: bool = False):
             try:
                 upsert_scanner_health(scanner_name="EOD", status="DOWN", error_msg=str(e))
                 insert_notification("admin", f"❌ EOD Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                from push_service import send_push_to_all
+                send_push_to_all("❌ EOD Scanner DOWN", f"Crash: {str(e)[:100]}")
             except Exception:
                 pass
         raise  # re-raise so caller can send Telegram crash alert

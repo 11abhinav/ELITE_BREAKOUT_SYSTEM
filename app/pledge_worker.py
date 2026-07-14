@@ -453,6 +453,13 @@ def worker_loop():
         except Exception as e:
             logger.exception("Pledge worker loop crashed")
             upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch)
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                insert_notification("admin", f"❌ PLEDGE WORKER CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                send_push_to_all("❌ PLEDGE WORKER DOWN", f"Crash: {str(e)[:100]}")
+            except Exception:
+                pass
             sleep_with_mode_check(300)
 
 if __name__ == "__main__":

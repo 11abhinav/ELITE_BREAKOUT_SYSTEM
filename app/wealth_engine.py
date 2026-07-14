@@ -1007,7 +1007,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty 6M return {nifty_6m_ret:.1f}%"
         elif breadth_pct is not None and breadth_pct < 30:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
-        elif fresh_ratio < 0.70 and degraded >= 3:
+        elif fresh_ratio < 0.95:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
@@ -1016,7 +1016,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     msg = f"🚨 <b>Wealth Engine Degraded</b>\nSignals suppressed due to missing/stale data.\nFresh ratio: {fresh_ratio*100:.1f}%"
                     send_telegram_message(msg)
                     from push_service import send_push_to_all
-                    send_push_to_all("Wealth Engine Degraded", f"Signals suppressed. Data freshness dropped to {fresh_ratio*100:.1f}%")
+                    send_push_to_all("⚠️ Wealth Engine Degraded", f"Signals suppressed. Data freshness dropped to {fresh_ratio*100:.1f}%")
                 except Exception:
                     pass
             
@@ -1171,6 +1171,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         import database
         if not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
-                from database import upsert_scanner_health
+                from database import upsert_scanner_health, insert_notification
+                from push_service import send_push_to_all
                 upsert_scanner_health("Wealth Engine", "DOWN", error_msg=str(e))
+                insert_notification("admin", f"❌ Wealth Engine CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                send_push_to_all("❌ Wealth Engine DOWN", f"Crash: {str(e)[:100]}")
             except Exception: pass

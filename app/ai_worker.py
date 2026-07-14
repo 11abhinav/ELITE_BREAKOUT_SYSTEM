@@ -262,6 +262,13 @@ def run_worker_loop():
         except Exception as e:
             logger.exception(f"❌ [AI WORKER] Main loop crashed")
             upsert_scanner_health("AI Worker", "DOWN", error_msg=str(e))
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                insert_notification("admin", f"❌ AI WORKER CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                send_push_to_all("❌ AI WORKER DOWN", f"Crash: {str(e)[:100]}")
+            except Exception:
+                pass
             
         time.sleep(300)
 
