@@ -326,7 +326,7 @@ def _start_wrapper(run_once=False):
                         stale_count += 1
                         continue
                     norm_df = normalize_index(df)
-                    if not norm_df.empty:
+                    if norm_df is not None and not norm_df.empty:
                         ind_df = apply_indicators(norm_df, timeframe="15m")
                         if ind_df is not None and not ind_df.empty:
                             data_15m[sym] = ind_df
@@ -339,7 +339,7 @@ def _start_wrapper(run_once=False):
                         # Only count stale once per symbol (checked in 15m)
                         continue
                     norm_df = normalize_index(df)
-                    if not norm_df.empty:
+                    if norm_df is not None and not norm_df.empty:
                         ind_df = apply_indicators(norm_df, timeframe="5m")
                         if ind_df is not None and not ind_df.empty:
                             data_5m[sym] = ind_df
