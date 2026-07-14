@@ -652,8 +652,15 @@ def performance_json():
     try:
         if request.args.get('rebuild') == 'true':
             try:
-                from performance_tracker import build_performance_data
-                build_performance_data(fast_mode=True)
+                import main
+                if main.scanner_execution_lock.acquire(blocking=False):
+                    try:
+                        from performance_tracker import build_performance_data
+                        build_performance_data(fast_mode=True)
+                    finally:
+                        main.scanner_execution_lock.release()
+                else:
+                    logger.info("⏭️ Skipping dashboard performance rebuild because a scanner is actively running.")
             except Exception as e:
                 logger.error(f"Failed to fast-rebuild performance data: {e}")
                 
