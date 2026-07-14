@@ -1397,9 +1397,9 @@
         try {
           const clone = response.clone();
           const data = await clone.json();
-          if (data.error) alert("Access Denied: " + data.error);
+          if (data.error) showCustomToast("Access Denied: " + data.error, "error");
         } catch (e) {
-          alert("Access Denied.");
+          showCustomToast("Access Denied.", "error");
         }
       }
       // Also if we get a 400 Bad Request with CSRF failure, refresh token
@@ -2271,7 +2271,8 @@
     }
 
     async function setPledgeWorkerMode(mode) {
-      if(!confirm(`Are you sure you want to change Pledge Worker mode to: ${mode}?`)) return;
+      const confirmed = await showCustomConfirm(`Are you sure you want to change Pledge Worker mode to: ${mode}?`);
+      if (!confirmed) return;
       try {
         const res = await fetch('/api/admin/pledge_worker/mode', {
           method: 'POST',
@@ -2283,7 +2284,7 @@
           setTimeout(() => loadDiagnostics(), 1000);
         } else {
           const err = await res.json();
-          alert('Failed to set mode: ' + (err.message || 'Unknown error'));
+          showCustomToast('Failed to set mode: ' + (err.message || 'Unknown error'), 'error');
         }
       } catch(e) { console.error('Failed to set mode', e); }
     }
@@ -2661,7 +2662,7 @@
               tooltipHtml = data.error ? `
           <div class="scanner-alert-tooltip">
             <div class="sat-header" style="color:#ff4d6d">⚠ Error Details</div>
-            <div class="sat-empty" style="color:#ff4d6d; text-align:left; white-space:pre-wrap; cursor:pointer;" onclick="alert('Error: ' + '${(data.error || '').replace(/'/g, "\\'")}')">${data.error}</div>
+            <div class="sat-empty" style="color:#ff4d6d; text-align:left; white-space:pre-wrap; cursor:pointer;" onclick="showCustomToast('Error: ' + '${(data.error || '').replace(/'/g, \"\\\"')}', 'error')">${data.error}</div>
           </div>` : '';
             }
           } else if (isApi) {
@@ -2717,7 +2718,7 @@
               <div class="scanner-stat-value" style="font-size:12px; color:orange">${data.retry_count}</div>
             </div>` : ''}
           </div>
-          ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="alert('Error Details:\\n\\n' + '${(data.error || '').replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
+          ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + '${(data.error || '').replace(/'/g, \"\\\"')}', 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;
         }
         el.innerHTML = html_buffer;
@@ -3031,7 +3032,8 @@
     }
 
     async function rejectAlert(id) {
-      if (!confirm('Are you sure you want to REJECT this trade? Capital will be refunded and it will not count towards KPIs.')) return;
+      const confirmed = await showCustomConfirm('Are you sure you want to REJECT this trade? Capital will be refunded and it will not count towards KPIs.');
+      if (!confirmed) return;
       try {
         const res = await fetch('/api/alert/reject', {
           method: 'POST',
@@ -3044,11 +3046,11 @@
           renderTradeTable();
           loadCapitalInfo();
         } else {
-          alert('Failed to reject trade.');
+          showCustomToast('Failed to reject trade.', 'error');
         }
       } catch (e) {
         console.error(e);
-        alert('Error rejecting trade.');
+        showCustomToast('Error rejecting trade.', 'error');
       }
     }
 
@@ -3075,7 +3077,8 @@
       const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
       if (checkboxes.length === 0) return;
 
-      if (!confirm(`Are you sure you want to ALLOCATE capital for ${checkboxes.length} selected trades? This will read your current Cash In Hand and distribute it evenly.`)) return;
+      const confirmed = await showCustomConfirm(`Are you sure you want to ALLOCATE capital for ${checkboxes.length} selected trades? This will read your current Cash In Hand and distribute it evenly.`);
+      if (!confirmed) return;
 
       const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
@@ -3115,11 +3118,11 @@
           renderTradeTable();
           loadCapitalInfo();
         } else {
-          alert('Failed to allocate trades.');
+          showCustomToast('Failed to allocate trades.', 'error');
         }
       } catch (e) {
         console.error(e);
-        alert('Error allocating trades.');
+        showCustomToast('Error allocating trades.', 'error');
       } finally {
         btn.innerText = oldText;
         btn.disabled = false;
@@ -3130,7 +3133,8 @@
       const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
       if (checkboxes.length === 0) return;
 
-      if (!confirm(`Are you sure you want to REJECT ${checkboxes.length} selected trades? Capital will be refunded and they will not count towards KPIs.`)) return;
+      const confirmed = await showCustomConfirm(`Are you sure you want to REJECT ${checkboxes.length} selected trades? Capital will be refunded and they will not count towards KPIs.`);
+      if (!confirmed) return;
 
       const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
@@ -3155,11 +3159,11 @@
           renderTradeTable();
           loadCapitalInfo();
         } else {
-          alert('Failed to reject trades.');
+          showCustomToast('Failed to reject trades.', 'error');
         }
       } catch (e) {
         console.error(e);
-        alert('Error rejecting trades.');
+        showCustomToast('Error rejecting trades.', 'error');
       } finally {
         btn.innerText = oldText;
         btn.disabled = false;
@@ -3167,7 +3171,8 @@
     }
 
     async function acceptAlert(id) {
-      if (!confirm('Are you sure you want to RE-ACCEPT this trade? Capital will be deducted.')) return;
+      const confirmed = await showCustomConfirm('Are you sure you want to RE-ACCEPT this trade? Capital will be deducted.');
+      if (!confirmed) return;
       try {
         const res = await fetch('/api/alert/accept', {
           method: 'POST',
@@ -3180,16 +3185,17 @@
           renderTradeTable();
           loadCapitalInfo();
         } else {
-          alert('Failed to accept trade.');
+          showCustomToast('Failed to accept trade.', 'error');
         }
       } catch (e) {
         console.error(e);
-        alert('Error accepting trade.');
+        showCustomToast('Error accepting trade.', 'error');
       }
     }
 
     async function reallocateCapital(id) {
-      if (!confirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.')) return;
+      const confirmed = await showCustomConfirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.');
+      if (!confirmed) return;
       const btn = event.target || event.srcElement;
       let oldText = 'Allocate Capital';
       let isButton = btn && btn.tagName === 'BUTTON';
@@ -3224,11 +3230,11 @@
           renderTradeTable();
           loadCapitalInfo();
         } else {
-          alert('Failed to allocate capital.');
+          showCustomToast('Failed to allocate capital.', 'error');
         }
       } catch (e) {
         console.error(e);
-        alert('Error allocating capital.');
+        showCustomToast('Error allocating capital.', 'error');
       } finally {
         if (isButton) {
           btn.innerText = oldText;
@@ -4088,7 +4094,8 @@ async function ackSystemLog(index) {
 }
 
 async function clearAllSystemLogs() {
-    if(!confirm("Are you sure you want to clear all system logs?")) return;
+    const confirmed = await showCustomConfirm("Are you sure you want to clear all system logs?");
+    if (!confirmed) return;
     try {
         await fetch('/api/system_logs/clear_all', {method: 'POST'});
         fetchSystemLogs();
@@ -4209,7 +4216,8 @@ function renderNonCriticalErrors(errors) {
 }
 
 async function acknowledgeError(errorId, scannerName) {
-  if (!confirm('Mark this error as ignored? Count will reset to 0 and it will reappear if the error occurs again.')) {
+  const confirmed = await showCustomConfirm('Mark this error as ignored? Count will reset to 0 and it will reappear if the error occurs again.');
+  if (!confirmed) {
     return;
   }
   
@@ -4224,11 +4232,11 @@ async function acknowledgeError(errorId, scannerName) {
       await loadNonCriticalErrors();
       console.log(`✓ Error ${ errorId } acknowledged`);
     } else {
-      alert('Failed to acknowledge error');
+      showCustomToast('Failed to acknowledge error', 'error');
     }
   } catch (e) {
     console.error('Error acknowledging:', e);
-    alert('Error acknowledging the error');
+    showCustomToast('Error acknowledging the error', 'error');
   }
 }
 
@@ -4237,7 +4245,8 @@ function refreshNonCriticalErrors() {
 }
 
 async function clearAllErrors() {
-  if (!confirm('Clear ALL non-critical errors at once? This will acknowledge all errors and reset their counts.')) {
+  const confirmed = await showCustomConfirm('Clear ALL non-critical errors at once? This will acknowledge all errors and reset their counts.');
+  if (!confirmed) {
     return;
   }
   
@@ -4251,11 +4260,11 @@ async function clearAllErrors() {
       await loadNonCriticalErrors();
       console.log('✓ All errors cleared');
     } else {
-      alert('Failed to clear all errors');
+      showCustomToast('Failed to clear all errors', 'error');
     }
   } catch (e) {
     console.error('Error clearing all errors:', e);
-    alert('Error clearing all errors');
+    showCustomToast('Error clearing all errors', 'error');
   }
 }
 
@@ -4272,7 +4281,7 @@ function closeDepositFundsDialog() {
 async function submitDepositFunds() {
   const amount = parseFloat(document.getElementById('depositAmount').value);
   if (isNaN(amount) || amount <= 0) {
-    alert('Please enter a valid amount');
+    showCustomToast('Please enter a valid amount', 'info');
     return;
   }
   
@@ -4286,16 +4295,16 @@ async function submitDepositFunds() {
     if (response.ok) {
       const result = await response.json();
       closeDepositFundsDialog();
-      alert(`✓ Deposited ₹${ amount.toLocaleString('en-IN') }. Total Capital: ₹${ Math.round(result.total_capital).toLocaleString('en-IN') } `);
+      showCustomToast(`✓ Deposited ₹${ amount.toLocaleString('en-IN') }. Total Capital: ₹${ Math.round(result.total_capital).toLocaleString('en-IN') } `, 'success');
       loadCapitalInfo();
       updateSim();
     } else {
       const error = await response.json();
-      alert('Error: ' + (error.error || 'Failed to deposit funds'));
+      showCustomToast('Error: ' + (error.error || 'Failed to deposit funds'), 'error');
     }
   } catch (e) {
     console.error('Error depositing funds:', e);
-    alert('Error depositing funds');
+    showCustomToast('Error depositing funds', 'error');
   }
 }
 
@@ -5185,7 +5194,8 @@ async function markAllNotificationsSeen(e) {
 
 async function clearAllNotifications(e) {
     if(e) e.stopPropagation();
-    if(!confirm("Are you sure you want to clear all notifications?")) return;
+    const confirmed = await showCustomConfirm("Are you sure you want to clear all notifications?");
+    if (!confirmed) return;
     try {
         await fetch('/api/notifications/clear_all', {method: 'POST'});
         fetchNotifications();
@@ -5284,7 +5294,8 @@ async function loadPendingUsers(force = false) {
 }
 
 async function approveUser(id) {
-    if(!confirm('Approve this user?')) return;
+    const confirmed = await showCustomConfirm('Approve this user?');
+    if (!confirmed) return;
     try {
         const res = await fetch(`/admin/approve_user/${id}`, {method: 'POST'});
         if(res.ok) {
@@ -5293,16 +5304,17 @@ async function approveUser(id) {
             if (typeof searchUsers === 'function') searchUsers();
         } else {
             const data = await res.json();
-            alert('Error: ' + data.error);
+            showCustomToast('Error: ' + data.error, 'error');
         }
     } catch(e) {
         console.error(e);
-        alert('Failed to approve user');
+        showCustomToast('Failed to approve user', 'error');
     }
 }
 
 async function rejectUser(id) {
-    if(!confirm('Reject this user and delete account?')) return;
+    const confirmed = await showCustomConfirm('Reject this user and delete account?');
+    if (!confirmed) return;
     try {
         const res = await fetch(`/admin/reject_user/${id}`, {method: 'POST'});
         if(res.ok) {
@@ -5311,11 +5323,11 @@ async function rejectUser(id) {
             if (typeof searchUsers === 'function') searchUsers();
         } else {
             const data = await res.json();
-            alert('Error: ' + data.error);
+            showCustomToast('Error: ' + data.error, 'error');
         }
     } catch(e) {
         console.error(e);
-        alert('Failed to reject user');
+        showCustomToast('Failed to reject user', 'error');
     }
 }
 
@@ -5444,10 +5456,10 @@ async function submitDeactivateUser() {
       document.getElementById('deactivateUserModal').style.display = 'none';
       searchUsers(); // refresh the user list
     } else {
-      alert("Failed to deactivate user.");
+      showCustomToast("Failed to deactivate user.", 'error');
     }
   } catch (e) {
-    alert("Error deactivating user.");
+    showCustomToast("Error deactivating user.", 'error');
   }
 }
 
@@ -5455,7 +5467,7 @@ async function submitPasswordReset() {
   const userId = document.getElementById('resetUserId').value;
   const newPassword = document.getElementById('newPasswordInput').value;
   const forceChange = document.getElementById('forceChangeCheckbox').checked;
-  if (!newPassword) return alert("Password cannot be empty.");
+  if (!newPassword) { showCustomToast("Password cannot be empty.", "info"); return; }
   
   try {
     const res = await fetch('/api/admin/users/reset_password', {
@@ -5465,13 +5477,13 @@ async function submitPasswordReset() {
     });
     const data = await res.json();
     if (data.success) {
-      alert("Password reset successfully!");
+      showCustomToast("Password reset successfully!", "success");
       document.getElementById('resetPasswordModal').style.display = 'none';
     } else {
-      alert(data.error || "Failed to reset password");
+      showCustomToast(data.error || "Failed to reset password", "error");
     }
   } catch(e) {
-    alert("Error resetting password.");
+    showCustomToast("Error resetting password.", "error");
   }
 }
 
