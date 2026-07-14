@@ -34,6 +34,15 @@ class DatabaseLogHandler(logging.Handler):
             if record.levelno < logging.ERROR:
                 return
                 
+            # Filter out known noisy third-party loggers (like yfinance missing symbols)
+            if record.name.startswith(('yfinance', 'urllib3', 'requests', 'httpx')):
+                return
+                
+            # Fallback for yfinance modules if record.name is just the file name
+            if record.module in ('multi', 'history', 'quote', 'base', 'yfinance'):
+                if "delisted" in str(record.msg) or "Failed download" in str(record.msg) or "HTTP Error" in str(record.msg):
+                    return
+                
             module_name = record.module
             msg = self.format(record)
             
