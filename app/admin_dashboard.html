@@ -2499,25 +2499,27 @@
 
     async function triggerScanner(event, sc) {
       event.stopPropagation();
-      if (!confirm(`Are you sure you want to manually trigger ${sc}? This will run immediately in the background, bypassing any market-hour checks.`)) return;
+      const confirmed = await showCustomConfirm(`Are you sure you want to manually trigger <strong style="color:var(--accent)">${sc}</strong>?<br><br>This will run immediately in the background, bypassing any market-hour checks.`);
+      if (!confirmed) return;
       
       let forceRefresh = false;
       if (sc === 'Multibagger Engine') {
-          forceRefresh = confirm(`Do you also want to clear the fundamentals cache and fetch FRESH data from Yahoo Finance? \n\n(Click OK to fetch fresh data, Cancel to use cached data)`);
+          forceRefresh = await showCustomConfirm(`Do you also want to clear the fundamentals cache and fetch FRESH data from Yahoo Finance?<br><br><span style="font-size:12px; color:var(--muted);">(Click Confirm to fetch fresh, Cancel to use cached data)</span>`);
       }
       
       try {
+        showCustomToast(`Triggering ${sc}...`, 'info');
         const res = await fetch(`/api/admin/trigger_scanner/${sc}?force_refresh=${forceRefresh}`, { method: 'POST' });
         if (res.ok) {
           const data = await res.json();
-          alert(`✅ Success: ${data.message || 'Scanner trigger started successfully in the background.'}`);
+          showCustomToast(data.message || 'Scanner trigger started successfully in the background.', 'success');
           doRefresh();
         } else {
           const err = await res.json();
-          alert(`Failed to trigger ${sc}: ${err.message || err.error}`);
+          showCustomToast(`Failed to trigger ${sc}: ${err.message || err.error}`, 'error');
         }
       } catch (e) {
-        alert('Error triggering scanner: ' + e);
+        showCustomToast('Error triggering scanner: ' + e, 'error');
       }
     }
 
@@ -5604,5 +5606,70 @@ function renderMultibaggerWatchlist() {
 
 <script src="/static/push.js"></script>
 <script src="/static/table_sorter.js"></script>
+
+
+  <!-- Custom Confirmation Modal -->
+  <div id="customConfirmModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); z-index:10000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.2s ease;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; max-width:420px; width:90%; box-shadow:0 20px 40px rgba(0,0,0,0.4); transform:translateY(20px); transition:transform 0.2s ease;" id="customConfirmBox">
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+        <div style="width:40px; height:40px; border-radius:50%; background:rgba(255,170,0,0.1); color:#ffaa00; display:flex; align-items:center; justify-content:center; font-size:20px;">⚠️</div>
+        <div style="font-size:18px; font-weight:700; color:var(--text);">Confirmation Required</div>
+      </div>
+      <div id="customConfirmMessage" style="margin-bottom:24px; font-size:14px; color:var(--muted); line-height:1.6;"></div>
+      <div style="display:flex; gap:12px; justify-content:flex-end;">
+        <button onclick="closeCustomConfirm(false)" style="padding:10px 18px; background:var(--card2); border:1px solid var(--border); border-radius:8px; cursor:pointer; color:var(--text); font-weight:600; transition:all 0.2s;">Cancel</button>
+        <button onclick="closeCustomConfirm(true)" style="padding:10px 18px; background:var(--accent); border:none; border-radius:8px; cursor:pointer; color:#fff; font-weight:600; box-shadow:0 4px 12px rgba(0,212,161,0.3); transition:all 0.2s;">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Success Toast -->
+  <div id="customToast" style="display:none; position:fixed; bottom:24px; right:24px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 20px; box-shadow:0 10px 30px rgba(0,0,0,0.3); z-index:10001; align-items:center; gap:12px; transform:translateY(20px); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+    <div id="customToastIcon" style="font-size:20px;">✅</div>
+    <div id="customToastMessage" style="font-size:14px; font-weight:500; color:var(--text);"></div>
+  </div>
+
+  <script>
+    let customConfirmResolver = null;
+    function showCustomConfirm(message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('customConfirmModal');
+        const box = document.getElementById('customConfirmBox');
+        document.getElementById('customConfirmMessage').innerHTML = message;
+        modal.style.display = 'flex';
+        setTimeout(() => {
+          modal.style.opacity = '1';
+          box.style.transform = 'translateY(0)';
+        }, 10);
+        customConfirmResolver = resolve;
+      });
+    }
+    function closeCustomConfirm(result) {
+      const modal = document.getElementById('customConfirmModal');
+      const box = document.getElementById('customConfirmBox');
+      modal.style.opacity = '0';
+      box.style.transform = 'translateY(20px)';
+      setTimeout(() => {
+        modal.style.display = 'none';
+        if (customConfirmResolver) customConfirmResolver(result);
+      }, 200);
+    }
+    function showCustomToast(message, type = 'success') {
+      const toast = document.getElementById('customToast');
+      document.getElementById('customToastIcon').innerText = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
+      document.getElementById('customToastMessage').innerHTML = message;
+      toast.style.display = 'flex';
+      setTimeout(() => {
+        toast.style.transform = 'translateY(0)';
+        toast.style.opacity = '1';
+      }, 10);
+      setTimeout(() => {
+        toast.style.transform = 'translateY(20px)';
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.style.display = 'none'; }, 300);
+      }, 4000);
+    }
+  </script>
 </body>
+
 </html>
