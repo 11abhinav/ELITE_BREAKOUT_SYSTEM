@@ -1120,7 +1120,7 @@ def compute_sl_and_target(
     atr:            Optional[float],
     candle_range:   float,
     mode:           Optional[str]   = None,     
-    engine_version: str             = "v2.0",
+    engine_version: str             = "v1.0",
     **kwargs
 ) -> dict:
     """
