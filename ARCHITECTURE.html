@@ -674,6 +674,58 @@ To prevent redundant rate limiting and code duplication across the ecosystem, al
 ### 17.3 The Fetcher Fallback Contract & Drop-Out Protection
 - **Strict Return Schemas:** When batch fetching via `get_batch_ohlcv`, both `FyersFetcher` and `YFinanceFetcher` are bound by a strict contract: they **MUST** return a dictionary containing keys for *every* symbol requested, even if the value is `None`. 
 - **Preventing Silent Drops:** If a fetcher is rate-limited, blocked, or a circuit breaker trips, returning an empty `{}` would cause the upstream cache manager (`price_cache.py`) to bypass its fallback stale-cache injection, silently omitting all failed symbols from downstream engines like Wealth and Reversal (triggering "Incomplete Data" abortions). The strict contract guarantees the cache manager detects all missing data and activates the necessary fallbacks safely.
+
+---
+
+## 18. Scanner Stop-Loss (SL) and Target (TGT) Architecture (Auditing & Logic)
+
+The system utilizes a centralized, mode-dispatching SL/Target engine (`sl_target_helper.py`) for all scanners except Multibagger. A core principle of this engine is the **Anti-Operator-Trap Design**: retail traders typically place stops exactly at swing lows, making them vulnerable to institutional stop-hunting wicks. To combat this, the system places SLs *below* the structural support zones with a dynamically calculated buffer.
+
+### 18.1 Core Anti-Trap Mechanics
+- **Dynamic Buffering:** SL is buffered by `max(mode_atr_fraction × ATR, mode_pct × price)`.
+- **ADX-Aware Scaling:** Trending stocks (ADX > 35) receive up to a 30% wider SL buffer. Deep trends experience deeper pullbacks, and this prevents premature stop-outs.
+- **Multi-Swing Clustering:** Scans the last 3 swing lows. If 2+ cluster within 1% of each other, the system anchors the SL to this clustered zone, as it represents significantly stronger institutional support.
+- **Target Capping:** Prevents unrealistic targets by hard-capping maximum target extensions (e.g., 5×ATR for 15m, 8×ATR for 1H, 12×ATR for Daily).
+
+### 18.2 EOD Scanner (Daily Breakout)
+- **Trade Thesis:** Swing trade, holding days to weeks.
+- **Stop-Loss:** Placed below the nearest pivot/swing support with a 0.75×ATR (or 0.75%) buffer. Capped at 3.0×ATR to prevent excessive risk.
+- **Targets:**
+  - **T1:** Nearest resistance (Swing High or R1). Must meet a minimum **2.0:1** Risk-to-Reward (RR) ratio.
+  - **T2:** R2 or 3.5×RR (Disabled if RSI is Overbought).
+  - **T3:** 5.0×RR, activated only on strong confluence (Bullish MACD + ADX > 25) to hold for a parabolic run.
+- **Trailing Rule:** "Raise SL to breakeven after T1 is hit."
+
+### 18.3 Intraday Scanner (15m Momentum Scalp)
+- **Trade Thesis:** Early-momentum scalp, holding for the same day.
+- **Stop-Loss:** **VWAP-Anchored.** If VWAP falls between the entry price and the candle's low, the SL is anchored below VWAP (representing institutional fair-value support). Otherwise, it falls back to the triggering candle's own low + 0.5×ATR buffer.
+- **Targets:**
+  - **T1:** Session High, R1, or Bollinger Upper Band (Min **1.5:1** RR).
+  - **T2:** R1 or 2.5×RR.
+  - **T3:** NONE (Intraday does not hold for extended targets).
+- **Trailing Rule:** "Hold position until SL or Target is hit."
+
+### 18.4 Multi-TF / LIVE_1H Scanner (Hourly Swing)
+- **Trade Thesis:** Hourly swing continuation, holding 1-5 days.
+- **Stop-Loss:** VWAP-anchored (if valid) OR below the last hourly swing low + 0.5×ATR buffer.
+- **Targets:**
+  - **T1:** R1 or Swing High (Min **2.0:1** RR to justify overnight risk).
+  - **T2:** R2 or 3.0×RR (Disabled if RSI is Overbought).
+  - **T3:** NONE.
+- **Trailing Rule:** "Trail SL to last hourly swing low after T1 is hit."
+
+### 18.5 Reversal Scanner (Counter-Trend Oversold)
+- **Trade Thesis:** Mean reversion bounce, holding days to weeks. (Volatility is extremely high).
+- **Stop-Loss:** Placed below the recent oversold swing low with a **WIDE buffer** (1.0×ATR or 1.00%). The wide buffer is an absolute necessity because beaten-down stocks have massive daily ranges and frequent false flushes.
+- **Targets (Mean Reversion based, NOT resistance based):**
+  - **T1:** Bollinger Mid-Band (BB_MID) or SMA50. These stocks have heavy overhead resistance, so the target is the magnetic mean, not a structural high. Min **2.0:1** RR.
+  - **T2:** SMA50 (if not T1) or R1 (further recovery).
+  - **T3:** R2, activated only on strong MACD + ADX > 20.
+- **Trailing Rule:** "Book 50% at T1 (EMA20). Trail remainder to breakeven."
+
+### 18.6 Multibagger Scanner (Value Investing)
+- **Stop-Loss:** `0.0` (None). Multibagger operates on a long-term value accumulation thesis. Strict stop-losses are not applied, as price drops in fundamentally stellar, low-debt companies are treated as accumulating opportunities rather than invalidations.
+- **Targets:** Intrinsic Valuation targets. The system computes a `target_multiple` by averaging Graham Intrinsic Value and DCF models (factoring in Margin of Safety), establishing a fair-value exit horizon rather than a technical trading target.
 </textarea>
 
     <!-- Rendering Script -->
