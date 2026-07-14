@@ -137,6 +137,15 @@ class FyersFetcher(DataFetcher):
         if sym.startswith("^"):
             # Generic index format
             return f"NSE:{sym[1:]}-INDEX"
+        
+        # [VERSION: FYERS_SCRIP_OVERRIDE_v1.0] Static overrides for stocks where Fyers uses
+        # BSE numeric scrip codes instead of ticker names (e.g. NSDL = BSE:544467-EQ).
+        # Add entries here whenever a stock fails with both -EQ and -BE on the name.
+        _bse_scrip_overrides = {
+            "NSDL": "BSE:544467-EQ",   # National Securities Depository Ltd (BOM:544467)
+        }
+        if sym in _bse_scrip_overrides:
+            return _bse_scrip_overrides[sym]
             
         # Check mapping cache to skip the 1st failure if we already know it's a -BE
         try:
