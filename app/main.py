@@ -217,7 +217,8 @@ def run_performance_tracker():
     
     # Always run once on boot to ensure fresh dashboard data, even on weekends
     try:
-        build_performance_data()
+        with scanner_execution_lock:
+            build_performance_data()
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
@@ -236,7 +237,8 @@ def run_performance_tracker():
     while True:
         if is_market_open():
             try:
-                build_performance_data()
+                with scanner_execution_lock:
+                    build_performance_data()
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
                     last_success=datetime.now(IST).isoformat(),
