@@ -2060,13 +2060,27 @@ def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interva
                     ON CONFLICT (source_name, scanner_name, symbol, interval, category) DO UPDATE
                     SET occurrences = fetch_errors.occurrences + 1,
                         last_seen = EXCLUDED.last_seen,
-                        last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg),
-                        is_acknowledged = FALSE
+                        last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg)
                 """, (source_name, scanner_name, symbol, interval, category, now, now, error_msg))
                 conn.commit()
             except Exception:
                 conn.rollback()
                 logger.exception(f"❌ upsert_fetch_error failed for {source_name}/{symbol}")
+
+def delete_fetch_error_on_success(source_name: str, scanner_name: str, symbol: str, interval: str, category: str):
+    """Delete a fetch error row when the operation succeeds, ensuring it will re-alert if it fails again in the future."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    DELETE FROM fetch_errors
+                    WHERE source_name = %s AND scanner_name = %s AND symbol = %s AND interval = %s AND category = %s
+                """, (source_name, scanner_name, symbol, interval, category))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.exception(f"❌ delete_fetch_error_on_success failed for {source_name}/{symbol}")
 
 
 def get_all_fetch_errors(limit: int = 100) -> list:
@@ -2081,7 +2095,7 @@ def get_all_fetch_errors(limit: int = 100) -> list:
                 cur.execute("""
                     SELECT id, source_name, scanner_name, symbol, interval, category, occurrences, first_seen, last_seen, last_error_msg, is_acknowledged
                     FROM fetch_errors
-                    WHERE NOT (is_acknowledged = TRUE AND occurrences = 0)
+                    WHERE is_acknowledged = FALSE
                     ORDER BY occurrences DESC, last_seen DESC
                     LIMIT %s
                 """, (limit,))
@@ -2104,7 +2118,7 @@ def get_fetch_errors_for_scanner(scanner_name: str) -> list:
                     SELECT id, source_name, scanner_name, symbol, interval, category, occurrences, first_seen, last_seen, last_error_msg, is_acknowledged
                     FROM fetch_errors
                     WHERE scanner_name = %s 
-                    AND NOT (is_acknowledged = TRUE AND occurrences = 0)
+                    AND is_acknowledged = FALSE
                     ORDER BY occurrences DESC, last_seen DESC
                 """, (scanner_name,))
                 return [dict(r) for r in cur.fetchall()]

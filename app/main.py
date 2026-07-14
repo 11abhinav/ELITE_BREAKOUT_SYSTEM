@@ -191,24 +191,21 @@ scanner_execution_lock = threading.Lock()
 
 def run_intraday_scanner():
     wait_for_window("intraday")
-    with scanner_execution_lock:
-        import intraday
-        intraday.start()
-        time.sleep(15)
+    import intraday
+    intraday.start()
+    time.sleep(15)
 
 def run_live_scanner():
     wait_for_window("live")
-    with scanner_execution_lock:
-        import live_scanner
-        live_scanner.start()
-        time.sleep(15)
+    import live_scanner
+    live_scanner.start()
+    time.sleep(15)
 
 def run_multi_tf_scanner():
     wait_for_window("live")
-    with scanner_execution_lock:
-        import multi_tf_scanner
-        multi_tf_scanner.start()
-        time.sleep(15)
+    import multi_tf_scanner
+    multi_tf_scanner.start()
+    time.sleep(15)
 
 def run_performance_tracker():
     """Refreshes dashboard data every 5 minutes all day on weekdays."""

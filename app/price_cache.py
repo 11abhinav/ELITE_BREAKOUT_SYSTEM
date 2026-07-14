@@ -424,12 +424,19 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
     # Record missing symbols but DON'T reject the entire fetch
     for sym in symbols:
-        if sym not in all_data:
+        df = all_data.get(sym)
+        if df is None or getattr(df, 'attrs', {}).get('is_stale', False):
             try:
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
                 pass
             all_data[sym] = None
+        else:
+            try:
+                from database import delete_fetch_error_on_success
+                delete_fetch_error_on_success('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch')
+            except Exception:
+                pass
 
     try:
         from data_fetch_status import mark_success, mark_failure
