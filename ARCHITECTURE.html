@@ -744,6 +744,34 @@ Breakout targets are **never hardcoded** multipliers. The system dynamically anc
 ### 18.6 Multibagger Scanner (Value Investing)
 - **Stop-Loss:** `0.0` (None). Multibagger operates on a long-term value accumulation thesis. Strict stop-losses are not applied, as price drops in fundamentally stellar, low-debt companies are treated as accumulating opportunities rather than invalidations.
 - **Targets:** Intrinsic Valuation targets. The system computes a `target_multiple` by averaging Graham Intrinsic Value and DCF models (factoring in Margin of Safety), establishing a fair-value exit horizon rather than a technical trading target.
+
+---
+
+## 19. Price Cache Engine & Delta-Fetching Architecture
+
+To minimize network latency, avoid API rate limits, and enable ultra-fast background scanner loops, the Elite Breakout System implements a robust local disk-caching architecture (`app/price_cache.py`). This engine stores historical OHLCV data in highly compressed Parquet format within `data/history/<interval>/`.
+
+### 19.1 Delta vs. Full Fetching Logic
+The system intelligently decides what data to fetch to minimize network load. When a scanner requests data for a watchlist, the engine evaluates each ticker:
+1. **Cache Existence:** Does `data/history/<interval>/<symbol>.parquet` exist?
+   - If **NO**: Symbol is queued for a **FULL** fetch (e.g., download full 2 years of history).
+2. **Up-To-Date Check (`_is_cache_up_to_date`):** If the cache exists, the system compares the last timestamp against the current market timestamp.
+   - If the last timestamp is exactly the end of the previous trading day (or today's live close), the cache is marked as up to date.
+3. **Length Validation (`_is_cache_long_enough`):** Ensures the local cache contains enough historical bars to satisfy the current scanner's `period` requirement (e.g. 1 year vs 1 month).
+4. **Queue Assignment:**
+   - **Fully Up-To-Date & Long Enough:** Returns the cached DataFrame instantly without any network calls (`0 API hits`).
+   - **Long Enough, but Stale (e.g. missing today):** Queues symbol for a **DELTA** fetch. The system only downloads the missing bars (e.g. `start_date=Yesterday`, `end=Today`), and seamlessly concatenates them with the existing local cache.
+   - **Not Long Enough:** Even if up to date, if the scanner requires 2 years but the cache only has 1 month, it falls through and queues the symbol for a **FULL** fetch, overwriting the old short cache.
+
+### 19.2 Timezone Normalization Boundary
+Data providers (Fyers, Yahoo Finance) return timestamps in arbitrary and sometimes mixed timezones (UTC vs IST). The Price Cache Engine acts as the strict normalization boundary:
+- Before any concatenation occurs, all incoming dates and indices are strictly cast to `Asia/Kolkata` (IST).
+- Local cached data loaded from Parquet is also immediately localized to IST upon loading.
+- Deduplication is strictly enforced by `drop_duplicates(subset=['Datetime'], keep='last')` to ensure overlapping delta fetches do not create duplicate rows.
+
+### 19.3 Rate-Limit Fallbacks and Graceful Degradation
+- **Stale Fallback:** If a Delta or Full fetch fails (due to rate limiting or connection drop), the system automatically degrades gracefully by marking the existing local cache as `is_stale=True` and returning it to the scanner. This allows the scanner to continue running on yesterday's data instead of crashing completely.
+- **Error Tracking (`no_data_after_fetch`):** If a ticker is requested, lacks a valid local cache, and fails the fresh API fetch, it is explicitly excluded from the return dictionary and flagged as `no_data_after_fetch` in the tracking database to alert administrators.
 </textarea>
 
     <!-- Rendering Script -->
