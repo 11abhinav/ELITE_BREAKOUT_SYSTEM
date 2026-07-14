@@ -558,9 +558,10 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     buffer_val = 0.15 * atr20
                 
                     if len(df) >= 22:
-                        mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
+                        mean_vol = _safe_float(df["Volume"].iloc[-21:-1].mean()) or 1.0
                     else:
-                        mean_vol = max(float(df["Volume"].iloc[:-1].mean() or 1.0), 1.0)
+                        mean_vol = _safe_float(df["Volume"].iloc[:-1].mean()) or 1.0
+                    mean_vol = max(mean_vol, 1.0)
                     vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
                 
                     # Extension limit strict check
@@ -605,7 +606,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                             # [VERSION: MTF_VWAP_FALLBACK_FIX] Fallback to EMA20 if VWAP is missing due to lack of intraday volume
                             vwap_val = latest.get("VWAP")
                             if vwap_val is None or pd.isna(vwap_val) or vwap_val <= 0:
-                                vwap_val = float(latest.get("EMA20", close))
+                                vwap_val = _safe_float(latest.get("EMA20", close))
                                 
                             sl_result = compute_sl_and_target(
                                 entry_price=close,
@@ -613,7 +614,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 candle_range=_safe_float(latest.get("High")) - _safe_float(latest.get("Low")),
                                 mode="INTRADAY",
                                 adx=latest.get("ADX"),
-                                rsi=float(latest.get("RSI", 0)),
+                                rsi=_safe_float(latest.get("RSI", 0)),
                                 macd_hist=latest.get("MACD_HIST"),
                                 atr_pct=latest.get("ATR_PCT"),
                                 swing_low=latest.get("SWING_LOW"),
@@ -684,7 +685,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                     target_price=calc_target,
                                     signals=f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
                                     score=final_score,
-                                    rsi=float(latest.get("RSI", 0)),
+                                    rsi=_safe_float(latest.get("RSI", 0)),
                                     volume_ratio=vol_ratio,
                                     context=ctx,
                                     bayesian_regime=current_regime

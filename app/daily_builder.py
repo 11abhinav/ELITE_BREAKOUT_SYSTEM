@@ -439,8 +439,9 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
 
     # NEW: Institutional Accumulation
     # [VERSION: DAILY_BUILDER_PATCH_v1.6] Wire to module-level globals, not row (TV row lacks these columns)
-    deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
-    inst_buyers = _INST_BUYS.get(symbol, [])
+    with _classify_lock:
+        deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
+        inst_buyers = _INST_BUYS.get(symbol, [])
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and opm >= 10.0 and yoy_profit > 10.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──
@@ -613,8 +614,9 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
 
     # NEW: Institutional Accumulation
     # [VERSION: DAILY_BUILDER_PATCH_v1.6] Wire to module-level globals, not row (TV row lacks these columns)
-    deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
-    inst_buyers = _INST_BUYS.get(symbol, [])
+    with _classify_lock:
+        deliv_per = _DELIVERY_DATA.get(symbol, 0.0)
+        inst_buyers = _INST_BUYS.get(symbol, [])
     inst_accumulation = (deliv_per >= 60.0 and len(inst_buyers) > 0 and roa >= 1.0)
 
     # ── DIAMOND HOLD (LONG TERM) LOGIC ──

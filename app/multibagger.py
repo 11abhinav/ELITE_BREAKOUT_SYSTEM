@@ -753,8 +753,8 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
         
         "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
-        # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention
-        "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit and ie and abs(ie) > 1) else 100.0)(safe_extract(fin, 'Interest Expense')),
+        # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention, fix zero ebit giving 100.0
+        "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit is not None and ie and abs(ie) > 1) else (100.0 if ebit is not None and ebit > 0 else 0.0))(safe_extract(fin, 'Interest Expense')),
         "debt_yoy_growth": 0.0, # Dummy for now
         "altman_z": altman_z,
         "current_ratio": info.get("currentRatio"),
@@ -810,7 +810,7 @@ def save_watchlist_to_db(results: list):
                         trend_score = EXCLUDED.trend_score,
                         total_score = EXCLUDED.total_score,
                         bucket = EXCLUDED.bucket,
-                        status = EXCLUDED.status,
+                        status = CASE WHEN watchlist.status = 'REJECTED' THEN 'REJECTED' ELSE EXCLUDED.status END,
                         notes = EXCLUDED.notes,
                         last_alert_price = COALESCE(EXCLUDED.last_alert_price, watchlist.last_alert_price),
                         last_alert_at = COALESCE(EXCLUDED.last_alert_at, watchlist.last_alert_at),
@@ -935,6 +935,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # Try exit_prices first, then fall back to price_data_map
                 price_data = exit_prices.get(symbol) or price_data_map.get(symbol)
                 if not price_data:
+                    logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Stock might be suspended/delisted. Skipping exit check to avoid closing at zero.")
                     continue
                     
                 current_price = price_data.price
