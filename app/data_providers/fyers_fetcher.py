@@ -452,6 +452,7 @@ class FyersFetcher(DataFetcher):
 
         # Check if Fyers circuit breaker is open (too many failures)
         if not _fyers_circuit_breaker.is_available():
+            logger.warning(f"🚫 Fyers Circuit Breaker is OPEN. Skipping Fyers batch fetch for {len(symbols)} symbols.")
             return {}
 
         prefix = f"[{caller}] " if caller else ""

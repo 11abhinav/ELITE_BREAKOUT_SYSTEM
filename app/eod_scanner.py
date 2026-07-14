@@ -183,6 +183,8 @@ def _start_wrapper(force: bool = False):
             if not is_test_mode:
                 try:
                     upsert_scanner_health(scanner_name="EOD", status="DEGRADED", error_msg=f"Partial Fetch: {fetched_count}/{len(watchlist)} | {error_details}")
+                    from database import insert_notification
+                    insert_notification("error", "⚠️ EOD SCAN DEGRADED", f"Data fetched for only {fetched_count}/{len(watchlist)} symbols.\nReason: {error_details}")
                 except Exception:
                     pass
             # Proceed with partial data rather than aborting the entire nightly run

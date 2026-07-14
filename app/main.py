@@ -421,9 +421,13 @@ def run_eod_scanner():
             )
             # [VERSION: TRIGGER_PERF_REBUILD_v1.1] Rebuild performance data on scheduled EOD completion
             try:
-                from performance_tracker import build_performance_data
-                build_performance_data(fast_mode=True)
-                logger.info("📈 Completed post-EOD scheduled scan performance data rebuild")
+                from market_utils import is_market_open
+                if is_market_open():
+                    from performance_tracker import build_performance_data
+                    build_performance_data(fast_mode=True)
+                    logger.info("📈 Completed post-EOD scheduled scan performance data rebuild")
+                else:
+                    logger.info("⏭️ Skipping post-EOD performance rebuild because market is strictly CLOSED (User enforced).")
             except Exception as pe:
                 logger.error(f"Failed to rebuild performance data post-EOD: {pe}")
             logger.info("✅ EOD SCANNER | Completed successfully for today — waiting for tomorrow.")
@@ -551,9 +555,13 @@ def run_reversal_scanner():
             )
             # [VERSION: TRIGGER_PERF_REBUILD_v1.1] Rebuild performance data on scheduled REVERSAL completion
             try:
-                from performance_tracker import build_performance_data
-                build_performance_data(fast_mode=True)
-                logger.info("📈 Completed post-REVERSAL scheduled scan performance data rebuild")
+                from market_utils import is_market_open
+                if is_market_open():
+                    from performance_tracker import build_performance_data
+                    build_performance_data(fast_mode=True)
+                    logger.info("📈 Completed post-REVERSAL scheduled scan performance data rebuild")
+                else:
+                    logger.info("⏭️ Skipping post-REVERSAL performance rebuild because market is strictly CLOSED (User enforced).")
             except Exception as pe:
                 logger.error(f"Failed to rebuild performance data post-REVERSAL: {pe}")
             logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
@@ -1212,9 +1220,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             
             # [VERSION: TRIGGER_PERF_REBUILD_v1.0] Rebuild performance data on manual trigger completion
             try:
-                from performance_tracker import build_performance_data
-                build_performance_data(fast_mode=True)
-                logger.info(f"📈 Completed post-scan performance data rebuild for {scanner_key}")
+                from market_utils import is_market_open
+                if is_market_open():
+                    from performance_tracker import build_performance_data
+                    build_performance_data(fast_mode=True)
+                    logger.info(f"📈 Completed post-scan performance data rebuild for {scanner_key}")
+                else:
+                    logger.info(f"⏭️ Skipping post-scan performance rebuild because market is strictly CLOSED (User enforced).")
             except Exception as pe:
                 logger.error(f"Failed to rebuild performance data post-scan for {scanner_key}: {pe}")
             

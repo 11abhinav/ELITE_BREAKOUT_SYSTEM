@@ -188,7 +188,10 @@ class YFinanceFetcher(DataFetcher):
 
             return provider.fetch_batch(ns_symbols, period=period, interval=interval, start=start_date, end=end_date)
         except Exception as e:
-            logger.warning(f"Raw batch provider fetch failed: {e}")
+            if "Circuit open" in str(e):
+                logger.warning(f"🚫 YFinance Circuit Breaker is OPEN. Skipping YFinance batch fetch for {len(ns_symbols)} symbols: {e}")
+            else:
+                logger.error(f"❌ Raw batch provider fetch failed for YFinance: {e}", exc_info=True)
             return {}
 
     # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to format/clean retrieved df

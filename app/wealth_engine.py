@@ -894,6 +894,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
                     upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {fetched_count}/{len(df)} | {error_details}")
+                    from database import insert_notification
+                    insert_notification("error", "⚠️ WEALTH ENGINE DEGRADED", f"Data fetched for only {fetched_count}/{len(df)} symbols.\nReason: {error_details}")
                 except Exception:
                     pass
             # Return empty DataFrame to safely abort without throwing an unhandled exception traceback
