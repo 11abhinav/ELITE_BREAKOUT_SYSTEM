@@ -794,6 +794,24 @@ The system enforces several strict institutional risk guards before returning me
 - **Kelly Risk Capping:** Position sizing is scaled by a fraction of the Kelly Criterion dictated by Trade Quality. However, a strict ceiling `MAX_RISK_LIMIT = 2.0%` enforces that no individual trade exposes more than 2% account equity, overriding aggressive Kelly suggestions.
 - **Diagnostics and Explainability:** The system logs an internal payload of `warnings` (e.g. *"Target very close to resistance"*) and a deep `diagnostics` footprint revealing the source of the support, the source of the target, and the underlying mathematical components driving the Stop-Loss geometry.
 
+---
+
+## 21. Multi-Target Portfolio Extensibility
+
+The system supports a robust multi-target matrix (T1, T2, T3) instead of a monolithic single target logic.
+
+### 21.1 Tiered Exit Strategies
+All alert tables and database schemas natively record `target_1`, `target_2`, and `target_3`. The `sl_target_helper.py` engine computes these dynamically via cascading R:R (Risk-to-Reward) ratios and technical structural caps. This unlocks partial-booking capabilities for portfolio engines.
+
+### 21.2 Off-Market Performance Optimization
+To prevent API rate limit abuse and protect `current_price` metrics during off-market hours, `performance_tracker.py` uses dual-mode initialization:
+- **Active Market (`is_market_open() == True`):** Fetches real-time prices via the central data routing layer.
+- **Closed Market:** Aborts real-time fetching and preserves the last-known `current_price` cached in the database, preventing P&L column obliteration during off-hours.
+- **Admin Overrides (`force_live_fetch=True`):** Authorized manual triggers (via the Scanner Health grid) bypass the off-market gate to perform single-shot data recalibrations.
+
+### 21.3 Universal UI Sorting (Data-Agnostic)
+The web interface standardizes all `<table>` elements with a frontend DOM-based sorting algorithm (`table_sorter.js`). The script auto-detects column data types (Currency, Percentages, Dates, Strings) via Regex parsing. This decouples the backend logic from presentation requirements, ensuring tables can be sorted dynamically without issuing database `ORDER BY` API calls.
+
 </textarea>
 
 
