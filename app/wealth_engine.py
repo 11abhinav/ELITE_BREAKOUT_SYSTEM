@@ -875,13 +875,14 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         required_count = int(len(df) * 0.70)
         
         if fetched_count < required_count:
-            logger.warning(f"⚠️ Batch fetch returned {fetched_count}/{len(df)} candidates. Aborting.")
+            logger.error(f"❌ INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. Aborting Wealth Engine run to protect dashboard.")
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
                     upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"INCOMPLETE DATA: Fetched {fetched_count}")
                 except Exception:
                     pass
-            raise Exception(f"INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. Aborting.")
+            # Return empty DataFrame to safely abort without throwing an unhandled exception traceback
+            return pd.DataFrame()
             
         def process_symbol(idx, sym, historical_cache=None):
             try:
