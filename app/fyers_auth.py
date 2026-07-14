@@ -48,7 +48,7 @@ def save_access_token(auth_code: str) -> str:
         try:
             from database import save_system_state
             save_system_state("fyers_access_token", access_token)
-            save_system_state("fyers_access_token_date", str(datetime.now().date()))
+            save_system_state("fyers_access_token_date", str(datetime.now(pytz.timezone('Asia/Kolkata')).date()))
         except Exception as db_err:
             logger.warning(f"Failed to save Fyers token to database: {db_err}")
         
@@ -155,7 +155,7 @@ def auto_login() -> str:
 def get_access_token() -> str:
     """Retrieves the access token prioritizing DB, then local file, then auto-login."""
     global _cached_token, _token_date
-    now_date = datetime.now().date()
+    now_date = datetime.now(pytz.timezone('Asia/Kolkata')).date()
     now_str = str(now_date)
     
     if _cached_token and _token_date == now_date:

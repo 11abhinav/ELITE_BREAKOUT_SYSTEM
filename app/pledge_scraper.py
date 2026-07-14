@@ -39,7 +39,7 @@ def _is_key_exhausted_today(key: str) -> bool:
         if not os.path.exists(fpath): return False
         with open(fpath, 'r') as f:
             data = json.load(f)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
         return data.get(key) == today
     except Exception:
         return False
@@ -51,7 +51,7 @@ def mark_key_exhausted_today(key: str):
         if os.path.exists(fpath):
             with open(fpath, 'r') as f:
                 data = json.load(f)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
         data[key] = today
         data = {k: v for k, v in data.items() if v == today}
         with open(fpath, 'w') as f:
@@ -68,7 +68,7 @@ def _is_failed_today(symbol: str) -> bool:
         if not os.path.exists(fail_file): return False
         with open(fail_file, 'r') as f:
             data = json.load(f)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
         return data.get(symbol) == today
     except Exception:
         return False
@@ -80,7 +80,7 @@ def _mark_failed_today(symbol: str):
         if os.path.exists(fail_file):
             with open(fail_file, 'r') as f:
                 data = json.load(f)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
         data[symbol] = today
         # Clean up old entries to prevent file from growing indefinitely
         data = {k: v for k, v in data.items() if v == today}

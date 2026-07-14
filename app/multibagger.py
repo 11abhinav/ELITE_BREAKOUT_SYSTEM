@@ -124,7 +124,7 @@ def get_nse_session() -> requests.Session:
 def safe_float(val, default=0.0):
     try:
         import pandas as pd
-        if val is None or pd.isna(val):
+        if val is None or pd.isna(val) or val == "":
             return default
         return float(val)
     except:
@@ -1277,7 +1277,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
 
     
     # Init Rejection Log
-    log_date = datetime.now().strftime('%Y-%m-%d')
+    log_date = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d')
     rejection_log_path = f"logs/rejections_{log_date}.jsonl"
     os.makedirs("logs", exist_ok=True)
     unverified_pledge_count = 0
@@ -1346,16 +1346,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "PRE_GATE", "reason": "Ambiguous Technicals"}) + "\n")
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "PRE_GATE", "reason": "Ambiguous Technicals"}) + "\n")
             continue
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "PRE_GATE", "reason": "Fallback Fundamentals"}) + "\n")
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "PRE_GATE", "reason": "Fallback Fundamentals"}) + "\n")
             continue
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now().isoformat(), "phase": "QUALITY_GATE", "reason": reason}) + "\n")
+            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "QUALITY_GATE", "reason": reason}) + "\n")
             continue
 
         # 3. Run the V5 Pipeline
