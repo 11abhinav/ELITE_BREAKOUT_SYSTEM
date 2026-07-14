@@ -393,12 +393,8 @@
     }
 
     /* ── SCANNER STATUS GRID ── */
-    .scanner-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-      gap: 14px;
-      margin-bottom: 28px;
-    }
+    .scanner-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+      .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
 
     .scanner-card {
       background: var(--card);
@@ -1116,7 +1112,8 @@
       .header { flex-direction: column; align-items: flex-start; padding: 12px 16px; gap: 12px; }
       .header-brand { width: 100%; justify-content: space-between; }
       .header-right { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
-      .scanner-grid { grid-template-columns: 1fr; }
+      .scanner-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+      .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
       .kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       /* V_DASHBOARD_FLEX_WRAP_FIX_01: Make the last KPI span full width if it's odd to prevent blank space on the right */
       .kpi-row .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
@@ -2112,7 +2109,7 @@
           if (data.length === 0) {
             html = '<div style="font-size:11px;color:var(--muted);margin-top:4px;">No recent news found.</div>';
           } else {
-            html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:24px;">';
+            html = '<div style="display: flex; flex-wrap: wrap; gap:24px;">';
             data.forEach(item => {
               const date = new Date(item.date).toLocaleDateString('en-IN');
               html += `<div>

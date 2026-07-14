@@ -142,10 +142,10 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             hist['ATR'] = hist['TR'].rolling(window=14).mean()
             
             last_row = hist.iloc[-1]
-            cmp = float(last_row['Close'])
+            cmp = _safe_num(last_row.get('Close'))
 
             # ATR as a percentage of CMP
-            atr_pct = (float(last_row['ATR']) / cmp) * 100.0 if cmp > 0 and pd.notna(last_row['ATR']) else 0.0
+            atr_pct = (_safe_num(last_row.get('ATR')) / cmp) * 100.0 if cmp > 0 and pd.notna(last_row['ATR']) else 0.0
 
             # 6-Month Relative Strength vs Nifty
             hist_6m = hist.tail(126)
@@ -157,7 +157,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 rs_6m = 0.0
 
             # Distance to 52-Week High
-            high_52w = float(hist['High'].max())
+            high_52w = _safe_num(hist['High'].max())
             dist_52w_high = ((high_52w - cmp) / high_52w) * 100.0 if high_52w > 0 else 0.0
 
             # Liquidity (20-day Average Daily Volume * CMP)
@@ -169,20 +169,20 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             mom_score, mom_conf = calculate_momentum_quality_score(hist)
 
             return {
-                "sma_200": float(last_row['sma_200']) if not pd.isna(last_row['sma_200']) else None,
-                "sma_50":  float(last_row['sma_50']) if not pd.isna(last_row['sma_50']) else None,
-                "ema_20":  float(last_row['ema_20']) if not pd.isna(last_row['ema_20']) else None,
+                "sma_200": _safe_num(last_row['sma_200']) if not pd.isna(last_row['sma_200']) else None,
+                "sma_50":  _safe_num(last_row['sma_50']) if not pd.isna(last_row['sma_50']) else None,
+                "ema_20":  _safe_num(last_row['ema_20']) if not pd.isna(last_row['ema_20']) else None,
                 "cmp": cmp,
                 "rs_6m": rs_6m,
                 "dist_52w_high": dist_52w_high,
                 "liquidity": liquidity,
-                "RSI": float(last_row['RSI']) if not pd.isna(last_row['RSI']) else 50.0,
+                "RSI": _safe_num(last_row['RSI']) if not pd.isna(last_row['RSI']) else 50.0,
                 "ATR_Pct": atr_pct,
                 "momentum_score": mom_score,
                 "momentum_confidence": mom_conf,
                 "data_quality": "STALE_INTRADAY" if is_stale else DataQuality.LIVE.value,
                 "is_stale": is_stale,
-                "above_sma200": bool(cmp >= float(last_row['sma_200'])) if not pd.isna(last_row['sma_200']) else False
+                "above_sma200": bool(cmp >= _safe_num(last_row['sma_200'])) if not pd.isna(last_row['sma_200']) else False
             }
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")
@@ -218,7 +218,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
     import pandas as pd
     
     def _safe_float(val, default=0.0):
-        if val is None or pd.isna(val): return default
+        if val is None or pd.isna(val) or val == "": return default
         try: return float(val)
         except: return default
         
@@ -1142,8 +1142,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                         from database import save_hold_score_history
                         p_row = portfolio_df[portfolio_df["Stock"] == symbol].iloc[0]
                         save_hold_score_history(
-                            symbol=symbol, hold_score=current_score, fm_score=float(p_row.get("FM_Score", 0)),
-                            rs_6m=float(p_row.get("rs_6m", 0)), cmp=float(p_row.get("cmp", 0)), sma_200=float(p_row.get("sma_200", 0))
+                            symbol=symbol, hold_score=current_score, fm_score=_safe_num(p_row.get("FM_Score", 0)),
+                            rs_6m=_safe_num(p_row.get("rs_6m", 0)), cmp=_safe_num(p_row.get("cmp", 0)), sma_200=_safe_num(p_row.get("sma_200", 0))
                         )
                         
                 if realtime_metrics and not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):

@@ -155,7 +155,8 @@
   .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
 
   /* ── SCANNER STATUS GRID ── */
-  .scanner-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-bottom:28px; }
+  .scanner-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+      .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
   .scanner-card {
     background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
     padding:18px; position:relative; overflow:hidden; transition:all .2s;
@@ -353,7 +354,8 @@
     .header-brand { width: 100%; justify-content: space-between; }
     .header-right { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
     
-    .scanner-grid { grid-template-columns: 1fr; width: 100%; max-width: 100%; }
+    .scanner-grid { display: flex; flex-wrap: wrap; gap: 24px; }
+      .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
     
     /* Make tables scrollable properly */
     table { display: block; width: 100% !important; max-width: calc(100vw - 20px) !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; white-space: nowrap; border-collapse: collapse; }
@@ -1010,7 +1012,7 @@ function openChart(symbol, cmp) {
         if (data.length === 0) {
           html = '<div style="font-size:11px;color:var(--muted);margin-top:4px;">No recent news found.</div>';
         } else {
-          html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:24px;">';
+          html = '<div style="display: flex; flex-wrap: wrap; gap:24px;">';
           data.forEach(item => {
             const date = new Date(item.date).toLocaleDateString('en-IN');
             html += `<div>
