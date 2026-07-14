@@ -266,7 +266,7 @@ def _start_wrapper(force: bool = False):
                 if symbol in get_live_blacklist():
                     continue
 
-                if symbol not in all_ticker_data:
+                if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
                     rejection_counts["no_data"] += 1
                     continue
 
