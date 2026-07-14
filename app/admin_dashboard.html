@@ -2659,7 +2659,7 @@
               tooltipHtml = data.error ? `
           <div class="scanner-alert-tooltip">
             <div class="sat-header" style="color:#ff4d6d">⚠ Error Details</div>
-            <div class="sat-empty" style="color:#ff4d6d; text-align:left; white-space:pre-wrap; cursor:pointer;" onclick="showCustomToast('Error: ' + '${(data.error || '').replace(/'/g, \"\\\"')}', 'error')">${data.error}</div>
+            <div class="sat-empty" style="color:#ff4d6d; text-align:left; white-space:pre-wrap; cursor:pointer;" onclick="showCustomToast('Error: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')">${data.error}</div>
           </div>` : '';
             }
           } else if (isApi) {
@@ -2715,7 +2715,7 @@
               <div class="scanner-stat-value" style="font-size:12px; color:orange">${data.retry_count}</div>
             </div>` : ''}
           </div>
-          ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + '${(data.error || '').replace(/'/g, \"\\\"')}', 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
+          ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;
         }
         el.innerHTML = html_buffer;
