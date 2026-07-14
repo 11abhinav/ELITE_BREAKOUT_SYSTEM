@@ -398,6 +398,17 @@ def init_db():
                     )
                 """)
 
+                # ── Persistent Symbol Mappings (BSE/Fyers fallbacks across restarts) ─
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS symbol_mappings (
+                        mapping_type TEXT NOT NULL,
+                        original_sym TEXT NOT NULL,
+                        mapped_sym TEXT,
+                        is_invalid BOOLEAN DEFAULT FALSE,
+                        PRIMARY KEY (mapping_type, original_sym)
+                    )
+                """)
+
                 # ── AI Concall Cache table ─────────────────────────────────────────
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS ai_concall_cache_v3 (

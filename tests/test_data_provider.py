@@ -85,16 +85,20 @@ def test_bse_persistent_mapping_fallback(mocker):
     from data_provider import YFinanceFetcher
     from bse_mapping_utils import load_bse_mappings
     import bse_mapping_utils
+    import bse_mapping_utils
     
-    # Use a temporary mapping file to avoid messing up production data
-    temp_mapping_file = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/temp_bse_mappings.json"
-    mocker.patch("bse_mapping_utils._BSE_MAPPING_FILE", temp_mapping_file)
+    # Mock DB storage for mappings
+    fake_mappings = {}
     
-    # Ensure starting clean
-    if os.path.exists(temp_mapping_file):
-        os.remove(temp_mapping_file)
-    bse_mapping_utils._bse_mappings_cache = None
-    
+    def fake_load():
+        return fake_mappings
+        
+    def fake_save(orig, mapped):
+        fake_mappings[orig.strip().upper()] = mapped.strip().upper()
+        
+    mocker.patch("bse_mapping_utils.load_bse_mappings", side_effect=fake_load)
+    mocker.patch("bse_mapping_utils.save_bse_mapping", side_effect=fake_save)
+    bse_mapping_utils._bse_mappings_cache = fake_mappings
     fetcher = YFinanceFetcher()
     
     # Mock _get_ohlcv_raw:
@@ -116,9 +120,5 @@ def test_bse_persistent_mapping_fallback(mocker):
     # Now, calling normalize_symbol on YASHHV should directly return YASHHV.BO
     assert fetcher._normalize_symbol("YASHHV") == "YASHHV.BO"
     assert fetcher._normalize_symbol("YASHHV.NS") == "YASHHV.BO"
-    
-    # Clean up temp file
-    if os.path.exists(temp_mapping_file):
-        os.remove(temp_mapping_file)
     bse_mapping_utils._bse_mappings_cache = None
 

@@ -9,14 +9,18 @@ def test_fundamentals_cache_bse_fallback(mocker):
     import bse_mapping_utils
     from fundamentals_cache import fetch_single_piotroski, load_cache
     
-    # Use temporary file to avoid altering live mappings
-    temp_mapping_file = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/temp_bse_mappings.json"
-    mocker.patch("bse_mapping_utils._BSE_MAPPING_FILE", temp_mapping_file)
+    # Mock DB storage for mappings
+    fake_mappings = {}
     
-    # Ensure starting clean
-    if os.path.exists(temp_mapping_file):
-        os.remove(temp_mapping_file)
-    bse_mapping_utils._bse_mappings_cache = None
+    def fake_load():
+        return fake_mappings
+        
+    def fake_save(orig, mapped):
+        fake_mappings[orig.strip().upper()] = mapped.strip().upper()
+        
+    mocker.patch("bse_mapping_utils.load_bse_mappings", side_effect=fake_load)
+    mocker.patch("bse_mapping_utils.save_bse_mapping", side_effect=fake_save)
+    bse_mapping_utils._bse_mappings_cache = fake_mappings
     
     # Mock Ticker returns empty financials for NSDL.NS (first check)
     # but valid financials for NSDL.BO (second check fallback)
@@ -53,7 +57,4 @@ def test_fundamentals_cache_bse_fallback(mocker):
     mappings = bse_mapping_utils.load_bse_mappings()
     assert mappings.get("NSDL") == "NSDL.BO"
     
-    # Clean up temp file
-    if os.path.exists(temp_mapping_file):
-        os.remove(temp_mapping_file)
     bse_mapping_utils._bse_mappings_cache = None
