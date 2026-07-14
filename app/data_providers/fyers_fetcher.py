@@ -341,6 +341,17 @@ class FyersFetcher(DataFetcher):
                 else:
                     df["Datetime"] = timestamps
                     df = df.drop(columns=["Timestamp"], errors="ignore")
+                
+                # ── Save confirmed mapping only after a successful fetch ──────────────
+                # If we had to fall back to a different suffix (e.g. -BE instead of -EQ),
+                # persist it now so future calls skip the failing attempt entirely.
+                original_ns = self._normalize_symbol(symbol)
+                if ns_symbol != original_ns and not ns_symbol.endswith("-INDEX"):
+                    try:
+                        from data_providers.fyers_mapping_utils import save_fyers_mapping
+                        save_fyers_mapping(orig_sym, ns_symbol)
+                    except Exception:
+                        pass
                     
                 return df
                 
@@ -384,13 +395,7 @@ class FyersFetcher(DataFetcher):
                             return None
                             
                         logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
-                        
-                        try:
-                            from data_providers.fyers_mapping_utils import save_fyers_mapping
-                            save_fyers_mapping(orig_sym, fallback_sym)
-                        except Exception as e:
-                            logger.warning(f"Failed to save fallback mapping: {e}")
-                            
+                        # NOTE: We do NOT save the mapping here — only save after confirmed success
                         ns_symbol = fallback_sym
                         data["symbol"] = fallback_sym
                         continue  # Immediate retry with -BE without sleeping
