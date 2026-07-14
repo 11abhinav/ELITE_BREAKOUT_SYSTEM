@@ -303,21 +303,20 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
                             needs_full = True
-                            continue
                             
                     if not is_long_enough:
                         needs_full = True
-                        continue
                         
-                    # Back up 1 day to ensure we get overlapping candles to avoid gaps
-                    range_from = (last_ts - timedelta(days=1)).strftime("%Y-%m-%d")
-                    range_to = today_str
-                    
-                    group_key = (range_from, range_to)
-                    if group_key not in fetch_groups:
-                        fetch_groups[group_key] = []
-                    fetch_groups[group_key].append((sym, cached_df))
-                    needs_full = False
+                    if not needs_full:
+                        # Back up 1 day to ensure we get overlapping candles to avoid gaps
+                        range_from = (last_ts - timedelta(days=1)).strftime("%Y-%m-%d")
+                        range_to = today_str
+                        
+                        group_key = (range_from, range_to)
+                        if group_key not in fetch_groups:
+                            fetch_groups[group_key] = []
+                        fetch_groups[group_key].append((sym, cached_df))
+                        needs_full = False
             except Exception as e:
                 logger.warning(f"Failed to read disk cache for {sym}: {e}")
                 
