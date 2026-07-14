@@ -807,7 +807,7 @@ def _run_scan(force: bool = False):
             # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
             if not os.environ.get("RAILWAY_ENVIRONMENT"):
                 try:
-                    import os, csv
+                    import csv
                     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                     data_dir = os.path.join(base_dir, "data")
                     os.makedirs(data_dir, exist_ok=True)
