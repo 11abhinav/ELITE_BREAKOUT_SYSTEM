@@ -293,6 +293,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     market_cap  = fv("market_cap_basic")
     roe         = fv("return_on_equity_fy")
     opm         = fv("operating_margin")
+    opm         = opm if opm is not None else 0.0
 
     _raw_de     = fv("debt_to_equity_fq")
     debt_equity = _raw_de
@@ -325,7 +326,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         name for name, val in [
             ("close", close_price), ("average_volume_30d_calc", avg_volume),
             ("market_cap_basic", market_cap), ("return_on_equity_fy", roe),
-            ("operating_margin", opm), ("total_revenue_yoy_growth_ttm", yoy_sales),
+            ("total_revenue_yoy_growth_ttm", yoy_sales),
             ("earnings_per_share_diluted_yoy_growth_ttm", yoy_profit),
         ] if val is None
     ]
@@ -354,7 +355,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     total_shares = fv("total_shares_outstanding_fundamental")
     promoter_mcap = None
     if float_shares is not None and total_shares is not None and total_shares > 0 and market_cap is not None:
-        non_float_shares = total_shares - float_shares
+        non_float_shares = max(0, total_shares - float_shares)
         promoter_mcap = (non_float_shares / total_shares) * market_cap
 
     # ── JUNK-KILL GATE — Non-negotiable hard blocks ──────────────────────────────────
@@ -574,7 +575,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     total_shares = fv("total_shares_outstanding_fundamental")
     promoter_mcap = None
     if float_shares is not None and total_shares is not None and total_shares > 0 and market_cap is not None:
-        non_float_shares = total_shares - float_shares
+        non_float_shares = max(0, total_shares - float_shares)
         promoter_mcap = (non_float_shares / total_shares) * market_cap
 
     # ── JUNK-KILL GATE (Financial) — Non-negotiable hard blocks ─────────────────────
