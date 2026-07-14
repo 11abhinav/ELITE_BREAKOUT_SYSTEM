@@ -343,7 +343,7 @@ def block_until_watchlist_ready():
             for scanner in ["Wealth Engine", "MULTI-TF LADDER", "REVERSAL", "EOD"]:
                 upsert_scanner_health(
                     scanner,
-                    status="WAITING",
+                    status="IDLE",
                     error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
                 )
             first_block = False
