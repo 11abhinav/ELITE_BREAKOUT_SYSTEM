@@ -284,7 +284,16 @@ class YFinanceFetcher(DataFetcher):
                 yf_acquire(context=f"DataFetcher.get_quote | {bse_sym}")
                 try:
                     ticker = yf.Ticker(bse_sym)
-                    return ticker.info
+                    info = ticker.info
+                    if info and 'regularMarketPrice' in info:
+                        try:
+                            from bse_mapping_utils import save_bse_mapping
+                            save_bse_mapping(symbol, bse_sym)
+                        except Exception as e:
+                            logger.warning(f"Failed to save BSE mapping inside get_quote: {e}")
+                        return info
+                except Exception:
+                    pass
                 finally:
                     yf_release()
             return {}
