@@ -725,7 +725,7 @@ def _compute_reversal(
 # Public API — single entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_sl_and_target(
+def _legacy_compute_sl_and_target(
     entry_price:    float,
     atr:            Optional[float],
     candle_range:   float,
@@ -819,3 +819,287 @@ def compute_sl_and_target(
         return _compute_reversal(**kwargs, ema20=ema20, bb_mid=bb_mid, sma50=sma50)
     else:
         return _compute_eod(**kwargs)  # safe default
+
+
+# =====================================================================================
+# V2.0 INSTITUTIONAL ENGINE ARCHITECTURE
+# =====================================================================================
+
+ENGINE_V2_CONFIG = {
+    "SUPPORT_WEIGHTS": {
+        "touches": 40,
+        "volume": 30,
+        "age": 20,
+        "proximity": 10
+    },
+    "TARGET_WEIGHTS": {
+        "swing_high": 25,
+        "fib": 20,
+        "measured_move": 20,
+        "vwap": 15,
+        "atr": 10,
+        "volume_profile": 10
+    },
+    "TRADE_QUALITY_WEIGHTS": {
+        "trend": 25,
+        "momentum": 20,
+        "volume": 20,
+        "support": 15,
+        "rs": 10,
+        "market": 10
+    },
+    "VOLATILITY_WEIGHTS": {
+        "atr_percentile": 40,
+        "hv_percentile": 40,
+        "gap_frequency": 20
+    },
+    "PARTIAL_EXITS": {
+        "t1": "25%",
+        "t2": "35%",
+        "t3": "40%"
+    }
+}
+
+class SupportConfidenceEngine:
+    @staticmethod
+    def calculate(kwargs: dict) -> dict:
+        breakdown = {"touches": 10, "volume": 15, "age": 10, "proximity": 5}
+        
+        entry = kwargs.get("entry_price", 1.0)
+        support = kwargs.get("swing_low") or (entry * 0.95)
+        
+        # Proximity
+        vwap = kwargs.get("vwap")
+        if vwap and abs(vwap - support) / max(support, 1) < 0.02:
+            breakdown["proximity"] += 15
+            
+        ema20 = kwargs.get("ema20")
+        if ema20 and abs(ema20 - support) / max(support, 1) < 0.02:
+            breakdown["proximity"] += 10
+            
+        # Touches & Age (derived from clustering)
+        if kwargs.get("swing_low_cluster"):
+            breakdown["touches"] += 25
+            breakdown["age"] += 10
+            
+        # Cap values
+        breakdown["touches"] = min(breakdown["touches"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["touches"])
+        breakdown["volume"] = min(breakdown["volume"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["volume"])
+        breakdown["age"] = min(breakdown["age"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["age"])
+        breakdown["proximity"] = min(breakdown["proximity"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["proximity"])
+        
+        score = sum(breakdown.values())
+        return {"score": score, "breakdown": breakdown}
+
+class VolatilityRegimeEngine:
+    @staticmethod
+    def calculate(kwargs: dict) -> str:
+        atr_pct = kwargs.get("atr_pct") or 2.0
+        if atr_pct > 4.5: return "HIGH"
+        if atr_pct < 1.5: return "LOW"
+        return "NORMAL"
+
+class TradeQualityEngine:
+    @staticmethod
+    def calculate(kwargs: dict, support_score: int) -> dict:
+        adx = _safe(kwargs.get("adx")) or 20.0
+        rsi = _safe(kwargs.get("rsi")) or 50.0
+        
+        trend = min(ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["trend"], int((adx / 40.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["trend"]))
+        momentum = min(ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["momentum"], int((rsi / 70.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["momentum"]))
+        support_val = int((support_score / 100.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["support"])
+        
+        breakdown = {
+            "trend": trend,
+            "volume": 15, # Proxy for now unless we pass in volume explicitly
+            "momentum": momentum,
+            "support": support_val,
+            "rs": 10,
+            "market": 10
+        }
+        
+        score = sum(breakdown.values())
+        return {"score": min(100, score), "breakdown": breakdown}
+
+class BaseRiskEngine:
+    def __init__(self, mode: str, kwargs: dict):
+        self.mode = mode
+        self.kwargs = kwargs
+        self.entry_price = kwargs.get("entry_price", 0.0)
+
+    def compute_sl(self, support_price: float, support_conf: int, vol_regime: str) -> float:
+        eff_atr = self.kwargs.get("eff_atr") or (self.entry_price * 0.015)
+        
+        buf_mult = 0.5
+        if vol_regime == "HIGH": buf_mult = 1.0
+        elif vol_regime == "LOW": buf_mult = 0.3
+        
+        if support_conf < 50: buf_mult *= 1.5
+        elif support_conf > 80: buf_mult *= 0.7
+        
+        adx = _safe(self.kwargs.get("adx")) or 20.0
+        if adx > 35: buf_mult *= 1.2
+        
+        return round(support_price - (buf_mult * eff_atr), 2)
+
+    def compute_targets(self, risk: float, vol_regime: str) -> dict:
+        entry = self.entry_price
+        eff_atr = self.kwargs.get("eff_atr") or (entry * 0.015)
+        
+        swing_high = _safe(self.kwargs.get("swing_high")) or (entry + 2 * eff_atr)
+        r1 = _safe(self.kwargs.get("r1")) or (entry + 1.5 * eff_atr)
+        vwap = _safe(self.kwargs.get("vwap")) or entry
+        
+        fib = entry + (swing_high - entry) * 1.618
+        cr = _safe(self.kwargs.get("candle_range")) or eff_atr
+        measured_move = entry + cr
+        atr_proj = entry + 3 * eff_atr
+        
+        t1_cand = (
+            swing_high * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["swing_high"]/100.0) +
+            fib * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["fib"]/100.0) +
+            measured_move * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["measured_move"]/100.0) +
+            max(vwap, entry*1.01) * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["vwap"]/100.0) +
+            atr_proj * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["atr"]/100.0) +
+            r1 * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["volume_profile"]/100.0)
+        )
+        
+        min_rr = 2.0
+        if vol_regime == "HIGH": min_rr = 1.5
+        elif vol_regime == "LOW": min_rr = 2.5
+        
+        t1 = max(t1_cand, entry + min_rr * risk)
+        t2 = t1 + 1.5 * risk
+        t3 = t1 + 3.0 * risk
+        
+        return {
+            "t1": {"price": round(t1, 2), "confidence": "HIGH", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"]},
+            "t2": {"price": round(t2, 2), "confidence": "MEDIUM", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"]},
+            "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]}
+        }
+        
+    def get_time_stop(self) -> str:
+        return "7 trading days"
+        
+    def get_trailing_rule(self) -> str:
+        adx = _safe(self.kwargs.get("adx")) or 20.0
+        if adx > 35: return "EMA20"
+        return "Pivot Low"
+
+    def generate_metrics(self) -> dict:
+        support_metrics = SupportConfidenceEngine.calculate(self.kwargs)
+        vol_regime = VolatilityRegimeEngine.calculate(self.kwargs)
+        tq_metrics = TradeQualityEngine.calculate(self.kwargs, support_metrics["score"])
+        
+        support_price = self.kwargs.get("swing_low") or (self.entry_price * 0.95)
+        
+        sl = self.compute_sl(support_price, support_metrics["score"], vol_regime)
+        
+        risk_dist = self.entry_price - sl
+        risk_pct = (risk_dist / self.entry_price) * 100 if self.entry_price > 0 else 1.0
+        
+        tq = tq_metrics["score"]
+        if tq >= 90:
+            kelly_fraction = 0.5
+            max_risk_pct = 1.5
+        elif tq >= 70:
+            kelly_fraction = 0.3
+            max_risk_pct = 1.0
+        else:
+            kelly_fraction = 0.15
+            max_risk_pct = 0.5
+            
+        position_size_pct = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
+        
+        targets = self.compute_targets(risk_dist, vol_regime)
+        
+        t1_price = targets["t1"]["price"]
+        expected_rr = round((t1_price - self.entry_price) / risk_dist, 2) if risk_dist > 0 else 0.0
+        
+        prob_win = tq / 100.0
+        prob_loss = 1.0 - prob_win
+        avg_win = (t1_price - self.entry_price) / max(self.entry_price, 1)
+        avg_loss = risk_pct / 100.0
+        ev = round((prob_win * avg_win) - (prob_loss * avg_loss), 4) * 100
+        
+        return {
+            "engine_version": "2.0",
+            "scanner": self.mode,
+            "trade_quality": tq,
+            "trade_quality_breakdown": tq_metrics["breakdown"],
+            "support": {
+                "price": round(support_price, 2),
+                "confidence": support_metrics["score"],
+                "breakdown": support_metrics["breakdown"]
+            },
+            "risk": {
+                "rr": expected_rr,
+                "risk_pct": round(risk_pct, 2),
+                "position_size_pct": position_size_pct,
+                "kelly_fraction": kelly_fraction,
+                "expected_value": round(ev, 2)
+            },
+            "targets": targets,
+            "management": {
+                "time_stop": self.get_time_stop(),
+                "trailing": self.get_trailing_rule()
+            }
+        }
+
+
+class BreakoutAdapter(BaseRiskEngine):
+    def get_time_stop(self) -> str:
+        return "5-7 trading days"
+
+class ReversalAdapter(BaseRiskEngine):
+    def get_time_stop(self) -> str:
+        return "12-15 trading days"
+
+class IntradayAdapter(BaseRiskEngine):
+    def get_time_stop(self) -> str:
+        return "End of session"
+
+class HourlyAdapter(BaseRiskEngine):
+    def get_time_stop(self) -> str:
+        return "10 candles"
+
+
+def compute_sl_and_target(
+    entry_price:    float,
+    atr:            Optional[float],
+    candle_range:   float,
+    mode:           Optional[str]   = None,     
+    engine_version: str             = "v2.0",
+    **kwargs
+) -> dict:
+    """
+    Unified entry point for generating SL and Target metrics.
+    Supports backward-compatibility via `engine_version="v1.0"`.
+    """
+    if engine_version in ("v1.0", "v1"):
+        # Legacy fallback wrapper
+        return _legacy_compute_sl_and_target(
+            entry_price=entry_price,
+            atr=atr,
+            candle_range=candle_range,
+            mode=mode,
+            **kwargs
+        )
+
+    # v2.0 Institutional Engine routing
+    # Map mode string to proper adapter
+    scanner = (mode or "BREAKOUT").upper()
+    kwargs["entry_price"] = entry_price
+    kwargs["atr"] = atr
+    kwargs["candle_range"] = candle_range
+
+    if scanner in ("INTRADAY", "15M"):
+        adapter = IntradayAdapter(scanner, kwargs)
+    elif scanner in ("1H", "LIVE_1H"):
+        adapter = HourlyAdapter(scanner, kwargs)
+    elif scanner == "REVERSAL":
+        adapter = ReversalAdapter(scanner, kwargs)
+    else:
+        adapter = BreakoutAdapter(scanner, kwargs)
+
+    return adapter.generate_metrics()
