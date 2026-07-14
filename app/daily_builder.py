@@ -1064,7 +1064,7 @@ def _main_impl(force_rebuild: bool = False):
         universe_df.to_parquet(tmp_univ)
         os.replace(tmp_univ, "data/temp_universe.parquet")
         save_checkpoint({**state, "universe_fetched": True})
-        state = load_checkpoint()
+        state["universe_fetched"] = True
     else:
         logger.info("⏭️ Universe already fetched today. Loading from temp cache...")
         universe_df = pd.read_parquet("data/temp_universe.parquet")
@@ -1088,7 +1088,7 @@ def _main_impl(force_rebuild: bool = False):
         refresh_fundamentals_tiered(universe_df)
         logger.info("✅ [REFRESH] Fundamentals refresh completed.")
         save_checkpoint({**state, "fundamentals_refreshed": True})
-        state = load_checkpoint()
+        state["fundamentals_refreshed"] = True
 
     if not state.get("fundamentals_scored"):
         # Calculate Sector Medians for Market Share Gainer logic
@@ -1280,7 +1280,7 @@ def _main_impl(force_rebuild: bool = False):
         logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (SUCCESS) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")
         logger.info("=" * 80 + "\n")
         
-        state = load_checkpoint()
+        state["fundamentals_scored"] = True
     else:
         if not os.path.exists(OUTPUT_PARQUET):
             logger.warning("⚠️ fundamentals_scored is True in DB, but OUTPUT_PARQUET is missing. Attempting to download from DB cache...")

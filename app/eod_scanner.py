@@ -396,12 +396,12 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["zero_avg_volume"] += 1
                     continue
 
-                volume_ratio = _safe__safe_float(latest.get("Volume")) / avg_volume
+                volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
 
-                candle_high  = _safe__safe_float(latest.get("High"))
-                candle_low   = _safe__safe_float(latest.get("Low"))
-                candle_open  = _safe__safe_float(latest.get("Open"))
-                candle_close = _safe__safe_float(latest.get("Close"))
+                candle_high  = _safe_float(latest.get("High"))
+                candle_low   = _safe_float(latest.get("Low"))
+                candle_open  = _safe_float(latest.get("Open"))
+                candle_close = _safe_float(latest.get("Close"))
                 candle_range = candle_high - candle_low
                 candle_body  = abs(candle_close - candle_open)
                 upper_wick   = candle_high - candle_close
@@ -413,7 +413,7 @@ def _start_wrapper(force: bool = False):
                 body_ratio     = candle_body / candle_range
                 close_position = (candle_close - candle_low) / candle_range
                 wick_ratio     = upper_wick / candle_range
-                rsi_val        = _safe__safe_float(latest.get("RSI"))
+                rsi_val        = _safe_float(latest.get("RSI"))
 
                 if body_ratio < MIN_BODY_RATIO:
                     rejection_counts["weak_body"] += 1
@@ -446,7 +446,7 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["missing_atr"] += 1
                     continue
 
-                prior_high = _safe__safe_float(latest.get("PRIOR_20D_HIGH"))
+                prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
                 if prior_high <= 0:
                     rejection_counts["no_structural_breakout"] += 1
                     continue
@@ -460,7 +460,7 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["missing_atr"] += 1
                     continue
 
-                atr20 = _safe__safe_float(latest.get("ATR20"))
+                atr20 = _safe_float(latest.get("ATR20"))
                 if atr20 <= 0:
                     rejection_counts["missing_atr"] += 1
                     continue
@@ -475,32 +475,32 @@ def _start_wrapper(force: bool = False):
                     continue
 
                 if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
-                    bb_width_pctile = _safe__safe_float(latest.get("BB_WIDTH_PCTILE"))
+                    bb_width_pctile = _safe_float(latest.get("BB_WIDTH_PCTILE"))
                     if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
                         rejection_counts["base_too_wide"] += 1
                         continue
 
                 if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
-                    if candle_close < _safe__safe_float(latest.get("EMA20")):
+                    if candle_close < _safe_float(latest.get("EMA20")):
                         rejection_counts["below_ema20"] += 1
                         continue
 
                 if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
-                    if candle_close < _safe__safe_float(latest.get("SMA50")):
+                    if candle_close < _safe_float(latest.get("SMA50")):
                         rejection_counts["below_sma50"] += 1
                         continue
 
                 # Golden Cross is no longer mandatory, shifted to scoring engine
 
                 if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
-                    if _safe__safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
+                    if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
                         rejection_counts["weak_adx"] += 1
                         continue
 
                 # MACD is no longer mandatory, shifted to scoring engine
 
                 if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
-                    high_52w = _safe__safe_float(latest.get("HIGH_52W"))
+                    high_52w = _safe_float(latest.get("HIGH_52W"))
                     if high_52w > 0:
                         pct_from_high = (high_52w - candle_close) / high_52w * 100
                         if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
@@ -543,7 +543,7 @@ def _start_wrapper(force: bool = False):
                         # Too many red candles. Reject unless it's a very tight base (volatility compression)
                         is_tight_base = False
                         if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
-                            if _safe__safe_float(latest.get("BB_WIDTH_PCTILE")) <= tight_base_threshold:
+                            if _safe_float(latest.get("BB_WIDTH_PCTILE")) <= tight_base_threshold:
                                 is_tight_base = True
                                 
                         if not is_tight_base:
@@ -557,12 +557,12 @@ def _start_wrapper(force: bool = False):
                 # unsustained volume checks.
                 obv_penalty = 0
                 if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
-                    if _safe__safe_float(latest.get("OBV_SLOPE")) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
+                    if _safe_float(latest.get("OBV_SLOPE")) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
                         obv_penalty = -5
                         logger.debug(f"⚠️ {symbol} OBV divergence detected (slope <= 0), applying -5 penalty")
 
                 atr_val_eod = (
-                    _safe__safe_float(latest.get("ATR"))
+                    _safe_float(latest.get("ATR"))
                     if "ATR" in ticker.columns and not pd.isna(latest.get("ATR"))
                     else None
                 )
@@ -640,10 +640,10 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["low_rr"] += 1
                     continue
 
-                above_ema20  = bool(candle_close >= _safe__safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
-                above_sma50  = bool(candle_close >= _safe__safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
+                above_ema20  = bool(candle_close >= _safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
+                above_sma50  = bool(candle_close >= _safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
-                above_golden_cross = bool(_safe__safe_float(latest.get("SMA50")) >= _safe__safe_float(latest.get("SMA200"))) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
+                above_golden_cross = bool(_safe_float(latest.get("SMA50")) >= _safe_float(latest.get("SMA200"))) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
 
                 context = {
                     "technicals": {
@@ -795,11 +795,6 @@ def _start_wrapper(force: bool = False):
         active_threads = threading.active_count()
         logger.info(f"🧵 Final Active Thread Count: {active_threads}")
         
-        stale_pct = rejection_counts["stale_data"] / len(watchlist) if len(watchlist) > 0 else 0
-        if stale_pct > 0.05:
-            status = "DEGRADED"
-            error_msg = f"Stale Data: {rejection_counts['stale_data']}/{len(watchlist)} symbols"
-            
         if len(all_ticker_data) < len(watchlist) * 0.95:
             status = "DEGRADED"
             error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"

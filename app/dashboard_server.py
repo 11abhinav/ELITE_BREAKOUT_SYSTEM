@@ -2378,11 +2378,11 @@ def api_breakout_watchlist():
                 import pandas as pd
                 import os
                 from datetime import datetime
-                import pytz
+                from zoneinfo import ZoneInfo
                 from config import DATA_DIR
                 from live_prices import get_live_prices
                 
-                ist = pytz.timezone('Asia/Kolkata')
+                ist = ZoneInfo('Asia/Kolkata')
                 symbols = list(set([d["symbol"] for d in data]))
                 prices = {}
 
@@ -2411,7 +2411,7 @@ def api_breakout_watchlist():
                                 if not df.empty and "Close" in df.columns:
                                     df_valid = df.dropna(subset=["Close"])
                                     if not df_valid.empty:
-                                        dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=pytz.utc)
+                                        dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=ZoneInfo('UTC'))
                                         prices[sym] = {
                                             "price": float(df_valid["Close"].iloc[-1]),
                                             "ts": dt_utc.astimezone(ist).isoformat()

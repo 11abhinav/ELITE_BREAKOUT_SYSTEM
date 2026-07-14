@@ -3,6 +3,7 @@ import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import time
+import pandas as pd
 
 from technical_indicators import apply_indicators
 from watchlist_cache import get_watchlist
@@ -152,7 +153,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             funnel["data_ok"] += 1
             latest = df.iloc[-1]
         
-            close = _safe__safe_float(latest.get("Close"))
+            close = _safe_float(latest.get("Close"))
             if close < MIN_STOCK_PRICE:
                 funnel["price_filtered"] += 1
                 continue
@@ -243,7 +244,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         f"approved={funnel['approved']}"
     )
             
-    return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count}
+    return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
 
 def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False):
     """
@@ -410,7 +411,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     latest = df.iloc[-1]
                     bb_pctile = float(latest.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
                 
-                    close = _safe__safe_float(latest.get("Close"))
+                    close = _safe_float(latest.get("Close"))
                     dist_to_breakout = (breakout_level - close) / breakout_level
                 
                     # Add 30m Volume Baseline for Fast Breakout Override
@@ -418,7 +419,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     if "Volume" in latest and len(df) > 1:
                         mean_vol = df["Volume"].iloc[-21:-1].mean() if len(df) >= 22 else df["Volume"].iloc[:-1].mean()
                         mean_vol = max(float(mean_vol or 1.0), 1.0)
-                        vol_ratio = _safe__safe_float(latest.get("Volume")) / mean_vol
+                        vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
                 
                     # Consolidation formed OR Fast Breakout override
                     # [FINDING-E FIX] Widened bb_pctile from 0.30 to 0.45. A stock in the
@@ -479,7 +480,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     latest = df.iloc[-1]
                     e9_15 = float(latest.get("EMA9", 0) or 0)
                     e20_15 = float(latest.get("EMA20", 0) or 0)
-                    close = _safe__safe_float(latest.get("Close"))
+                    close = _safe_float(latest.get("Close"))
 
                     if e9_15 <= 0 or e20_15 <= 0:
                         continue
@@ -544,9 +545,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     max_ext_atr = float(item.get("max_extension_atr") or 0.8)
                 
                     e9 = float(latest.get("EMA9", 0))
-                    close = _safe__safe_float(latest.get("Close"))
-                    low = _safe__safe_float(latest.get("Low"))
-                    open_px = _safe__safe_float(latest.get("Open"))
+                    close = _safe_float(latest.get("Close"))
+                    low = _safe_float(latest.get("Low"))
+                    open_px = _safe_float(latest.get("Open"))
                     atr20 = float(latest.get("ATR20", 0.0) or 0.0)
                 
                     if atr20 <= 0:
@@ -560,7 +561,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                         mean_vol = max(float(df["Volume"].iloc[-21:-1].mean() or 1.0), 1.0)
                     else:
                         mean_vol = max(float(df["Volume"].iloc[:-1].mean() or 1.0), 1.0)
-                    vol_ratio = _safe__safe_float(latest.get("Volume")) / mean_vol
+                    vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
                 
                     # Extension limit strict check
                     if close > trigger_level + (max_ext_atr * atr20):
@@ -569,10 +570,10 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                     is_ready = False
                     trigger_type = ""
                 
-                    candle_range = _safe__safe_float(latest.get("High")) - _safe__safe_float(latest.get("Low"))
+                    candle_range = _safe_float(latest.get("High")) - _safe_float(latest.get("Low"))
                     if candle_range > 0:
                         close_position = (close - low) / candle_range
-                        upper_wick_ratio = (_safe__safe_float(latest.get("High")) - close) / candle_range
+                        upper_wick_ratio = (_safe_float(latest.get("High")) - close) / candle_range
                     else:
                         close_position = 0.5
                         upper_wick_ratio = 0.0
@@ -609,7 +610,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                             sl_result = compute_sl_and_target(
                                 entry_price=close,
                                 atr=atr20,
-                                candle_range=_safe__safe_float(latest.get("High")) - _safe__safe_float(latest.get("Low")),
+                                candle_range=_safe_float(latest.get("High")) - _safe_float(latest.get("Low")),
                                 mode="INTRADAY",
                                 adx=latest.get("ADX"),
                                 rsi=float(latest.get("RSI", 0)),

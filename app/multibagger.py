@@ -527,7 +527,8 @@ def safe_extract(df, row_name, col_idx=0, default=None):
         if row_name in df.index:
             val = df.loc[row_name].iloc[col_idx]
             if not pd.isna(val): return float(val)
-    except: pass
+    except (TypeError, ValueError, KeyError, IndexError) as e:
+        logger.debug(f"Extract error for {row_name}: {e}")
     return default
 
 def compute_cagr(df, row_name, years=3):
@@ -540,7 +541,8 @@ def compute_cagr(df, row_name, years=3):
         oldest = float(row.iloc[idx])
         if oldest and oldest > 0 and latest and latest > 0:
             return ((latest / oldest) ** (1.0 / idx)) - 1.0
-    except: pass
+    except (TypeError, ValueError, KeyError, IndexError) as e:
+        logger.debug(f"CAGR error for {row_name}: {e}")
     return None
 
 def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
@@ -1090,8 +1092,8 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
                 )
                 
         # 3. Use cache for fundamentals
-        from fundamentals_cache import load_cache
-        cache = load_cache()
+        from multibagger import load_cache as load_mb_cache
+        cache = load_mb_cache()
         
         # 4. Run the core exit logic
         run_exit_monitor(price_data_map, cache, is_test_mode)
@@ -1276,10 +1278,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     
 
     
-    # Init Rejection Log
-    log_date = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d')
-    rejection_log_path = f"logs/rejections_{log_date}.jsonl"
-    os.makedirs("logs", exist_ok=True)
+    # Init Rejection Log count
     unverified_pledge_count = 0
     
     for f in fundamentals_list:
@@ -1346,16 +1345,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "PRE_GATE", "reason": "Ambiguous Technicals"}) + "\n")
+            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
             continue
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "PRE_GATE", "reason": "Fallback Fundamentals"}) + "\n")
+            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
             continue
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(), "phase": "QUALITY_GATE", "reason": reason}) + "\n")
+            logger.info(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
             continue
 
         # 3. Run the V5 Pipeline
@@ -1363,7 +1362,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
-            with open(rejection_log_path, "a") as rf: rf.write(json.dumps({"symbol": sym, "timestamp": pipeline_result.timestamp, "phase": "V5_GATE", "reason": pipeline_result.invalidation_reason}) + "\n")
+            logger.info(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
             continue
                 
         # Extract scores from the V5 pipeline
@@ -1483,20 +1482,23 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         top_n = alert_candidates
         logger.info(f"🏆 All {len(alert_candidates)} valid candidates selected.")
         
+        # Batch fetch live prices
+        try:
+            from live_prices import get_live_prices
+            live_prices_dict = get_live_prices([c["symbol"] for c in top_n])
+        except Exception as e:
+            logger.warning(f"Failed to batch fetch live prices: {e}")
+            live_prices_dict = {}
+        
         for cand in top_n:
 
             sym = cand["symbol"]
             price = cand["price"]
             
-            # [VERSION: MULTIBAGGER_LIVE_PRICE_FIX_v1.0] Force fetch live price for accurate entry price via get_live_prices (centralized)
-            try:
-                from live_prices import get_live_prices
-                live_prices_dict = get_live_prices([sym])
-                live_p = live_prices_dict.get(sym)
-                if live_p and live_p > 0:
-                    price = live_p
-            except Exception:
-                pass
+            # [VERSION: MULTIBAGGER_LIVE_PRICE_FIX_v1.0] Apply batched live price
+            live_p = live_prices_dict.get(sym)
+            if live_p and live_p > 0:
+                price = live_p
 
             c_total = cand["total_score"]
             c_cqs = cand["cqs"]

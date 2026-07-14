@@ -5,7 +5,7 @@ import logging
 import concurrent.futures
 from datetime import datetime, timedelta
 import pandas as pd
-import pytz
+from zoneinfo import ZoneInfo
 from threading import Lock
 
 # Ensure parent directory is in sys.path to access configurations and auth utilities
@@ -18,7 +18,7 @@ import fyers_auth
 import config
 
 logger = logging.getLogger(__name__)
-IST = pytz.timezone("Asia/Kolkata")
+IST = ZoneInfo("Asia/Kolkata")
 _last_auth_notif_time = 0
 
 class RateLimiter:

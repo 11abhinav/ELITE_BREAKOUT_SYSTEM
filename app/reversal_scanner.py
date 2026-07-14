@@ -360,18 +360,19 @@ def _run_scan(force: bool = False):
     today_str = ist_now.strftime("%Y-%m-%d")
 
     # ── MAKE EXPORT IDEMPOTENT ──
-    try:
-        import os, csv
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        data_dir = os.path.join(base_dir, "data")
-        export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
-        if os.path.exists(export_path):
-            df_export = pd.read_csv(export_path)
-            if 'date' in df_export.columns:
-                df_export = df_export[df_export['date'] != today_str]
-                df_export.to_csv(export_path, index=False)
-    except Exception as e:
-        logger.warning(f"Could not clean up today's export rows: {e}")
+    if not os.environ.get("RAILWAY_ENVIRONMENT"):
+        try:
+            import os, csv
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            data_dir = os.path.join(base_dir, "data")
+            export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
+            if os.path.exists(export_path):
+                df_export = pd.read_csv(export_path)
+                if 'date' in df_export.columns:
+                    df_export = df_export[df_export['date'] != today_str]
+                    df_export.to_csv(export_path, index=False)
+        except Exception as e:
+            logger.warning(f"Could not clean up today's export rows: {e}")
 
     try:
         from database import delete_todays_alerts_for_scanner
@@ -803,41 +804,42 @@ def _run_scan(force: bool = False):
             })
 
             # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
-            try:
-                import os, csv
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                data_dir = os.path.join(base_dir, "data")
-                os.makedirs(data_dir, exist_ok=True)
-                export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
-                header = [
-                    "symbol", "date", "score", "drop_pct", "volume_ratio", "delivery_pct",
-                    "trend_score", "rsi", "macd", "result_5d", "result_10d", "result_20d",
-                    "max_runup", "max_drawdown"
-                ]
-                export_row = {
-                    "symbol": symbol,
-                    "date": today_str,
-                    "score": reversal_score,
-                    "drop_pct": round(drop_pct, 2),
-                    "volume_ratio": round(vol_ratio, 2),
-                    "delivery_pct": round(delivery_pct, 2) if delivery_pct is not None else None,
-                    "trend_score": trend_score,
-                    "rsi": round(current_rsi, 2),
-                    "macd": float(latest.get("MACD")) if latest.get("MACD") is not None else None,
-                    "result_5d": None,
-                    "result_10d": None,
-                    "result_20d": None,
-                    "max_runup": None,
-                    "max_drawdown": None
-                }
-                write_header = not os.path.exists(export_path)
-                with open(export_path, "a", newline="") as f:
-                    writer = csv.DictWriter(f, fieldnames=header)
-                    if write_header:
-                        writer.writeheader()
-                    writer.writerow(export_row)
-            except Exception:
-                logger.exception(f"Failed to export reversal alert for {symbol}")
+            if not os.environ.get("RAILWAY_ENVIRONMENT"):
+                try:
+                    import os, csv
+                    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    data_dir = os.path.join(base_dir, "data")
+                    os.makedirs(data_dir, exist_ok=True)
+                    export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
+                    header = [
+                        "symbol", "date", "score", "drop_pct", "volume_ratio", "delivery_pct",
+                        "trend_score", "rsi", "macd", "result_5d", "result_10d", "result_20d",
+                        "max_runup", "max_drawdown"
+                    ]
+                    export_row = {
+                        "symbol": symbol,
+                        "date": today_str,
+                        "score": reversal_score,
+                        "drop_pct": round(drop_pct, 2),
+                        "volume_ratio": round(vol_ratio, 2),
+                        "delivery_pct": round(delivery_pct, 2) if delivery_pct is not None else None,
+                        "trend_score": trend_score,
+                        "rsi": round(current_rsi, 2),
+                        "macd": float(latest.get("MACD")) if latest.get("MACD") is not None else None,
+                        "result_5d": None,
+                        "result_10d": None,
+                        "result_20d": None,
+                        "max_runup": None,
+                        "max_drawdown": None
+                    }
+                    write_header = not os.path.exists(export_path)
+                    with open(export_path, "a", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=header)
+                        if write_header:
+                            writer.writeheader()
+                        writer.writerow(export_row)
+                except Exception:
+                    logger.exception(f"Failed to export reversal alert for {symbol}")
 
 
         except Exception as e:
@@ -935,7 +937,7 @@ def _run_scan(force: bool = False):
             try:
                 from database import insert_notification
                 from push_service import send_push_to_all
-                if status == "OK" and run_once:
+                if status == "OK" and force:
                     insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
                 elif status == "DEGRADED":
                     insert_notification("admin", f"⚠️ REVERSAL Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")

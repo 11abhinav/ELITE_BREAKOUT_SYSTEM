@@ -1,6 +1,6 @@
 from typing import Dict, Any
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 import yaml
 import os
 
@@ -129,7 +129,7 @@ def run_pipeline_for_symbol(symbol: str, raw_data: Dict[str, Any], technicals: D
         weights_profile=sector,
         weights_version=V5_CONFIG.get('version', "1.0"),
         valuation_version="1.0",
-        timestamp=datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
+        timestamp=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
     )
     
     # Clear audit engine memory for this symbol after pipeline is complete
