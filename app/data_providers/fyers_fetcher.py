@@ -146,6 +146,18 @@ class FyersFetcher(DataFetcher):
                 return mappings[sym]
         except Exception:
             pass
+
+        # Check BSE mapping cache to immediately use BSE for known BSE-only stocks
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_mappings = load_bse_mappings()
+            if sym in bse_mappings:
+                # If mapped to .BO, use BSE exchange prefix in Fyers
+                return f"BSE:{sym}-EQ"
+            if sym.endswith(".NS") and sym[:-3] in bse_mappings:
+                return f"BSE:{sym[:-3]}-EQ"
+        except Exception:
+            pass
             
         # Standard stock format
         return f"NSE:{sym}-EQ"

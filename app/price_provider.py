@@ -341,10 +341,9 @@ class PriceProvider:
         missing_ns_to_bo = {}
         for t, val in outputs.items():
             # Only fallback if it's completely missing (or stale but we want to try BO for fresh)
-            # Actually, if we have a stale fallback, val is the stale df, so `val is None` is safer to avoid overriding valid stale data.
-            # But if we want fresh data, we should try .BO if the current output is either None or stale.
             is_stale_df = hasattr(val, 'attrs') and val.attrs.get('is_stale', False)
-            if (val is None or is_stale_df) and t.endswith(".NS"):
+            is_missing_df = val is None or (hasattr(val, 'empty') and val.empty)
+            if (is_missing_df or is_stale_df) and t.endswith(".NS"):
                 bo_sym = t[:-3] + ".BO"
                 missing_ns_to_bo[bo_sym] = t
 
