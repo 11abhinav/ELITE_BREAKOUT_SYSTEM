@@ -94,13 +94,13 @@ def _find_swing_low_cluster(swing_lows, threshold_pct: float = 0.01) -> Optional
         for j in range(i + 1, n):
             val1 = float(swing_lows[i])
             val2 = float(swing_lows[j])
-            diff = abs(val1 - val2) / max(val1, val2)
+            diff = abs(val1 - val2) / max(val1, val2, 1e-5)
             if diff <= threshold_pct:
                 cluster = [val1, val2]
                 for k in range(n):
                     if k != i and k != j:
                         val3 = float(swing_lows[k])
-                        if abs(val3 - val1) / max(val3, val1) <= threshold_pct and abs(val3 - val2) / max(val3, val2) <= threshold_pct:
+                        if abs(val3 - val1) / max(val3, val1, 1e-5) <= threshold_pct and abs(val3 - val2) / max(val3, val2, 1e-5) <= threshold_pct:
                             cluster.append(val3)
                 if len(cluster) > len(best_cluster):
                     best_cluster = cluster
@@ -940,7 +940,16 @@ class BaseRiskEngine:
         adx = _safe(self.kwargs.get("adx")) or 20.0
         if adx > 35: buf_mult *= 1.2
         
-        return round(support_price - (buf_mult * eff_atr), 2)
+        raw_sl = support_price - (buf_mult * eff_atr)
+        
+        # Hard cap SL so it doesn't get un-usably wide
+        max_sl_atr = _MODE_CONFIG.get(self.mode.split("_")[0], _MODE_CONFIG["EOD"])[4]
+        min_allowed_sl = self.entry_price - (max_sl_atr * eff_atr)
+        
+        raw_sl = max(raw_sl, min_allowed_sl)
+        
+        # Ensure SL never goes negative on extreme volatility penny stocks
+        return round(max(0.01, raw_sl), 2)
 
     def compute_targets(self, risk: float, vol_regime: str) -> tuple[dict, dict]:
         entry = self.entry_price
@@ -957,7 +966,7 @@ class BaseRiskEngine:
         
         # Weight Normalization
         raw_weights = ENGINE_V2_CONFIG["TARGET_WEIGHTS"]
-        total_w = sum(raw_weights.values())
+        total_w = max(sum(raw_weights.values()), 1e-5)
         norm_w = {k: v / total_w for k, v in raw_weights.items()}
         
         t1_cand = (
@@ -1074,6 +1083,7 @@ class BaseRiskEngine:
                 "breakdown": support_metrics["breakdown"]
             },
             "risk": {
+                "stop_loss": sl,
                 "rr": expected_rr,
                 "risk_pct": round(risk_pct, 2),
                 "position_size_pct": position_size_pct,
