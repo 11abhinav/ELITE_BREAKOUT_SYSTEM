@@ -216,6 +216,10 @@ class FyersFetcher(DataFetcher):
         
         orig_sym = symbol.strip().upper()
         if orig_sym.endswith(".NS"): orig_sym = orig_sym[:-3]
+        if orig_sym.startswith("NSE:"): orig_sym = orig_sym[4:]
+        if orig_sym.startswith("BSE:"): orig_sym = orig_sym[4:]
+        if orig_sym.endswith("-EQ"): orig_sym = orig_sym[:-3]
+        if orig_sym.endswith("-BE"): orig_sym = orig_sym[:-3]
         
         _ampersand_map = {
             "M_M": "M&M", "M-M": "M&M",
