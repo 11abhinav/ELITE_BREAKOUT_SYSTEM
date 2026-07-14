@@ -687,38 +687,56 @@ The system utilizes a centralized, mode-dispatching SL/Target engine (`sl_target
 - **Multi-Swing Clustering:** Scans the last 3 swing lows. If 2+ cluster within 1% of each other, the system anchors the SL to this clustered zone, as it represents significantly stronger institutional support.
 - **Target Capping:** Prevents unrealistic targets by hard-capping maximum target extensions (e.g., 5×ATR for 15m, 8×ATR for 1H, 12×ATR for Daily).
 
+#### 18.1.1 Dynamic Support Selection Cascade (For Stop-Loss Anchoring)
+Stop-Loss levels are **never hardcoded**. The system dynamically searches below the entry price for the strongest structural support using a strict priority cascade (`_pick_support`):
+1. **Swing Low Cluster:** (Strongest) Average of 2+ swing lows clustered within 1% of each other.
+2. **Pivot Swing Low:** The nearest true technical pivot low.
+3. **Pivot S1:** Standard floor pivot support.
+4. **Rolling Swing Low:** Local n-period rolling window low (fallback).
+5. **Pivot S2:** Deeper floor pivot support.
+*(If no structural support exists, it falls back to a strict minimum ATR distance).*
+
+#### 18.1.2 Dynamic Resistance Selection Cascade (For Target Anchoring)
+Breakout targets are **never hardcoded** multipliers. The system dynamically anchors T1 to the nearest logical structural resistance above the entry price using this priority cascade (`_pick_resistance`):
+1. **Pivot Swing High:** The nearest true technical pivot high.
+2. **Pivot R1:** Standard ceiling pivot resistance.
+3. **Bollinger Upper Band:** Volatility ceiling limit.
+4. **Rolling Swing High:** Local n-period rolling window high.
+5. **Pivot R2:** Deeper ceiling pivot resistance.
+*(If overhead resistance is too close, the target is artificially bumped to meet the minimum Risk-to-Reward ratio).*
+
 ### 18.2 EOD Scanner (Daily Breakout)
 - **Trade Thesis:** Swing trade, holding days to weeks.
-- **Stop-Loss:** Placed below the nearest pivot/swing support with a 0.75×ATR (or 0.75%) buffer. Capped at 3.0×ATR to prevent excessive risk.
+- **Stop-Loss:** **Dynamic.** Anchored to the support identified by the *Support Selection Cascade*, then buffered by 0.75×ATR (or 0.75%). Capped at 3.0×ATR.
 - **Targets:**
-  - **T1:** Nearest resistance (Swing High or R1). Must meet a minimum **2.0:1** Risk-to-Reward (RR) ratio.
+  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually Swing High or R1). Must meet a minimum **2.0:1** Risk-to-Reward (RR) ratio.
   - **T2:** R2 or 3.5×RR (Disabled if RSI is Overbought).
   - **T3:** 5.0×RR, activated only on strong confluence (Bullish MACD + ADX > 25) to hold for a parabolic run.
 - **Trailing Rule:** "Raise SL to breakeven after T1 is hit."
 
 ### 18.3 Intraday Scanner (15m Momentum Scalp)
 - **Trade Thesis:** Early-momentum scalp, holding for the same day.
-- **Stop-Loss:** **VWAP-Anchored.** If VWAP falls between the entry price and the candle's low, the SL is anchored below VWAP (representing institutional fair-value support). Otherwise, it falls back to the triggering candle's own low + 0.5×ATR buffer.
+- **Stop-Loss:** **Dynamic.** Priority 1: **VWAP-Anchored** (if VWAP falls between the entry price and the triggering candle's low). Priority 2: The triggering candle's own low + 0.5×ATR buffer. Priority 3: Fallback to the *Support Selection Cascade*.
 - **Targets:**
-  - **T1:** Session High, R1, or Bollinger Upper Band (Min **1.5:1** RR).
+  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually Session High, R1, or BB Upper Band). Must meet a min **1.5:1** RR.
   - **T2:** R1 or 2.5×RR.
   - **T3:** NONE (Intraday does not hold for extended targets).
 - **Trailing Rule:** "Hold position until SL or Target is hit."
 
 ### 18.4 Multi-TF / LIVE_1H Scanner (Hourly Swing)
 - **Trade Thesis:** Hourly swing continuation, holding 1-5 days.
-- **Stop-Loss:** VWAP-anchored (if valid) OR below the last hourly swing low + 0.5×ATR buffer.
+- **Stop-Loss:** **Dynamic.** VWAP-anchored (if valid) OR anchored to the support identified by the *Support Selection Cascade* (usually last hourly swing low) + 0.5×ATR buffer.
 - **Targets:**
-  - **T1:** R1 or Swing High (Min **2.0:1** RR to justify overnight risk).
+  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually R1 or Swing High). Must meet a min **2.0:1** RR.
   - **T2:** R2 or 3.0×RR (Disabled if RSI is Overbought).
   - **T3:** NONE.
 - **Trailing Rule:** "Trail SL to last hourly swing low after T1 is hit."
 
 ### 18.5 Reversal Scanner (Counter-Trend Oversold)
 - **Trade Thesis:** Mean reversion bounce, holding days to weeks. (Volatility is extremely high).
-- **Stop-Loss:** Placed below the recent oversold swing low with a **WIDE buffer** (1.0×ATR or 1.00%). The wide buffer is an absolute necessity because beaten-down stocks have massive daily ranges and frequent false flushes.
+- **Stop-Loss:** **Dynamic.** Anchored to the recent oversold swing low (via *Support Selection Cascade*) with a **WIDE buffer** (1.0×ATR or 1.00%). The wide buffer is an absolute necessity because beaten-down stocks have massive daily ranges.
 - **Targets (Mean Reversion based, NOT resistance based):**
-  - **T1:** Bollinger Mid-Band (BB_MID) or SMA50. These stocks have heavy overhead resistance, so the target is the magnetic mean, not a structural high. Min **2.0:1** RR.
+  - **T1:** **Dynamic Mean.** Bollinger Mid-Band (BB_MID) or SMA50. These stocks have heavy overhead resistance, so the target is the magnetic mean, not a structural high. Min **2.0:1** RR.
   - **T2:** SMA50 (if not T1) or R1 (further recovery).
   - **T3:** R2, activated only on strong MACD + ADX > 20.
 - **Trailing Rule:** "Book 50% at T1 (EMA20). Trail remainder to breakeven."
