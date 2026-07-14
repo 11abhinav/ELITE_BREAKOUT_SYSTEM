@@ -2527,7 +2527,7 @@
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'INTRADAY', '1H', 'MULTI_TF', 'EOD', 'REVERSAL', 'Wealth Engine', 'MULTIBAGGER', 'Pledge Worker', 'AI Worker'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'INTRADAY', '1H', 'MULTI_TF', 'EOD', 'REVERSAL', 'Wealth Engine', 'MULTIBAGGER', 'Pledge Worker', 'AI Worker', 'PERFORMANCE_TRACKER'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
