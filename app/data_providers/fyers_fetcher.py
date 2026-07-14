@@ -244,7 +244,10 @@ class FyersFetcher(DataFetcher):
             orig_sym = orig_sym.replace("_", "-")
         try:
             from data_providers.fyers_mapping_utils import is_fyers_invalid
-            if is_fyers_invalid(orig_sym):
+            # Skip the invalid check if this symbol has a known static scrip override
+            # (the override is authoritative and takes priority over old DB invalid entries)
+            _scrip_overrides_check = {"NSDL"}  # keep in sync with _normalize_symbol overrides
+            if orig_sym not in _scrip_overrides_check and is_fyers_invalid(orig_sym):
                 logger.debug(f"⚠️ Skipping known invalid Fyers symbol: {orig_sym}")
                 return None
         except Exception:
