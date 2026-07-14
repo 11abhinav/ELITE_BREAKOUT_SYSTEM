@@ -352,8 +352,12 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
                         save_bse_mapping(symbol, bse_sym)
                     elif bse_code:
                         ticker = yf.Ticker(f"{bse_code}.BO")
+                        if not ticker.history(period="1d").empty:
+                            save_bse_mapping(symbol, f"{bse_code}.BO")
                 elif bse_code:
                     ticker = yf.Ticker(f"{bse_code}.BO")
+                    if not ticker.history(period="1d").empty:
+                        save_bse_mapping(symbol, f"{bse_code}.BO")
                 
         try:
             info = ticker.info
