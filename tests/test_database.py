@@ -67,6 +67,7 @@ def test_save_alert_with_nan_sanitization(mocker):
     
     mocker.patch("app.database.DONT_SAVE_ALERTS", False)
     mocker.patch("portfolio_engine.calculate_trade_allocation", return_value=(10000.0, 100))
+    mocker.patch("app.database.push_service", create=True)
     # Mock live_prices.get_live_prices if needed
     try:
         mocker.patch("live_prices.get_live_prices", return_value={})
@@ -109,11 +110,10 @@ def test_save_alert_with_nan_sanitization(mocker):
             
     assert insert_call is not None
     params = insert_call[0][1]
-    context_json_str = params[12]
+    context_json_str = params[16]
     
     context_dict = json.loads(context_json_str)
     assert context_dict["peg"] is None
     assert context_dict["inf_val"] is None
     assert context_dict["nested"]["val"] is None
     assert context_dict["valid"] == 42.0
-
