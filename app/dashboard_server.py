@@ -1341,7 +1341,11 @@ def api_reject_alert():
         if ok:
             import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data).start()
+            def locked_build():
+                import main
+                with main.scanner_execution_lock:
+                    build_performance_data()
+            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject failed')
@@ -1364,7 +1368,11 @@ def api_reject_multiple_alerts():
         if ok:
             import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data).start()
+            def locked_build():
+                import main
+                with main.scanner_execution_lock:
+                    build_performance_data()
+            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')
@@ -1381,7 +1389,11 @@ def api_accept_alert():
         if ok:
             import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data).start()
+            def locked_build():
+                import main
+                with main.scanner_execution_lock:
+                    build_performance_data()
+            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/accept failed')
@@ -1398,7 +1410,11 @@ def api_reallocate_alert():
         if ok:
             import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data).start()
+            def locked_build():
+                import main
+                with main.scanner_execution_lock:
+                    build_performance_data()
+            threading.Thread(target=locked_build).start()
             
             from database import get_connection
             with get_connection() as conn:
@@ -1434,7 +1450,11 @@ def api_reallocate_multiple_alerts():
         if results and len(results) > 0:
             import threading
             from performance_tracker import build_performance_data
-            threading.Thread(target=build_performance_data).start()
+            def locked_build():
+                import main
+                with main.scanner_execution_lock:
+                    build_performance_data()
+            threading.Thread(target=locked_build).start()
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         logger.exception('❌ /api/alert/reallocate_multiple failed')

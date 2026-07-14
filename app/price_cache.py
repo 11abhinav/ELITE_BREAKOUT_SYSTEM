@@ -100,8 +100,11 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
         if entry is not None:
             age = time.monotonic() - entry["ts"]
             if age < cadence:
-                logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
-                return entry["data"]
+                cached_data = entry["data"]
+                missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
+                if not missing_symbols:
+                    logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
+                    return {s: cached_data[s] for s in watchlist["Stock"]}
             else:
                 logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence:.0f}s). Forcing fresh download.")
 
@@ -118,8 +121,11 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
             if entry is not None:
                 age = time.monotonic() - entry["ts"]
                 if age < cadence:
-                    logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
-                    return entry["data"]
+                    cached_data = entry["data"]
+                    missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
+                    if not missing_symbols:
+                        logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
+                        return {s: cached_data[s] for s in watchlist["Stock"]}
         
         # Cache miss or stale — download fresh data
         result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
