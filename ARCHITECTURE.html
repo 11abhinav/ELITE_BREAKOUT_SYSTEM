@@ -772,7 +772,30 @@ Data providers (Fyers, Yahoo Finance) return timestamps in arbitrary and sometim
 ### 19.3 Rate-Limit Fallbacks and Graceful Degradation
 - **Stale Fallback:** If a Delta or Full fetch fails (due to rate limiting or connection drop), the system automatically degrades gracefully by marking the existing local cache as `is_stale=True` and returning it to the scanner. This allows the scanner to continue running on yesterday's data instead of crashing completely.
 - **Error Tracking (`no_data_after_fetch`):** If a ticker is requested, lacks a valid local cache, and fails the fresh API fetch, it is explicitly excluded from the return dictionary and flagged as `no_data_after_fetch` in the tracking database to alert administrators.
+
+---
+
+## 20. Institutional Risk Engine v2.0
+
+The `sl_target_helper.py` acts as the core engine determining Stop Losses, Target exits, and Position Sizing. In v2.0, the codebase shifted from simple technical scripts to an Object-Oriented Adapter Pattern enforcing quantitative institutional mechanics.
+
+### 20.1 Architecture and Adapter Pattern
+Instead of hardcoded functions per scanner, all risk math is centralized in `BaseRiskEngine`. The scanner engines (`BreakoutAdapter`, `ReversalAdapter`, `IntradayAdapter`, `HourlyAdapter`) inherit from this class to inject scanner-specific behaviors like **Time Stops** and **Historical Base Rates (Win Rate & Average RR)**.
+
+### 20.2 Sub-Engines and Independence
+The engine is broken down into sub-components to prevent Trade Quality from inappropriately skewing physical Stop Loss geometry:
+- **Trade Quality Engine:** Scored via ADX (Trend) and RSI (Momentum).
+- **Support Confidence Engine:** Scores the validity of the support anchor by assessing its proximity to moving averages, age, and volume.
+- **Volatility Regime Engine:** Classifies the current environment as `HIGH`, `NORMAL`, or `LOW` based on ATR percentiles.
+
+### 20.3 Pre-Production and Risk Limits
+The system enforces several strict institutional risk guards before returning metrics:
+- **Target Clustering:** Instead of just outputting `min(swing_high, 2*RR)`, targets are formed by a weighted consensus map comprising Fibonacci extensions, measured moves, VWAP, ATR projections, and Pivot Rs. The weights automatically normalize to sum to 100%.
+- **Kelly Risk Capping:** Position sizing is scaled by a fraction of the Kelly Criterion dictated by Trade Quality. However, a strict ceiling `MAX_RISK_LIMIT = 2.0%` enforces that no individual trade exposes more than 2% account equity, overriding aggressive Kelly suggestions.
+- **Diagnostics and Explainability:** The system logs an internal payload of `warnings` (e.g. *"Target very close to resistance"*) and a deep `diagnostics` footprint revealing the source of the support, the source of the target, and the underlying mathematical components driving the Stop-Loss geometry.
+
 </textarea>
+
 
     <!-- Rendering Script -->
     <script>
