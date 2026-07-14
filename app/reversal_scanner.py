@@ -363,7 +363,7 @@ def _run_scan(force: bool = False):
     # ── MAKE EXPORT IDEMPOTENT ──
     if not os.environ.get("RAILWAY_ENVIRONMENT"):
         try:
-            import os, csv
+            import csv
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             data_dir = os.path.join(base_dir, "data")
             export_path = os.path.join(data_dir, "reversal_alerts_export.csv")
