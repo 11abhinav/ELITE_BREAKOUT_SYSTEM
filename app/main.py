@@ -1324,7 +1324,7 @@ def _trigger_ai_worker():
 def _trigger_performance_tracker():
     from performance_tracker import build_performance_data
     build_performance_data(force_live_fetch=True)
-    return {"total_count": "Dashboard Rebuild", "processed_count": "Prices Fetched"}
+    return {"total_count": 1, "processed_count": 1}
 
 
 # ENTRY POINT
