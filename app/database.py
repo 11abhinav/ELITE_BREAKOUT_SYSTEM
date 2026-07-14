@@ -2171,6 +2171,50 @@ def acknowledge_fetch_error(error_id: int) -> bool:
                 logger.exception(f"❌ acknowledge_fetch_error failed for id={error_id}")
                 return False
 
+def acknowledge_fetch_error_batch(error_ids: list) -> bool:
+    """Acknowledge multiple fetch errors in one transaction and update scanner health."""
+    if not error_ids:
+        return True
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                format_strings = ','.join(['%s'] * len(error_ids))
+                
+                # First get the scanner names for these errors before we update them
+                cur.execute(f"SELECT DISTINCT scanner_name FROM fetch_errors WHERE id IN ({format_strings})", tuple(error_ids))
+                scanners = [row[0] for row in cur.fetchall()]
+                
+                # Mark as acknowledged
+                cur.execute(f"""
+                    UPDATE fetch_errors 
+                    SET is_acknowledged = TRUE, occurrences = 0
+                    WHERE id IN ({format_strings})
+                """, tuple(error_ids))
+                
+                for scanner_name in scanners:
+                    cur.execute("""
+                        SELECT 1 FROM fetch_errors
+                        WHERE scanner_name = %s AND is_acknowledged = FALSE
+                        LIMIT 1
+                    """, (scanner_name,))
+                    has_more_errors = cur.fetchone() is not None
+                    
+                    if not has_more_errors:
+                        cur.execute("""
+                            UPDATE scanner_health
+                            SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                            WHERE scanner_name = %s
+                        """, (datetime.now(IST).isoformat(), scanner_name))
+                        logger.info(f"✓ Cleared scanner_health for {scanner_name} (all errors acknowledged)")
+                
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                logger.exception(f"❌ acknowledge_fetch_error_batch failed")
+                return False
+
 def acknowledge_all_fetch_errors() -> bool:
     """Acknowledge all fetch errors at once."""
     init_db()

@@ -3675,7 +3675,11 @@
 
     async function ackFetchErrorGroup(ids) {
       try {
-        await Promise.all(ids.map(id => fetch('/api/fetch_errors/ack/' + id, { method: 'POST' })));
+        await fetch('/api/fetch_errors/ack_batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        });
         await doRefresh();
       } catch (e) { console.error('Failed to ack fetch error group', e); }
     }

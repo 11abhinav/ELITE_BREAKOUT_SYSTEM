@@ -1095,6 +1095,21 @@ def api_ack_fetch_error(error_id):
         logger.exception("❌ /api/fetch_errors/ack failed")
         return jsonify({"ok": False}), 500
 
+@app.route("/api/fetch_errors/ack_batch", methods=["POST"])
+@login_required
+def api_ack_fetch_error_batch():
+    """Acknowledge multiple fetch errors in one transaction."""
+    try:
+        ids = request.json.get("ids", [])
+        if not ids:
+            return jsonify({"ok": True})
+        from database import acknowledge_fetch_error_batch
+        ok = acknowledge_fetch_error_batch(ids)
+        return jsonify({"ok": ok})
+    except Exception:
+        logger.exception("❌ /api/fetch_errors/ack_batch failed")
+        return jsonify({"ok": False}), 500
+
 
 @app.route("/api/fetch_errors/all", methods=["DELETE"])
 @login_required
