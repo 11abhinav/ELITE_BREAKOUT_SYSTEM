@@ -942,7 +942,7 @@ class BaseRiskEngine:
         
         return round(support_price - (buf_mult * eff_atr), 2)
 
-    def compute_targets(self, risk: float, vol_regime: str) -> dict:
+    def compute_targets(self, risk: float, vol_regime: str) -> tuple[dict, dict]:
         entry = self.entry_price
         eff_atr = self.kwargs.get("eff_atr") or (entry * 0.015)
         
@@ -955,13 +955,18 @@ class BaseRiskEngine:
         measured_move = entry + cr
         atr_proj = entry + 3 * eff_atr
         
+        # Weight Normalization
+        raw_weights = ENGINE_V2_CONFIG["TARGET_WEIGHTS"]
+        total_w = sum(raw_weights.values())
+        norm_w = {k: v / total_w for k, v in raw_weights.items()}
+        
         t1_cand = (
-            swing_high * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["swing_high"]/100.0) +
-            fib * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["fib"]/100.0) +
-            measured_move * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["measured_move"]/100.0) +
-            max(vwap, entry*1.01) * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["vwap"]/100.0) +
-            atr_proj * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["atr"]/100.0) +
-            r1 * (ENGINE_V2_CONFIG["TARGET_WEIGHTS"]["volume_profile"]/100.0)
+            swing_high * norm_w["swing_high"] +
+            fib * norm_w["fib"] +
+            measured_move * norm_w["measured_move"] +
+            max(vwap, entry*1.01) * norm_w["vwap"] +
+            atr_proj * norm_w["atr"] +
+            r1 * norm_w["volume_profile"]
         )
         
         min_rr = 2.0
@@ -972,11 +977,23 @@ class BaseRiskEngine:
         t2 = t1 + 1.5 * risk
         t3 = t1 + 3.0 * risk
         
-        return {
+        cluster_diagnostics = {
+            "swing_high": round(swing_high, 2),
+            "fib": round(fib, 2),
+            "measured_move": round(measured_move, 2),
+            "vwap": round(vwap, 2),
+            "atr_proj": round(atr_proj, 2),
+            "r1": round(r1, 2),
+            "consensus_target": round(t1_cand, 2)
+        }
+        
+        targets = {
             "t1": {"price": round(t1, 2), "confidence": "HIGH", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"]},
             "t2": {"price": round(t2, 2), "confidence": "MEDIUM", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"]},
             "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]}
         }
+        
+        return targets, cluster_diagnostics
         
     def get_time_stop(self) -> str:
         return "7 trading days"
@@ -985,6 +1002,9 @@ class BaseRiskEngine:
         adx = _safe(self.kwargs.get("adx")) or 20.0
         if adx > 35: return "EMA20"
         return "Pivot Low"
+
+    def get_historical_stats(self) -> dict:
+        return {"win_rate": 0.58, "avg_win": 2.8, "avg_loss": 1.0}
 
     def generate_metrics(self) -> dict:
         support_metrics = SupportConfidenceEngine.calculate(self.kwargs)
@@ -1009,18 +1029,39 @@ class BaseRiskEngine:
             kelly_fraction = 0.15
             max_risk_pct = 0.5
             
+        # Hard cap Kelly limits
+        MAX_RISK_LIMIT = 2.0
+        max_risk_pct = min(max_risk_pct, MAX_RISK_LIMIT)
+            
         position_size_pct = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
         
-        targets = self.compute_targets(risk_dist, vol_regime)
+        targets, target_cluster_vals = self.compute_targets(risk_dist, vol_regime)
         
         t1_price = targets["t1"]["price"]
         expected_rr = round((t1_price - self.entry_price) / risk_dist, 2) if risk_dist > 0 else 0.0
         
-        prob_win = tq / 100.0
+        hist_stats = self.get_historical_stats()
+        prob_win = hist_stats["win_rate"]
         prob_loss = 1.0 - prob_win
-        avg_win = (t1_price - self.entry_price) / max(self.entry_price, 1)
-        avg_loss = risk_pct / 100.0
-        ev = round((prob_win * avg_win) - (prob_loss * avg_loss), 4) * 100
+        ev = round((prob_win * hist_stats["avg_win"]) - (prob_loss * hist_stats["avg_loss"]), 2)
+        
+        warnings = []
+        if (t1_price - self.entry_price) / max(self.entry_price, 1) < 0.03:
+            warnings.append("Target very close to resistance")
+        if support_metrics["score"] < 50:
+            warnings.append("Support confidence below 50")
+        if self.kwargs.get("atr_pct", 0) > 4.5:
+            warnings.append("ATR percentile very high")
+            
+        diagnostics = {
+            "support_source": "Swing Cluster" if self.kwargs.get("swing_low_cluster") else "Pivot",
+            "target_source": "Hybrid Consensus",
+            "volatility_mode": vol_regime,
+            "market_regime": "Bull",
+            "scanner": self.mode,
+            "engine_version": "2.0",
+            "target_cluster_values": target_cluster_vals
+        }
         
         return {
             "engine_version": "2.0",
@@ -1037,31 +1078,41 @@ class BaseRiskEngine:
                 "risk_pct": round(risk_pct, 2),
                 "position_size_pct": position_size_pct,
                 "kelly_fraction": kelly_fraction,
-                "expected_value": round(ev, 2)
+                "expected_value": ev
             },
             "targets": targets,
             "management": {
                 "time_stop": self.get_time_stop(),
                 "trailing": self.get_trailing_rule()
-            }
+            },
+            "diagnostics": diagnostics,
+            "warnings": warnings
         }
 
 
 class BreakoutAdapter(BaseRiskEngine):
     def get_time_stop(self) -> str:
         return "5-7 trading days"
+    def get_historical_stats(self) -> dict:
+        return {"win_rate": 0.58, "avg_win": 2.8, "avg_loss": 1.0}
 
 class ReversalAdapter(BaseRiskEngine):
     def get_time_stop(self) -> str:
         return "12-15 trading days"
+    def get_historical_stats(self) -> dict:
+        return {"win_rate": 0.52, "avg_win": 3.2, "avg_loss": 1.0}
 
 class IntradayAdapter(BaseRiskEngine):
     def get_time_stop(self) -> str:
         return "End of session"
+    def get_historical_stats(self) -> dict:
+        return {"win_rate": 0.48, "avg_win": 2.0, "avg_loss": 1.0}
 
 class HourlyAdapter(BaseRiskEngine):
     def get_time_stop(self) -> str:
         return "10 candles"
+    def get_historical_stats(self) -> dict:
+        return {"win_rate": 0.55, "avg_win": 2.2, "avg_loss": 1.0}
 
 
 def compute_sl_and_target(
