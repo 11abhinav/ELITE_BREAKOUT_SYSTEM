@@ -804,11 +804,16 @@ def trigger_performance_rebuild():
             logger.info("📈 PERFORMANCE TRACKER | Rebuild already in progress, skipping redundant trigger.")
             return
         try:
-            logger.info("📈 PERFORMANCE TRACKER | Waiting for scanner_execution_lock to rebuild performance data...")
-            import main
-            with main.scanner_execution_lock:
-                logger.info("📈 PERFORMANCE TRACKER | Rebuilding performance data...")
-                build_performance_data()
+            logger.info("📈 PERFORMANCE TRACKER | Rebuilding performance data...")
+            # RCA & DESIGN DECISION (2026-07-15):
+            # - Removed the main.scanner_execution_lock block.
+            # - Why: Scanners can take several minutes to run, during which they hold the lock.
+            #   If a rebuild blocks on the lock, any new alert or manual click won't show on the
+            #   dashboard until the scanner completes, causing visible lag.
+            # - Safety: yf_rate_limiter.py globally throttle Yahoo Finance requests, and
+            #   Postgres handles concurrent row-level locking. Running rebuild concurrently
+            #   with scanners is safe and ensures instant dashboard updates.
+            build_performance_data()
         except Exception as e:
             logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
         finally:

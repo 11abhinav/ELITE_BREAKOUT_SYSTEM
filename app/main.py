@@ -214,8 +214,10 @@ def run_performance_tracker():
     
     # Always run once on boot to ensure fresh dashboard data, even on weekends
     try:
-        with scanner_execution_lock:
-            build_performance_data()
+        # RCA & DESIGN DECISION (2026-07-15):
+        # - Removed scanner_execution_lock here so performance data builds can run
+        #   concurrently with active scanners. Prevents dashboard lags during long runs.
+        build_performance_data()
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
@@ -234,8 +236,9 @@ def run_performance_tracker():
     while True:
         if is_market_open():
             try:
-                with scanner_execution_lock:
-                    build_performance_data()
+                # Removed scanner_execution_lock here to allow background 5m refreshes
+                # to run concurrently with active scanners.
+                build_performance_data()
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
                     last_success=datetime.now(IST).isoformat(),

@@ -1245,6 +1245,17 @@ def save_alert_if_new(
                             threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
                         except Exception as e:
                             logger.exception(f"Failed to start push thread")
+                        
+                        # RCA & DESIGN DECISION (2026-07-15):
+                        # - Trigger performance rebuild immediately on a new alert insertion
+                        # - Why: This ensures that when the admin gets the push notification and clicks it,
+                        #   the newly generated trade is already loaded in /data/performance_data.json and
+                        #   shows up on the dashboard "All Trades" table instantly.
+                        try:
+                            from performance_tracker import trigger_performance_rebuild
+                            trigger_performance_rebuild()
+                        except Exception as pe:
+                            logger.error(f"Failed to trigger performance rebuild on new alert: {pe}")
                             
                     return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
             except Exception:

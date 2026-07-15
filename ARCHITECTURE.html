@@ -820,9 +820,80 @@ The web interface standardizes all `<table>` elements with a frontend DOM-based 
 - **The Bug:** Originally, `build_performance_data()` was called as a post-scan hook by every scanner and every alert action (accept, reject, reallocate). When decoupled to rely *only* on a 5-minute background loop, this caused a significant UI lag where newly generated scanner signals or manual action updates would not reflect on the "All Trades" dashboard table until the next scheduler cycle (taking up to 5 minutes).
 - **The Fix:** Implement `trigger_performance_rebuild()` using a dedicated `_perf_rebuild_lock` with `blocking=False` in an asynchronous thread. When EOD/scanners complete or alert actions are clicked, they invoke this function. The thread exits immediately (no-op) if a rebuild is already running, completely eliminating rebuild storms. If idle, it acquires the lock, waits to serialize safely with active scanners on `main.scanner_execution_lock`, and executes `build_performance_data()`. This updates the UI within seconds of changes while keeping the request/main thread completely responsive.
 
-### 22.2 FIFO Queue via Threading Locks
-- **Architectural Principle:** Python's `threading.Lock` natively behaves as a FIFO queue on CPython when multiple threads call `.acquire(blocking=True)`.
-- **System Locks:** When a scanner or the performance tracker starts, it must use `with scanner_execution_lock:` to run. If another scanner attempts to run concurrently, it automatically waits in line (FIFO) without needing a complex `queue.Queue` structure. UI action endpoints that merely update the DB state do not need to acquire this global scanner lock. Background rebuild threads (`trigger_performance_rebuild`) blockingly wait on `scanner_execution_lock` inside the background thread to safely wait for active scans to release lock before updating metrics.
+### 22.2 Lock Decoupling for Live Updates
+- **The Bug:** Originally, the background rebuild thread (`trigger_performance_rebuild`) blockingly waited on `main.scanner_execution_lock`. Because scanners can run for several minutes (fetching data and running filters), the performance data build was delayed. Newly generated scanner signals or manual actions (accept/reject) would not update the dashboard until the entire scan completed.
+- **The Fix:** The `scanner_execution_lock` check was removed from the performance rebuild process. Since database transactions are safe (Postgres row-level locks) and API rate limits are governed globally by `yf_rate_limiter.py` (which uses a concurrent semaphore of 6 and a minimum interval of 1.25s), the performance rebuild thread can safely run concurrently with scanners. In addition, a `trigger_performance_rebuild()` call was wired directly into the alert insertion pipeline (`save_alert_if_new()`). This ensures that when a new alert is generated, the performance data is updated immediately, allowing the trade to show up on the dashboard "All Trades" table instantly when the user clicks the push notification.
+
+---
+
+## 23. Bayesian ML Feedback Loop (Dynamic Weighting)
+
+### 23.1 The Train Partition Feedback Loop
+To adapt dynamically to evolving market cycles, the system implements a Bayesian Feedback Loop (`bayesian_updater.py`). The engine evaluates closed trades marked as `WIN` or `LOSS` strictly within the `TRAIN` partition of the `alerts` table. It computes a trailing win rate.
+
+### 23.2 Administrative Approval Gateway
+Rather than directly writing model parameter weights to production, the updater runs a simplified Bayesian shift calculation. If it detects a feature (such as `VOLUME_ZSCORE`) that is demonstrating higher predictive power in winning trades, it proposes a new model version (e.g. `v1` to `v2`) with adjusted feature weights. The proposed weights are written to the `bayesian_model_updates` table and queued for admin approval. Once approved via the Admin UI, the new weights are marked as `APPROVED` and are loaded dynamically by the `scoring_engine.py` using `get_latest_weights(regime)`.
+
+---
+
+## 24. Sector Rotation Engine
+
+### 24.1 Relative Strength (RS) Scoring
+The Sector Rotation Engine (`sector_rotation.py`) computes the relative strength of sectors against the Nifty 50 benchmark (`^NSEI`). The sector returns are measured over a 20-day lookback window (`RS_LOOKBACK_DAYS`), and the momentum is measured over a 5-day window (`MOMENTUM_LOOKBACK_DAYS`).
+
+### 24.2 Sector Classifications & Multi-Mapping
+Sectors are classified into four quadrants:
+- **LEADING:** RS >= 1.0 and RS momentum >= 0 (Strong & Strengthening)
+- **IMPROVING:** RS < 1.0 and RS momentum >= 0 (Weak but Recovering)
+- **WEAKENING:** RS >= 1.0 and RS momentum < 0 (Strong but Fading)
+- **LAGGING:** RS < 1.0 and RS momentum < 0 (Weak & Weakening)
+
+The engine fetches ETF close prices in a single batch query to minimize network queries. Sector names returned by TradingView are translated to ETF tracker equivalents via `TV_SECTOR_TO_ROTATION`.
+
+### 24.3 Zero-Cost Scoring Bonuses
+Instead of loading sector data per stock inside the scanning loop, the rotation engine is run once at scanner boot to build a sector-to-RS map. Downstream, each stock retrieves its sector status instantly from memory. The score is modified according to the sector's classification:
+- **LEADING:** +4 points
+- **IMPROVING:** +2 points
+- **WEAKENING:** -2 points
+- **LAGGING:** -4 points
+
+---
+
+## 25. Technical Indicators Engine
+
+### 25.1 Pivot Swing Point Detection
+Rather than using simple rolling min/max windows (which capture extreme points regardless of their technical significance), `technical_indicators.py` uses proper pivot swing point detection. It requires a bar's High/Low to be the extreme value in a left-right window (`pivot_n`) of:
+- EOD (`1d`): 5 bars
+- Hourly (`1h`): 4 bars
+- Intraday (`15m`): 3 bars
+
+### 25.2 Timeframe-Aware Support/Resistance Anchoring
+For intraday timeframes (15m/1h), pivot points (PP, S1-S3, R1-R3) are calculated from the previous day's OHLC data (using daily charts) instead of the previous intraday bar. This ensures supports and resistances represent standard floor pivots used by institutional traders.
+
+### 25.3 Advanced Metrics: OBV_TREND, BASE_WIDTH, VCP_TIGHTENING
+- **OBV_TREND:** Spanning a 50-bar rolling On-Balance Volume. A positive slope awards +1, indicating volume confirms price direction; a negative slope indicates distribution/divergence (-1).
+- **BASE_WIDTH:** Measures price consolidation tightness. Calculated as `(rolling_max_high_10 - rolling_min_low_10) / ATR`. Values `< 1.5` represent a tight base (consolidation breakout, +4 points), whereas values `> 3.0` represent volatile price action (-4 points).
+- **VCP_TIGHTENING:** True VCP is confirmed if the 20-day average ATR% is strictly lower than the 60-day average ATR%, indicating volatility contraction.
+
+---
+
+## 26. Observability & System Logging
+
+### 26.1 Database Intercept Handler
+The logging framework (`db_logger.py`) installs a custom handler (`DatabaseLogHandler`) to intercept `ERROR` and `CRITICAL` logs. It automatically filters out noisy third-party libraries (e.g. `yfinance`, `urllib3`, `requests`, `httpx`). Valid application error logs are written directly to the `system_logs` table in Postgres, complete with standard traceback formatting.
+
+### 26.2 Unhandled Thread Exceptions
+The framework overrides `sys.excepthook` to capture uncaught application or background thread crashes. When triggered, it logs the traceback as a `CRITICAL` error to the database. These logs are exposed via `/api/system_logs` on the Admin dashboard.
+
+---
+
+## 27. Security & Notification Flow
+
+### 27.1 Web Push Services
+The system supports standard Web Push Notifications (`push_service.py`) via the VAPID protocol. Users subscribe through the frontend dashboard, and subscriptions are persisted in the database. When a new alert is generated, `push_service.send_push_to_all()` issues a payload containing the stock symbol and entry price.
+
+### 27.2 Throttling and Eviction
+To prevent outage spam (e.g. Fyers token expiration causing background threads to fail and alert the admin every 5 minutes), push notifications are throttled using an in-memory cache for up to 1 hour (`_THROTTLE_SECONDS = 3600`). If a subscriber endpoint returns a `404` or `410` (unregistered/expired), the subscription is automatically evicted from the Postgres database.
 
 </textarea>
 
