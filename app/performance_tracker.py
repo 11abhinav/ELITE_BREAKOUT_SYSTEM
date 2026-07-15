@@ -347,6 +347,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event)
                 update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
             continue
+def _days_held(alert_date_str: str) -> int:
+    try:
+        return (datetime.now(IST).date() - date.fromisoformat(alert_date_str)).days
+    except Exception:
+        return 0
+
 
 def _trade_status(
     pnl_pct: Optional[float],
