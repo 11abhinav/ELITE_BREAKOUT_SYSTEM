@@ -192,7 +192,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     import json
     from datetime import datetime
     import pandas as pd
-    from config import IST
     
     t1 = t.get("target_1") or t.get("target_price")
     t2 = t.get("target_2") or (t1 * 1.05 if t1 else None)
