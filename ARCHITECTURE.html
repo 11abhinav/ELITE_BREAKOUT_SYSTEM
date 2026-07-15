@@ -812,6 +812,18 @@ To prevent API rate limit abuse and protect `current_price` metrics during off-m
 ### 21.3 Universal UI Sorting (Data-Agnostic)
 The web interface standardizes all `<table>` elements with a frontend DOM-based sorting algorithm (`table_sorter.js`). The script auto-detects column data types (Currency, Percentages, Dates, Strings) via Regex parsing. This decouples the backend logic from presentation requirements, ensuring tables can be sorted dynamically without issuing database `ORDER BY` API calls.
 
+### 21.4 Trade Lifecycle State Machine & Allowed Statuses
+To support partial profit-booking and risk management, trade outcomes transition dynamically through the following status states inside `performance_tracker.py` and `database.py`:
+- **`OPEN`**: Default status when an alert is first created and active.
+- **`PARTIAL_WIN_1`**: Triggered when the price hits the first target (`target_1`). 25% of the position is closed, and the stop-loss is raised to the entry price (breakeven).
+- **`PARTIAL_WIN_2`**: Triggered when the price hits the second target (`target_2`) from `PARTIAL_WIN_1`. 35% of the position is closed, and the stop-loss is raised to `target_1`.
+- **`WIN`**: Final state when either:
+  1. The final target (`target_3`) is hit.
+  2. The trailing stop-loss is hit on a position that has already booked a partial profit (i.e., status was `PARTIAL_WIN_1` or `PARTIAL_WIN_2`).
+- **`LOSS`**: Final state when the stop-loss is hit on a position that is still in `OPEN` status (no partial profit has been booked).
+- **`NEUTRAL`**: A custom final state manually assigned by the administrator through the dashboard manual judgement option.
+- **`CLOSED`**: Final fallback state representing a closed position.
+
 ---
 
 ## 22. Scanner Concurrency & Performance Rebuild Locks
