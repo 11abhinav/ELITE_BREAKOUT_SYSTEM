@@ -77,11 +77,20 @@ def run_ai_worker_scan_once() -> dict:
         actual_pending = []
         for sym in pending_stocks:
             cached = get_recent_concall_analysis(sym, max_age_days=60)
-            if cached and not (isinstance(cached, dict) and "error" in cached):
-                continue
+            # If we have a valid cache (dict without 'error', or string without 'error'), skip it.
+            if cached:
+                if isinstance(cached, dict) and "error" not in cached:
+                    continue
+                elif isinstance(cached, str) and "error" not in cached.lower():
+                    continue
+                    
             cached_today = get_recent_concall_analysis(sym, max_age_days=1)
-            if cached_today and isinstance(cached_today, dict) and "error" in cached_today:
-                continue
+            if cached_today:
+                if isinstance(cached_today, dict) and "error" in cached_today:
+                    continue
+                elif isinstance(cached_today, str) and "error" in cached_today.lower():
+                    continue
+                    
             actual_pending.append(sym)
             
         db_processed_count = get_total_cached_concalls()
