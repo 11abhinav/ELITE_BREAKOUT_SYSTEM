@@ -184,25 +184,15 @@ import json
 
 def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     """
-    State Machine Evaluator for Partial Exits.
-    Walks forward through historical ticks and current price to execute trailing SLs and partial limits.
-    Mutates 't' in-memory and triggers database writes via database.py helpers.
-
-    IMPORTANT — Incremental Processing (Bug Fix 2026-07-15):
-    When a trade is in PARTIAL_WIN_1 or PARTIAL_WIN_2 state and the tracker re-runs (e.g. admin trigger
-    or background re-evaluation), it must NOT re-walk bars that were already processed in a prior run.
-
-    Root Cause of Duplicate SL Bug:
-    After T2 was hit, the trailing SL was raised from original (e.g. 1828) to T1 (e.g. 1855.94).
-    On the next run, ALL bars from alert creation were re-walked with the NOW-RAISED SL. Any bar
-    BEFORE T1/T2 hits whose Low was between original_SL and raised_SL (e.g. 1840) would incorrectly
-    trigger an SL exit at a timestamp that had already passed — producing retroactive false LOSS entries.
-
-    Fix: Determine the timestamp of the last recorded exit event from exit_history. Skip any bar
-    at or before that timestamp. Only evaluate NEW bars that haven't been processed yet.
-    This has zero impact on fresh trades (no exit_history → last_event_ts=None → all bars included).
+    State Machine Evaluator for Partial Exits (Full Replay Architecture).
+    Walks forward through historical ticks from alert creation and executes trailing SLs and limits.
+    Deduplicates database writes by checking existing exit_history.
     """
     from database import update_partial_exit, update_alert_outcome
+    import json
+    from datetime import datetime
+    import pandas as pd
+    from config import IST
     
     t1 = t.get("target_1") or t.get("target_price")
     t2 = t.get("target_2") or (t1 * 1.05 if t1 else None)
@@ -213,27 +203,26 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     shares_bought = t.get("shares_bought", 0)
     if shares_bought == 0: return
 
-    # ── Determine cutoff: skip bars already processed in prior runs ────────────────────
-    # This is the key fix: if the trade has prior exit events (T1, T2 partial hits),
-    # only evaluate bars that occurred STRICTLY AFTER the last recorded event.
-    # Prevents retroactive wrong SL/target hits when re-evaluated with raised trailing SL.
-    last_event_ts = None
-    try:
-        eh = t.get("exit_history")
-        hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
-        if hist_list:
-            last_event_ts = hist_list[-1].get("time")  # e.g. "2026-07-15 14:35:00"
-    except Exception:
-        last_event_ts = None
+    # ── Initialize State for Full Replay ───────────────────────────────────────
+    initial_sl = t.get("initial_stop_loss")
+    t["stop_loss"] = initial_sl if initial_sl else t.get("stop_loss")
+    t["status"] = "OPEN"
+    t["remaining_shares"] = shares_bought
+    
+    # Load existing DB events to avoid duplicate writes
+    eh = t.get("exit_history")
+    existing_hist = eh if isinstance(eh, list) else json.loads(eh or "[]")
+    db_events = {e.get("type") for e in existing_hist}
+    
+    # Reset in-memory history to build sequentially during replay
+    hist_list = []
+    t["exit_history"] = "[]"
 
-    # Build sequence of ticks to evaluate (history + live)
+    # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []
     if hist is not None and not hist.empty:
         for ts, row in hist.iterrows():
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-            # Skip bars already covered by prior partial exit runs
-            if last_event_ts is not None and ts_str <= last_event_ts:
-                continue
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"])))
     if cur_p:
         now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
@@ -245,8 +234,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
         sl = t["stop_loss"]
         status = t["status"]
-        rem_shares = t.get("remaining_shares")
-        if rem_shares is None: rem_shares = shares_bought
+        rem_shares = t["remaining_shares"]
         
         # 1. Evaluate Stop Loss First (Protective)
         if low <= sl:
@@ -256,15 +244,14 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             final_status = "WIN" if "PARTIAL" in status else "LOSS"
             
-            eh = t.get("exit_history")
-            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or 0.0
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
             
-            update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event)
-            update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS")
+            if "SL_HIT" not in db_events:
+                update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event)
+                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS")
             
             t["status"] = final_status
             t["remaining_shares"] = 0
@@ -289,22 +276,22 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             new_sl = t["entry_price"]  # Raise to Breakeven
             new_status = "PARTIAL_WIN_1"
             
-            update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
-            
+            hist_list.append(event)
+            t["exit_history"] = json.dumps(hist_list)
             t["status"] = new_status
             t["stop_loss"] = new_sl
             t["remaining_shares"] = new_rem
-            eh = t.get("exit_history")
-            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
-            hist_list.append(event)
-            t["exit_history"] = json.dumps(hist_list)
+            
+            if "T1_HIT" not in db_events:
+                update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
             
             if new_rem <= 0:
                 t["status"] = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
                 cap = t.get("capital_allocated") or 0.0
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
-                update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+                if "T1_HIT" not in db_events:
+                    update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
             continue
             
         # 3. Evaluate T2
@@ -318,28 +305,28 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
-            new_sl = t1  # Raise SL to T1
+            new_sl = t1  # Raise to T1
             new_status = "PARTIAL_WIN_2"
             
-            update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
-            
+            hist_list.append(event)
+            t["exit_history"] = json.dumps(hist_list)
             t["status"] = new_status
             t["stop_loss"] = new_sl
             t["remaining_shares"] = new_rem
-            eh = t.get("exit_history")
-            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
-            hist_list.append(event)
-            t["exit_history"] = json.dumps(hist_list)
+            
+            if "T2_HIT" not in db_events:
+                update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event)
             
             if new_rem <= 0:
                 t["status"] = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
                 cap = t.get("capital_allocated") or 0.0
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
-                update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+                if "T2_HIT" not in db_events:
+                    update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
             continue
             
-        # 4. Evaluate T3
+        # 4. Evaluate T3 (Final Target)
         if status == "PARTIAL_WIN_2" and high >= t3:
             exit_p = open_p if open_p > t3 else t3
             shares_to_sell = rem_shares
@@ -347,46 +334,19 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
             event = {"type": "T3_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
-            update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event)
-            
-            eh = t.get("exit_history")
-            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
             hist_list.append(event)
-            total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or 0.0
-            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
-            
-            update_alert_outcome(t["id"], "WIN", exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
-            
+            t["exit_history"] = json.dumps(hist_list)
             t["status"] = "WIN"
             t["remaining_shares"] = 0
-            t["exit_history"] = json.dumps(hist_list)
-            t["pnl_pct"] = total_pnl_pct
-            t["pnl_rs"] = total_pnl_rs
-            continue
             
-    # Calculate MTM (Mark-to-Market) for floating shares
-    if t["status"] in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2"):
-        if cur_p:
-            eh = t.get("exit_history")
-            hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
-            realized_pnl = sum(e["pnl"] for e in hist_list)
-            rem = t.get("remaining_shares")
-            if rem is None: rem = shares_bought
-            unrealized_pnl = rem * (cur_p - t["entry_price"])
-            total_pnl = realized_pnl + unrealized_pnl
-            
+            total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or 0.0
-            t["pnl_pct"] = round((total_pnl / cap) * 100, 2) if cap else 0.0
-            t["pnl_rs"] = round(total_pnl, 2)
-
-
-def _days_held(alert_date_str: str) -> int:
-    try:
-        return (datetime.now(IST).date() - date.fromisoformat(alert_date_str)).days
-    except Exception:
-        return 0
-
+            p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            
+            if "T3_HIT" not in db_events:
+                update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event)
+                update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
+            continue
 
 def _trade_status(
     pnl_pct: Optional[float],

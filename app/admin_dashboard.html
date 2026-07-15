@@ -2956,6 +2956,10 @@
             : `<button onclick="reallocateCapital(${t.id})" style="background:#4a90e2; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">💰 Allocate Capital</button>
                    <button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">❌ Reject Trade</button>`
           }
+              ${(t.status === 'CLOSED' || t.status === 'WIN' || t.status === 'LOSS') 
+                ? `<button onclick="recalculateAlert(${t.id})" style="background:var(--card2); color:var(--text); border:1px solid var(--border); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;" title="Reset this closed trade to OPEN and force full recalculation">🔄 Recalculate Exit</button>`
+                : ''
+              }
             </div>
           </div>
           <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
@@ -3187,6 +3191,44 @@
       } catch (e) {
         console.error(e);
         showCustomToast('Error accepting trade.', 'error');
+      }
+    }
+
+    async function recalculateAlert(id) {
+      const confirmed = await showCustomConfirm('Are you sure you want to RECALCULATE this closed trade? It will be reset to OPEN and rebuilt from scratch based on its alert date.');
+      if (!confirmed) return;
+      
+      const btn = event.target || event.srcElement;
+      let oldText = '🔄 Recalculate Exit';
+      let isButton = btn && btn.tagName === 'BUTTON';
+      if (isButton) {
+        oldText = btn.innerText;
+        btn.innerText = 'Recalculating...';
+        btn.disabled = true;
+      }
+      
+      try {
+        const res = await fetch('/api/alert/recalculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        if (res.ok) {
+          const trade = ALL_TRADES.find(t => t.id === id);
+          if (trade) trade.status = 'OPEN';
+          renderTradeTable();
+          showCustomToast('Recalculation started. Trade is now OPEN and will update shortly.', 'success');
+        } else {
+          showCustomToast('Failed to recalculate trade.', 'error');
+        }
+      } catch (e) {
+        console.error(e);
+        showCustomToast('Error recalculating trade.', 'error');
+      } finally {
+        if (isButton) {
+          btn.innerText = oldText;
+          btn.disabled = false;
+        }
       }
     }
 

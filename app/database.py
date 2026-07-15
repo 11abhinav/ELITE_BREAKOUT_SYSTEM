@@ -1395,6 +1395,54 @@ def update_alert_current_price(alert_id: int, current_price: float) -> None:
             except Exception as e:
                 logger.warning(f"⚠️ Failed to update current_price to {current_price} for alert_id {alert_id}: {e}")
 
+def reset_alert_for_recalculation(alert_id: int) -> bool:
+    """
+    Resets a closed or partially closed alert back to OPEN state for full replay.
+    Restores stop_loss to initial_stop_loss, clears exit history and PnL.
+    """
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            success = False
+            try:
+                with conn.cursor() as cur:
+                    # Verify alert exists and get some base data
+                    cur.execute("SELECT status, stop_loss, initial_stop_loss, shares_bought FROM alerts WHERE id = %s", (alert_id,))
+                    row = cur.fetchone()
+                    if not row:
+                        return False
+                    
+                    old_status, current_sl, initial_sl, shares_bought = row
+                    
+                    # If initial_stop_loss is null for some legacy reason, use current_sl as fallback
+                    reset_sl = initial_sl if initial_sl else current_sl
+                    
+                    cur.execute("""
+                        UPDATE alerts
+                        SET status = 'OPEN',
+                            stop_loss = %s,
+                            exit_price = NULL,
+                            pnl_pct = NULL,
+                            pnl_rs = NULL,
+                            closed_at = NULL,
+                            exit_history = NULL,
+                            remaining_shares = %s
+                        WHERE id = %s
+                    """, (reset_sl, shares_bought, alert_id))
+                    
+                    new_state = {"status": "OPEN", "stop_loss": reset_sl, "remaining_shares": shares_bought, "exit_history": None}
+                    cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
+                                (alert_id, 'RECALCULATE_RESET', json.dumps({"status": old_status}), json.dumps(new_state)))
+                    conn.commit()
+                    success = True
+                    logger.info(f"🔄 Alert {alert_id} reset to OPEN for recalculation. SL restored to {reset_sl}.")
+                    return True
+            except Exception as e:
+                logger.exception(f"❌ reset_alert_for_recalculation failed for alert_id={alert_id}")
+                return False
+            finally:
+                if not success:
+                    conn.rollback()
+
 def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int) -> bool:
     """Returns True if a duplicate alert exists within the cooldown window."""
     from datetime import datetime, timedelta

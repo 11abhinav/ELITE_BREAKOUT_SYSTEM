@@ -1367,6 +1367,27 @@ def api_reject_alert():
         logger.exception('❌ /api/alert/reject failed')
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/alert/recalculate', methods=['POST'])
+@login_required
+def api_recalculate_alert():
+    """Admin endpoint to force a full replay calculation on a closed alert."""
+    try:
+        data = request.json or {}
+        alert_id = int(data.get('id'))
+        
+        from database import reset_alert_for_recalculation
+        ok = reset_alert_for_recalculation(alert_id)
+        if ok:
+            # Trigger tracker to immediately rebuild this newly opened alert
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild()
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Alert not found or reset failed'}), 400
+    except Exception as e:
+        logger.exception('❌ /api/alert/recalculate failed')
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/alert/reject_multiple', methods=['POST'])
 @login_required
 def api_reject_multiple_alerts():
