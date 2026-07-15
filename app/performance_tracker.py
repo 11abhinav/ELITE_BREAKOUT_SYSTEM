@@ -179,14 +179,28 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         return None
 
 
-
 import json
+
 
 def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     """
     State Machine Evaluator for Partial Exits.
     Walks forward through historical ticks and current price to execute trailing SLs and partial limits.
     Mutates 't' in-memory and triggers database writes via database.py helpers.
+
+    IMPORTANT — Incremental Processing (Bug Fix 2026-07-15):
+    When a trade is in PARTIAL_WIN_1 or PARTIAL_WIN_2 state and the tracker re-runs (e.g. admin trigger
+    or background re-evaluation), it must NOT re-walk bars that were already processed in a prior run.
+
+    Root Cause of Duplicate SL Bug:
+    After T2 was hit, the trailing SL was raised from original (e.g. 1828) to T1 (e.g. 1855.94).
+    On the next run, ALL bars from alert creation were re-walked with the NOW-RAISED SL. Any bar
+    BEFORE T1/T2 hits whose Low was between original_SL and raised_SL (e.g. 1840) would incorrectly
+    trigger an SL exit at a timestamp that had already passed — producing retroactive false LOSS entries.
+
+    Fix: Determine the timestamp of the last recorded exit event from exit_history. Skip any bar
+    at or before that timestamp. Only evaluate NEW bars that haven't been processed yet.
+    This has zero impact on fresh trades (no exit_history → last_event_ts=None → all bars included).
     """
     from database import update_partial_exit, update_alert_outcome
     
@@ -199,11 +213,28 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     shares_bought = t.get("shares_bought", 0)
     if shares_bought == 0: return
 
+    # ── Determine cutoff: skip bars already processed in prior runs ────────────────────
+    # This is the key fix: if the trade has prior exit events (T1, T2 partial hits),
+    # only evaluate bars that occurred STRICTLY AFTER the last recorded event.
+    # Prevents retroactive wrong SL/target hits when re-evaluated with raised trailing SL.
+    last_event_ts = None
+    try:
+        eh = t.get("exit_history")
+        hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
+        if hist_list:
+            last_event_ts = hist_list[-1].get("time")  # e.g. "2026-07-15 14:35:00"
+    except Exception:
+        last_event_ts = None
+
     # Build sequence of ticks to evaluate (history + live)
     ticks = []
     if hist is not None and not hist.empty:
         for ts, row in hist.iterrows():
-            ticks.append((ts.strftime("%Y-%m-%d %H:%M:%S"), float(row["Open"]), float(row["Low"]), float(row["High"])))
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+            # Skip bars already covered by prior partial exit runs
+            if last_event_ts is not None and ts_str <= last_event_ts:
+                continue
+            ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"])))
     if cur_p:
         now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
         ticks.append((now_str, cur_p, cur_p, cur_p))
