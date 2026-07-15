@@ -504,8 +504,14 @@ class FyersFetcher(DataFetcher):
                 for ns_sym in ns_symbols
             }
             
+            completed = 0
+            total = len(future_to_ns)
             for future in concurrent.futures.as_completed(future_to_ns):
                 ns_sym = future_to_ns[future]
+                completed += 1
+                if completed % 50 == 0 or completed == total:
+                    logger.info(f"{prefix}⏳ Progress: Fetched {completed}/{total} symbols from Fyers...")
+                    
                 try:
                     df = future.result()
                     # Map dataframe to all requested symbols mapping to this normalized symbol

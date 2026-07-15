@@ -15,9 +15,13 @@ import threading
 import logging
 import traceback
 import signal
-import random
+import socket
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
+
+# Set a global socket timeout to prevent third-party HTTP libraries (like fyers_apiv3)
+# from hanging infinitely in ThreadPoolExecutors if the remote server drops the connection.
+socket.setdefaulttimeout(60.0)
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
