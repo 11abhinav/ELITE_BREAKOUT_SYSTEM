@@ -1140,7 +1140,6 @@ def _main_impl(force_rebuild: bool = False):
         try:
             from database import download_parquet_from_db
             import tempfile
-            import os
             
             # Use a temporary file to download the last known good parquet
             with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
@@ -1200,7 +1199,6 @@ def _main_impl(force_rebuild: bool = False):
             if not winners:
                 pass # let the next block handle the failure
         finally:
-            import os
             for p in (tmp_path, tmp_excl_path):
                 if p and os.path.exists(p):
                     try:
