@@ -441,11 +441,42 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS ai_concall_cache_v3 (
                         id            SERIAL PRIMARY KEY,
                         symbol        TEXT NOT NULL,
-                        pdf_url       TEXT UNIQUE NOT NULL,
+                        pdf_url       TEXT NOT NULL,
                         analysis_data JSONB NOT NULL,
-                        created_at    TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                        created_at    TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        UNIQUE (symbol, pdf_url)
                     )
                 """)
+                # [VERSION: CONCALL_CACHE_UNIQUE_FIX_v1.0] Migration: drop old pdf_url-only unique
+                # constraint (which caused silent save failures when two symbols shared a PDF URL)
+                # and replace with the correct (symbol, pdf_url) composite unique constraint.
+                try:
+                    cur.execute("""
+                        DO $$
+                        BEGIN
+                            -- Drop old single-column constraint if it exists
+                            IF EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'ai_concall_cache_v3_pdf_url_key'
+                                  AND conrelid = 'ai_concall_cache_v3'::regclass
+                            ) THEN
+                                ALTER TABLE ai_concall_cache_v3
+                                    DROP CONSTRAINT ai_concall_cache_v3_pdf_url_key;
+                            END IF;
+                            -- Add composite unique constraint if missing
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'ai_concall_cache_v3_symbol_pdf_url_key'
+                                  AND conrelid = 'ai_concall_cache_v3'::regclass
+                            ) THEN
+                                ALTER TABLE ai_concall_cache_v3
+                                    ADD CONSTRAINT ai_concall_cache_v3_symbol_pdf_url_key
+                                    UNIQUE (symbol, pdf_url);
+                            END IF;
+                        END$$;
+                    """)
+                except Exception as _mig_err:
+                    logger.warning(f"⚠️ ai_concall_cache_v3 constraint migration skipped: {_mig_err}")
 
                 # ── Promoter Pledge Cache table ────────────────────────────────────
                 # [VERSION: PLEDGE_STATS_DB_v1.1] Add last_attempted_at column for progress tracking
@@ -1992,7 +2023,9 @@ def has_valid_concall_cache(symbol: str) -> bool:
 
 def has_error_concall_cache_within_24h(symbol: str) -> bool:
     """
-    Returns True if an error cache entry was saved for this symbol within the last 24 hours.
+    Returns True if an error cache entry was saved for this symbol within the last 7 days.
+    [VERSION: AI_WORKER_ERROR_TTL_v1.1] Extended from 24h to 7 days — persistent NSE errors
+    (timeout, no PDF) don't self-resolve overnight; daily retries waste API quota.
     Uses a SAFE TRY_CAST approach to handle old/broken created_at TEXT formats.
     """
     init_db()
@@ -2012,7 +2045,7 @@ def has_error_concall_cache_within_24h(symbol: str) -> bool:
                               THEN (SUBSTRING(created_at, 1, 26))::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
                               ELSE NULL
                           END
-                      ) >= NOW() - INTERVAL '1 day'
+                      ) >= NOW() - INTERVAL '7 days'
                     LIMIT 1
                 """, (symbol,))
                 return cur.fetchone() is not None
@@ -2050,24 +2083,34 @@ def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
         logger.exception(f"Failed to get recent concall analysis for {symbol}")
     return None
 
-def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict):
-    """Saves AI analysis to the cache for a specific PDF url."""
+def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict) -> bool:
+    """Saves AI analysis to the cache for a specific (symbol, pdf_url) pair.
+    
+    Returns True if the save succeeded, False otherwise.
+    [VERSION: CONCALL_CACHE_UNIQUE_FIX_v1.0] Changed ON CONFLICT target from (pdf_url) to
+    (symbol, pdf_url) — the old single-column constraint silently overwrote one symbol's cache
+    with another when two symbols shared the same NSE PDF URL.
+    [VERSION: CONCALL_CACHE_JSON_FIX_v1.1] Use psycopg2.extras.Json adapter instead of
+    raw json.dumps string — ensures correct JSONB type casting on all Postgres versions.
+    """
     init_db()
     try:
+        from psycopg2.extras import Json as PgJson
         with get_connection() as conn:
             with conn.cursor() as cur:
-                import json
-                now_ist = f"(now() AT TIME ZONE 'Asia/Kolkata')::TEXT"
                 cur.execute("""
                     INSERT INTO ai_concall_cache_v3 (symbol, pdf_url, analysis_data, created_at)
                     VALUES (%s, %s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
-                    ON CONFLICT (pdf_url) DO UPDATE
+                    ON CONFLICT (symbol, pdf_url) DO UPDATE
                     SET analysis_data = EXCLUDED.analysis_data,
-                        created_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
-                """, (symbol, pdf_url, json.dumps(analysis_data)))
+                        created_at    = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                """, (symbol, pdf_url, PgJson(analysis_data)))
             conn.commit()
+        logger.info(f"✅ [DB] Concall cache saved for {symbol} | pdf_url_prefix={pdf_url[:60]}")
+        return True
     except Exception as e:
-        logger.exception(f"Failed to save concall cache for {symbol}")
+        logger.exception(f"❌ [DB] Failed to save concall cache for {symbol} | error={e}")
+        return False
 
 
 def get_cache_metadata(key: str):

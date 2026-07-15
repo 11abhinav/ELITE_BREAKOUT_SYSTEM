@@ -73,7 +73,7 @@ def run_ai_worker_scan_once() -> dict:
         pending_stocks = sorted(list(set(pending_stocks)))
         total_stocks = len(pending_stocks)
         
-        # ── Pre-filter: only process stocks that genuinely need analysis ────────
+        # ── Pre-filter: only process stocks that genuinely need analysis ────────────────
         actual_pending = []
         for sym in pending_stocks:
             # PRIMARY CHECK: Does a valid (non-error) cache exist for this symbol?
@@ -81,9 +81,12 @@ def run_ai_worker_scan_once() -> dict:
             if has_valid_concall_cache(sym):
                 continue  # Valid analysis exists → skip
 
-            # SECONDARY CHECK: Was an error cached within the last 24h? If so, skip to avoid re-hammering the API.
+            # SECONDARY CHECK: Was an error cached within the last 7 days?
+            # [VERSION: AI_WORKER_ERROR_TTL_v1.1] Extended from 24h to 7 days.
+            # Persistent errors (no PDF on NSE, timeout) don't self-resolve in 24h —
+            # re-queuing them every day burns API quota and spams logs.
             if has_error_concall_cache_within_24h(sym):
-                continue  # Recent error → back off for 24h
+                continue  # Recent error → back off
 
             actual_pending.append(sym)
             
