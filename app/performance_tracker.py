@@ -211,7 +211,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     if hist is not None:
         # Full Replay Mode: Reset state to beginning of time
         initial_sl = t.get("initial_stop_loss")
-        t["stop_loss"] = initial_sl if initial_sl else t.get("stop_loss")
+        if not initial_sl or initial_sl == 0:
+            t["stop_loss"] = t.get("stop_loss")
+        else:
+            t["stop_loss"] = initial_sl
+            
         t["status"] = "OPEN"
         t["remaining_shares"] = shares_bought
         hist_list = []
@@ -223,6 +227,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []
     if hist is not None and not hist.empty:
+        # Prevent Fyers API glitches from causing time-travel by ensuring chronological order and no duplicates
+        hist = hist[~hist.index.duplicated(keep='first')].sort_index()
         for ts, row in hist.iterrows():
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"])))
@@ -557,7 +563,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                     hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
-            process_trade_history(t, hist, cur_p)
+            # If we are doing a historical replay (hist is populated), do NOT artificially append the current live price
+            # as a tick. It can trigger trailing SLs at incorrect (current) timestamps.
+            process_trade_history(t, hist, cur_p=None if (hist is not None) else cur_p)
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
