@@ -3290,7 +3290,7 @@
         });
         if (res.ok) {
           EXIT_HISTORY_CACHE.delete(String(id));
-          if (expandedIds.has(id)) expandedIds.delete(id);
+          expandedIds.clear();
           const trade = ALL_TRADES.find(t => t.id === id);
           if (trade) trade.status = 'OPEN';
           renderTradeTable();
@@ -4091,6 +4091,7 @@
       }
 
       ALL_TRADES = data.trades || [];
+      EXIT_HISTORY_CACHE.clear();
       populateFilters(ALL_TRADES);
       await loadCapitalInfo(); // Ensure capital is always fresh on refresh
       fetchSignalLadder(); // Refresh signal ladder
@@ -4448,8 +4449,8 @@ async function initDashboard() {
     loadNonCriticalErrors();
     return;
   }
-
   ALL_TRADES = data.trades;
+  EXIT_HISTORY_CACHE.clear();
   populateFilters(ALL_TRADES);
   loadCapitalInfo(); 
   renderTradeTable();
@@ -4479,6 +4480,7 @@ async function initDashboard() {
     loadData().then(data => {
       if (data.trades) {
         ALL_TRADES = data.trades;
+        EXIT_HISTORY_CACHE.clear();
         populateFilters(ALL_TRADES);
         fetchSignalLadder();
   loadMultibaggerWatchlist();

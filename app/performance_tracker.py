@@ -272,6 +272,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["exit_history"] = json.dumps(hist_list)
             t["pnl_pct"] = total_pnl_pct
             t["pnl_rs"] = total_pnl_rs
+            t["stopped_out"] = True
+            t["closed_at"] = ts_str
             continue
             
         # 2. Evaluate T1

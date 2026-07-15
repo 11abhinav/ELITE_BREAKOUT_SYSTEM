@@ -1390,7 +1390,7 @@ def update_alert_outcome(
                             exit_signal = %s,
                             remaining_shares = 0
                         WHERE id = %s
-                        AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')
+                        AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
                     """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
                     
                     if cur.rowcount:
