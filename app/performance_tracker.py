@@ -193,11 +193,17 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     from datetime import datetime
     import pandas as pd
     
-    t1 = t.get("target_1") or t.get("target_price")
-    t2 = t.get("target_2") or (t1 * 1.05 if t1 else None)
-    t3 = t.get("target_3") or (t1 * 1.10 if t1 else None)
+    t1 = t.get("target_1")
+    t2 = t.get("target_2")
+    t3 = t.get("target_3")
     
-    if not t1 or not t2 or not t3: return  # Sanity check
+    if not t1 and t.get("target_price"):
+        # Legacy alert fallback
+        t1 = t.get("target_price")
+        t2 = t1 * 1.05
+        t3 = t1 * 1.10
+        
+    if not t1: return  # Sanity check
     
     shares_bought = t.get("shares_bought", 0)
     if shares_bought == 0: return
@@ -271,7 +277,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         # 2. Evaluate T1
         if status == "OPEN" and high >= t1:
             exit_p = open_p if open_p > t1 else t1
-            if not t.get("target_1"):
+            if not t.get("target_1") or not t2:
+                # If there's no explicitly defined target array or if T2 is missing, sell everything at T1
                 shares_to_sell = rem_shares
             else:
                 shares_to_sell = int(shares_bought * 0.25)
@@ -303,11 +310,16 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             continue
             
         # 3. Evaluate T2
-        if status == "PARTIAL_WIN_1" and high >= t2:
+        if t2 and status == "PARTIAL_WIN_1" and high >= t2:
             exit_p = open_p if open_p > t2 else t2
-            shares_to_sell = int(shares_bought * 0.35)
-            if shares_to_sell > rem_shares: shares_to_sell = rem_shares
-            if shares_to_sell == 0: shares_to_sell = rem_shares
+            
+            if not t3:
+                # If there is no T3 (e.g. MF scanner), sell everything remaining at T2
+                shares_to_sell = rem_shares
+            else:
+                shares_to_sell = int(shares_bought * 0.35)
+                if shares_to_sell > rem_shares: shares_to_sell = rem_shares
+                if shares_to_sell == 0: shares_to_sell = rem_shares
             
             pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
