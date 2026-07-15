@@ -812,6 +812,18 @@ To prevent API rate limit abuse and protect `current_price` metrics during off-m
 ### 21.3 Universal UI Sorting (Data-Agnostic)
 The web interface standardizes all `<table>` elements with a frontend DOM-based sorting algorithm (`table_sorter.js`). The script auto-detects column data types (Currency, Percentages, Dates, Strings) via Regex parsing. This decouples the backend logic from presentation requirements, ensuring tables can be sorted dynamically without issuing database `ORDER BY` API calls.
 
+---
+
+## 22. Scanner Concurrency & Performance Rebuild Locks
+
+### 22.1 The Asynchronous Debounced Rebuild Strategy
+- **The Bug:** Originally, `build_performance_data()` was called as a post-scan hook by every scanner and every alert action (accept, reject, reallocate). When decoupled to rely *only* on a 5-minute background loop, this caused a significant UI lag where newly generated scanner signals or manual action updates would not reflect on the "All Trades" dashboard table until the next scheduler cycle (taking up to 5 minutes).
+- **The Fix:** Implement `trigger_performance_rebuild()` using a dedicated `_perf_rebuild_lock` with `blocking=False` in an asynchronous thread. When EOD/scanners complete or alert actions are clicked, they invoke this function. The thread exits immediately (no-op) if a rebuild is already running, completely eliminating rebuild storms. If idle, it acquires the lock, waits to serialize safely with active scanners on `main.scanner_execution_lock`, and executes `build_performance_data()`. This updates the UI within seconds of changes while keeping the request/main thread completely responsive.
+
+### 22.2 FIFO Queue via Threading Locks
+- **Architectural Principle:** Python's `threading.Lock` natively behaves as a FIFO queue on CPython when multiple threads call `.acquire(blocking=True)`.
+- **System Locks:** When a scanner or the performance tracker starts, it must use `with scanner_execution_lock:` to run. If another scanner attempts to run concurrently, it automatically waits in line (FIFO) without needing a complex `queue.Queue` structure. UI action endpoints that merely update the DB state do not need to acquire this global scanner lock. Background rebuild threads (`trigger_performance_rebuild`) blockingly wait on `scanner_execution_lock` inside the background thread to safely wait for active scans to release lock before updating metrics.
+
 </textarea>
 
 
