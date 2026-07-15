@@ -246,6 +246,9 @@ def init_db():
                 
                 
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
+                cur.execute("ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status")
+                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN'))")
+                
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
                 
