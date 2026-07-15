@@ -202,20 +202,23 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     shares_bought = t.get("shares_bought", 0)
     if shares_bought == 0: return
 
-    # ── Initialize State for Full Replay ───────────────────────────────────────
-    initial_sl = t.get("initial_stop_loss")
-    t["stop_loss"] = initial_sl if initial_sl else t.get("stop_loss")
-    t["status"] = "OPEN"
-    t["remaining_shares"] = shares_bought
-    
     # Load existing DB events to avoid duplicate writes
     eh = t.get("exit_history")
     existing_hist = eh if isinstance(eh, list) else json.loads(eh or "[]")
     db_events = {e.get("type") for e in existing_hist}
-    
-    # Reset in-memory history to build sequentially during replay
-    hist_list = []
-    t["exit_history"] = "[]"
+
+    # ── Initialize State ───────────────────────────────────────────────────────
+    if hist is not None:
+        # Full Replay Mode: Reset state to beginning of time
+        initial_sl = t.get("initial_stop_loss")
+        t["stop_loss"] = initial_sl if initial_sl else t.get("stop_loss")
+        t["status"] = "OPEN"
+        t["remaining_shares"] = shares_bought
+        hist_list = []
+        t["exit_history"] = "[]"
+    else:
+        # Fast Mode: Preserve current DB state and history
+        hist_list = existing_hist
 
     # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []
