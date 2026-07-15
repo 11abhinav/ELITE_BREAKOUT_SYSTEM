@@ -1199,28 +1199,32 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             logger.info("✅ All fundamentals were loaded from cache. No fetching required!")
                 
         fetched_count = 0
-        for future in as_completed(futures):
-            sym = futures[future]
-            try:
-                fund = future.result()
-                if fund:
-                    fundamentals_list.append(fund)
-                    # Update local cache memory
-                    cache[sym] = fund
-                    cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
-                    fetched_count += 1
-                    
-                    if fetched_count % 10 == 0 or fetched_count == fetch_total:
-                        logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
-                    
-                    # Save in chunks to prevent data loss if restarted
-                    if fetched_count % 50 == 0:
-                        logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
-                        save_fundamentals_cache(cache)
-                else:
-                    logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
-            except Exception as e:
-                logger.error(f"❌ Error fetching fundamentals for {sym}: {e}")
+        try:
+            import concurrent.futures
+            for future in as_completed(futures, timeout=300):
+                sym = futures[future]
+                try:
+                    fund = future.result()
+                    if fund:
+                        fundamentals_list.append(fund)
+                        # Update local cache memory
+                        cache[sym] = fund
+                        cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
+                        fetched_count += 1
+                        
+                        if fetched_count % 10 == 0 or fetched_count == fetch_total:
+                            logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
+                        
+                        # Save in chunks to prevent data loss if restarted
+                        if fetched_count % 50 == 0:
+                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
+                            save_fundamentals_cache(cache)
+                    else:
+                        logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
+                except Exception as e:
+                    logger.error(f"❌ Error fetching fundamentals for {sym}: {e}")
+        except concurrent.futures.TimeoutError:
+            logger.error("❌ Timeout fetching fundamentals in multibagger. Aborting remaining fetches to prevent deadlock.")
                 
         if fetched_count > 0:
             logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")

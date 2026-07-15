@@ -951,17 +951,20 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
 
         technicals = []
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-            futures = {executor.submit(process_symbol, i, sym, all_historical_data): i for i, sym in enumerate(all_symbols_to_fetch)}
-            completed = 0
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    technicals.append(future.result())
-                except Exception:
-                    pass
-                completed += 1
-                if completed % 50 == 0 or completed == len(all_symbols_to_fetch):
-                    logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(all_symbols_to_fetch)} stocks processed...")
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
+                futures = {executor.submit(process_symbol, i, sym, all_historical_data): i for i, sym in enumerate(all_symbols_to_fetch)}
+                completed = 0
+                for future in concurrent.futures.as_completed(futures, timeout=300):
+                    try:
+                        technicals.append(future.result())
+                    except Exception:
+                        pass
+                    completed += 1
+                    if completed % 50 == 0 or completed == len(all_symbols_to_fetch):
+                        logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(all_symbols_to_fetch)} stocks processed...")
+        except concurrent.futures.TimeoutError:
+            logger.error("❌ Timeout during technical calculations in Wealth Engine. Aborting remaining fetches to prevent deadlock.")
 
         tech_df = pd.DataFrame(technicals)
         

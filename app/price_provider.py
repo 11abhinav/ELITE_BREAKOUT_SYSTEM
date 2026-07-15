@@ -293,17 +293,36 @@ class PriceProvider:
             # Batch missing symbols and download
             batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
             if batches:
-                with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
-                    futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
-                    for fut in as_completed(futures):
-                        idx = futures[fut]
-                        batch = batches[idx]
-                        try:
-                            res = fut.result()
-                            # cache per-symbol and merge
-                            for t, frame in res.items():
-                                # if frame is None and we had a stale fallback, preserve stale
-                                if frame is None:
+                try:
+                    with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
+                        futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
+                        for fut in as_completed(futures, timeout=300):
+                            idx = futures[fut]
+                            batch = batches[idx]
+                            try:
+                                res = fut.result()
+                                # cache per-symbol and merge
+                                for t, frame in res.items():
+                                    # if frame is None and we had a stale fallback, preserve stale
+                                    if frame is None:
+                                        if t in stale_map:
+                                            stale_val = stale_map[t]
+                                            try:
+                                                if hasattr(stale_val, 'attrs'):
+                                                    stale_val.attrs['is_stale'] = True
+                                            except Exception:
+                                                pass
+                                            outputs[t] = stale_val
+                                        else:
+                                            outputs[t] = None
+                                        # don't overwrite cache in this case
+                                    else:
+                                        self._cache_set((t, period, interval, start, end), frame)
+                                        outputs[t] = frame
+                            except Exception as e:
+                                # On failure (possibly rate limit), return stale values for this batch where available
+                                logger.warning(f"Batch download failed for batch of {len(batch)} tickers: {e}")
+                                for t in batch:
                                     if t in stale_map:
                                         stale_val = stale_map[t]
                                         try:
@@ -314,24 +333,8 @@ class PriceProvider:
                                         outputs[t] = stale_val
                                     else:
                                         outputs[t] = None
-                                    # don't overwrite cache in this case
-                                else:
-                                    self._cache_set((t, period, interval, start, end), frame)
-                                    outputs[t] = frame
-                        except Exception as e:
-                            # On failure (possibly rate limit), return stale values for this batch where available
-                            logger.warning(f"Batch download failed for batch of {len(batch)} tickers: {e}")
-                            for t in batch:
-                                if t in stale_map:
-                                    stale_val = stale_map[t]
-                                    try:
-                                        if hasattr(stale_val, 'attrs'):
-                                            stale_val.attrs['is_stale'] = True
-                                    except Exception:
-                                        pass
-                                    outputs[t] = stale_val
-                                else:
-                                    outputs[t] = None
+                except concurrent.futures.TimeoutError:
+                    logger.error("❌ Timeout during batch download in price_provider. Aborting remaining batches to prevent deadlock.")
 
         # ensure all resolved tickers present in outputs (None if missing)
         for t in resolved_tickers:

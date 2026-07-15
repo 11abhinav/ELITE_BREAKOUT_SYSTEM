@@ -290,21 +290,24 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     import gc
     missing_data_stocks = []
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        futures = [executor.submit(process, sym) for sym in to_fetch]
-        for idx, future in enumerate(concurrent.futures.as_completed(futures)):
-            sym, result = future.result()
-            
-            # None means rate limited or circuit open -> skip caching so it's retried next time
-            if result is not None:
-                cache[sym] = result
-                if result.get("failed", False):
-                    missing_data_stocks.append(sym)
-                    
-            if idx > 0 and idx % 10 == 0:
-                logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
-                save_cache(cache, upload_to_db=True)
-                gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            futures = [executor.submit(process, sym) for sym in to_fetch]
+            for idx, future in enumerate(concurrent.futures.as_completed(futures, timeout=300)):
+                sym, result = future.result()
+                
+                # None means rate limited or circuit open -> skip caching so it's retried next time
+                if result is not None:
+                    cache[sym] = result
+                    if result.get("failed", False):
+                        missing_data_stocks.append(sym)
+                        
+                if idx > 0 and idx % 10 == 0:
+                    logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
+                    save_cache(cache, upload_to_db=True)
+                    gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
+    except concurrent.futures.TimeoutError:
+        logger.error("❌ Timeout fetching fundamentals in fundamentals_cache. Aborting remaining fetches to prevent deadlock.")
                 
     save_cache(cache, upload_to_db=True)
     
