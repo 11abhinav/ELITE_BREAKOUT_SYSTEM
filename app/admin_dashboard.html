@@ -2874,9 +2874,11 @@
       <td><span class="badge badge-scanner">${t.scanner || '—'}</span></td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
       <td>${fmt(t.entry_price)}</td>
-      <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+      <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : (window.DATA_GENERATED_AT ? 'Updated: ' + fmtDetailTime(window.DATA_GENERATED_AT) : '')}">
         ${fmt(t.exit_price || t.current_price)}
-        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+        ${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') 
+          ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
+          : (window.DATA_GENERATED_AT ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(window.DATA_GENERATED_AT)}</div>` : '')}
       </td>
       <td>${fmt(t.capital_allocated)}</td>
       <td>${t.shares_bought || '\u2014'}</td>
@@ -2884,7 +2886,7 @@
       <td class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
-        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(t.alert_time || t.entry_date)}</div>
+        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
       <td style="color:var(--muted)">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
       <td>${badgeHtml(t.status)}</td>

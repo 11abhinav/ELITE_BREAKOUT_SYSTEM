@@ -1100,13 +1100,13 @@
         document.querySelector('#tbl-buy tbody').innerHTML = buys.length ? buys.map(r => `
           <tr class="${newBuySignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td><span class="score-badge ${getScoreCls(r.momentum_score)}">${r.momentum_score || 0}</span></td>
             <td class="mono" style="color:var(--accent); font-weight:bold;">${r.position_pct ? (parseFloat(r.position_pct) * 100).toFixed(2) + '%' : '-'}</td>
@@ -1148,12 +1148,12 @@
                 <td class="sym">${r.Stock}</td>
                 <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
                   <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
                 </td>
                 <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-                <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+                <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
                   <span class="mono">CMP: ${fmt(r.cmp)} | SMA: ${fmt(r.sma_200)}</span>
-                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+                  <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
                 </td>
                 <td>${bucketTag(r.Portfolio_Bucket)}</td>
                 <td>${sectorTag(r.Sector)}</td>
@@ -1201,13 +1201,13 @@
           <tr>
             <td class="mono" style="color:var(--muted);">#${i+1}</td>
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
             <td class="mono">${fmt(r['ROCE %'])}%</td>
@@ -1226,13 +1226,13 @@
         document.querySelector('#tbl-core tbody').innerHTML = core.length ? core.map(r => `
           <tr>
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
             <td class="mono">${fmt(r['ROCE %'])}%</td>
@@ -1250,13 +1250,13 @@
         document.querySelector('#tbl-growth tbody').innerHTML = growth.length ? growth.map(r => `
           <tr>
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
             <td class="mono">${fmt(r['YOY Revenue %'])}%</td>
@@ -1273,13 +1273,13 @@
         document.querySelector('#tbl-sale tbody').innerHTML = sale.length ? sale.map(r => `
           <tr>
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
             <td class="mono">${fmt(r['ROCE %'])}%</td>
@@ -1295,13 +1295,13 @@
         document.querySelector('#tbl-opp tbody').innerHTML = opp.length ? opp.map(r => `
           <tr>
             <td class="sym">${r.Stock}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}">
+            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
               <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : '—'}</div>
+              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
             </td>
             <td style="font-size:11px; color:var(--muted);">${r.Category || '-'}</td>
             <td>${getSigHtml(r.Signal)}</td>
