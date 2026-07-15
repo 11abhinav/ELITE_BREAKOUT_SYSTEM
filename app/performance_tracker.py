@@ -431,7 +431,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
             "target_1":      _f(row.get("target_1")),
             "target_2":      _f(row.get("target_2")),
             "target_3":      _f(row.get("target_3")),
-            "current_price": _f(row.get("current_price")) if row.get("current_price") is not None else entry_price,
+            "current_price": _f(row.get("current_price")),
             "exit_price":    _f(row.get("exit_price")),   # pre-filled if already closed
             "pnl_pct":       _f(row.get("pnl_pct")),      # pre-filled if already closed
             "stopped_out":   row.get("status") == "LOSS",
@@ -820,7 +820,7 @@ def trigger_performance_rebuild():
             # - Safety: yf_rate_limiter.py globally throttle Yahoo Finance requests, and
             #   Postgres handles concurrent row-level locking. Running rebuild concurrently
             #   with scanners is safe and ensures instant dashboard updates.
-            build_performance_data()
+            build_performance_data(force_live_fetch=True)
         except Exception as e:
             logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
         finally:

@@ -941,6 +941,12 @@ When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the e
 - **RCA**: When the market was closed or a live price fetch failed, the performance tracker had no way of retrieving the last known current market price (CMP) since the `alerts` table had no `current_price` column. It defaulted `t["current_price"]` to `None`, which overwrote previously saved prices in the dashboard's `performance_data.json` payload, rendering open trade returns as `--`.
 - **The Fix**: Addressed this by implementing the exact same database-backed CMP persistence pattern already standard in the Wealth System. Added a `current_price REAL` column to the `alerts` table, initialized it to `entry_price` on creation, and update it dynamically whenever fresh prices are successfully fetched. Off-market, the tracker loads and preserves the database-cached value.
 
+### 28.9 Misleading Entry Price Displayed as CMP + trigger_performance_rebuild Not Fetching Live Prices
+- **RCA (Misleading fallback)**: During the initial implementation of the `current_price` column, a fallback `else entry_price` was added when the DB column was `NULL`. This caused all existing (pre-migration) alerts and today's alerts (created before deployment) to show `CMP = entry_price` and `P&L = +0.00%`, which is misleading — it implies no price movement when in fact the live price was simply not yet recorded.
+- **Fix**: Removed the fallback. When `current_price` is `NULL` in the DB, it renders as `--` on the dashboard, which is honest and correct.
+- **RCA (No live fetch in auto-triggers)**: `trigger_performance_rebuild()` was calling `build_performance_data()` without `force_live_fetch=True`. This meant all accept/reject/refresh-triggered rebuilds skipped live price fetching and never saved fresh CMP to the database, even when admin manually triggered them.
+- **Fix**: Changed `trigger_performance_rebuild()` to always call `build_performance_data(force_live_fetch=True)`. This ensures every rebuild (auto or manual) fetches the latest price from Fyers/Yahoo and persists it to the `current_price` column in the `alerts` table. Bar history SL/target checks are also correctly triggered off-market, catching any missed SL/target hits from the trading day.
+
 ---
 
 ## 29. Lessons Learnt & Future Development Guidelines
