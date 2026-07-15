@@ -947,80 +947,35 @@ When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the e
 - **RCA (No live fetch in auto-triggers)**: `trigger_performance_rebuild()` was calling `build_performance_data()` without `force_live_fetch=True`. This meant all accept/reject/refresh-triggered rebuilds skipped live price fetching and never saved fresh CMP to the database, even when admin manually triggered them.
 - **Fix**: Changed `trigger_performance_rebuild()` to always call `build_performance_data(force_live_fetch=True)`. This ensures every rebuild (auto or manual) fetches the latest price from Fyers/Yahoo and persists it to the `current_price` column in the `alerts` table. Bar history SL/target checks are also correctly triggered off-market, catching any missed SL/target hits from the trading day.
 
-### 28.10 Duplicate SL_HIT / Retroactive Wrong Exit Bug in process_trade_history
+### 28.10 Duplicate SL_HIT & The Full Replay Architecture
 
 **Severity: Critical — produced contradictory exit history and incorrect final P&L**
 
-#### Root Cause
+#### Root Cause (Incremental Processing Failure)
 
-The `process_trade_history` state machine walks ALL bars from the alert creation date every time it runs. When a trade was in `PARTIAL_WIN_2` state (T1 and T2 already hit, trailing SL raised to T1 level), a subsequent run would reload the raised SL from the database and apply it retroactively to ALL historical bars — including bars that occurred BEFORE T1/T2 were even hit.
+Previously, the `process_trade_history` state machine was incremental. When a trade hit `PARTIAL_WIN_2` (T1 and T2 hit, SL raised to T1 level), a subsequent run might re-apply that *raised* SL retroactively to ALL historical bars — including bars that occurred BEFORE T1/T2 were even hit. This caused false, retroactive Stop Loss events. A temporary fix attempted to skip bars before the `last_event_ts`, but this was brittle and prone to DB persistence failures.
 
-#### Concrete Example (LLOYDSME, 2026-07-15)
+#### The Fix: Full Replay Architecture
 
-```
-Entry: ₹1,837.9 | Shares: 89 | Original SL: ₹1,828
-T1: ₹1,855.94 | T2: ₹1,861.42
-```
+We completely overhauled the engine to use a robust **Full Replay** methodology, decoupling the persistent database state from the in-memory chronological state machine.
 
-**Run 1 — Background scheduler during market hours (correct)**
-- 14:10 bar: High ≥ T1 → T1_HIT fires, sells 22 shares, SL raised to entry (₹1,837.9)
-- 14:35 bar: High ≥ T2 → T2_HIT fires, sells 31 shares, SL raised to T1 (₹1,855.94)
-- DB saved: `status=PARTIAL_WIN_2, stop_loss=1855.94, exit_history=[T1_HIT@14:10, T2_HIT@14:35]`
+**1. Clean State Initialization:**
+Whenever the tracker processes a trade, it forces the in-memory state back to `OPEN`, resets `remaining_shares`, and sets the `stop_loss` back to the original `initial_stop_loss`.
 
-**Run 2 — Admin trigger after market close (buggy)**
-- Loads from DB: `status=PARTIAL_WIN_2, stop_loss=1855.94` (raised)
-- Fetches ALL bars from alert creation time
-- State machine starts with `stop_loss=1855.94` on the very first bar
-- **12:30 bar** (before T1/T2!): `Low=1840 ≤ sl=1855.94` → **SL_HIT fires INCORRECTLY**
-- At 12:30, original SL was 1828 and 1840 > 1828 — this was NOT a real SL hit
-- But the raised trailing SL (1855.94) makes 1840 look like an SL hit retroactively
+**2. Chronological Forward Iteration:**
+It fetches *all* 5-minute bars strictly starting from the `alert_time` to the present moment, walking forward chronologically.
 
-**Resulting bogus exit_history in DB:**
-```json
-[
-  {"type": "T1_HIT",  "price": 1855.94, "time": "2026-07-15 14:10:00", "shares": 22, "pnl": 396.88},
-  {"type": "T2_HIT",  "price": 1861.42, "time": "2026-07-15 14:35:00", "shares": 31, "pnl": 729.12},
-  {"type": "SL_HIT",  "price": 1840.00, "time": "2026-07-15 12:30:00", "shares": 36, "pnl": 75.6},
-  {"type": "SL_HIT",  "price": 1840.00, "time": "2026-07-15 12:30:00", "shares": 36, "pnl": 75.6}
-]
-```
-- SL at 12:30 is chronologically **before** T1 at 14:10 — impossible in correct logic
-- Duplicate SL_HIT appears because if `update_alert_outcome` failed (transient DB error), status stayed `PARTIAL_WIN_2` in DB, causing the next run to re-process and append the same SL_HIT again
-- SL_HIT pnl is POSITIVE (75.6 = 36 shares × (1840 − 1837.9)) — a profit exit labeled as a "Stop Loss" is semantically wrong
+**3. State Evolution & DB Deduplication:**
+As it walks forward:
+- If a target is hit (e.g., T1), it naturally raises the in-memory trailing SL for the *next* bars.
+- To prevent writing duplicate exit events to the database (and double-booking P&L), it checks the DB's `exit_history`. If `"T1_HIT"` is already in the database, it skips the DB write, but *still raises the in-memory SL* so the replay continues accurately.
+- This guarantees the exact sequence of events is always preserved perfectly, regardless of tracking interruptions.
 
-#### The Fix: Incremental Bar Processing
-
-Added a `last_event_ts` cutoff in `process_trade_history`. Before building the tick sequence, the function reads the exit_history and extracts the timestamp of the last recorded event. Any bar at or before this timestamp is **skipped** — only new, unprocessed bars are evaluated.
-
-```python
-# Determine cutoff from last recorded exit event
-last_event_ts = None
-eh = t.get("exit_history")
-hist_list = eh if isinstance(eh, list) else json.loads(eh or "[]")
-if hist_list:
-    last_event_ts = hist_list[-1].get("time")  # e.g. "2026-07-15 14:35:00"
-
-# Skip already-processed bars
-for ts, row in hist.iterrows():
-    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-    if last_event_ts is not None and ts_str <= last_event_ts:
-        continue  # skip — already evaluated in a prior run
-    ticks.append((ts_str, ...))
-```
-
-#### Scenario Coverage After Fix
-
-| Scenario | `last_event_ts` | Effect |
-|---|---|---|
-| New OPEN trade | `None` (no events) | All bars included — normal flow unchanged |
-| After T1 hit (PARTIAL_WIN_1) | `"14:10:00"` | Only bars after 14:10 evaluated — T2 and SL correctly detected |
-| After T2 hit (PARTIAL_WIN_2) | `"14:35:00"` | Only bars after 14:35 evaluated — retroactive 12:30 SL blocked |
-| Legitimate SL after T2 | `"14:35:00"` | 15:00 bar (Low < raised SL) is included and correctly marks LOSS |
-| T3 detection | `"14:35:00"` | Bars after T2 evaluated for T3 — correct |
-
-#### Key Lesson
-
-> **Never re-apply a raised trailing stop-loss to historical bars that predate the stop raise.** The state machine must only evaluate bars that have not yet been processed. The cutoff must come from the last recorded exit event timestamp in the persistent exit_history, not from a run-time in-memory variable (which is lost between tracker runs).
+#### Admin Recalculation (Manual Fix Tool)
+To allow administrators to back-test, audit, or fix corrupted closed trades, we introduced a manual override.
+- An endpoint `/api/alert/recalculate` and a button on the dashboard allow an admin to force-reset any closed position.
+- This triggers `reset_alert_for_recalculation()` in the database, which physically deletes the trade's old `exit_history`, sets its status back to `OPEN`, and resets its SL.
+- It then instantly commands the performance tracker to rebuild the entire exit history from scratch using the Full Replay engine.
 
 ---
 
