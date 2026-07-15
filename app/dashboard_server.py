@@ -1397,14 +1397,6 @@ def api_reallocate_alert():
         from database import reallocate_capital
         ok = reallocate_capital(alert_id)
         if ok:
-            import threading
-            from performance_tracker import build_performance_data
-            def locked_build():
-                import main
-                with main.scanner_execution_lock:
-                    build_performance_data()
-            threading.Thread(target=locked_build).start()
-            
             from database import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:

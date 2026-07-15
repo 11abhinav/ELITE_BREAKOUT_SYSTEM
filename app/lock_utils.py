@@ -22,6 +22,14 @@ class ProcessLock:
         # Generate a stable 32-bit integer for the Postgres lock key based on the name
         self.lock_key = zlib.crc32(lock_name.encode('utf-8'))
 
+    def locked(self) -> bool:
+        """
+        Check if the local thread lock is held. 
+        Note: This does not verify the Postgres distributed lock state, 
+        but is sufficient for UI rejection of duplicate manual triggers on the same server.
+        """
+        return self.thread_lock.locked()
+
     def acquire(self, blocking: bool = False) -> bool:
         if not self.thread_lock.acquire(blocking=blocking):
             return False
