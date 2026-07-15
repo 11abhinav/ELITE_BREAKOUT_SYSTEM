@@ -374,7 +374,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None, full_tick_replay=False):
+def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None):
     trigger = "MANUAL_OVERRIDE" if force_live_fetch else "AUTO_BACKGROUND"
     logger.info("=" * 70)
     logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
@@ -502,8 +502,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     prefetched_data = {}
     
-    # We only do tick replay if explicitly asked for all (full_tick_replay) OR specific trades (recalc_ids)
-    do_tick_replay = full_tick_replay or (recalc_ids is not None)
+    # USER DIRECTIVE: Tick-by-tick history fetch MUST ONLY happen for explicitly passed recalc_ids.
+    # Normal performance loop just checks the current live price.
+    do_tick_replay = (recalc_ids is not None and len(recalc_ids) > 0)
     
     if is_open and not do_tick_replay:
         logger.info(f"⚡ FAST EVALUATION: Processing open trades using live prices only (No historical replay).")
@@ -551,7 +552,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
             if is_open and do_tick_replay:
-                if recalc_ids is None or t["id"] in recalc_ids:
+                if t["id"] in recalc_ids:
                     logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
                     pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                     hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
@@ -561,7 +562,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
             hist = None
-            if do_tick_replay and (recalc_ids is None or t["id"] in recalc_ids):
+            if do_tick_replay and (t["id"] in recalc_ids):
                 hist = _fetch_post_alert_bars(sym, alert_time)
             if hist is not None and not hist.empty:
                 lowest_low = float(hist["Low"].min())
