@@ -374,7 +374,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None):
+def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None, full_tick_replay=False):
     trigger = "MANUAL_OVERRIDE" if force_live_fetch else "AUTO_BACKGROUND"
     logger.info("=" * 70)
     logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
@@ -502,10 +502,13 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     prefetched_data = {}
     
-    if is_open and not force_live_fetch:
+    # We only do tick replay if explicitly asked for all (full_tick_replay) OR specific trades (recalc_ids)
+    do_tick_replay = full_tick_replay or (recalc_ids is not None)
+    
+    if is_open and not do_tick_replay:
         logger.info(f"⚡ FAST EVALUATION: Processing open trades using live prices only (No historical replay).")
         
-    if is_open and force_live_fetch and fetch_groups:
+    if is_open and do_tick_replay and fetch_groups:
         for (interval, period_str), syms in fetch_groups.items():
             syms_preview = ",".join(syms[:5]) + ("..." if len(syms) > 5 else "")
             logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades [{syms_preview}] ({interval}/{period_str}) to prevent API spam...")
@@ -547,7 +550,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         if sl and alert_time and (t.get("target_1") or t.get("target_price")):
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
-            if is_open and force_live_fetch:
+            if is_open and do_tick_replay:
                 if recalc_ids is None or t["id"] in recalc_ids:
                     logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
                     pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
@@ -558,7 +561,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
             hist = None
-            if force_live_fetch and (recalc_ids is None or t["id"] in recalc_ids):
+            if do_tick_replay and (recalc_ids is None or t["id"] in recalc_ids):
                 hist = _fetch_post_alert_bars(sym, alert_time)
             if hist is not None and not hist.empty:
                 lowest_low = float(hist["Low"].min())
@@ -833,8 +836,9 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None):
             #   If a rebuild blocks on the lock, any new alert or manual click won't show on the
             #   dashboard until the scanner completes, causing visible lag.
             # - Safety: yf_rate_limiter.py globally throttle Yahoo Finance requests, and
-            #   Postgres handles concurrent row-level locking. Running rebuild concurrently
             #   with scanners is safe and ensures instant dashboard updates.
+            #   Note: force_live_fetch=True ensures post-market triggers grab EOD prices.
+            #   It does NOT trigger full historical replay anymore unless full_tick_replay=True.
             build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
         except Exception as e:
             logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
