@@ -305,6 +305,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
                 cap = t.get("capital_allocated") or 0.0
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                t["pnl_pct"] = p_pct
+                t["pnl_rs"] = total_pnl_rs
+                t["target_hit"] = True
+                t["closed_at"] = ts_str
+                t["exit_price"] = exit_p
                 if "T1_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
             continue
@@ -342,6 +347,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
                 cap = t.get("capital_allocated") or 0.0
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                t["pnl_pct"] = p_pct
+                t["pnl_rs"] = total_pnl_rs
+                t["target_hit"] = True
+                t["closed_at"] = ts_str
+                t["exit_price"] = exit_p
                 if "T2_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
             continue
@@ -362,6 +372,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or 0.0
             p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            t["pnl_pct"] = p_pct
+            t["pnl_rs"] = total_pnl_rs
+            t["target_hit"] = True
+            t["closed_at"] = ts_str
+            t["exit_price"] = exit_p
             
             if "T3_HIT" not in db_events:
                 update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event)
