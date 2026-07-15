@@ -431,7 +431,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
             "target_1":      _f(row.get("target_1")),
             "target_2":      _f(row.get("target_2")),
             "target_3":      _f(row.get("target_3")),
-            "current_price": _f(row.get("current_price")),
+            "current_price": _f(row.get("current_price")) if row.get("current_price") is not None else entry_price,
             "exit_price":    _f(row.get("exit_price")),   # pre-filled if already closed
             "pnl_pct":       _f(row.get("pnl_pct")),      # pre-filled if already closed
             "stopped_out":   row.get("status") == "LOSS",
@@ -513,8 +513,14 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
         tp         = t["target_price"]
         alert_time = t["alert_time"]
         cur_p = current_prices.get(sym)
-        if cur_p:
+        if cur_p is not None and cur_p > 0:
             t["current_price"] = round(cur_p, 2)
+            if not t["_db_closed"]:
+                try:
+                    from database import update_alert_current_price
+                    update_alert_current_price(t["id"], cur_p)
+                except Exception as e:
+                    logger.warning(f"Failed to persist current_price for trade id {t['id']}: {e}")
 
         # ── Already closed in DB — no bar download needed ────────────────────────
         if t["_db_closed"]:

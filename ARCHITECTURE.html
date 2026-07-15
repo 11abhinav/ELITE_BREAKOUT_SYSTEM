@@ -937,6 +937,10 @@ When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the e
 - **RCA**: The `alerts` table has a CHECK constraint `chk_alerts_status` enforcing `status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')`. When the performance tracker updated trades during partial limit hits (`update_partial_exit`), it tried to write `'PARTIAL_WIN_1'` or `'PARTIAL_WIN_2'`. This violated the check constraint, triggering a `CheckViolation` database error and aborting state transitions.
 - **The Fix**: The PostgreSQL initialization schema inside `database.py` was updated to explicitly allow all valid runtime status tags: `'OPEN'`, `'PARTIAL_WIN_1'`, `'PARTIAL_WIN_2'`, `'WIN'`, `'LOSS'`, `'CLOSED'`, and `'NEUTRAL'`.
 
+### 28.8 Database-Backed CMP Persistence for Breakout Alerts
+- **RCA**: When the market was closed or a live price fetch failed, the performance tracker had no way of retrieving the last known current market price (CMP) since the `alerts` table had no `current_price` column. It defaulted `t["current_price"]` to `None`, which overwrote previously saved prices in the dashboard's `performance_data.json` payload, rendering open trade returns as `--`.
+- **The Fix**: Addressed this by implementing the exact same database-backed CMP persistence pattern already standard in the Wealth System. Added a `current_price REAL` column to the `alerts` table, initialized it to `entry_price` on creation, and update it dynamically whenever fresh prices are successfully fetched. Off-market, the tracker loads and preserves the database-cached value.
+
 ---
 
 ## 29. Lessons Learnt & Future Development Guidelines

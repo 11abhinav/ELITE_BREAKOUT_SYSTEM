@@ -200,6 +200,7 @@ def init_db():
                         score         INTEGER,
                         rsi           REAL,
                         volume_ratio  REAL,
+                        current_price REAL,
                         UNIQUE (symbol, breakout_type, alert_date)
                     )
                 """)
@@ -304,6 +305,7 @@ def init_db():
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS bayesian_regime TEXT DEFAULT 'BULL'",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS bayesian_weights JSONB",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS data_partition TEXT DEFAULT 'TRAIN'",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS current_price REAL",
                 ]:
                     cur.execute(col_sql)
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
@@ -1225,13 +1227,13 @@ def save_alert_if_new(
                             (symbol, breakout_type, alert_time, scanner, category,
                             entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, 
                             signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
-                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                     """, (symbol, breakout_type, alert_time, scanner, category,
                         entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, 
                         signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
-                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0))
+                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price))
                     conn.commit()
                     success = True
                     inserted = cur.rowcount > 0
@@ -1377,7 +1379,21 @@ def update_alert_outcome(
                 logger.exception(f"❌ update_alert_outcome failed for alert_id={alert_id}")
             finally:
                 if not success:
-                    conn.rollback()
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+
+def update_alert_current_price(alert_id: int, current_price: float) -> None:
+    """Update current_price column for a specific alert."""
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE alerts SET current_price = %s WHERE id = %s", (current_price, alert_id))
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to update current_price to {current_price} for alert_id {alert_id}: {e}")
 
 def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int) -> bool:
     """Returns True if a duplicate alert exists within the cooldown window."""
@@ -1426,7 +1442,7 @@ def get_all_alerts() -> list[dict]:
                     signals, score, rsi, volume_ratio,
                     status, exit_price, pnl_pct, closed_at, is_rejected,
                     capital_allocated, shares_bought, remaining_shares, exit_history, pnl_rs, context,
-                    model_version, data_partition
+                    model_version, data_partition, current_price
                 FROM alerts
                 ORDER BY alert_time DESC
             """)
