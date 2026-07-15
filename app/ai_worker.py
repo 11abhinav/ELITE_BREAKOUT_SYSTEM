@@ -73,32 +73,36 @@ def run_ai_worker_scan_once() -> dict:
         pending_stocks = sorted(list(set(pending_stocks)))
         total_stocks = len(pending_stocks)
         
-        # Pre-filter to only those that actually need processing today
+        # ── Pre-filter: only process stocks that genuinely need analysis ────────
+        # Define ONCE (not inside loop — closure bug risk)
+        def _is_error_cache(c) -> bool:
+            """Returns True if cached data is a failure/error dict, not valid analysis."""
+            if not c:
+                return False
+            if isinstance(c, str):
+                try:
+                    import json
+                    c = json.loads(c)
+                except Exception:
+                    return "error" in c.lower()
+            if isinstance(c, dict):
+                return "error" in c
+            return False
+
         actual_pending = []
         for sym in pending_stocks:
+            # Check 60-day cache for any valid entry
             cached = get_recent_concall_analysis(sym, max_age_days=60)
-            # Helper to check if cache is an error cache
-            def _is_error_cache(c):
-                if not c:
-                    return False
-                if isinstance(c, str):
-                    try:
-                        import json
-                        c = json.loads(c)
-                    except Exception:
-                        return "error" in c.lower()
-                if isinstance(c, dict):
-                    return "error" in c
-                return False
-            
-            # If we have a valid cache (no 'error' key), skip it.
+
             if cached and not _is_error_cache(cached):
+                # Valid successful analysis exists → skip
                 continue
-                    
+
+            # No valid cache. Check if there's a recent error cache (within 24h) → skip to avoid hammering API
             cached_today = get_recent_concall_analysis(sym, max_age_days=1)
             if cached_today and _is_error_cache(cached_today):
                 continue
-                    
+
             actual_pending.append(sym)
             
         db_processed_count = get_total_cached_concalls()
@@ -128,22 +132,28 @@ def run_ai_worker_scan_once() -> dict:
                         db_processed_count += 1
                         upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
                     else:
-                        error_msg = result.get('error', 'Unknown Error')
+                        error_msg = result.get('error', 'Unknown Error') if result else 'No result returned'
                         logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
                         try:
                             upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall', error_msg)
                         except Exception:
                             logger.exception("Failed to upsert fetch_error for AI Worker")
                         upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
-                        
-                        if "429" in error_msg or "All AI models" in error_msg:
+
+                        # Classify error for retry vs. negative-cache strategy
+                        is_rate_limit = "429" in error_msg or "All AI models" in error_msg
+                        is_transient  = "503" in error_msg or "502" in error_msg or "timeout" in error_msg.lower() or "unavailable" in error_msg.lower()
+
+                        if is_rate_limit or is_transient:
+                            # Transient/rate-limit errors → add to retry queue, back off
                             failed_stocks.append(sym)
                             penalty = [300, 900, 1800][min(global_penalty_idx, 2)]
-                            logger.warning(f"⚠️ [AI WORKER] Global API rate limit/failure. Backing off for {penalty//60} minutes...")
+                            logger.warning(f"⚠️ [AI WORKER] Transient/rate-limit error for {sym}. Backing off {penalty//60}m before retry...")
                             time.sleep(penalty)
                             global_penalty_idx += 1
                         else:
-                            logger.warning(f"⚠️ [AI WORKER] Saving negative cache for {sym} - {error_msg}, will not retry today")
+                            # Persistent error (no PDF, NSE down, etc.) → save negative cache to avoid re-hammering today
+                            logger.warning(f"⚠️ [AI WORKER] Persistent error for {sym}: {error_msg}. Saving 24h negative cache.")
                             save_concall_analysis(sym, f"NONE_{sym}", {"error": error_msg})
                     time.sleep(5)
                 except Exception as e:
