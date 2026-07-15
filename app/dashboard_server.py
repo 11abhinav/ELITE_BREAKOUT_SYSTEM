@@ -1438,15 +1438,6 @@ def api_get_exit_history(alert_id):
                     if isinstance(history, str):
                         return Response(history, mimetype="application/json")
                     return jsonify(history)
-                
-                # Check wealth alerts if not found
-                cur.execute("SELECT exit_history FROM wealth_buy_alert WHERE id = %s", (alert_id,))
-                row = cur.fetchone()
-                if row and row['exit_history']:
-                    history = row['exit_history']
-                    if isinstance(history, str):
-                        return Response(history, mimetype="application/json")
-                    return jsonify(history)
                     
         return jsonify([]), 200
     except Exception as e:
