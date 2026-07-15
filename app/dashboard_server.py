@@ -652,15 +652,19 @@ def performance_json():
     try:
         if request.args.get('rebuild') == 'true':
             try:
-                import main
-                if main.scanner_execution_lock.acquire(blocking=False):
-                    try:
-                        from performance_tracker import build_performance_data
-                        build_performance_data(fast_mode=True)
-                    finally:
-                        main.scanner_execution_lock.release()
+                from market_utils import is_market_open
+                if not is_market_open():
+                    logger.debug("⏭️ Skipping dashboard performance rebuild (Outside active market hours).")
                 else:
-                    logger.info("⏭️ Skipping dashboard performance rebuild because a scanner is actively running.")
+                    import main
+                    if main.scanner_execution_lock.acquire(blocking=False):
+                        try:
+                            from performance_tracker import build_performance_data
+                            build_performance_data(fast_mode=True)
+                        finally:
+                            main.scanner_execution_lock.release()
+                    else:
+                        logger.info("⏭️ Skipping dashboard performance rebuild (A scanner is actively running and holds the global lock).")
             except Exception as e:
                 logger.error(f"Failed to fast-rebuild performance data: {e}")
                 
