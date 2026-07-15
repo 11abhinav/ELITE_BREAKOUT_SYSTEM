@@ -76,7 +76,7 @@ def auto_login() -> str:
         redirect_uri = config.FYERS_REDIRECT_URL
         
         if not all([client_id, secret_key, totp_secret, pin, user_id]):
-            logger.debug("Skipping headless Fyers login due to missing credentials (TOTP/PIN/USER_ID).")
+            logger.error(f"Skipping headless Fyers login due to missing credentials. Check env vars: CLIENT_ID={bool(client_id)}, SECRET={bool(secret_key)}, TOTP={bool(totp_secret)}, PIN={bool(pin)}, USER_ID={bool(user_id)}")
             return None
             
         import pyotp
@@ -104,7 +104,12 @@ def auto_login() -> str:
         request_key = res["request_key"]
         
         logger.info("Fyers login Step 2: Verifying TOTP...")
-        totp = pyotp.TOTP(totp_secret).now()
+        try:
+            totp = pyotp.TOTP(totp_secret).now()
+        except Exception as e:
+            logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
+            return None
+            
         payload2 = {"request_key": request_key, "otp": totp}
         res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
         
@@ -143,13 +148,19 @@ def auto_login() -> str:
             return None
             
         parsed = urllib.parse.urlparse(res4['Url'])
-        auth_code = urllib.parse.parse_qs(parsed.query)['auth_code'][0]
+        qs = urllib.parse.parse_qs(parsed.query)
+        if 'auth_code' not in qs:
+            logger.error(f"Fyers Step 4 failed: No auth_code in redirect URL. URL was: {res4['Url']}")
+            return None
+            
+        auth_code = qs['auth_code'][0]
         
         logger.info("Fyers login Step 5: Generating access token...")
         return save_access_token(auth_code)
         
     except Exception as e:
-        logger.warning(f"Fyers headless login failed (expected in cloud environments): {e}")
+        import traceback
+        logger.error(f"Fyers headless login failed with exception: {e}\n{traceback.format_exc()}")
         return None
 
 

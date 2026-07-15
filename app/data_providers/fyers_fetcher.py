@@ -320,7 +320,7 @@ class FyersFetcher(DataFetcher):
                     else:
                         logger.warning(f"Fyers API warning for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
                     
-                    if str(code) in ["494", "-401", "401"]:
+                    if str(code) in ["494", "-401", "401", "-16"] or "authenticate" in error_msg.lower():
                         logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
                         fyers_auth.clear_token()
                         raise ValueError("Could not authenticate the user")
