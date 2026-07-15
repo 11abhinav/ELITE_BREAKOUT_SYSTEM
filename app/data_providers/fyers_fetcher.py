@@ -507,7 +507,10 @@ class FyersFetcher(DataFetcher):
             completed = 0
             total = len(future_to_ns)
             try:
-                for future in concurrent.futures.as_completed(future_to_ns, timeout=300):
+                # Dynamic timeout based on list size, max 1800s (30 mins)
+                # 1.5 req/sec = ~666 ms per request. Add generous buffer for backoffs.
+                calc_timeout = min(1800, max(300, len(ns_symbols) * 2))
+                for future in concurrent.futures.as_completed(future_to_ns, timeout=calc_timeout):
                     ns_sym = future_to_ns[future]
                     completed += 1
                     if completed % 50 == 0 or completed == total:
@@ -523,7 +526,7 @@ class FyersFetcher(DataFetcher):
                         for orig_sym in normalized_map[ns_sym]:
                             results[orig_sym] = None
             except concurrent.futures.TimeoutError:
-                logger.error("Fyers batch fetch timed out after 300s. Cancelling remaining fetches.")
+                logger.error(f"Fyers batch fetch timed out after {calc_timeout}s. Cancelling remaining fetches.")
                 # We can't actually cancel the threads cleanly in python 3.8 easily without cancel(), 
                 # but the executor shutdown(wait=False) or leaving context handles it.
                 pass
