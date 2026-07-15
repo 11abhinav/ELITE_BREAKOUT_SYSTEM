@@ -3010,22 +3010,35 @@
           fetchNotices(symbol, 'notices-' + id);
         }
         // Fetch exit_history on-demand to populate the Exit History panel
-        const alertId = id.replace('main-', '');
         const ehEl = document.getElementById('eh-' + id);
-        if (ehEl && !EXIT_HISTORY_CACHE.has(alertId)) {
-          try {
-            const tradeObj = (window._currentFilteredTrades || ALL_TRADES).find(t => String(t.id) === String(alertId));
-            if (tradeObj && tradeObj.id) {
-              const r = await fetch('/api/alert/exit_history/' + tradeObj.id);
-              if (r.ok) {
-                const eh = await r.json();
-                EXIT_HISTORY_CACHE.set(alertId, eh);
-                renderExitHistory(ehEl, eh);
+        if (ehEl) {
+          // Find the actual trade object to get its real DB id
+          const allTrades = window._currentFilteredTrades || ALL_TRADES;
+          const rowIndex = parseInt(id.replace(prefix + '', '').replace(/^[^0-9]*/, ''), 10);
+          // Search by key (symbol|date) which is unique per trade
+          const tradeObj = allTrades.find(t => (t.symbol + '|' + (t.alert_time || t.entry_date)) === key);
+          const alertDbId = tradeObj ? tradeObj.id : null;
+          if (alertDbId) {
+            const cacheKey = String(alertDbId);
+            if (!EXIT_HISTORY_CACHE.has(cacheKey)) {
+              try {
+                const r = await fetch('/api/alert/exit_history/' + alertDbId);
+                if (r.ok) {
+                  const eh = await r.json();
+                  EXIT_HISTORY_CACHE.set(cacheKey, eh);
+                  renderExitHistory(ehEl, eh);
+                } else {
+                  ehEl.textContent = '—';
+                }
+              } catch(e) {
+                ehEl.textContent = '—';
               }
+            } else {
+              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey));
             }
-          } catch(e) { /* silently ignore */ }
-        } else if (ehEl && EXIT_HISTORY_CACHE.has(alertId)) {
-          renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(alertId));
+          } else {
+            ehEl.textContent = '—';
+          }
         }
       }
     }
