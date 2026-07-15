@@ -247,7 +247,7 @@ def init_db():
                 
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
                 cur.execute("ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status")
-                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN'))")
+                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2'))")
                 
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -1499,10 +1499,7 @@ def get_all_alerts() -> list[dict]:
             """)
             rows = []
             for row in cur.fetchall():
-                d = dict(row)
-                if d.get("is_rejected"):
-                    d["status"] = "REJECTED"
-                rows.append(d)
+                rows.append(dict(row))
             return rows
 
 
