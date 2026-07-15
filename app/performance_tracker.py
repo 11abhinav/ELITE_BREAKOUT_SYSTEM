@@ -716,9 +716,10 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "avg_return": round(sum(cat_pnls) / len(cat_pnls), 2) if cat_pnls else 0,
         }
 
-    # Strip internal tracking flag before serialising
+    # Strip internal tracking flag and massive exit_history before serialising
     for t in trades:
         t.pop("_db_closed", None)
+        t.pop("exit_history", None)
 
     # ── 9. Write scanner health to Postgres (source of truth) ──────────────────
     today_str = datetime.now(IST).date().isoformat()
@@ -750,6 +751,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     try:
         payload_str = json.dumps(payload, default=str)
+        save_system_state("performance_summary", json.dumps(summary, default=str))
+        save_system_state("performance_generated_at", json.dumps(payload["generated_at"]))
         save_system_state("performance_data", payload_str)
         logger.info("✅ PERFORMANCE TRACKER | Stored performance metrics in PostgreSQL")
     except Exception:
@@ -784,7 +787,9 @@ def _write_empty():
         "scanner_stats": {},
     }
     try:
-        save_system_state("performance_data", json.dumps(payload, default=str))
+        save_system_state("performance_summary", json.dumps(summary, default=str))
+        save_system_state("performance_generated_at", json.dumps(payload["generated_at"]))
+        save_system_state("performance_data", payload_str)
         logger.info("✅ PERFORMANCE TRACKER | Stored empty performance metrics in PostgreSQL")
     except Exception:
         logger.exception("❌ PERFORMANCE TRACKER | Failed to store empty metrics in DB")

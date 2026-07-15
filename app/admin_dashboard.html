@@ -2832,14 +2832,13 @@
     let expandedIds = new Set();
     let sortCol = 'status', sortDir = 1;
 
+    // In-memory cache for on-demand exit history fetches
+    const EXIT_HISTORY_CACHE = new Map();
+
     function calcFloatingPnl(t) {
-      let realizedRs = 0;
-      if (t.exit_history) {
-        try {
-          let hist = typeof t.exit_history === 'string' ? JSON.parse(t.exit_history) : t.exit_history;
-          hist.forEach(e => { realizedRs += (e.pnl || 0); });
-        } catch (e) {}
-      }
+      // Use pre-computed pnl_rs from the DB rather than summing exit_history locally.
+      // exit_history is now fetched on-demand only when a row is expanded.
+      let realizedRs = (t.pnl_rs != null && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
       let floatingRs = 0;
       if ((t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))) && t.current_price && t.entry_price) {
         let shares = (t.remaining_shares !== undefined && t.remaining_shares !== null) ? t.remaining_shares : t.shares_bought;
@@ -2926,14 +2925,8 @@
           </div>
           <div class="detail-item">
             <div class="detail-label">Exit History</div>
-            <div class="detail-val" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; color:var(--muted)">
-              ${(() => {
-                let eh = t.exit_history;
-                if (typeof eh === 'string') {
-                  try { eh = JSON.parse(eh); } catch(e) { eh = []; }
-                }
-                return eh && eh.length > 0 ? eh.map(x => `${(x.time||x.timestamp||'').substring(5, 10)} ${(x.time||x.timestamp||'').substring(11, 16)} | Sold ${x.shares} @ ${x.price} (${x.type||x.reason||''})`).join('<br>') : '—';
-              })()}
+            <div class="detail-val" id="eh-${id}" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; color:var(--muted)">
+              Loading...
             </div>
           </div>
           <div class="detail-item">
@@ -2999,7 +2992,7 @@
     }
 
     window.NOTICES_CACHE = window.NOTICES_CACHE || {};
-    function toggleDetail(id, symbol, key) {
+    async function toggleDetail(id, symbol, key) {
       const mainRow = document.getElementById('mr-' + id);
       const panel = document.getElementById('dp-' + id);
       if (!panel) return;
@@ -3016,7 +3009,32 @@
         if (symbol && !window.NOTICES_CACHE[symbol]) {
           fetchNotices(symbol, 'notices-' + id);
         }
+        // Fetch exit_history on-demand to populate the Exit History panel
+        const alertId = id.replace('main-', '');
+        const ehEl = document.getElementById('eh-' + id);
+        if (ehEl && !EXIT_HISTORY_CACHE.has(alertId)) {
+          try {
+            const tradeObj = (window._currentFilteredTrades || ALL_TRADES).find(t => String(t.id) === String(alertId));
+            if (tradeObj && tradeObj.id) {
+              const r = await fetch('/api/alert/exit_history/' + tradeObj.id);
+              if (r.ok) {
+                const eh = await r.json();
+                EXIT_HISTORY_CACHE.set(alertId, eh);
+                renderExitHistory(ehEl, eh);
+              }
+            }
+          } catch(e) { /* silently ignore */ }
+        } else if (ehEl && EXIT_HISTORY_CACHE.has(alertId)) {
+          renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(alertId));
+        }
       }
+    }
+
+    function renderExitHistory(el, eh) {
+      if (!eh || !eh.length) { el.textContent = '—'; return; }
+      el.innerHTML = eh.map(x =>
+        `${(x.time||x.timestamp||'').substring(5,10)} ${(x.time||x.timestamp||'').substring(11,16)} | Sold ${x.shares} @ ${x.price} (${x.type||x.reason||''})`
+      ).join('<br>');
     }
 
     // [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.1] Implement expandAllTrades and collapseAllTrades

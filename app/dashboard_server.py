@@ -653,18 +653,11 @@ def performance_json():
         from database import get_system_state
         val = get_system_state("performance_data")
         if val:
-            import json
-            # Explicit validation to ensure payload is not malformed
-            parsed = json.loads(val)
-            # Ensure required top-level keys exist
-            required_keys = {"generated_at", "trades", "summary", "equity_curve", "monthly", "by_scanner", "by_category"}
-            if required_keys.issubset(parsed.keys()):
-                # Re-serialize to string since Response expects string/bytes
-                return Response(val, mimetype="application/json")
-            else:
-                logger.error("❌ Performance data missing required keys. Using fallback.")
+            # We trust the background worker that writes this data. 
+            # Skipping json.loads() here avoids massive CPU blocking on a 10MB string.
+            return Response(val, mimetype="application/json")
     except Exception as e:
-        logger.exception(f"❌ Failed to load or parse performance data from DB: {e}")
+        logger.exception(f"❌ Failed to load performance data from DB: {e}")
 
     # Return empty-but-valid structure so dashboard doesn't fall back to demo data
     empty = {
@@ -698,11 +691,11 @@ def health():
     perf_age    = None
     try:
         from database import get_system_state
-        val = get_system_state("performance_data")
+        val = get_system_state("performance_generated_at")
         perf_exists = val is not None
         if perf_exists:
-            data = json.loads(val)
-            gen_at = data.get("generated_at")
+            import json
+            gen_at = json.loads(val)
             if gen_at:
                 gen_dt = datetime.fromisoformat(gen_at)
                 if gen_dt.tzinfo is None:
@@ -888,10 +881,9 @@ def api_summary():
     """Quick JSON summary — useful for curl checks, loaded from DB."""
     try:
         from database import get_system_state
-        val = get_system_state("performance_data")
+        val = get_system_state("performance_summary")
         if val:
-            data = json.loads(val)
-            summary = data.get("summary", {})
+            summary = json.loads(val)
             from database import get_ai_cache_count
             summary["ai_cache_count"] = get_ai_cache_count()
             return jsonify(summary)
@@ -1415,6 +1407,43 @@ def api_reject_multiple_alerts():
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alert/exit_history/<int:alert_id>', methods=['GET'])
+@login_required
+def api_get_exit_history(alert_id):
+    """Fetch the full exit_history JSON array for a specific alert from the database."""
+    try:
+        import psycopg2
+        from psycopg2.extras import DictCursor
+        from database import get_db_connection
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=DictCursor) as cur:
+                # Check regular alerts first
+                cur.execute("SELECT exit_history FROM alerts WHERE id = %s", (alert_id,))
+                row = cur.fetchone()
+                if row and row['exit_history']:
+                    # It's stored as a JSON string or JSONB depending on migrations, return as raw JSON string to save parsing
+                    history = row['exit_history']
+                    if isinstance(history, str):
+                        return Response(history, mimetype="application/json")
+                    return jsonify(history)
+                
+                # Check wealth alerts if not found
+                cur.execute("SELECT exit_history FROM wealth_buy_alert WHERE id = %s", (alert_id,))
+                row = cur.fetchone()
+                if row and row['exit_history']:
+                    history = row['exit_history']
+                    if isinstance(history, str):
+                        return Response(history, mimetype="application/json")
+                    return jsonify(history)
+                    
+            return jsonify([]), 200
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.exception('❌ /api/alert/exit_history failed')
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/accept', methods=['POST'])
