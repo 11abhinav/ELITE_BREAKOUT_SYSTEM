@@ -1976,7 +1976,7 @@ def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
             cur.execute("""
                 SELECT analysis_data
                 FROM ai_concall_cache_v3
-                WHERE symbol = %s AND created_at::TIMESTAMP >= NOW() - INTERVAL '1 day' * %s
+                WHERE symbol = %s AND (created_at || '+05:30')::TIMESTAMP WITH TIME ZONE >= NOW() - INTERVAL '1 day' * %s
                 ORDER BY id DESC
                 LIMIT 1
             """, (symbol, max_age_days))

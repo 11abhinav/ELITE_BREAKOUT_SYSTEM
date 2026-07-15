@@ -77,19 +77,27 @@ def run_ai_worker_scan_once() -> dict:
         actual_pending = []
         for sym in pending_stocks:
             cached = get_recent_concall_analysis(sym, max_age_days=60)
-            # If we have a valid cache (dict without 'error', or string without 'error'), skip it.
-            if cached:
-                if isinstance(cached, dict) and "error" not in cached:
-                    continue
-                elif isinstance(cached, str) and "error" not in cached.lower():
-                    continue
+            # Helper to check if cache is an error cache
+            def _is_error_cache(c):
+                if not c:
+                    return False
+                if isinstance(c, str):
+                    try:
+                        import json
+                        c = json.loads(c)
+                    except Exception:
+                        return "error" in c.lower()
+                if isinstance(c, dict):
+                    return "error" in c
+                return False
+            
+            # If we have a valid cache (no 'error' key), skip it.
+            if cached and not _is_error_cache(cached):
+                continue
                     
             cached_today = get_recent_concall_analysis(sym, max_age_days=1)
-            if cached_today:
-                if isinstance(cached_today, dict) and "error" in cached_today:
-                    continue
-                elif isinstance(cached_today, str) and "error" in cached_today.lower():
-                    continue
+            if cached_today and _is_error_cache(cached_today):
+                continue
                     
             actual_pending.append(sym)
             
