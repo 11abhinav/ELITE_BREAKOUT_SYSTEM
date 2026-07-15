@@ -1361,20 +1361,32 @@ def api_reject_alert():
 @app.route('/api/alert/recalculate', methods=['POST'])
 @login_required
 def api_recalculate_alert():
-    """Admin endpoint to force a full replay calculation on a closed alert."""
+    """Admin endpoint to force a full replay calculation on multiple closed alerts."""
     try:
         data = request.json or {}
-        alert_id = int(data.get('id'))
-        
+        alert_ids = data.get('ids', [])
+        if not isinstance(alert_ids, list):
+            # Fallback for old UI if necessary
+            alert_id = data.get('id')
+            if alert_id:
+                alert_ids = [alert_id]
+                
+        if not alert_ids:
+            return jsonify({'error': 'No alert IDs provided'}), 400
+            
         from database import reset_alert_for_recalculation
-        ok = reset_alert_for_recalculation(alert_id)
-        if ok:
-            # Trigger tracker to immediately rebuild this newly opened alert
+        success_count = 0
+        for aid in alert_ids:
+            if reset_alert_for_recalculation(int(aid)):
+                success_count += 1
+                
+        if success_count > 0:
+            # Trigger tracker to immediately rebuild these newly opened alerts
             from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild(recalc_ids=[alert_id])
-            return jsonify({'success': True})
+            trigger_performance_rebuild(recalc_ids=[int(aid) for aid in alert_ids])
+            return jsonify({'success': True, 'count': success_count})
         else:
-            return jsonify({'error': 'Alert not found or reset failed'}), 400
+            return jsonify({'error': 'Alerts not found or reset failed'}), 400
     except Exception as e:
         logger.exception('❌ /api/alert/recalculate failed')
         return jsonify({'error': str(e)}), 500

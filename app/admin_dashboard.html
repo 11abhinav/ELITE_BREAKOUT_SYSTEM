@@ -1718,6 +1718,9 @@
           <button id="rejectSelectedBtn" class="refresh-btn" onclick="rejectSelectedTrades()"
             style="margin-left:8px;padding:6px 12px; background:var(--warn-dim); color:var(--warn); border:1px solid var(--warn); display:none;">🚫
             Reject Selected</button>
+          <button id="recalculateSelectedBtn" class="refresh-btn" onclick="recalculateSelectedTrades()"
+            style="margin-left:8px;padding:6px 12px; background:var(--card2); color:var(--text); border:1px solid var(--border); display:none; font-weight:600;">🔄
+            Recalculate Selected</button>
           <button id="allocateSelectedBtn" class="refresh-btn" onclick="allocateSelectedTrades()"
             style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); display:none; font-weight:600;">💰
             Allocate Selected</button>
@@ -2958,10 +2961,6 @@
             : `<button onclick="reallocateCapital(event, ${t.id})" style="background:#4a90e2; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">💰 Allocate Capital</button>
                    <button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">❌ Reject Trade</button>`
           }
-              ${(t.status === 'CLOSED' || t.status === 'WIN' || t.status === 'LOSS') 
-                ? `<button onclick="recalculateAlert(event, ${t.id})" style="background:var(--card2); color:var(--text); border:1px solid var(--border); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;" title="Reset this closed trade to OPEN and force full recalculation">🔄 Recalculate Exit</button>`
-                : ''
-              }
             </div>
           </div>
           <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
@@ -3069,11 +3068,20 @@
     }
 
     function updateBulkActionsVisibility() {
-      const anyChecked = document.querySelector('.trade-checkbox:checked') !== null;
+      const checked = document.querySelectorAll('.trade-checkbox:checked');
       const rejBtn = document.getElementById('rejectSelectedBtn');
       const allocBtn = document.getElementById('allocateSelectedBtn');
-      if (rejBtn) rejBtn.style.display = anyChecked ? 'inline-block' : 'none';
-      if (allocBtn) allocBtn.style.display = anyChecked ? 'inline-block' : 'none';
+      const recalcBtn = document.getElementById('recalculateSelectedBtn');
+      
+      if (checked.length > 0) {
+        if (rejBtn) { rejBtn.style.display = 'inline-block'; rejBtn.innerText = `🚫 Reject (${checked.length})`; }
+        if (allocBtn) { allocBtn.style.display = 'inline-block'; allocBtn.innerText = `💰 Allocate (${checked.length})`; }
+        if (recalcBtn) { recalcBtn.style.display = 'inline-block'; recalcBtn.innerText = `🔄 Recalculate (${checked.length})`; }
+      } else {
+        if (rejBtn) rejBtn.style.display = 'none';
+        if (allocBtn) allocBtn.style.display = 'none';
+        if (recalcBtn) recalcBtn.style.display = 'none';
+      }
     }
 
     async function allocateSelectedTrades() {
@@ -3171,6 +3179,38 @@
         btn.innerText = oldText;
         btn.disabled = false;
       }
+    }
+
+    async function recalculateSelectedTrades() {
+      const checked = Array.from(document.querySelectorAll('.trade-checkbox:checked'));
+      const ids = checked.map(cb => parseInt(cb.value));
+      if (!ids.length) return;
+      if (!await showCustomConfirm(`Are you sure you want to force a full historical recalculation on ${ids.length} selected trade(s)?`)) return;
+
+      const btn = document.getElementById('recalculateSelectedBtn');
+      const originalText = btn.innerText;
+      btn.innerText = 'Recalculating...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/alert/recalculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        });
+        if (res.ok) {
+          showCustomToast(`Triggered rebuild for ${ids.length} trade(s).`, 'success');
+          document.getElementById('selectAllTrades').checked = false;
+          updateBulkActionsVisibility();
+          renderTradeTable();
+        } else {
+          showCustomToast('Error recalculating trades.', 'error');
+        }
+      } catch (e) {
+        showCustomToast('Network error while recalculating trades.', 'error');
+      }
+      btn.innerText = originalText;
+      btn.disabled = false;
     }
 
     async function acceptAlert(id) {
