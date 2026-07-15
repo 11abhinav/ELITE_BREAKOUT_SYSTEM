@@ -150,14 +150,15 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         # Find datetime column
         date_col = next((c for c in ["Datetime", "Date", "index"] if c in hist.columns), None)
         if date_col is None:
-            return None
-
-        hist[date_col] = pd.to_datetime(hist[date_col])
-        hist = hist.set_index(date_col)
+            if not isinstance(hist.index, pd.DatetimeIndex):
+                return None
+        else:
+            hist[date_col] = pd.to_datetime(hist[date_col])
+            hist = hist.set_index(date_col)
 
         # Localise index to IST
         idx = hist.index
-        if idx.tzinfo is None:
+        if idx.tz is None:
             idx = idx.tz_localize("Asia/Kolkata")
         else:
             idx = idx.tz_convert("Asia/Kolkata")

@@ -981,7 +981,7 @@ ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type
 
 -- 4. Add status CHECK constraints (NOT VALID to avoid full-table validation during deploy)
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
-ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')) NOT VALID;
+ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS', 'CLOSED', 'NEUTRAL')) NOT VALID;
 ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
 ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED')) NOT VALID;
 ALTER TABLE telegram_queue DROP CONSTRAINT IF EXISTS chk_tg_status;

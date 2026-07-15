@@ -917,6 +917,14 @@ When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the e
 - **Wealth Watchlist Trigger**: If the watchlist was missing, `wealth_engine.py` imported `build_watchlist` from `daily_builder.py`, which failed since the module's entry point is named `main`. Resolved by aliasing the import correctly.
 - **Timezone conversions**: Timezone checking inside `multibagger.py` checked `hasattr(df.index, 'tzinfo')`, which is absent on pandas indices. Refactored to inspect `isinstance(df.index, pd.DatetimeIndex)` and `df.index.tz` directly.
 
+### 28.6 Performance Tracker DatetimeIndex bugs
+- **RCA**: The performance tracker's method `_fetch_post_alert_bars` accessed `idx.tzinfo` on the dataframe's index to check for timezone status. In pandas, a `DatetimeIndex` does not possess a `.tzinfo` attribute (only `.tz`), raising an `AttributeError` which was caught by a generic handler, silently returning `None` and disabling outcome tracking. Furthermore, if a dataframe with a `DatetimeIndex` already set was passed as `prefetched_hist`, the column lookup discarded it.
+- **The Fix**: The check was changed to `idx.tz is None`. Added a type validation check `isinstance(hist.index, pd.DatetimeIndex)` as a fallback so pre-indexed datasets are preserved instead of discarded.
+
+### 28.7 PostgreSQL Status CHECK Constraint Violation
+- **RCA**: The `alerts` table has a CHECK constraint `chk_alerts_status` enforcing `status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')`. When the performance tracker updated trades during partial limit hits (`update_partial_exit`), it tried to write `'PARTIAL_WIN_1'` or `'PARTIAL_WIN_2'`. This violated the check constraint, triggering a `CheckViolation` database error and aborting state transitions.
+- **The Fix**: The PostgreSQL initialization schema inside `database.py` was updated to explicitly allow all valid runtime status tags: `'OPEN'`, `'PARTIAL_WIN_1'`, `'PARTIAL_WIN_2'`, `'WIN'`, `'LOSS'`, `'CLOSED'`, and `'NEUTRAL'`.
+
 ---
 
 ## 29. Lessons Learnt & Future Development Guidelines
