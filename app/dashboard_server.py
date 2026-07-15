@@ -651,22 +651,9 @@ def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
     try:
         if request.args.get('rebuild') == 'true':
-            try:
-                from market_utils import is_market_open
-                if not is_market_open():
-                    logger.debug("⏭️ Skipping dashboard performance rebuild (Outside active market hours).")
-                else:
-                    import main
-                    if main.scanner_execution_lock.acquire(blocking=False):
-                        try:
-                            from performance_tracker import build_performance_data
-                            build_performance_data(fast_mode=True)
-                        finally:
-                            main.scanner_execution_lock.release()
-                    else:
-                        logger.info("⏭️ Skipping dashboard performance rebuild (A scanner is actively running and holds the global lock).")
-            except Exception as e:
-                logger.error(f"Failed to fast-rebuild performance data: {e}")
+            # Performance data is rebuilt by the independent 5-min run_performance_tracker() loop.
+            # Do not trigger inline rebuilds here to avoid concurrent builds during scanner execution.
+            logger.debug("⏭️ Dashboard ?rebuild=true received — serving cached data (independent loop handles rebuilds).")
                 
         from database import get_system_state
         val = get_system_state("performance_data")
@@ -1364,14 +1351,6 @@ def api_reject_alert():
         alert_id = int(data.get('id'))
         from database import reject_alert
         ok = reject_alert(alert_id)
-        if ok:
-            import threading
-            from performance_tracker import build_performance_data
-            def locked_build():
-                import main
-                with main.scanner_execution_lock:
-                    build_performance_data()
-            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject failed')
@@ -1391,14 +1370,6 @@ def api_reject_multiple_alerts():
 
         from database import reject_multiple_alerts
         ok = reject_multiple_alerts(ids)
-        if ok:
-            import threading
-            from performance_tracker import build_performance_data
-            def locked_build():
-                import main
-                with main.scanner_execution_lock:
-                    build_performance_data()
-            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')
@@ -1412,14 +1383,6 @@ def api_accept_alert():
         alert_id = int(data.get('id'))
         from database import accept_alert
         ok = accept_alert(alert_id)
-        if ok:
-            import threading
-            from performance_tracker import build_performance_data
-            def locked_build():
-                import main
-                with main.scanner_execution_lock:
-                    build_performance_data()
-            threading.Thread(target=locked_build).start()
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/accept failed')
@@ -1477,14 +1440,6 @@ def api_reallocate_multiple_alerts():
             
         from database import reallocate_capital_multiple
         results = reallocate_capital_multiple(ids)
-        if results and len(results) > 0:
-            import threading
-            from performance_tracker import build_performance_data
-            def locked_build():
-                import main
-                with main.scanner_execution_lock:
-                    build_performance_data()
-            threading.Thread(target=locked_build).start()
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         logger.exception('❌ /api/alert/reallocate_multiple failed')
