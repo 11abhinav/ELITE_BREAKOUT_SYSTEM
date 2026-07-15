@@ -418,6 +418,12 @@ def run_eod_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
             logger.info("✅ EOD SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
             continue
@@ -541,6 +547,12 @@ def run_reversal_scanner():
                 today_alerts=total,
                 scheduled_for="06:30 IST"
             )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
             logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
             retry_count = 0  # reset on successful completion
             continue
@@ -1017,6 +1029,12 @@ def run_multibagger_scanner():
                     processed_count=stats.get("processed_count"),
                     today_alerts=stats.get("today_alerts", 0)
                 )
+                # Rebuild performance data on scanner completion (debounced, async)
+                try:
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+                except Exception as pe:
+                    logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
                 logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
             
             # Reset flag outside 7 PM window
@@ -1201,6 +1219,12 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                     insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
             except Exception:
                 pass
+                # Rebuild performance data on scan completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-manual-scan for {scanner_key}: {pe}")
                 
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
         except RuntimeError as e:

@@ -774,8 +774,50 @@ def _write_empty():
 
 
 # =====================================================================================
-# STANDALONE RUN
+# DEBUNCED ASYNCHRONOUS REBUILD
 # =====================================================================================
+
+import threading
+_perf_rebuild_lock = threading.Lock()
+
+def trigger_performance_rebuild():
+    """
+    Debounced/asynchronous trigger for rebuilding performance data.
+    
+    RCA & DESIGN DECISION (2026-07-15):
+    - Background: We decoupled performance rebuilds from scanners/endpoints to prevent "rebuild storms"
+      (parallel threads running build_performance_data() concurrently and causing DB/API contention).
+      However, this caused a 5-minute UI lag where newly generated scanner signals or manual alert
+      actions (accept/reject) would not show up in the "All Trades" dashboard table until the next
+      background scheduler run.
+      
+    - Solution: This function acts as a debouncer. It acquires _perf_rebuild_lock with blocking=False.
+      If a rebuild is already in progress, any incoming triggers return immediately without spawning
+      a thread or queuing. If no rebuild is running, it spawns a background thread, waits to safely
+      serialize with active scanners using main.scanner_execution_lock, and builds the performance data.
+      This keeps the UI responsive (instant return), prevents parallel build collisions, and updates
+      performance data within seconds of a scanner finishing or an alert action being clicked.
+    """
+    def _target():
+        # non-blocking lock acquire to prevent storm
+        if not _perf_rebuild_lock.acquire(blocking=False):
+            logger.info("📈 PERFORMANCE TRACKER | Rebuild already in progress, skipping redundant trigger.")
+            return
+        try:
+            logger.info("📈 PERFORMANCE TRACKER | Waiting for scanner_execution_lock to rebuild performance data...")
+            import main
+            with main.scanner_execution_lock:
+                logger.info("📈 PERFORMANCE TRACKER | Rebuilding performance data...")
+                build_performance_data()
+        except Exception as e:
+            logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
+        finally:
+            _perf_rebuild_lock.release()
+            logger.info("📈 PERFORMANCE TRACKER | Background rebuild completed, lock released.")
+
+    # Spawn thread to run in background so UI / scanners are not blocked
+    threading.Thread(target=_target, name="PerfRebuildThread").start()
+
 
 if __name__ == "__main__":
     logging.basicConfig(

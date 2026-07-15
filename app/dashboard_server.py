@@ -651,9 +651,13 @@ def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
     try:
         if request.args.get('rebuild') == 'true':
-            # Performance data is rebuilt by the independent 5-min run_performance_tracker() loop.
-            # Do not trigger inline rebuilds here to avoid concurrent builds during scanner execution.
-            logger.debug("⏭️ Dashboard ?rebuild=true received — serving cached data (independent loop handles rebuilds).")
+            # Rebuild performance data on manual dashboard refresh (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+                logger.info("📈 Dashboard ?rebuild=true received — triggered background performance rebuild.")
+            except Exception as pe:
+                logger.error(f"Failed to trigger background rebuild: {pe}")
                 
         from database import get_system_state
         val = get_system_state("performance_data")
@@ -1351,6 +1355,13 @@ def api_reject_alert():
         alert_id = int(data.get('id'))
         from database import reject_alert
         ok = reject_alert(alert_id)
+        if ok:
+            # Rebuild performance data on status update (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on reject: {pe}")
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject failed')
@@ -1370,6 +1381,13 @@ def api_reject_multiple_alerts():
 
         from database import reject_multiple_alerts
         ok = reject_multiple_alerts(ids)
+        if ok:
+            # Rebuild performance data on status update (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on reject_multiple: {pe}")
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/reject_multiple failed')
@@ -1383,6 +1401,13 @@ def api_accept_alert():
         alert_id = int(data.get('id'))
         from database import accept_alert
         ok = accept_alert(alert_id)
+        if ok:
+            # Rebuild performance data on status update (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on accept: {pe}")
         return jsonify({'success': bool(ok)})
     except Exception as e:
         logger.exception('❌ /api/alert/accept failed')
@@ -1397,6 +1422,13 @@ def api_reallocate_alert():
         from database import reallocate_capital
         ok = reallocate_capital(alert_id)
         if ok:
+            # Rebuild performance data on status update (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on reallocate: {pe}")
+                
             from database import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:
@@ -1432,6 +1464,13 @@ def api_reallocate_multiple_alerts():
             
         from database import reallocate_capital_multiple
         results = reallocate_capital_multiple(ids)
+        if results:
+            # Rebuild performance data on status update (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on reallocate_multiple: {pe}")
         return jsonify({'success': True, 'results': results})
     except Exception as e:
         logger.exception('❌ /api/alert/reallocate_multiple failed')
