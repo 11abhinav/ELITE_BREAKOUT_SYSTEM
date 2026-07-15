@@ -2925,7 +2925,7 @@
           </div>
           <div class="detail-item">
             <div class="detail-label">Exit History</div>
-            <div class="detail-val" id="eh-${id}" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; color:var(--muted)">
+            <div class="detail-val" id="eh-${id}" data-alert-id="${t.id}" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; color:var(--muted)">
               Loading...
             </div>
           </div>
@@ -3012,12 +3012,8 @@
         // Fetch exit_history on-demand to populate the Exit History panel
         const ehEl = document.getElementById('eh-' + id);
         if (ehEl) {
-          // Find the actual trade object to get its real DB id
-          const allTrades = window._currentFilteredTrades || ALL_TRADES;
-          const rowIndex = parseInt(id.replace(prefix + '', '').replace(/^[^0-9]*/, ''), 10);
-          // Search by key (symbol|date) which is unique per trade
-          const tradeObj = allTrades.find(t => (t.symbol + '|' + (t.alert_time || t.entry_date)) === key);
-          const alertDbId = tradeObj ? tradeObj.id : null;
+          // Read alertDbId directly from the data attribute — no fragile key lookup needed
+          const alertDbId = ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null;
           if (alertDbId) {
             const cacheKey = String(alertDbId);
             if (!EXIT_HISTORY_CACHE.has(cacheKey)) {

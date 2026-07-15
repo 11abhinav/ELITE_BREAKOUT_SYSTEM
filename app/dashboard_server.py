@@ -1426,17 +1426,14 @@ def api_reject_multiple_alerts():
 def api_get_exit_history(alert_id):
     """Fetch the full exit_history JSON array for a specific alert from the database."""
     try:
-        import psycopg2
-        from psycopg2.extras import DictCursor
-        from database import get_db_connection
-        conn = get_db_connection()
-        try:
+        from database import get_connection
+        with get_connection() as conn:
+            from psycopg2.extras import DictCursor
             with conn.cursor(cursor_factory=DictCursor) as cur:
                 # Check regular alerts first
                 cur.execute("SELECT exit_history FROM alerts WHERE id = %s", (alert_id,))
                 row = cur.fetchone()
                 if row and row['exit_history']:
-                    # It's stored as a JSON string or JSONB depending on migrations, return as raw JSON string to save parsing
                     history = row['exit_history']
                     if isinstance(history, str):
                         return Response(history, mimetype="application/json")
@@ -1451,11 +1448,9 @@ def api_get_exit_history(alert_id):
                         return Response(history, mimetype="application/json")
                     return jsonify(history)
                     
-            return jsonify([]), 200
-        finally:
-            conn.close()
+        return jsonify([]), 200
     except Exception as e:
-        logger.exception('❌ /api/alert/exit_history failed')
+        logger.exception('\u274c /api/alert/exit_history failed')
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/accept', methods=['POST'])
