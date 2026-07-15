@@ -2952,14 +2952,14 @@
           <div class="detail-item">
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
+              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">📊 TradingView Chart ↗</button>
               ${t.status === 'REJECTED'
-            ? `<button onclick="acceptAlert(${t.id})" style="background:#00d4a1; color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">✅ Re-Accept Trade</button>`
-            : `<button onclick="reallocateCapital(${t.id})" style="background:#4a90e2; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">💰 Allocate Capital</button>
-                   <button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;">❌ Reject Trade</button>`
+            ? `<button onclick="acceptAlert(${t.id})" style="background:#00d4a1; color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">✅ Re-Accept Trade</button>`
+            : `<button onclick="reallocateCapital(event, ${t.id})" style="background:#4a90e2; color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">💰 Allocate Capital</button>
+                   <button onclick="rejectAlert(${t.id})" style="background:var(--warn); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">❌ Reject Trade</button>`
           }
               ${(t.status === 'CLOSED' || t.status === 'WIN' || t.status === 'LOSS') 
-                ? `<button onclick="recalculateAlert(${t.id})" style="background:var(--card2); color:var(--text); border:1px solid var(--border); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; margin-top: 4px;" title="Reset this closed trade to OPEN and force full recalculation">🔄 Recalculate Exit</button>`
+                ? `<button onclick="recalculateAlert(event, ${t.id})" style="background:var(--card2); color:var(--text); border:1px solid var(--border); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;" title="Reset this closed trade to OPEN and force full recalculation">🔄 Recalculate Exit</button>`
                 : ''
               }
             </div>
@@ -3196,7 +3196,7 @@
       }
     }
 
-    async function recalculateAlert(id) {
+    async function recalculateAlert(event, id) {
       const confirmed = await showCustomConfirm('Are you sure you want to RECALCULATE this closed trade? It will be reset to OPEN and rebuilt from scratch based on its alert date.');
       if (!confirmed) return;
       
@@ -3234,7 +3234,7 @@
       }
     }
 
-    async function reallocateCapital(id) {
+    async function reallocateCapital(event, id) {
       const confirmed = await showCustomConfirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.');
       if (!confirmed) return;
       const btn = event.target || event.srcElement;
