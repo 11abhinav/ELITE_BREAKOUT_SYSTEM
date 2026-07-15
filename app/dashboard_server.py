@@ -927,28 +927,40 @@ def api_shortlist_excluded():
         logger.exception(f"Failed to load excluded stocks JSON")
         return jsonify([])
 
+_wealth_cache = {"mtime": 0, "payload": None}
+
 @app.route("/api/wealth")
 @login_required
 def api_wealth():
-    """Returns the elite wealth system data as JSON."""
+    """Returns the elite wealth system data as JSON. Cached in-memory by file mtime."""
     from config import DATA_DIR
-    import pandas as pd
     try:
         WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
         if not os.path.exists(WEALTH_PATH):
             return jsonify([])
-        df = pd.read_parquet(WEALTH_PATH)
-        import json
-        from datetime import datetime
-        records = json.loads(df.to_json(orient="records"))
+        
         mtime = os.path.getmtime(WEALTH_PATH)
         
+        # Serve from cache if file hasn't changed
+        if _wealth_cache["mtime"] == mtime and _wealth_cache["payload"] is not None:
+            return Response(_wealth_cache["payload"], mimetype="application/json")
+        
+        # Re-parse parquet → JSON only when file changes
+        import pandas as pd
+        import json
+        df = pd.read_parquet(WEALTH_PATH)
+        records = json.loads(df.to_json(orient="records"))
+        
         from zoneinfo import ZoneInfo
-        IST = ZoneInfo("Asia/Kolkata")
         from datetime import datetime
+        IST = ZoneInfo("Asia/Kolkata")
         generated_at = datetime.fromtimestamp(mtime, tz=IST).isoformat()
         
-        return jsonify({"data": records, "generated_at": generated_at})
+        payload = json.dumps({"data": records, "generated_at": generated_at})
+        _wealth_cache["mtime"] = mtime
+        _wealth_cache["payload"] = payload
+        
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception(f"Failed to load wealth JSON")
         return jsonify([])

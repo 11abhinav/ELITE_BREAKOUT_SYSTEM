@@ -1966,8 +1966,11 @@ async function pingViewer() {
 
 // ── MAIN
 async function initDashboard() {
-  await loadCapitalInfo();
-  const data = await loadData(false);
+  // Fire both initial data loads in parallel
+  const [_, data] = await Promise.all([
+    loadCapitalInfo(),
+    loadData(false),
+  ]);
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
@@ -1985,6 +1988,7 @@ async function initDashboard() {
   ALL_TRADES = data.trades;
   populateFilters(ALL_TRADES);
   renderKPIs(s);
+  // Fire secondary data loads in parallel (non-blocking)
   fetchSignalLadder();
   loadMultibaggerWatchlist();
   renderTradeTable();

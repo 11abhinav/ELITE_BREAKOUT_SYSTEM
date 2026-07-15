@@ -1022,15 +1022,26 @@
 
     async function loadData() {
       try {
-        const res = await fetch('/api/wealth');
-        if (!res.ok) throw new Error('API Error');
-        const data = await res.json();
-        
-        // Fetch Macro State
+        // Fire ALL API requests in parallel instead of sequentially
+        const [wealthRes, macroRes, alertsRes, closedRes] = await Promise.allSettled([
+          fetch('/api/wealth'),
+          fetch('/api/macro_state'),
+          fetch('/api/wealth/alerts?today=true'),
+          fetch('/api/wealth/closed-positions?days=1'),
+        ]);
+
+        // 1. Parse wealth data (primary)
+        let data = [];
+        if (wealthRes.status === 'fulfilled' && wealthRes.value.ok) {
+          data = await wealthRes.value.json();
+        } else {
+          throw new Error('Wealth API failed');
+        }
+
+        // 2. Parse macro state (non-blocking)
         try {
-          const macroRes = await fetch('/api/macro_state');
-          if (macroRes.ok) {
-            const macroData = await macroRes.json();
+          if (macroRes.status === 'fulfilled' && macroRes.value.ok) {
+            const macroData = await macroRes.value.json();
             const badge = document.getElementById('macro-state-badge');
             if (macroData.bear_market_gate) {
               badge.textContent = `🔴 BEAR MARKET: DEEP VALUE MODE (NIFTY -${macroData.nifty_dist_52w}%)`;
@@ -1077,12 +1088,11 @@
 
         document.getElementById('kpi-total').textContent = stocks.length;
 
-        // Fetch today's alerts to ensure we only show BUY signals generated today (IST)
+        // Use the already-fetched alerts data from parallel request
         let todayAlertSymbols = new Set();
         try {
-            const alertRes = await fetch('/api/wealth/alerts?today=true');
-            if (alertRes.ok) {
-                const alerts = await alertRes.json();
+            if (alertsRes.status === 'fulfilled' && alertsRes.value.ok) {
+                const alerts = await alertsRes.value.json();
                 alerts.forEach(a => {
                     if (a.status !== 'CLOSED') {
                         todayAlertSymbols.add(a.symbol);
@@ -1090,7 +1100,7 @@
                 });
             }
         } catch (e) {
-            console.error("Failed to fetch today's alerts for filtering:", e);
+            console.error("Failed to parse today's alerts:", e);
         }
 
         const buys = stocks.filter(s => (s.Signal || "").includes("BUY") && todayAlertSymbols.has(s.Stock)).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
@@ -1122,17 +1132,16 @@
           </tr>
         `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 55 + Mom ≥ 25 above 200 SMA</td></tr>`;
 
-        // Fetch Today's Closed Positions
+        // Use the already-fetched closed positions from parallel request
         let closedToday = [];
         try {
-            const closedRes = await fetch('/api/wealth/closed-positions?days=1');
-            if (closedRes.ok) {
-                const closedData = await closedRes.json();
+            if (closedRes.status === 'fulfilled' && closedRes.value.ok) {
+                const closedData = await closedRes.value.json();
                 // Filter for today (IST)
                 const todayStr = new Date().toLocaleString("en-CA", {timeZone: "Asia/Kolkata"}).split(',')[0];
                 closedToday = closedData.filter(p => p.exit_date && p.exit_date.startsWith(todayStr));
             }
-        } catch(e) { console.error("Failed to fetch today's closed positions", e); }
+        } catch(e) { console.error("Failed to parse closed positions", e); }
 
         // Sells Table
         const sells = stocks.filter(s => (s.Signal || "").includes("SELL")).sort((a,b) => (a.FM_Score || 0) - (b.FM_Score || 0));
