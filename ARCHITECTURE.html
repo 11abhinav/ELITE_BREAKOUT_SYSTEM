@@ -895,6 +895,48 @@ The system supports standard Web Push Notifications (`push_service.py`) via the 
 ### 27.2 Throttling and Eviction
 To prevent outage spam (e.g. Fyers token expiration causing background threads to fail and alert the admin every 5 minutes), push notifications are throttled using an in-memory cache for up to 1 hour (`_THROTTLE_SECONDS = 3600`). If a subscriber endpoint returns a `404` or `410` (unregistered/expired), the subscription is automatically evicted from the Postgres database.
 
+---
+
+## 28. Production Stability & Performance Fixes (July 2026 Audit)
+
+### 28.1 Database Connection Pool Leak Prevention
+In `database.py:get_connection()`, a connection checkout operational exception triggered `p.putconn(conn, close=True)` inside `except` blocks but left the local variable `conn` truthy. The subsequent `finally` block executed `p.putconn(conn)` on the same closed/invalid connection, triggering a `PoolError` and corrupting the threaded connection pool's allocation tracking. The fix sets `conn = None` immediately after the first checkout release in the error handlers.
+
+### 28.2 N+1 Query Elimination in Background Pledge Worker
+The `pledge_worker.py` daemon was executing an EMR/scanned symbol loop on every iteration (1,100+ tickers), querying the database one-by-one to evaluate cache expiration. This created heavy connection contention and CPU utilization. It has been optimized to a single batch lookup using `symbol = ANY(%s)` in a single database round-trip.
+
+### 28.3 Infinite Watchdog Revival Loop
+When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the error and exited. However, the watchdog script `main.py` revived any crashed thread registered in the restartable mappings, leading to a CPU-intensive infinite crash-and-restart loop every 10 seconds. The daemon was modified to pause/sleep and report a descriptive health error state instead of exiting when keys are missing.
+
+### 28.4 RangeIndex Date Coercion & VWAP Calculation Failures
+- **Nifty Drop Checks**: `pd.to_datetime(df_safe.index)` on default integer RangeIndex coerced indices into `1970-01-01`. This broke Nifty intraday return checks, rendering the Nifty macro regime gate inside `live_scanner.py` permanently inactive.
+- **Intraday VWAP resets**: The VWAP reset logic checked `hasattr(df.index, 'date')` to determine boundary crossings. On integer RangeIndex dataframes, this returned `False` and forced all calculations to fallback to cumulative EOD VWAP.
+- **The Fix**: Both subsystems now dynamically search for datetime-like columns (`Datetime`, `Date`, or `index`), set them as index bounds first, and perform datetime conversions on the localized index.
+
+### 28.5 Import Crashes and Timezone Checks
+- **Wealth Watchlist Trigger**: If the watchlist was missing, `wealth_engine.py` imported `build_watchlist` from `daily_builder.py`, which failed since the module's entry point is named `main`. Resolved by aliasing the import correctly.
+- **Timezone conversions**: Timezone checking inside `multibagger.py` checked `hasattr(df.index, 'tzinfo')`, which is absent on pandas indices. Refactored to inspect `isinstance(df.index, pd.DatetimeIndex)` and `df.index.tz` directly.
+
+---
+
+## 29. Lessons Learnt & Future Development Guidelines
+
+### 29.1 The RangeIndex Pitfall in Pandas
+- **Rule**: When fetchers or data providers reset dataframe indexes (converting `Date`/`Datetime` to columns), never assume that `df.index` represents a datetime or contains timestamp attributes/methods.
+- **Guideline**: Always resolve the index dynamically by looking for date columns: `datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)`. If found, set it to the index before executing date-based groupbys, resamples, or filters.
+
+### 29.2 Thread Exits vs. Watchdog Lifecycles
+- **Rule**: If a daemon thread has a fatal configuration dependency (e.g. missing keys or credentials), it must not simply exit. Exiting triggers self-healing watchdogs to spawn a thread revival loop.
+- **Guideline**: Capture initialization errors, report the error description to the central dashboard health database (`upsert_scanner_health`), and put the thread to sleep for long intervals (e.g., 1 hour) instead of exiting the function.
+
+### 29.3 Batch Database Ingestion (Avoiding N+1 Loops)
+- **Rule**: Do not query the database within a loop iterating over watchlists or symbol universes.
+- **Guideline**: Rely on PostgreSQL array structures (`symbol = ANY(%s)`) or bulk `IN` statements to load all indices or records in a single query, followed by in-memory key indexing.
+
+### 29.4 LRU Cache Invalidation
+- **Rule**: If functions accessing database caches are decorated with `@lru_cache`, they will serve stale or missing entries forever if the database updates in the background.
+- **Guideline**: Clear the cache using `func.cache_clear()` at the start of any scanner execution cycle to ensure the database updates are correctly registered.
+
 </textarea>
 
 

@@ -17,6 +17,7 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
         'Referer': 'https://www.nseindia.com/'
     }
     
+    tmp_path = None
     try:
         try:
             from curl_cffi import requests as cffi_requests
@@ -30,32 +31,35 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
         
         # Write to a temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_path = tmp_file.name
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     tmp_file.write(chunk)
-            tmp_path = tmp_file.name
             
         # Parse PDF
         text = ""
-        try:
-            reader = PdfReader(tmp_path)
-            # [VERSION: PDF_DECRYPT_PATCH_v1.0] Decrypt encrypted/digitally-signed PDFs
-            if reader.is_encrypted:
-                try:
-                    reader.decrypt("")
-                except Exception as dec_err:
-                    logger.warning(f"Failed to decrypt PDF with empty password: {dec_err}")
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-        finally:
-            os.remove(tmp_path)
+        reader = PdfReader(tmp_path)
+        # [VERSION: PDF_DECRYPT_PATCH_v1.0] Decrypt encrypted/digitally-signed PDFs
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception as dec_err:
+                logger.warning(f"Failed to decrypt PDF with empty password: {dec_err}")
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
             
         return text.strip()
     except Exception as e:
         logger.exception(f"Failed to extract text from {pdf_url}")
         return ""
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception as remove_err:
+                logger.warning(f"Failed to remove temp file {tmp_path}: {remove_err}")
 
 if __name__ == "__main__":
     # Test

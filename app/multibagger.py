@@ -242,8 +242,8 @@ def batch_download_market_data(symbols: list) -> dict:
                 ticker_df = ticker_df.set_index("Datetime")
                 
             # Timezone normalization (ensure IST)
-            if hasattr(ticker_df.index, 'tzinfo'):
-                if ticker_df.index.tzinfo is None:
+            if isinstance(ticker_df.index, pd.DatetimeIndex):
+                if ticker_df.index.tz is None:
                     ticker_df.index = ticker_df.index.tz_localize(IST)
                 else:
                     ticker_df.index = ticker_df.index.tz_convert(IST)
@@ -877,6 +877,14 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     logger.info("🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0")
     logger.info("=================================================================")
     
+    # Clear pledge cache to ensure fresh values are fetched from DB today
+    try:
+        from pledge_scraper import fetch_promoter_pledge
+        fetch_promoter_pledge.cache_clear()
+        logger.info("🧹 Cleared fetch_promoter_pledge LRU cache for today's run.")
+    except Exception as e:
+        logger.warning(f"Failed to clear fetch_promoter_pledge cache: {e}")
+
     # Ensure tables and functions are created
     init_db()
 

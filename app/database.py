@@ -129,6 +129,7 @@ def get_connection(timeout: int = 5):
                 p.putconn(conn, close=True)  # Return broken connection to pool
             except Exception:
                 pass
+            conn = None
         raise
     except Exception as e:
         logger.exception(f"🔴 DB operation failed")
@@ -137,6 +138,7 @@ def get_connection(timeout: int = 5):
                 p.putconn(conn, close=True)
             except Exception:
                 pass
+            conn = None
         raise
     finally:
         # Return connection to pool if we checked one out

@@ -799,7 +799,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         if not os.path.exists(WATCHLIST_PATH):
             logger.warning("⚠️ Watchlist not found. Wealth Engine is forcing the Daily Builder to run.")
             try:
-                from daily_builder import build_watchlist
+                from daily_builder import main as build_watchlist
                 build_watchlist()
             except Exception as e:
                 logger.exception(f"❌ Wealth Engine failed to build watchlist")

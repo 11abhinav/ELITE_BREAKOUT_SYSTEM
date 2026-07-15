@@ -226,10 +226,16 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     if "Volume" in df.columns:
         typical_price = (high + low + close) / 3
 
-        if timeframe in ("15m", "1h") and hasattr(df.index, 'date'):
+        df_index = df.index
+        if not isinstance(df_index, pd.DatetimeIndex):
+            datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+            if datetime_col is not None:
+                df_index = pd.to_datetime(df[datetime_col])
+
+        if timeframe in ("15m", "1h") and hasattr(df_index, 'date'):
             # Daily-reset VWAP for intraday: reset cumulative sums at each day boundary
             # This is the standard institutional VWAP that traders use for fair-value
-            date_groups = df.index.date
+            date_groups = df_index.date
             cum_tp_vol  = (typical_price * df["Volume"]).groupby(date_groups).cumsum()
             cum_vol     = df["Volume"].groupby(date_groups).cumsum()
             df["VWAP"]  = (cum_tp_vol / cum_vol).where(cum_vol > 0)

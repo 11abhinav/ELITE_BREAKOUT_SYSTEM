@@ -164,8 +164,12 @@ def get_nifty_intraday_drop() -> float:
         if df is not None and not df.empty:
             today_str = datetime.now(IST).strftime('%Y-%m-%d')
             
-            # Normalize index to avoid AttributeError if fetcher returns plain Index
             df_safe = df.copy()
+            # Normalize index to avoid RangeIndex date coercion issues
+            datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df_safe.columns), None)
+            if datetime_col:
+                df_safe = df_safe.set_index(datetime_col)
+                
             df_safe.index = pd.to_datetime(df_safe.index, errors="coerce")
             today_data = df_safe[df_safe.index.notna() & (df_safe.index.strftime("%Y-%m-%d") == today_str)]
             

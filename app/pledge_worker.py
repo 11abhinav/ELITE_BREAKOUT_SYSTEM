@@ -135,8 +135,13 @@ def worker_loop():
     init_db()
     
     if not os.getenv("SCRAPERAPI_KEY"):
-        logger.error("❌ SCRAPERAPI_KEY env var not set. Exiting.")
-        return
+        logger.error("❌ SCRAPERAPI_KEY env var not set. Scraper daemon will pause.")
+        while True:
+            try:
+                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="SCRAPERAPI_KEY env var is not set")
+            except Exception:
+                pass
+            time.sleep(3600)
 
     while True:
         mode = get_worker_mode()
@@ -193,17 +198,20 @@ def worker_loop():
         try:
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    for sym in symbols:
-                        cur.execute("""
-                            SELECT updated_at 
-                            FROM promoter_pledge_cache 
-                            WHERE symbol = %s 
-                              AND (updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE)
-                        """, (sym,))
-                        if cur.fetchone():
-                            processed_base += 1
-                        else:
-                            stale_symbols.append(sym)
+                    cur.execute("""
+                        SELECT symbol 
+                        FROM promoter_pledge_cache 
+                        WHERE symbol = ANY(%s)
+                          AND (updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE)
+                    """, (symbols,))
+                    rows = cur.fetchall()
+                    fresh_symbols = {row[0] for row in rows}
+            
+            for sym in symbols:
+                if sym in fresh_symbols:
+                    processed_base += 1
+                else:
+                    stale_symbols.append(sym)
         except Exception as e:
             logger.exception("Failed to check database for stale symbols")
             

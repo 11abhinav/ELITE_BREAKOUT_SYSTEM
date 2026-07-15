@@ -1135,9 +1135,12 @@ def _main_impl(force_rebuild: bool = False):
         is_fallback_triggered = False
         fallback_reason = ""
         
+        tmp_path = None
+        tmp_excl_path = None
         try:
             from database import download_parquet_from_db
             import tempfile
+            import os
             
             # Use a temporary file to download the last known good parquet
             with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
@@ -1181,12 +1184,13 @@ def _main_impl(force_rebuild: bool = False):
                         
                     # Attempt to restore the exclusion log as well
                     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_excl:
-                        if download_parquet_from_db("daily_builder_excluded", tmp_excl.name):
-                            try:
-                                fallback_excluded = pd.read_csv(tmp_excl.name)
-                                fallback_excluded.to_csv(EXCLUSION_CSV, index=False)
-                            except Exception:
-                                pass
+                        tmp_excl_path = tmp_excl.name
+                    if download_parquet_from_db("daily_builder_excluded", tmp_excl_path):
+                        try:
+                            fallback_excluded = pd.read_csv(tmp_excl_path)
+                            fallback_excluded.to_csv(EXCLUSION_CSV, index=False)
+                        except Exception:
+                            pass
             else:
                 # If there's no backup in the DB and we're empty, we must fail.
                 if not winners:
@@ -1195,6 +1199,14 @@ def _main_impl(force_rebuild: bool = False):
             logger.error(f"Fallback check failed: {e}")
             if not winners:
                 pass # let the next block handle the failure
+        finally:
+            import os
+            for p in (tmp_path, tmp_excl_path):
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception as remove_err:
+                        logger.warning(f"Failed to remove temp file {p}: {remove_err}")
                 
         if not winners:
             logger.warning("❌ No qualifying stocks after classification (and fallback failed/unavailable)")
