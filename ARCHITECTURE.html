@@ -997,6 +997,14 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 - **Rule**: If functions accessing database caches are decorated with `@lru_cache`, they will serve stale or missing entries forever if the database updates in the background.
 - **Guideline**: Clear the cache using `func.cache_clear()` at the start of any scanner execution cycle to ensure the database updates are correctly registered.
 
+### 29.5 Ghost PNL for Rejected Trades & Frontend Masking
+- **Rule**: Never mask or destructively alter core backend status enumerations (`OPEN`, `WIN`, `LOSS`) just to satisfy frontend filtering requirements (like hiding "Rejected" trades).
+- **Guideline**: The Performance Tracker requires the true historical state (`WIN` / `LOSS`) of every trade to accurately calculate the PNL of the alerting algorithm, even if the user manually rejected the trade. We enforce this by preserving the true `status` in the database, and using a separate boolean `is_rejected` column. The JSON API layer (`get_all_alerts`) handles the frontend masking on-the-fly by overwriting `status = "REJECTED"` only in the HTTP payload if `is_rejected` is true, keeping the database constraint and performance algorithms mathematically pure.
+
+### 29.6 Dynamic Timeout Threading in Rate-Limited Fetches
+- **Rule**: When using `ThreadPoolExecutor.as_completed(timeout=X)`, the timeout must NEVER be a hardcoded static value if the underlying tasks are rate-limited.
+- **Guideline**: Rate limiters (e.g., 1.5 requests/sec for Fyers) enforce a mathematical floor on execution time. If you batch fetch 750 symbols at 1.5/sec, it will take at least 500 seconds. A hardcoded 300s timeout will abruptly kill the batch exactly 300 seconds in (after 450 symbols), silently dropping data. Always compute timeouts dynamically based on the input size: `calc_timeout = max(300, len(symbols) * 2)` to guarantee safety buffers.
+
 </textarea>
 
 
