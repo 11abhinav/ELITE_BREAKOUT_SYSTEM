@@ -372,8 +372,9 @@ def _trade_status(
 # =====================================================================================
 
 def build_performance_data(fast_mode=False, force_live_fetch=False):
+    trigger = "MANUAL_OVERRIDE" if force_live_fetch else "AUTO_BACKGROUND"
     logger.info("=" * 70)
-    logger.info("📊 PERFORMANCE TRACKER | Building performance data...")
+    logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
     logger.info("=" * 70)
 
     try:
