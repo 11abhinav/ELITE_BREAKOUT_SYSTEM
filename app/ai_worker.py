@@ -36,7 +36,7 @@ def run_ai_worker_scan_once() -> dict:
         
     try:
         from config import WATCHLIST_PATH
-        from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis
+        from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis, has_valid_concall_cache, has_error_concall_cache_within_24h
         from dashboard_server import fetch_and_analyze_concall
         
         logger.info("🤖 AI Worker: Starting manual concall analysis scan...")
@@ -74,34 +74,16 @@ def run_ai_worker_scan_once() -> dict:
         total_stocks = len(pending_stocks)
         
         # ── Pre-filter: only process stocks that genuinely need analysis ────────
-        # Define ONCE (not inside loop — closure bug risk)
-        def _is_error_cache(c) -> bool:
-            """Returns True if cached data is a failure/error dict, not valid analysis."""
-            if not c:
-                return False
-            if isinstance(c, str):
-                try:
-                    import json
-                    c = json.loads(c)
-                except Exception:
-                    return "error" in c.lower()
-            if isinstance(c, dict):
-                return "error" in c
-            return False
-
         actual_pending = []
         for sym in pending_stocks:
-            # Check 60-day cache for any valid entry
-            cached = get_recent_concall_analysis(sym, max_age_days=60)
+            # PRIMARY CHECK: Does a valid (non-error) cache exist for this symbol?
+            # Uses a native JSONB check — no fragile TEXT date casting.
+            if has_valid_concall_cache(sym):
+                continue  # Valid analysis exists → skip
 
-            if cached and not _is_error_cache(cached):
-                # Valid successful analysis exists → skip
-                continue
-
-            # No valid cache. Check if there's a recent error cache (within 24h) → skip to avoid hammering API
-            cached_today = get_recent_concall_analysis(sym, max_age_days=1)
-            if cached_today and _is_error_cache(cached_today):
-                continue
+            # SECONDARY CHECK: Was an error cached within the last 24h? If so, skip to avoid re-hammering the API.
+            if has_error_concall_cache_within_24h(sym):
+                continue  # Recent error → back off for 24h
 
             actual_pending.append(sym)
             

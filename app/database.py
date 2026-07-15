@@ -1968,22 +1968,87 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                     "last_updated": None
                 }
 
-def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
-    """Retrieves cached AI analysis for a symbol if it is less than max_age_days old."""
+def has_valid_concall_cache(symbol: str) -> bool:
+    """
+    Returns True if a valid (non-error) concall analysis exists for the symbol.
+    Uses a native JSONB check — no fragile TEXT date casting.
+    This is the primary skip check in the AI worker pre-filter.
+    """
     init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT analysis_data
-                FROM ai_concall_cache_v3
-                WHERE symbol = %s AND created_at::TIMESTAMP AT TIME ZONE 'Asia/Kolkata' >= NOW() - INTERVAL '1 day' * %s
-                ORDER BY id DESC
-                LIMIT 1
-            """, (symbol, max_age_days))
-            row = cur.fetchone()
-            if row:
-                return row[0]
-            return None
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 1
+                    FROM ai_concall_cache_v3
+                    WHERE symbol = %s
+                      AND (analysis_data->>'error') IS NULL
+                    LIMIT 1
+                """, (symbol,))
+                return cur.fetchone() is not None
+    except Exception:
+        logger.exception(f"Failed to check valid concall cache for {symbol}")
+        return False
+
+def has_error_concall_cache_within_24h(symbol: str) -> bool:
+    """
+    Returns True if an error cache entry was saved for this symbol within the last 24 hours.
+    Uses a SAFE TRY_CAST approach to handle old/broken created_at TEXT formats.
+    """
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use a safe cast with a fallback — if created_at cannot be parsed as a timestamp,
+                # the row is treated as old (excluded). This prevents a single bad row from crashing the query.
+                cur.execute("""
+                    SELECT 1
+                    FROM ai_concall_cache_v3
+                    WHERE symbol = %s
+                      AND (analysis_data->>'error') IS NOT NULL
+                      AND (
+                          CASE
+                              WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+                              THEN (SUBSTRING(created_at, 1, 26))::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+                              ELSE NULL
+                          END
+                      ) >= NOW() - INTERVAL '1 day'
+                    LIMIT 1
+                """, (symbol,))
+                return cur.fetchone() is not None
+    except Exception:
+        logger.exception(f"Failed to check error concall cache for {symbol}")
+        return False
+
+def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
+    """
+    Retrieves the most recent cached AI analysis for a symbol.
+    Uses a SAFE CAST approach to handle old/broken created_at TEXT formats gracefully.
+    """
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT analysis_data
+                    FROM ai_concall_cache_v3
+                    WHERE symbol = %s
+                      AND (
+                          CASE
+                              WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
+                              THEN (SUBSTRING(created_at, 1, 26))::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+                              ELSE NULL
+                          END
+                      ) >= NOW() - INTERVAL '1 day' * %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (symbol, max_age_days))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+    except Exception:
+        logger.exception(f"Failed to get recent concall analysis for {symbol}")
+    return None
 
 def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict):
     """Saves AI analysis to the cache for a specific PDF url."""
@@ -1992,9 +2057,10 @@ def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 import json
+                now_ist = f"(now() AT TIME ZONE 'Asia/Kolkata')::TEXT"
                 cur.execute("""
-                    INSERT INTO ai_concall_cache_v3 (symbol, pdf_url, analysis_data)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO ai_concall_cache_v3 (symbol, pdf_url, analysis_data, created_at)
+                    VALUES (%s, %s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
                     ON CONFLICT (pdf_url) DO UPDATE
                     SET analysis_data = EXCLUDED.analysis_data,
                         created_at = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
