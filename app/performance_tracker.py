@@ -496,7 +496,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
     prefetched_data = {}
     if is_open and not fast_mode and fetch_groups:
         for (interval, period_str), syms in fetch_groups.items():
-            logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades ({interval}/{period_str}) to prevent API spam...")
+            syms_preview = ",".join(syms[:5]) + ("..." if len(syms) > 5 else "")
+            logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades [{syms_preview}] ({interval}/{period_str}) to prevent API spam...")
             df_request = pd.DataFrame({"Stock": syms})
             batch_res = fetch_watchlist_data(df_request, interval=interval, period=period_str, requester="performance_tracker")
             if batch_res:
@@ -536,6 +537,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
             if is_open and not fast_mode:
+                if force_live_fetch:
+                    logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
                 pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                 hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
