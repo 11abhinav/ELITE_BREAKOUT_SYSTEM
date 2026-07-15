@@ -1371,7 +1371,7 @@ def api_recalculate_alert():
         if ok:
             # Trigger tracker to immediately rebuild this newly opened alert
             from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild()
+            trigger_performance_rebuild(recalc_ids=[alert_id])
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Alert not found or reset failed'}), 400

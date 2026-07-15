@@ -374,7 +374,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data(fast_mode=False, force_live_fetch=False):
+def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None):
     trigger = "MANUAL_OVERRIDE" if force_live_fetch else "AUTO_BACKGROUND"
     logger.info("=" * 70)
     logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
@@ -478,6 +478,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
         if t["_db_closed"] or t["entry_price"] is None or not t["stop_loss"] or not t["target_price"] or not t["alert_time"]:
             continue
             
+        if recalc_ids is not None and t["id"] not in recalc_ids:
+            continue
+            
         alert_time_val = t["alert_time"]
         if isinstance(alert_time_val, datetime):
             alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
@@ -545,16 +548,17 @@ def build_performance_data(fast_mode=False, force_live_fetch=False):
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
             if is_open and force_live_fetch:
-                logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
-                pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
-                hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
+                if recalc_ids is None or t["id"] in recalc_ids:
+                    logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
+                    pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
+                    hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
 
             process_trade_history(t, hist, cur_p)
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
             hist = None
-            if force_live_fetch:
+            if force_live_fetch and (recalc_ids is None or t["id"] in recalc_ids):
                 hist = _fetch_post_alert_bars(sym, alert_time)
             if hist is not None and not hist.empty:
                 lowest_low = float(hist["Low"].min())
@@ -793,7 +797,7 @@ def _write_empty():
 import threading
 _perf_rebuild_lock = threading.Lock()
 
-def trigger_performance_rebuild():
+def trigger_performance_rebuild(recalc_ids: list[int] = None):
     """
     Debounced/asynchronous trigger for rebuilding performance data.
     
@@ -826,7 +830,7 @@ def trigger_performance_rebuild():
             # - Safety: yf_rate_limiter.py globally throttle Yahoo Finance requests, and
             #   Postgres handles concurrent row-level locking. Running rebuild concurrently
             #   with scanners is safe and ensures instant dashboard updates.
-            build_performance_data(force_live_fetch=True)
+            build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
         except Exception as e:
             logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
         finally:
