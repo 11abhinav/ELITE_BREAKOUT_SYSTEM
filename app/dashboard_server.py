@@ -650,15 +650,6 @@ def api_admin_reset_password():
 def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
     try:
-        if request.args.get('rebuild') == 'true':
-            # Rebuild performance data on manual dashboard refresh (debounced, async)
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-                logger.info("📈 Dashboard ?rebuild=true received — triggered background performance rebuild.")
-            except Exception as pe:
-                logger.error(f"Failed to trigger background rebuild: {pe}")
-                
         from database import get_system_state
         val = get_system_state("performance_data")
         if val:
