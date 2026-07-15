@@ -235,11 +235,18 @@ def batch_download_market_data(symbols: list) -> dict:
             if ticker_df.empty:
                 continue
                 
+            # Handle Fyers data format where Date/Datetime is a column, not the index
+            if "Date" in ticker_df.columns:
+                ticker_df = ticker_df.set_index("Date")
+            elif "Datetime" in ticker_df.columns:
+                ticker_df = ticker_df.set_index("Datetime")
+                
             # Timezone normalization (ensure IST)
-            if ticker_df.index.tzinfo is None:
-                ticker_df.index = ticker_df.index.tz_localize(IST)
-            else:
-                ticker_df.index = ticker_df.index.tz_convert(IST)
+            if hasattr(ticker_df.index, 'tzinfo'):
+                if ticker_df.index.tzinfo is None:
+                    ticker_df.index = ticker_df.index.tz_localize(IST)
+                else:
+                    ticker_df.index = ticker_df.index.tz_convert(IST)
                 
             # --- PHASE 2 FIX: Preserve real-time price before stripping ---
             real_time_close_series = ticker_df["Close"]
