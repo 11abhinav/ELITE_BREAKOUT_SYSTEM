@@ -3226,6 +3226,12 @@
           body: JSON.stringify({ ids: ids })
         });
         if (res.ok) {
+          ids.forEach(cid => {
+            EXIT_HISTORY_CACHE.delete(String(cid));
+            if (expandedIds.has(cid)) expandedIds.delete(cid);
+            const trade = ALL_TRADES.find(t => t.id === cid);
+            if (trade) trade.status = 'OPEN';
+          });
           showCustomToast(`Triggered rebuild for ${ids.length} trade(s).`, 'success');
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
@@ -3283,6 +3289,8 @@
           body: JSON.stringify({ id: id })
         });
         if (res.ok) {
+          EXIT_HISTORY_CACHE.delete(String(id));
+          if (expandedIds.has(id)) expandedIds.delete(id);
           const trade = ALL_TRADES.find(t => t.id === id);
           if (trade) trade.status = 'OPEN';
           renderTradeTable();
