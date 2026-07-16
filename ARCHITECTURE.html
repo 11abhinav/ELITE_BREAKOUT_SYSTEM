@@ -993,13 +993,29 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 
 ---
 
-## 19. SL_ENGINE_V6.4: The Next-Gen Candidate Pipeline
+## 19. SL_ENGINE_V6.4: The Multi-Target Architecture & Candidate Pipeline
 
 **Status: Production-Grade V1.5 Architecture**
 
-To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*.
+To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*. We also completely rebuilt the Exit logic to support dynamic scaling via multi-target cascades.
 
-### 19.1 The Hierarchical Separation of Concerns
+### 19.1 The V6.4 Target Engine (Dynamic Profit Taking)
+The SL_ENGINE no longer outputs a single `target_price`. It now outputs a three-stage cascade (`target_1`, `target_2`, `target_3`), mathematically anchored to structural resistance and capped by macro volatility.
+
+- **Multi-Target Scaling:** 
+  - **T1 (Primary):** Anchored to nearest structural resistance.
+  - **T2 (Secondary):** 1.5x Risk/ATR projection, capped by regime constraints.
+  - **T3 (Runner):** 3.0x Risk/ATR projection, capped by regime constraints.
+- **Natural RR / Reward Potential Gates:** A trade must pass minimum Reward:Risk ratio gates before it is even saved. If the nearest structural resistance is too close to the entry price, the trade is rejected (e.g., `GATE_NATURAL_RR`).
+- **Target Capping by Regime:** To prevent unrealistic target projections during volatile or bearish markets, `target_2` and `target_3` are strictly capped based on the current Macro Regime. Bear regimes constrain ATR projection, while Bull regimes allow targets to breathe.
+
+#### Target Suppression (The "Missing T2/T3" Logic)
+The engine proactively suppresses secondary targets based on mathematically proven momentum exhaustion. When a target is suppressed, it is saved as `null` in the DB.
+1. **Missing T2:** If the stock is currently **Overbought** (RSI > 72), momentum is considered exhausted. `target_2` is forced to `null`, meaning the tracker will exit 100% of shares safely at T1.
+2. **Missing T3:** The runner target requires elite institutional momentum. If `MACD < 0`, or RSI is overbought, or `ADX < 25`, the `target_3` is forced to `null`. 
+3. **Reversals:** Mean-reversion trades are highly speculative. The reversal scanner hardcodes `target_3` to `null` so it never chases runners on failing stocks.
+
+### 19.2 The Hierarchical Separation of Concerns
 The system flows identically for all strategies (EOD, Reversal, Multi-TF):
 ```mermaid
 graph TD
@@ -1010,7 +1026,7 @@ graph TD
     E -->|Funded / Rejected| F[(PostgreSQL Alerts Table)]
 ```
 
-### 19.2 The Components
+### 19.3 The Opportunity Manager & Portfolio Engine
 
 #### 1. CandidatePoolService (The Abstract Buffer)
 - **V1.5 Implementation:** `InMemoryCandidatePool`. Scanners push candidates into this memory pool during their active run.
@@ -1028,11 +1044,16 @@ graph TD
 
 #### 3. PortfolioEngine (The Capital Allocator)
 - Purely responsible for: *"Which of these ranked trades can we actually afford?"*
-- Implements institutional risk sizing: allocates a strict percentage of the portfolio's equity to each trade, bounding total exposure based on `max_open_risk` and `max_new_positions`.
+- Implements institutional risk sizing: allocates a strict percentage of the portfolio's equity to each trade, bounding total exposure based on `max_open_risk` and `max_new_positions`. If out of money, trades are rejected.
 
 #### 4. OpportunityManager (The Orchestrator)
-- Pulls from the `CandidatePool`, calls `TradeRankingEngine`, passes the sorted list to `PortfolioEngine`, and coordinates the final write.
-- **Crucial Rule (Negative Logging):** We persist NOT ONLY the `FUNDED` trades, but also `REJECTED_CAPITAL` (ran out of money) and `REJECTED_RANK` (poor setups). This prevents survivorship bias in backtesting. If the AI rejected a 200% winner, we need the logs to prove *why*.
+- Pulls from the `CandidatePool`, calls `TradeRankingEngine`, passes the sorted list to `PortfolioEngine`, and coordinates the final write. It natively suppresses duplicate signals by checking `symbol` + `breakout_type` in memory.
+- **Crucial Rule (Negative Logging):** We persist NOT ONLY the `FUNDED` trades, but also `REJECTED_CAPITAL` (ran out of money) and `REJECTED_RANK` (poor setups). This prevents survivorship bias in backtesting.
+
+### 19.4 Exit Monitor Integration (Gap Handling & Multi-Targets)
+The `performance_tracker.py` is fully decoupled from the Scanners. It processes the V6 multi-targets flawlessly:
+- **Massive Gaps:** If a stock gaps UP past all three targets simultaneously, the state machine cascades through `T1_HIT`, `T2_HIT`, and `T3_HIT` on the exact same tick, logging all partial exits at the `open_p`. Gap Downs trigger SL exits instantly at the open.
+- **Missing Targets:** If `t2` or `t3` is `null` in the database, the monitor automatically forces a 100% `rem_shares` exit at the prior target, closing the trade cleanly as a `WIN` without leaving orphaned shares open in the database.
 
 ---
 
