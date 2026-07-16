@@ -103,10 +103,11 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         alert_date = alert_dt_ist.date()
 
         # If the alert was recorded after market close (e.g. delayed run or EOD),
-        # resetting the filter to market open ensures we evaluate that day's candles
-        # instead of dropping them all and never triggering the SL.
+        # the entry is effectively the next trading day. We advance to the next day at 09:15
+        # instead of replacing the time on the same day (which would incorrectly test that day's intraday dips).
         if alert_dt_ist.time() >= time(15, 30):
-            alert_dt_ist = alert_dt_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+            from datetime import timedelta
+            alert_dt_ist = (alert_dt_ist + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
 
         # Guard: if alert is from today and market hasn't opened yet (before 09:15 IST),
         # no 5m bars exist — return None immediately to avoid yfinance "delisted" noise.
@@ -290,7 +291,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
-            new_sl = t["entry_price"]  # Raise to Breakeven
+            new_sl = t["entry_price"] if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
             new_status = "PARTIAL_WIN_1"
             
             hist_list.append(event)
@@ -332,7 +333,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
-            new_sl = t1  # Raise to T1
+            new_sl = t1 if new_rem > 0 else sl  # Raise to T1 only if remaining shares exist
             new_status = "PARTIAL_WIN_2"
             
             hist_list.append(event)
