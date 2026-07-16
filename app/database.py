@@ -463,6 +463,9 @@ def init_db():
                             ) THEN
                                 -- Convert TEXT → TIMESTAMPTZ using safe regex to strip microseconds/tz suffix
                                 ALTER TABLE ai_concall_cache_v3
+                                    ALTER COLUMN created_at DROP DEFAULT;
+                                    
+                                ALTER TABLE ai_concall_cache_v3
                                     ALTER COLUMN created_at TYPE TIMESTAMPTZ
                                     USING (
                                         CASE
@@ -477,6 +480,7 @@ def init_db():
                                             ELSE NOW()
                                         END
                                     );
+                                    
                                 ALTER TABLE ai_concall_cache_v3
                                     ALTER COLUMN created_at SET DEFAULT NOW();
                             END IF;
