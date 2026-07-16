@@ -57,7 +57,8 @@ SCORE_THRESHOLDS = {
 # =====================================================================================
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
-ACTIVE_ALGO_VERSION = "V1"
+ACTIVE_ALGO_VERSION = "SL_ENGINE_V6.4"  # Updated: MarketRegime + StrategyPolicy + TradeRankingEngine + PortfolioEngine + OpportunityManager
+
 
 INTRADAY_CONFIG = {
     "MIN_SIGNALS":        2,
@@ -203,10 +204,91 @@ MIN_CANDLE_RANGE_PCT = 0.003   # 0.3%
 # SL/TARGET ATR CAPS (max target distance from entry, per timeframe)
 # =====================================================================================
 
-MAX_TARGET_ATR = {
-    "15m": 5.0,     # Intraday targets capped at 5x ATR
-    "1h":  8.0,     # 1H targets capped at 8x ATR
-    "1d":  12.0,    # EOD targets capped at 12x ATR
+ADAPTIVE_TARGET_CAPS = {
+    "BULL":    {"15m": 8.0, "1h": 10.0, "1d": 12.0},
+    "BEAR":    {"15m": 4.0, "1h": 6.0,  "1d": 8.0},
+    "NEUTRAL": {"15m": 6.0, "1h": 8.0,  "1d": 10.0}
+}
+
+# =====================================================================================
+# V6.0 INSTITUTIONAL CONFIGURATION
+# =====================================================================================
+
+MIN_NATURAL_RR = {
+    "INTRADAY": 1.5,
+    "LIVE_1H": 2.0,
+    "MULTI_TF": 1.5,
+    "EOD": 2.5,
+    "REVERSAL": 3.0,
+}
+
+MIN_REWARD_POTENTIAL = {
+    "MULTI_TF": 1.8,
+    "EOD": 4.0,
+    "REVERSAL": 8.0,
+}
+
+MIN_STOP_PCT = {
+    "MULTI_TF": 0.6,
+    "EOD": 1.5,
+    "REVERSAL": 2.0,
+}
+
+
+MIN_REWARD_POTENTIAL = {
+    "INTRADAY": 1.5,
+    "LIVE_1H":  3.0,
+    "EOD":      5.0,
+    "REVERSAL": 4.0
+}
+
+TARGET_QUALITY_THRESHOLD = {
+    "INTRADAY": 45,
+    "LIVE_1H":  50,
+    "EOD":      55,
+    "REVERSAL": 50
+}
+
+# [T1%, T2%, T3%]
+PARTIAL_EXIT = {
+    "INTRADAY": [70, 30, 0],
+    "LIVE_1H":  [50, 30, 20],
+    "EOD":      [40, 30, 30],
+    "REVERSAL": [30, 30, 40]
+}
+
+STRUCTURAL_RESISTANCE_SCORES = {
+    "1H Swing High": 35,
+    "30m Swing High": 30,
+    "15m Swing High": 25,
+    "Major Swing High": 40,
+    "Swing High": 30,
+    "Rolling Swing High": 20,
+    "5m Swing High": 20,
+    "R2": 20,
+    "R1": 15,
+}
+
+STRUCTURAL_STOP = {
+    "MAX_CLUSTER_WIDTH_ATR": 1.5,
+    "DISASTER_BUFFER_PCT": 1.5,
+    "SCORES": {
+        "1H Swing Low": 35,
+        "30m Swing Low": 30,
+        "15m Swing Low": 25,
+        "Swing Low Cluster": 40,
+        "Swing Low": 30,
+        "Rolling Swing Low": 25,
+        "S1 (Discovery)": 20,
+        "S1": 20,
+        "SMA200": 30,
+        "EMA20": 15,
+        "SMA50": 15,
+        "VWAP": 15,
+        "Intraday Candle Low": 20
+    },
+    "BONUS_OVERLAP": 15,
+    "USE_SUPPORT_CLUSTER": True
 }
 
 # =====================================================================================
@@ -222,3 +304,54 @@ FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
 FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://elitebreakoutsystem-production.up.railway.app/fyers/callback")
 FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
+
+REGIME_POLICIES = {
+    "STRONG_BULL": {
+        "allow_breakouts": True,
+        "allow_mean_reversion": False,
+        "max_new_positions_per_day": 5,
+        "min_target_quality_override": 60,
+        "min_reward_potential_mult": 1.5,
+        "capital_allocation_mult": 1.0
+    },
+    "WEAK_BULL": {
+        "allow_breakouts": True,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    },
+    "RANGEBOUND": {
+        "allow_breakouts": False,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 2,
+        "min_target_quality_override": 75,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "WEAK_BEAR": {
+        "allow_breakouts": False,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 1,
+        "min_target_quality_override": 80,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "STRONG_BEAR": {
+        "allow_breakouts": False,
+        "allow_mean_reversion": False,
+        "max_new_positions_per_day": 0,
+        "min_target_quality_override": 100,
+        "min_reward_potential_mult": 0.5,
+        "capital_allocation_mult": 0.0
+    },
+    "NEUTRAL": {
+        "allow_breakouts": True,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    }
+}

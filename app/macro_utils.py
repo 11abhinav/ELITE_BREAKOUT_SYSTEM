@@ -69,50 +69,189 @@ def _get_intraday_nifty() -> pd.DataFrame:
         
     return _cache.intraday_data
 
-def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
-    """Calculate the market regime based on Nifty 20-day returns and ADX.
-    
-    [FIX] Thresholds raised: previous -2%/-5% BEAR triggers were too sensitive
-    and caused scanners to go dark during normal pullbacks. New thresholds:
-      Trending (ADX>=20): BEAR < -5%, BULL > +3%
-      Rangebound (ADX<20): BEAR < -8%, BULL > +5%
-    Default on failure: NEUTRAL (not BULL or BEAR).
-    """
-    try:
-        df = _get_daily_nifty()
-        if df is not None and not df.empty and len(df) >= 20:
-            if nifty_ret is None:
-                val_now = df["Close"].iloc[-1]
-                nifty_now = float(val_now.iloc[0]) if hasattr(val_now, 'iloc') else float(val_now)
-                val_ago = df["Close"].iloc[-20]
-                nifty_ago = float(val_ago.iloc[0]) if hasattr(val_ago, 'iloc') else float(val_ago)
-                
-                if nifty_ago > 0:
-                    nifty_ret = ((nifty_now - nifty_ago) / nifty_ago) * 100.0
+class MarketRegimeEngine:
+    @staticmethod
+    def _compute_state_for_row(df, idx):
+        import pandas as pd
+        
+        try:
+            price = float(df["Close"].iloc[idx])
+            sma20 = float(df["Close"].rolling(window=20).mean().iloc[idx])
+            sma50 = float(df["Close"].rolling(window=50).mean().iloc[idx])
+            sma200 = float(df["Close"].rolling(window=200).mean().iloc[idx])
             
-            if nifty_ret is not None:
-                ret = nifty_ret
-                
+            nifty_ago = float(df["Close"].iloc[idx - 20])
+            n_ret = ((price - nifty_ago) / nifty_ago) * 100.0 if nifty_ago > 0 else 0.0
+            
+            try:
+                import ta
+                adx_series = ta.trend.ADXIndicator(df['High'], df['Low'], df['Close'], window=14).adx()
+                adx_val = float(adx_series.iloc[idx]) if pd.notna(adx_series.iloc[idx]) else 0.0
+            except Exception:
                 adx_val = 0.0
-                try:
-                    import ta
-                    adx_series = ta.trend.ADXIndicator(df['High'], df['Low'], df['Close'], window=14).adx()
-                    adx_val = float(adx_series.iloc[-1]) if pd.notna(adx_series.iloc[-1]) else 0.0
-                except Exception as e:
-                    logger.warning(f"Could not compute ADX for macro regime: {e}")
                 
-                # [FIX] Raised thresholds to prevent minor pullbacks from triggering BEAR
-                if adx_val >= 20.0:
-                    if ret < -5.0: return "BEAR"    # was -2.0 (too trigger-happy)
-                    if ret > 3.0:  return "BULL"    # was 2.0
-                    return "NEUTRAL"
-                else:
-                    if ret < -8.0: return "BEAR"    # was -5.0
-                    if ret > 5.0:  return "BULL"
-                    return "NEUTRAL"
-    except Exception as e:
-        logger.warning(f"Failed to compute macro regime: {e}")
-    return "NEUTRAL"
+            trend = "NEUTRAL"
+            if n_ret > 2.0: trend = "BULL"
+            elif n_ret < -2.0: trend = "BEAR"
+                
+            strength = "WEAK"
+            if adx_val >= 25.0: strength = "STRONG"
+            elif adx_val >= 15.0: strength = "MODERATE"
+            
+            bull_signals = sum([
+                1 if price > sma20 else 0,
+                1 if price > sma50 else 0,
+                1 if price > sma200 else 0,
+                1 if strength == "STRONG" and trend == "BULL" else 0
+            ])
+            bear_signals = sum([
+                1 if price < sma20 else 0,
+                1 if price < sma50 else 0,
+                1 if price < sma200 else 0,
+                1 if strength == "STRONG" and trend == "BEAR" else 0
+            ])
+            
+            total_signals = 4
+            agreement_count = bull_signals if trend == "BULL" else (bear_signals if trend == "BEAR" else total_signals - abs(bull_signals - bear_signals))
+            conf_pct = max(0, min(100, int((agreement_count / total_signals) * 100)))
+            
+            trend_score = 100 if trend == "BULL" else (0 if trend == "BEAR" else 50)
+            strength_score = 100 if strength == "STRONG" else (50 if strength == "MODERATE" else 0)
+            if trend == "BEAR" and strength == "STRONG": strength_score = 0
+            elif trend == "BEAR" and strength == "MODERATE": strength_score = 25
+            
+            conf_score = conf_pct if trend == "BULL" else (100 - conf_pct if trend == "BEAR" else 50)
+            
+            # Simplified score for history tracking (Volatility excluded for historical row)
+            score = (trend_score * 0.40) + (strength_score * 0.30) + (conf_score * 0.20)
+            
+            return {
+                "score": score,
+                "price": price,
+                "sma20": sma20,
+                "sma50": sma50,
+                "sma200": sma200,
+                "n_ret": n_ret,
+                "adx_val": adx_val,
+                "trend": trend,
+                "strength": strength,
+                "conf_pct": conf_pct,
+                "agreement_count": agreement_count,
+                "total_signals": total_signals
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def get_regime_context(nifty_ret: float = None) -> dict:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            from macro_utils import _get_daily_nifty, get_nifty_intraday_drop
+            df = _get_daily_nifty()
+            
+            if df is not None and not df.empty and len(df) >= 200:
+                state_today = MarketRegimeEngine._compute_state_for_row(df, -1)
+                state_yesterday = MarketRegimeEngine._compute_state_for_row(df, -2)
+                
+                if state_today:
+                    price = state_today["price"]
+                    sma20 = state_today["sma20"]
+                    sma50 = state_today["sma50"]
+                    sma200 = state_today["sma200"]
+                    n_ret = state_today["n_ret"]
+                    adx_val = state_today["adx_val"]
+                    trend = state_today["trend"]
+                    strength = state_today["strength"]
+                    conf_pct = state_today["conf_pct"]
+                    agreement_count = state_today["agreement_count"]
+                    base_total = state_today["total_signals"]
+                    
+                    intraday_drop = get_nifty_intraday_drop()
+                    volatility = "NORMAL"
+                    if intraday_drop >= 1.5: volatility = "HIGH"
+                    elif intraday_drop <= 0.5: volatility = "LOW"
+                    
+                    if volatility == "LOW": 
+                        if trend == "BULL": agreement_count += 1
+                        elif trend == "BEAR": agreement_count -= 1
+                    elif volatility == "HIGH":
+                        if trend == "BULL": agreement_count -= 1
+                        elif trend == "BEAR": agreement_count += 1
+                        
+                    total_signals = base_total + 1
+                    agreement_count = max(0, min(total_signals, agreement_count))
+                    conf_pct = int((agreement_count / total_signals) * 100)
+                    
+                    trend_score = 100 if trend == "BULL" else (0 if trend == "BEAR" else 50)
+                    strength_score = 100 if strength == "STRONG" else (50 if strength == "MODERATE" else 0)
+                    if trend == "BEAR" and strength == "STRONG": strength_score = 0
+                    elif trend == "BEAR" and strength == "MODERATE": strength_score = 25
+                    vol_score = 100 if volatility == "LOW" else (50 if volatility == "NORMAL" else 0)
+                    conf_score = conf_pct if trend == "BULL" else (100 - conf_pct if trend == "BEAR" else 50)
+                    
+                    market_score = (trend_score * 0.40) + (strength_score * 0.30) + (conf_score * 0.20) + (vol_score * 0.10)
+                    market_score = max(0, min(100, int(market_score)))
+                    
+                    trend_direction = "STABLE"
+                    if state_yesterday:
+                        y_score = state_yesterday["score"] + (vol_score * 0.10) # Assume same vol for approximation
+                        if market_score > y_score + 2:
+                            trend_direction = "IMPROVING"
+                        elif market_score < y_score - 2:
+                            trend_direction = "WEAKENING"
+                            
+                    phase = "CONSOLIDATION"
+                    if trend == "BULL":
+                        if price > sma20 and sma20 > sma50 and sma50 > sma200: phase = "EXPANSION"
+                        elif price < sma20 and price > sma50: phase = "PULLBACK"
+                    elif trend == "BEAR":
+                        if price < sma20 and sma20 < sma50 and sma50 < sma200: phase = "CAPITULATION"
+                        elif price < sma20 and price > sma200: phase = "DISTRIBUTION"
+
+                    return {
+                        "engine_version": "MARKET_CONTEXT_V1",
+                        "trend": trend,
+                        "strength": strength,
+                        "volatility": volatility,
+                        "market_phase": phase,
+                        "trend_direction": trend_direction,
+                        "market_score": market_score,
+                        "confidence": {
+                            "agreement": agreement_count,
+                            "signals": total_signals,
+                            "score": conf_pct
+                        },
+                        "metrics": {
+                            "return20d": round(n_ret, 2),
+                            "adx": round(adx_val, 2),
+                            "atr_pct": round(intraday_drop, 2), # Approximating ATR pct with drop
+                            "price_vs_20dma": round(((price - sma20)/sma20)*100, 2) if sma20 > 0 else 0,
+                            "price_vs_50dma": round(((price - sma50)/sma50)*100, 2) if sma50 > 0 else 0,
+                            "price_vs_200dma": round(((price - sma200)/sma200)*100, 2) if sma200 > 0 else 0
+                        }
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to compute context inputs: {e}")
+            
+        return {
+            "engine_version": "MARKET_CONTEXT_V1",
+            "trend": "NEUTRAL",
+            "strength": "WEAK",
+            "volatility": "NORMAL",
+            "market_phase": "CONSOLIDATION",
+            "trend_direction": "STABLE",
+            "market_score": 50,
+            "confidence": {"agreement": 0, "signals": 5, "score": 0},
+            "metrics": {}
+        }
+
+
+def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
+    ctx = MarketRegimeEngine.get_regime_context(nifty_ret=nifty_ret)
+    return ctx.get("trend", "NEUTRAL")
+
 
 def get_nifty_20d_return() -> float:
     """Returns the 20-day percentage return of Nifty. Defaults to 0.0% if unavailable."""

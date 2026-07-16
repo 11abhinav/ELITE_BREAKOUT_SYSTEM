@@ -16,9 +16,11 @@ from breakout_engine import detect_breakouts
 from scoring_engine import calculate_score
 from sector_rotation import get_sector_scores, SectorRotationResult
 from surveillance import get_live_blacklist, force_refresh_blacklist
-from macro_utils import get_nifty_20d_return, get_macro_regime
+from trade_ranking_engine import TradeRankingEngine
+from macro_utils import MarketRegimeEngine
+from strategy_policy import StrategyPolicyEngine, get_nifty_20d_return, get_macro_regime
 from database import (
-    init_db, save_alert_if_new, upsert_fetch_error,
+    init_db, save_alert_if_new, save_candidate, upsert_fetch_error,
     upsert_scanner_health, insert_notification,
     get_recent_alerts_for_scanner, verify_alerts_saved_today
 )
@@ -581,7 +583,7 @@ def _start_wrapper(force: bool = False):
                     atr_val=atr_val_eod,
                     delivery_pct=delivery_pct,
                     nifty_ret=nifty_ret_20d,
-                    regime=market_regime
+                    regime_ctx=regime_ctx
                 )
 
                 if score > 0:
@@ -632,14 +634,23 @@ def _start_wrapper(force: bool = False):
                     vwap=latest.get("VWAP"),
                     ticker=ticker,
                 )
+                
+                if sl_result.get("is_rejected"):
+                    rejection_counts["low_rr"] += 1  # Reusing this counter for engine rejects
+                    from database import save_rejected_alert
+                    if not is_test_mode:
+                        save_rejected_alert(
+                            symbol=symbol,
+                            scanner="EOD",
+                            rejection_reason=sl_result.get("rejection_reason", "V6 Engine Reject"),
+                            engine_version=sl_result.get("engine_version", "SL_ENGINE_V6"),
+                            context={"category": category, "score": score, "sl_result": sl_result}
+                        )
+                    continue
+
                 suggested_stop = sl_result["stop_loss"]
                 target_price = sl_result["target_1"]
  
-                # [VERSION: EOD_RR_GATE_FIX] Lowered minimum R:R to 1.2 to avoid penalizing high-probability low-volatility structural bases
-                if sl_result.get("rr_ratio", 0.0) < 1.2:
-                    rejection_counts["low_rr"] += 1
-                    continue
-
                 above_ema20  = bool(candle_close >= _safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
                 above_sma50  = bool(candle_close >= _safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
@@ -672,8 +683,7 @@ def _start_wrapper(force: bool = False):
                     },
                     "execution": {
                         "sl_method":        sl_result.get("sl_method"),
-                        "t_method":         sl_result.get("t_method"),
-                        "trail_note":       sl_result.get("trail_note")
+                        "t_method":         sl_result.get("target_method")
                     },
                     "sl_result": sl_result
                 }
@@ -707,8 +717,10 @@ def _start_wrapper(force: bool = False):
                         target_price=target_price,
                         context=context,
                         model_version=model_version,
-                        bayesian_regime=market_regime,
-                        bayesian_weights=bayesian_weights
+                        regime_ctx=regime_ctx,
+                        bayesian_weights=bayesian_weights,
+                        structural_failure_stop=sl_result.get("structural_failure_stop"),
+                        target_quality_score=sl_result.get("target_quality")
                     )
                 else:
                     saved, reason, cap_alloc, shares = True, "", 0.0, 0
@@ -738,9 +750,8 @@ def _start_wrapper(force: bool = False):
                     "target_2":         sl_result.get("target_2"),
                     "target_3":         sl_result.get("target_3"),
                     "sl_method":        sl_result.get("sl_method"),
-                    "t_method":         sl_result.get("t_method"),
-                    "rr_ratio":         sl_result.get("rr_ratio"),
-                    "trail_note":       sl_result.get("trail_note"),
+                    "t_method":         sl_result.get("target_method"),
+                    "rr_ratio":         sl_result.get("natural_rr"),
                     "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
                     "peg":              row.get("PEG Ratio"),
                     "yoy_rev":          row.get("YOY Revenue %"),

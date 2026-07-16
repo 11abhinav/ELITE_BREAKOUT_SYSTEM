@@ -685,7 +685,17 @@ The system utilizes a centralized, mode-dispatching SL/Target engine (`sl_target
 - **Dynamic Buffering:** SL is buffered by `max(mode_atr_fraction × ATR, mode_pct × price)`.
 - **ADX-Aware Scaling:** Trending stocks (ADX > 35) receive up to a 30% wider SL buffer. Deep trends experience deeper pullbacks, and this prevents premature stop-outs.
 - **Multi-Swing Clustering:** Scans the last 3 swing lows. If 2+ cluster within 1% of each other, the system anchors the SL to this clustered zone, as it represents significantly stronger institutional support.
-- **Target Capping:** Prevents unrealistic targets by hard-capping maximum target extensions (e.g., 5×ATR for 15m, 8×ATR for 1H, 12×ATR for Daily).
+- **Target Capping:** Prevents unrealistic targets by hard-capping target extensions based on macro conditions.
+
+### Key V6.4 Features
+- **Structural Discovery:** Dynamically locates technical pillars (e.g., VWAP, Swing Low clusters, Fibonacci extensions) to anchor targets and stops, rather than blindly relying on static ATR offsets.
+- **Natural RR / Reward Potential Gates:** A trade must pass minimum Reward:Risk ratio gates before it is even saved. If the nearest structural resistance is too close to the entry price, the trade is rejected (e.g., `GATE_NATURAL_RR`).
+- **Target Capping by Regime:** To prevent unrealistic target projections during volatile or bearish markets, `target_1`, `target_2`, and `target_3` are strictly capped based on the current Macro Regime. Bear regimes constrain ATR projection, while Bull regimes allow targets to breathe.
+- **Multi-Target Scaling:** 
+  - **T1 (Primary):** Anchored to nearest structural resistance.
+  - **T2 (Secondary):** 1.5x Risk/ATR projection, capped by regime constraints.
+  - **T3 (Runner):** 3.0x Risk/ATR projection, capped by regime constraints.
+- **Exit Monitor Integration:** The Performance Tracker executes sequential partial exits (e.g., 25% at T1, 35% at T2, 40% at T3). It evaluates tick/bar data and can handle multiple target hits in a single massive candle seamlessly. Gap Downs below SL execute precisely at the Open price.
 
 #### 18.1.1 Dynamic Support Selection Cascade (For Stop-Loss Anchoring)
 Stop-Loss levels are **never hardcoded**. The system dynamically searches below the entry price for the strongest structural support using a strict priority cascade (`_pick_support`):
@@ -980,6 +990,49 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 - An endpoint `/api/alert/recalculate` and a button on the dashboard allow an admin to force-reset any closed position.
 - This triggers `reset_alert_for_recalculation()` in the database, which physically deletes the trade's old `exit_history`, sets its status back to `OPEN`, and resets its SL.
 - It then instantly commands the performance tracker to rebuild the entire exit history from scratch using the Full Replay engine.
+
+---
+
+## 19. SL_ENGINE_V6.4: The Next-Gen Candidate Pipeline
+
+**Status: Production-Grade V1.5 Architecture**
+
+To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*.
+
+### 19.1 The Hierarchical Separation of Concerns
+The system flows identically for all strategies (EOD, Reversal, Multi-TF):
+```mermaid
+graph TD
+    A[Scanner Script] -->|Emits Candidates| B(CandidatePool Interface)
+    B --> C{OpportunityManager}
+    C -->|Batch Ranking| D[TradeRankingEngine]
+    D -->|Ranked Trades| E[PortfolioEngine]
+    E -->|Funded / Rejected| F[(PostgreSQL Alerts Table)]
+```
+
+### 19.2 The Components
+
+#### 1. CandidatePoolService (The Abstract Buffer)
+- **V1.5 Implementation:** `InMemoryCandidatePool`. Scanners push candidates into this memory pool during their active run.
+- **Why?** It abstracts the storage. Tomorrow, this can be swapped with Redis, Kafka, or RabbitMQ without touching a single line of scanner logic.
+- **Rule:** Never use SQL `INSERT -> SELECT -> UPDATE` as a short-lived event bus.
+
+#### 2. TradeRankingEngine (The Deterministic Sorter)
+- **Problem:** Weighted composite scores (Technical 40%, Sector 20%) cause "score collisions" where fundamentally different trades look identical.
+- **Solution (Hierarchical Sorting):** Trades are sorted strictly by tiers.
+  1. Quality Gate (Must pass minimum thresholds)
+  2. Institutional Score (Follow the big money)
+  3. Technical/Trend Score (Pure momentum)
+  4. Reward Quality (Natural R:R Ratio)
+  5. **Tie Breaker (Freshness):** Time decay (0-30m) and price drift are used as multipliers to break ties, heavily favoring trades generated closer to the actual breakout threshold.
+
+#### 3. PortfolioEngine (The Capital Allocator)
+- Purely responsible for: *"Which of these ranked trades can we actually afford?"*
+- Implements institutional risk sizing: allocates a strict percentage of the portfolio's equity to each trade, bounding total exposure based on `max_open_risk` and `max_new_positions`.
+
+#### 4. OpportunityManager (The Orchestrator)
+- Pulls from the `CandidatePool`, calls `TradeRankingEngine`, passes the sorted list to `PortfolioEngine`, and coordinates the final write.
+- **Crucial Rule (Negative Logging):** We persist NOT ONLY the `FUNDED` trades, but also `REJECTED_CAPITAL` (ran out of money) and `REJECTED_RANK` (poor setups). This prevents survivorship bias in backtesting. If the AI rejected a 200% winner, we need the logs to prove *why*.
 
 ---
 

@@ -13,7 +13,7 @@ from database import (
     get_active_breakout_watchlist,
     sweep_stale_breakout_watchlist,
     check_recent_alert,
-    save_alert_if_new,
+    save_alert_if_new, save_candidate,
     mark_breakout_watchlist_cooldown,
     upsert_scanner_health
 )
@@ -77,7 +77,10 @@ def strip_forming_candle(df, tf_minutes, ist_now):
     return df
 
 
-from macro_utils import get_macro_regime, get_nifty_20d_return
+from opportunity_manager import OpportunityManager
+from trade_ranking_engine import TradeRankingEngine
+from macro_utils import MarketRegimeEngine
+from strategy_policy import StrategyPolicyEngine, get_macro_regime, get_nifty_20d_return
 
 def run_hourly_phase(is_test_mode=False, run_once=False):
     """
@@ -246,7 +249,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
 
-def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False):
+def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
@@ -304,6 +307,9 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
     stale_count = 0
     db_save_failures = 0
     ist_now = datetime.now(IST)
+
+    # Instantiate the in-memory opportunity pool for this scan cycle
+    opportunity_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
     end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
     if ist_now > end_of_session:
         end_of_session = ist_now + timedelta(minutes=15)
@@ -612,7 +618,7 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 entry_price=close,
                                 atr=atr20,
                                 candle_range=_safe_float(latest.get("High")) - _safe_float(latest.get("Low")),
-                                mode="INTRADAY",
+                                mode="MULTI_TF",
                                 adx=latest.get("ADX"),
                                 rsi=_safe_float(latest.get("RSI", 0)),
                                 macd_hist=latest.get("MACD_HIST"),
@@ -631,6 +637,12 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                 candle_low=low,
                                 vwap=vwap_val,
                                 ticker=df,
+                                swing_low_15m=_safe_float(tf_15m.iloc[-1].get("SWING_LOW")) if not tf_15m.empty else None,
+                                swing_high_15m=_safe_float(tf_15m.iloc[-1].get("SWING_HIGH")) if not tf_15m.empty else None,
+                                swing_low_30m=_safe_float(tf_30m.iloc[-1].get("SWING_LOW")) if not tf_30m.empty else None,
+                                swing_high_30m=_safe_float(tf_30m.iloc[-1].get("SWING_HIGH")) if not tf_30m.empty else None,
+                                swing_low_1h=_safe_float(tf_1h.iloc[-1].get("SWING_LOW")) if not tf_1h.empty else None,
+                                swing_high_1h=_safe_float(tf_1h.iloc[-1].get("SWING_HIGH")) if not tf_1h.empty else None
                             )
                             final_sl = sl_result["stop_loss"]
                             calc_target = sl_result["target_1"]
@@ -671,26 +683,36 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                                     inst_bonus = 0
                                 final_score = min(100, base_score + inst_bonus)
 
-                                inserted, reason, _, _ = save_alert_if_new(
-                                    symbol=symbol,
-                                    breakout_type="INTRADAY",
-                                    alert_time=ist_now.strftime('%Y-%m-%d %H:%M:%S+05:30'),
-                                    scanner="multi_tf_scanner",
-                                    category=cat,
-                                    entry_price=close,
-                                    stop_loss=final_sl,
-                                    target_1=sl_result.get("target_1"),
-                                    target_2=sl_result.get("target_2"),
-                                    target_3=sl_result.get("target_3"),
-                                    target_price=calc_target,
-                                    signals=f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
-                                    score=final_score,
-                                    rsi=_safe_float(latest.get("RSI", 0)),
-                                    volume_ratio=vol_ratio,
-                                    context=ctx,
-                                    bayesian_regime=current_regime
-                                )
-                            if inserted:
+                                # Queue as QUALIFIED candidate — OpportunityManager
+                                # handles freshness, ranking, allocation, and persistence
+                                # at the end of the sweep via process().
+                                context = context if "context" in locals() and context is not None else {}
+                                opportunity_manager.add({
+
+                                    "symbol": symbol,
+                                    "breakout_type": "INTRADAY",
+                                    "scanner": "multi_tf_scanner",
+                                    "category": cat,
+                                    "technical_score": final_score,
+                                    "volume_ratio": vol_ratio,
+                                    "delivery_pct": 0.0,
+                                    "rr_ratio": sl_result.get("rr_ratio", 0.0) if sl_result else 0.0,
+                                    "market_context": regime_ctx,
+                                    "entry_price": close,
+                                    "stop_loss": final_sl,
+                                    "target_1": sl_result.get("target_1"),
+                                    "target_2": sl_result.get("target_2"),
+                                    "target_3": sl_result.get("target_3"),
+                                    "signals": f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
+                                    "rsi": _safe_float(latest.get("RSI", 0)),
+                                    "context": ctx,
+                                    "item_category": cat,
+                                    "trigger_type": trigger_type,
+                                    "symbol_for_watchlist": symbol,
+                                })
+                                inserted, reason = True, "CANDIDATE_QUEUED"
+
+                            if inserted or reason == "CANDIDATE_QUEUED":
                                 if not is_test_mode:
                                     upsert_breakout_watchlist(
                                         symbol=symbol, category=cat, current_state="TRADE_ACTIVE",
@@ -714,6 +736,13 @@ def run_lower_tf_phase(current_regime="BULL", is_test_mode=False, run_once=False
                 f"30m_candidates={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "
                 f"15m_candidates={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
                 f"5m_candidates={lower_funnel['trigger_candidates']} → triggered={lower_funnel['triggered']}")
+
+    # ── Global Ranking & Allocation (end-of-sweep, in-memory) ─────────────
+    if not is_test_mode:
+        try:
+            opportunity_manager.process()
+        except Exception as e:
+            logger.error(f"OpportunityManager failed to process: {e}")
 
     unique_needed = set(needs_30m) | set(needs_15m) | set(needs_5m)
     unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
@@ -755,9 +784,6 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             current_time = ist_now.time()
             
             scan_start = datetime.now(IST)
-            logger.info("=========================================")
-            logger.info(f"🚀 [START] MULTI-TF LADDER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
-
             from market_utils import is_market_open
             market_open = is_market_open(ist_now)
             # Admin manual triggers pass run_once=True, which should bypass the market closed check
@@ -765,9 +791,11 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             
             import database
             if not is_active_window:
-                logger.info("Market closed. Scanner pausing until next market session...")
+                # We optionally log this, but since it loops every 5 mins we don't want to spam the console
+                # logger.info("Market closed. Scanner pausing until next market session...")
                 if not getattr(database, "DONT_SAVE_ALERTS", False):
                     try:
+                        from database import upsert_scanner_health
                         upsert_scanner_health(
                             scanner_name="MULTI_TF",
                             status="IDLE",
@@ -777,17 +805,20 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                         pass
                 time.sleep(300)
                 continue
-            else:
-                pass
+                
+            logger.info("=========================================")
+            logger.info(f"🚀 [START] MULTI-TF LADDER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
                 
             # Cache regime once per cycle
             # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 1] Pass nifty_ret explicitly to get_macro_regime to avoid redundant API calls
             try:
                 nifty_ret = get_nifty_20d_return()
-                current_regime = get_macro_regime(nifty_ret)
+                regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret)
+                policy = StrategyPolicyEngine.get_policy(regime_ctx, "MULTI_TF")
+                regime_ctx["policy"] = policy
             except Exception as e:
                 logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
-                current_regime = "NEUTRAL"
+                regime_ctx = {"trend": "NEUTRAL", "biases": {}}
             
             # 1. Sweep old states
             run_sweeper(is_test_mode=is_test_mode)
@@ -796,7 +827,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
             
             # 3. Lower TF updater
-            metrics_b = run_lower_tf_phase(current_regime=current_regime, is_test_mode=is_test_mode, run_once=run_once)
+            metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
             logger.info("=========================================")

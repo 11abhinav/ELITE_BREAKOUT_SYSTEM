@@ -751,7 +751,7 @@ def calculate_score(
     delivery_pct=None,
     min_vol=50_000,
     nifty_ret=5.0,
-    regime="BULL"
+    regime_ctx=None
 ):
     """
     Returns an integer score from 0 to 100 (plus bonuses, capped at 100).
@@ -764,8 +764,9 @@ def calculate_score(
     # Bayesian Dynamic Weighting Support
     model_version = "v1"
     weights = None
+    regime_str = regime_ctx["trend"] if regime_ctx and "trend" in regime_ctx else "NEUTRAL"
     try:
-        latest_db_weights = get_latest_weights(regime)
+        latest_db_weights = get_latest_weights(regime_str)
         if latest_db_weights:
             model_version = latest_db_weights.get("version", "v1")
             weights = latest_db_weights.get("weights")
@@ -981,11 +982,23 @@ def calculate_score(
         score += bonuses
         logger.debug(f"  Score after bonuses: {score} ({'+' if bonuses >= 0 else ''}{bonuses})")
 
+    # Apply Market Regime Context Biases
+    if regime_ctx and "policy" in regime_ctx:
+        policy = regime_ctx["policy"]
+        score_adj = policy.get("trade_bias", {})
+        breakout_bias = score_adj.get("breakout", 0)
+        mean_rev_bias = score_adj.get("mean_reversion", 0)
+        
+        if breakout_bias != 0:
+            score += breakout_bias
+            logger.debug(f"  Score after regime breakout bias: {score} ({'+' if breakout_bias > 0 else ''}{breakout_bias})")
+        # if mean_rev_bias != 0: # Uncomment if handling reversal scanner separately
+
     # Cap at configured max or 100
     final_score = int(score)
     if final_score > max_score_cap:
         logger.debug(f"  {tag}Score capped at {max_score_cap} (was {final_score})")
         return max_score_cap, model_version, weights
     final_score = min(final_score, 100)
-    logger.info(f"  📊 Final score: {final_score} (Model: {model_version}, Regime: {regime})")
+    logger.info(f"  📊 Final score: {final_score} (Model: {model_version}, Regime: {regime_str})")
     return final_score, model_version, weights

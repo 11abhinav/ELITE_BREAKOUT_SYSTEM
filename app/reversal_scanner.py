@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Optional
 
 from technical_indicators import apply_indicators
-from database import init_db, save_alert_if_new, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
+from database import init_db, save_alert_if_new, save_candidate, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 from config import (
@@ -37,7 +37,9 @@ from config import (
 )
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
-from macro_utils import get_nifty_20d_return, get_macro_regime
+from trade_ranking_engine import TradeRankingEngine
+from macro_utils import MarketRegimeEngine
+from strategy_policy import StrategyPolicyEngine, get_nifty_20d_return, get_macro_regime
 
 
 logger = logging.getLogger(__name__)
@@ -279,9 +281,12 @@ def _run_scan(force: bool = False):
         
     try:
         nifty_ret = get_nifty_20d_return()
-        reversal_regime = get_macro_regime(nifty_ret)
+        regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret)
+        policy = StrategyPolicyEngine.get_policy(regime_ctx, "REVERSAL")
+        regime_ctx["policy"] = policy
     except Exception:
-        reversal_regime = "NEUTRAL"
+        regime_ctx = {"trend": "NEUTRAL", "biases": {}}
+
 
     try:
         watchlist = get_watchlist()
@@ -686,12 +691,22 @@ def _run_scan(force: bool = False):
                 sma50=latest.get("SMA50"),
                 ticker=ticker,
             )
+            
+            if sl_result.get("is_rejected"):
+                rejected["low_rr"] += 1  # Reusing this counter for engine rejects
+                from database import save_rejected_alert
+                if not is_test_mode:
+                    save_rejected_alert(
+                        symbol=symbol,
+                        scanner="REVERSAL",
+                        rejection_reason=sl_result.get("rejection_reason", "V6 Engine Reject"),
+                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V6"),
+                        context={"category": category, "score": 0, "sl_result": sl_result}
+                    )
+                continue
+
             suggested_stop = sl_result["stop_loss"]
             target_price   = sl_result["target_1"]
- 
-            if sl_result.get("rr_ratio", 0.0) < 1.5:
-                rejected["low_rr"] += 1
-                continue
 
             signal_str = ", ".join(reversal_signals)
 
@@ -716,7 +731,7 @@ def _run_scan(force: bool = False):
                 macd_hist=latest.get("MACD_HIST"),
                 pct_below_sma200=pct_below_200,
                 category=category,
-                rr_ratio=sl_result.get("rr_ratio"),
+                rr_ratio=sl_result.get("natural_rr", sl_result.get("rr_ratio")),
                 above_sma50=above_sma50,      # [FIX 2/3] feed trend structure to scorer
                 above_sma200=above_sma200,    # [FIX 2/3]
                 obv_trend=obv_trend_val,
@@ -772,8 +787,7 @@ def _run_scan(force: bool = False):
                 },
                 "execution": {
                     "sl_method":        sl_result.get("sl_method"),
-                    "t_method":         sl_result.get("t_method"),
-                    "trail_note":       sl_result.get("trail_note")
+                    "t_method":         sl_result.get("target_method")
                 },
                 "sl_result": sl_result
             }
@@ -801,7 +815,9 @@ def _run_scan(force: bool = False):
                 "target_2": sl_result.get("target_2"),
                 "target_3": sl_result.get("target_3"),
                 "target_price": target_price,
-                "context": context
+                "context": context,
+                "structural_failure_stop": sl_result.get("structural_failure_stop"),
+                "target_quality_score": sl_result.get("target_quality")
             })
 
             # EXPORT: append reversal alert metadata to CSV for later backtest/outcome analysis
@@ -896,11 +912,14 @@ def _run_scan(force: bool = False):
                     target_3=alert.get("target_3"),
                     target_price=alert["target_price"],
                     context=alert["context"],
-                    model_version="v6",
-                    bayesian_regime=reversal_regime,
+                    model_version=ACTIVE_ALGO_VERSION,
+
+                    regime_ctx=regime_ctx,
                     bayesian_weights=None,
+                    structural_failure_stop=alert.get("structural_failure_stop"),
+                    target_quality_score=alert.get("target_quality_score")
                 )
-                if inserted:
+                if inserted or reason == "CANDIDATE_QUEUED":
                     total_alerts += 1
 
             if total_alerts > 0:

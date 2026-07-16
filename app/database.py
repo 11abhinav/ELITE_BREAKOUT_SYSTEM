@@ -186,6 +186,25 @@ def init_db():
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS candidates (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        breakout_type TEXT NOT NULL,
+                        alert_date TEXT NOT NULL DEFAULT (CURRENT_DATE::TEXT),
+                        status TEXT NOT NULL DEFAULT 'FOUND',
+                        scanner TEXT,
+                        technical_score INTEGER,
+                        volume_ratio REAL,
+                        delivery_pct REAL,
+                        rr_ratio REAL,
+                        market_context TEXT,
+                        metadata TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(symbol, breakout_type, alert_date)
+                    )
+                """)
+
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS alerts (
                         id            SERIAL PRIMARY KEY,
                         symbol        TEXT    NOT NULL,
@@ -309,12 +328,29 @@ def init_db():
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS bayesian_weights JSONB",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS data_partition TEXT DEFAULT 'TRAIN'",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS current_price REAL",
+                    # V6 Institutional Execution Schema
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS structural_failure_stop REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_state TEXT DEFAULT 'PENDING_ENTRY'",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_quality_score REAL",
                 ]:
                     cur.execute(col_sql)
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS rejected_alerts (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        scanner TEXT NOT NULL,
+                        engine_version TEXT,
+                        rejection_reason TEXT,
+                        alert_date TEXT DEFAULT (CURRENT_DATE::TEXT),
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        context JSONB
+                    )
+                """)
 
                 # ── DROP LEGACY TABLES ──
                 cur.execute("DROP TABLE IF EXISTS multibagger_alerts CASCADE;")
@@ -1198,7 +1234,61 @@ def delete_todays_alerts_for_scanner(scanner_name: str, trade_date: str) -> int:
         logger.exception(f"❌ Failed to delete today's alerts for {scanner_name}")
         return 0
 
+
+def save_candidate(symbol: str, breakout_type: str, scanner: str, technical_score: int, volume_ratio: float, delivery_pct: float, rr_ratio: float, market_context: dict, status: str = "QUALIFIED", **kwargs):
+    import json
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO candidates (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, market_context, metadata, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, breakout_type, alert_date) DO UPDATE
+                    SET technical_score = EXCLUDED.technical_score,
+                        volume_ratio = EXCLUDED.volume_ratio,
+                        delivery_pct = EXCLUDED.delivery_pct,
+                        rr_ratio = EXCLUDED.rr_ratio,
+                        market_context = EXCLUDED.market_context,
+                        metadata = EXCLUDED.metadata,
+                        status = EXCLUDED.status
+                """, (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, json.dumps(market_context), json.dumps(kwargs), status))
+                conn.commit()
+                return True
+    except Exception as e:
+        logger.error(f"Failed to save candidate {symbol}: {e}")
+        return False
+
+def get_candidates_by_status(status: str, alert_date: str = None):
+    try:
+        from psycopg2.extras import RealDictCursor
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if alert_date:
+                    cur.execute("SELECT * FROM candidates WHERE status = %s AND alert_date = %s", (status, alert_date))
+                else:
+                    cur.execute("SELECT * FROM candidates WHERE status = %s AND alert_date = CURRENT_DATE::TEXT", (status,))
+                return cur.fetchall()
+    except Exception as e:
+        logger.error(f"Failed to get candidates: {e}")
+        return []
+
+def update_candidate_status(candidate_id: int, status: str, metadata: dict = None):
+    import json
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if metadata:
+                    cur.execute("UPDATE candidates SET status = %s, metadata = metadata::jsonb || %s::jsonb WHERE id = %s", (status, json.dumps(metadata), candidate_id))
+                else:
+                    cur.execute("UPDATE candidates SET status = %s WHERE id = %s", (status, candidate_id))
+                conn.commit()
+                return True
+    except Exception as e:
+        logger.error(f"Failed to update candidate {candidate_id}: {e}")
+        return False
+
 def save_alert_if_new(
+
     symbol: str,
     breakout_type: str,
     alert_time: str,
@@ -1220,6 +1310,8 @@ def save_alert_if_new(
     bayesian_regime: str = "BULL",
     bayesian_weights: dict = None,
     cash_in_hand: float = None,
+    structural_failure_stop: float = None,
+    target_quality_score: float = None,
     **kwargs
 ) -> tuple[bool, str, float, int]:
     """
@@ -1304,13 +1396,15 @@ def save_alert_if_new(
                             (symbol, breakout_type, alert_time, scanner, category,
                             entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, 
                             signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
-                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
+                            structural_failure_stop, target_quality_score, execution_state)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                     """, (symbol, breakout_type, alert_time, scanner, category,
                         entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, 
                         signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
-                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price))
+                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
+                        structural_failure_stop, target_quality_score))
                     conn.commit()
                     success = True
                     inserted = cur.rowcount > 0
@@ -1346,6 +1440,56 @@ def save_alert_if_new(
                 if not success:
                     conn.rollback()
 
+def save_rejected_alert(
+    symbol: str,
+    scanner: str,
+    rejection_reason: str,
+    engine_version: str = "SL_ENGINE_V6",
+    context: dict = None
+) -> None:
+    """Save an alert that was rejected by the V6 execution engine gates (e.g. Natural RR, Target Quality)."""
+    if DONT_SAVE_ALERTS:
+        return
+        
+    def sanitize(obj):
+        import math
+        if isinstance(obj, dict):
+            return {k: sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [sanitize(x) for x in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        try:
+            import pandas as pd
+            if pd.isna(obj):
+                return None
+        except ImportError:
+            pass
+        return obj
+
+    sanitized_context = sanitize(context) if context is not None else None
+    context_str = json.dumps(sanitized_context) if sanitized_context is not None else None
+
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            success = False
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO rejected_alerts (symbol, scanner, engine_version, rejection_reason, context)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (symbol, scanner, engine_version, rejection_reason, context_str))
+                    conn.commit()
+                    success = True
+            except Exception:
+                logger.exception(f"❌ save_rejected_alert failed for {symbol}")
+            finally:
+                if not success:
+                    conn.rollback()
+
+
 
 def update_partial_exit(
     alert_id: int,
@@ -1354,7 +1498,8 @@ def update_partial_exit(
     shares_sold: int,
     remaining_shares: int,
     realized_pnl_rs: float,
-    exit_event: dict
+    exit_event: dict,
+    execution_state: str = None
 ) -> None:
     """Handle a partial exit (e.g. T1 hit). Logs event, raises SL, updates shares."""
     with _DB_WRITE_LOCK:
@@ -1375,14 +1520,25 @@ def update_partial_exit(
                     exit_hist.append(exit_event)
                     new_hist_json = json.dumps(exit_hist)
                     
-                    cur.execute("""
-                        UPDATE alerts
-                        SET status = %s,
-                            stop_loss = %s,
-                            remaining_shares = %s,
-                            exit_history = %s
-                        WHERE id = %s
-                    """, (new_status, new_sl, remaining_shares, new_hist_json, alert_id))
+                    if execution_state:
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status = %s,
+                                stop_loss = %s,
+                                remaining_shares = %s,
+                                exit_history = %s,
+                                execution_state = %s
+                            WHERE id = %s
+                        """, (new_status, new_sl, remaining_shares, new_hist_json, execution_state, alert_id))
+                    else:
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status = %s,
+                                stop_loss = %s,
+                                remaining_shares = %s,
+                                exit_history = %s
+                            WHERE id = %s
+                        """, (new_status, new_sl, remaining_shares, new_hist_json, alert_id))
                     
                     new_state = {"status": new_status, "stop_loss": new_sl, "remaining_shares": remaining_shares, "exit_event": exit_event}
                     cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
@@ -1404,6 +1560,7 @@ def update_alert_outcome(
     pnl_rs: float = None,
     closed_at: Optional[str] = None,
     exit_signal: Optional[str] = None,
+    execution_state: str = None
 ) -> None:
     """
     Lock in the final outcome of a trade once SL or Target is hit.
@@ -1423,18 +1580,33 @@ def update_alert_outcome(
                     old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
 
                     # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
-                    cur.execute("""
-                        UPDATE alerts
-                        SET status      = %s,
-                            exit_price  = %s,
-                            pnl_pct     = %s,
-                            pnl_rs      = %s,
-                            closed_at   = %s,
-                            exit_signal = %s,
-                            remaining_shares = 0
-                        WHERE id = %s
-                        AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
-                    """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
+                    if execution_state:
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status      = %s,
+                                exit_price  = %s,
+                                pnl_pct     = %s,
+                                pnl_rs      = %s,
+                                closed_at   = %s,
+                                exit_signal = %s,
+                                remaining_shares = 0,
+                                execution_state = %s
+                            WHERE id = %s
+                            AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, alert_id))
+                    else:
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status      = %s,
+                                exit_price  = %s,
+                                pnl_pct     = %s,
+                                pnl_rs      = %s,
+                                closed_at   = %s,
+                                exit_signal = %s,
+                                remaining_shares = 0
+                            WHERE id = %s
+                            AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
                     
                     if cur.rowcount:
                         new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs}
