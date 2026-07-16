@@ -79,8 +79,8 @@ def strip_forming_candle(df, tf_minutes, ist_now):
 
 from opportunity_manager import OpportunityManager
 from trade_ranking_engine import TradeRankingEngine
-from macro_utils import MarketRegimeEngine
-from strategy_policy import StrategyPolicyEngine, get_macro_regime, get_nifty_20d_return
+from macro_utils import MarketRegimeEngine, get_macro_regime, get_nifty_20d_return
+from strategy_policy import StrategyPolicyEngine
 
 def run_hourly_phase(is_test_mode=False, run_once=False):
     """
