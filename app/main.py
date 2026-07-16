@@ -186,6 +186,330 @@ def _run(name, fn):
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = threading.Lock()
 
+def run_reversal_scanner():
+    """
+    REVERSAL Scanner:
+    - Wait for 6:30 PM window
+    - Run scan
+    - On SUCCESS: Mark completed and EXIT cleanly
+    - On ERROR: Retry every minute until midnight, then force stop
+    """
+    retry_count = 0
+    while True:
+        block_until_watchlist_ready()
+        wait_for_window("reversal")
+        now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # Check database if we already succeeded today
+        try:
+            from database import get_all_scanner_health
+            health_records = get_all_scanner_health()
+            already_ran = False
+            for rec in health_records:
+                if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
+                    last_success_str = str(rec["last_success"])
+                    if last_success_str.startswith(today_str):
+                        already_ran = True
+                        break
+            
+            if already_ran:
+                logger.info("🔄 REVERSAL SCAN | Already successfully executed today. Sleeping until tomorrow...")
+                time.sleep(3600)  # Sleep 1 hour
+                continue
+        except Exception as e:
+            logger.warning(f"Could not verify REVERSAL previous run status: {e}")
+        
+        try:
+            logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
+            import reversal_scanner
+            with scanner_execution_lock:
+                total = reversal_scanner.start()   # returns int
+                time.sleep(15)
+            if total == 0:
+                msg = (
+                    f"🔄 REVERSAL SCAN — {today_str}\n"
+                    f"ℹ️ No mean-reversion setups found today.\n"
+                    f"All stocks screened — none passed the filters."
+                )
+                logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification (removed 2026-06-17)")
+            else:
+                logger.info(f"🔄 REVERSAL | Completed — {total} alert(s) sent")
+            
+            # Successfully finished Reversal scan for today — MARK COMPLETED AND EXIT
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                "REVERSAL",
+                status="OK",
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=total,
+                scheduled_for="18:30 IST"
+            )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
+            logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
+            retry_count = 0  # reset on successful completion
+            continue
+            
+        except Exception as exc:
+            retry_count += 1
+            now = datetime.now(IST)
+            
+            # Force stop at midnight (between 00:00 and 06:00)
+            if 0 <= now.hour < 6:
+                logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
+                upsert_scanner_health(
+                    "REVERSAL",
+                    status="DOWN",
+                    error_msg=f"Stopped at midnight after {retry_count} failed attempts",
+                    scheduled_for="18:30 IST"
+                )
+                retry_count = 0
+                continue
+            
+            # Retry logic
+            tb = traceback.format_exc()
+            msg = (
+                f"🚨 REVERSAL SCAN FAILED — {now.strftime('%Y-%m-%d')} (Retry #{retry_count})\n"
+                f"Error: {exc}\n\n"
+                f"{tb[-500:]}"
+            )
+            logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
+            
+            from database import upsert_scanner_health, insert_notification
+            upsert_scanner_health(
+                "REVERSAL",
+                status="DOWN",
+                error_msg=str(exc)[:500],
+                retry_count=retry_count,
+                scheduled_for="18:30 IST"
+            )
+            
+            # Notify admin on first failure only
+            if retry_count == 1:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"🚨 <b>REVERSAL SCANNER CRASHED</b>\n\n"
+                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
+                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
+                        f"🔄 Will auto-retry with backoff until midnight."
+                    )
+                except Exception:
+                    pass
+                try:
+                    insert_notification(
+                        notif_type="scanner_down",
+                        title="🚨 REVERSAL Scanner CRASHED",
+                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
+                    )
+                except Exception:
+                    pass
+            
+            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
+            logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next REVERSAL retry...")
+            time.sleep(wait_time)
+
+
+
+
+def run_eod_scanner():
+    """
+    EOD Scanner:
+    - Wait for 6:30 PM window
+    - Run scan
+    - On SUCCESS: Mark completed and EXIT cleanly
+    - On ERROR: Retry every minute until midnight, then force stop
+    """
+    retry_count = 0
+    while True:
+        block_until_watchlist_ready()
+        wait_for_window("eod")
+        now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # Check database if we already succeeded today
+        try:
+            from database import get_all_scanner_health
+            health_records = get_all_scanner_health()
+            already_ran = False
+            for rec in health_records:
+                if rec.get("scanner_name") == "EOD" and rec.get("status") == "OK" and rec.get("last_success"):
+                    last_success_str = str(rec["last_success"])
+                    if last_success_str.startswith(today_str):
+                        already_ran = True
+                        break
+            
+            if already_ran:
+                logger.info("📊 EOD SCAN | Already successfully executed today. Sleeping until tomorrow...")
+                time.sleep(3600)  # Sleep 1 hour
+                continue
+        except Exception as e:
+            logger.warning(f"Could not verify EOD previous run status: {e}")
+        
+        try:
+            logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
+            import eod_scanner
+            with scanner_execution_lock:
+                total = eod_scanner.start()   # returns int
+                time.sleep(15)
+            if total == 0:
+                msg = (
+                    f"📊 EOD SCAN — {today_str}\n"
+                    f"ℹ️ No breakout setups found today.\n"
+                    f"All stocks screened — none passed the filters."
+                )
+                logger.info("📊 EOD | Zero alerts — no Telegram notification (removed 2026-06-17)")
+            else:
+                logger.info(f"📊 EOD | Completed — {total} alert(s) sent")
+            
+            # Successfully finished EOD scan for today — MARK COMPLETED AND EXIT
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                "EOD",
+                status="OK",
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=total,
+                scheduled_for="18:30 IST"
+            )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
+            logger.info("✅ EOD SCANNER | Completed successfully for today — waiting for tomorrow.")
+            retry_count = 0  # reset on successful completion
+            continue
+            
+        except Exception as exc:
+            retry_count += 1
+            now = datetime.now(IST)
+            
+            # Force stop at midnight (between 00:00 and 06:00)
+            if 0 <= now.hour < 6:
+                logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
+                upsert_scanner_health(
+                    "EOD",
+                    status="DOWN",
+                    error_msg=f"Stopped at midnight after {retry_count} failed attempts",
+                    scheduled_for="18:30 IST"
+                )
+                retry_count = 0
+                continue
+            
+            # Retry logic
+            tb = traceback.format_exc()
+            msg = (
+                f"🚨 EOD SCAN FAILED — {now.strftime('%Y-%m-%d')} (Retry #{retry_count})\n"
+                f"Error: {exc}\n\n"
+                f"{tb[-500:]}"
+            )
+            logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
+            
+            from database import upsert_scanner_health, insert_notification
+            upsert_scanner_health(
+                "EOD",
+                status="DOWN",
+                error_msg=str(exc)[:500],
+                retry_count=retry_count,
+                scheduled_for="18:30 IST"
+            )
+            
+            # Notify admin on first failure only (avoid spam on retries)
+            if retry_count == 1:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"🚨 <b>EOD SCANNER CRASHED</b>\n\n"
+                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
+                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
+                        f"🔄 Will auto-retry with backoff until midnight."
+                    )
+                except Exception:
+                    pass
+                try:
+                    insert_notification(
+                        notif_type="scanner_down",
+                        title="🚨 EOD Scanner CRASHED",
+                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
+                    )
+                except Exception:
+                    pass
+            
+            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
+            logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next EOD retry...")
+            time.sleep(wait_time)
+
+
+
+
+def run_multibagger_scanner():
+    """
+    Multibagger Scanner:
+    - Runs Daily at 7:00 PM IST (19:00 IST).
+    - Scans dynamically fetched index constituents.
+    - Updates watchlist and buy alerts.
+    """
+    multibagger_ran = False
+    while True:
+        try:
+            now = datetime.now(IST)
+            # Daily at 7:00 PM IST
+            if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
+                logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
+                import multibagger
+                with scanner_execution_lock:
+                    stats = multibagger.start() or {}
+                    time.sleep(15)
+                multibagger_ran = True
+                
+                # Mark success in health table
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    "MULTIBAGGER",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Daily 19:00 IST",
+                    total_count=stats.get("total_count"),
+                    processed_count=stats.get("processed_count"),
+                    today_alerts=stats.get("today_alerts", 0)
+                )
+                # Rebuild performance data on scanner completion (debounced, async)
+                try:
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+                except Exception as pe:
+                    logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
+                logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
+            
+            # Reset flag outside 7 PM window
+            if now.hour != 19:
+                multibagger_ran = False
+                
+        except Exception as e:
+            logger.exception("❌ MULTIBAGGER SCAN | Failed")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health(
+                    "MULTIBAGGER",
+                    status="DOWN",
+                    error_msg=str(e)[:500],
+                    scheduled_for="Daily 19:00 IST"
+                )
+            except Exception:
+                pass
+                
+        time.sleep(30)
+
+
+RESTARTABLE_THREADS = {
+    # Intraday and Live scanners disabled per ops request to reduce API load during market hours.
+    # "IntradayScanner":    run_intraday_scanner,
     # "LiveScanner":        run_live_scanner,
     "MultiTFScanner":     run_multi_tf_scanner,
     "PerformanceTracker": run_performance_tracker,
@@ -203,6 +527,8 @@ scanner_execution_lock = threading.Lock()
 ONE_SHOT_THREADS = {}
 
 ALL_THREADS = {**RESTARTABLE_THREADS, **ONE_SHOT_THREADS}
+
+
 
 
 def start_thread(name, target):
