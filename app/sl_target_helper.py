@@ -134,6 +134,78 @@ def _pick_resistance(
             return v, label
     return None, "none"
 
+
+# [SL_HELPER_FIX_v1.0] BUG-12 FIX: _pick_support, _sl_from_support, _compute_structural_failure_stop
+# were called throughout _compute_reversal and _compute_intraday but NEVER DEFINED anywhere in this file.
+# This caused NameError for every REVERSAL and INTRADAY SL computation reaching those code paths.
+# Added these three helper functions now, mirroring the mirror-image logic of _pick_resistance.
+
+def _pick_support(
+    entry: float,
+    swing_low: Optional[float],
+    s1: Optional[float],
+    swing_low_raw: Optional[float],
+    s2: Optional[float],
+    swing_low_cluster: Optional[float] = None,
+) -> tuple:
+    """
+    Nearest structural support BELOW entry.
+    Priority: cluster zone > true pivot swing low > S1 > rolling swing low > S2.
+    Returns (support_price, label) or (None, 'none').
+    """
+    for level, label in [
+        (swing_low_cluster, "swing low cluster"),
+        (swing_low,         "pivot swing low"),
+        (s1,                "pivot S1"),
+        (swing_low_raw,     "rolling swing low"),
+        (s2,                "pivot S2"),
+    ]:
+        v = _safe(level)
+        if v is not None and v < entry:
+            return v, label
+    return None, "none"
+
+
+def _sl_from_support(
+    entry: float,
+    support: float,
+    eff_atr: float,
+    sl_atr_buf: float,
+    sl_pct_buf: float,
+    max_sl_atr: float,
+    sup_label: str,
+) -> tuple:
+    """
+    Calculate stop loss from a support level with anti-trap buffer.
+    Buffer = max(sl_atr_buf * ATR, sl_pct_buf * entry).
+    Hard-caps so SL never exceeds max_sl_atr × ATR from entry.
+    Returns (raw_sl, sl_method) as a tuple.
+    """
+    buf = max(sl_atr_buf * eff_atr, sl_pct_buf * entry)
+    raw_sl = support - buf
+    # Hard cap
+    min_allowed = entry - max_sl_atr * eff_atr
+    raw_sl = max(raw_sl, min_allowed)
+    sl_method = f"{sup_label} ₹{round(support, 2)} buffer ₹{round(buf, 2)}"
+    return raw_sl, sl_method
+
+
+def _compute_structural_failure_stop(
+    primary_sl: float,
+    eff_atr: float,
+    supports: list,
+) -> Optional[float]:
+    """
+    Secondary disaster stop — the next meaningful support below the primary SL.
+    Mirrors _compute_disaster_stop but accepts a flat list of Optional[float] supports.
+    Returns None if no lower support is found.
+    """
+    lower = [s for s in supports if s is not None and s < primary_sl]
+    if not lower:
+        return None
+    return round(max(lower) - 0.5 * eff_atr, 2)
+
+
 def _atr_volatility_scale(atr_pct: Optional[float], base: float) -> float:
     m = base
     if atr_pct is not None:
@@ -601,9 +673,13 @@ def _compute_multi_tf(
     natural_rr = round(reward / risk, 2) if risk > 0 else 0.0
     reward_potential_pct = (reward / entry) * 100 if entry > 0 else 0.0
 
+    # [MULTI_TF_TQ_FIX_v1.0] BUG-2 FIX: _compute_target_quality was called with completely wrong kwargs
+    # (entry=, adx=, atr_pct=, target_1=, support_score=) — none exist in its signature.
+    # Correct signature: (natural_rr, rsi, adx, macd_hist, volume_ratio, swing_high, r1, r2, bb_upper)
+    # Fixed to pass correct positional args with _safe() guards.
     tq, bd = _compute_target_quality(
-        entry=entry, adx=adx, rsi=rsi, macd_hist=macd_hist,
-        atr_pct=atr_pct, target_1=target_1, natural_rr=natural_rr, support_score=sl_data.get("anchor_score", 0)
+        natural_rr, _safe(rsi), _safe(adx), _safe(macd_hist), None,
+        _safe(swing_high), _safe(r1), _safe(r2), kwargs.get("bb_upper")
     )
 
     if natural_rr < min_rr:
@@ -1284,6 +1360,15 @@ def _legacy_compute_sl_and_target(
         return _compute_multi_tf(**kwargs)
     elif effective_mode == "REVERSAL":
         return _compute_reversal(**kwargs, ema20=ema20, bb_mid=bb_mid, sma50=sma50)
+    elif effective_mode in ("INTRADAY", "15M"):
+        # [SL_DISPATCH_FIX_v1.0] BUG-8 FIX: INTRADAY was falling through to _compute_eod (daily stops).
+        # _compute_intraday exists at L834 — routed correctly now.
+        return _compute_intraday(**kwargs, candle_low=candle_low, vwap=vwap)
+    elif effective_mode in ("LIVE_1H", "1H"):
+        # [SL_DISPATCH_FIX_v1.0] BUG-8+11 FIX: _compute_live_1h does not exist (removed in refactor).
+        # LIVE_1H is intraday-style (hold 1-5 days). _compute_intraday is the closest safe equivalent.
+        # Using it prevents daily-width stops from being applied to 1H scalp trades.
+        return _compute_intraday(**kwargs, candle_low=candle_low, vwap=vwap)
     else:
         return _compute_eod(**kwargs)  # safe default
 
@@ -1410,7 +1495,9 @@ class BaseRiskEngine:
         raw_sl = support_price - (buf_mult * eff_atr)
         
         # Hard cap SL so it doesn't get un-usably wide
-        max_sl_atr = _MODE_CONFIG.get(self.mode.split("_")[0], _MODE_CONFIG["EOD"])[4]
+        # [BASE_RISK_ENGINE_FIX_v1.0] BUG-4 FIX: _MODE_CONFIG tuples have 4 elements (indices 0-3).
+        # max_sl_atr is at index [3]. Accessing index [4] caused IndexError on every v2 SL computation.
+        max_sl_atr = _MODE_CONFIG.get(self.mode.split("_")[0], _DEFAULT_CONFIG)[3]
         min_allowed_sl = self.entry_price - (max_sl_atr * eff_atr)
         
         raw_sl = max(raw_sl, min_allowed_sl)

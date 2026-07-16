@@ -895,9 +895,15 @@ def _run_scan(force: bool = False):
     if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
         try:
             for alert in shortlisted_alerts:
+                # [REV_SAVE_ALERT_FIX_v1.0] BUG-6 FIX: alert["dedup_key"] was incorrectly passed as 2nd positional arg
+                # (the breakout_type slot). This stored "CATEGORY|SYMBOL|DATE|REVERSAL" in the breakout_type DB column
+                # instead of the literal "REVERSAL" string. Broken all frontend filters and analytics.
+                # BUG-7 FIX: regime_ctx kwarg silently swallowed by **kwargs in save_alert_if_new.
+                # Now derive bayesian_regime (string) from the dict and pass the correct named param.
+                _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
                 inserted, reason, _, _ = database.save_alert_if_new(
                     alert["symbol"],
-                    alert["dedup_key"],
+                    "REVERSAL",
                     alert["alert_time"],
                     scanner="REVERSAL",
                     category=alert["category"],
@@ -913,8 +919,7 @@ def _run_scan(force: bool = False):
                     target_price=alert["target_price"],
                     context=alert["context"],
                     model_version=ACTIVE_ALGO_VERSION,
-
-                    regime_ctx=regime_ctx,
+                    bayesian_regime=_bayesian_regime,
                     bayesian_weights=None,
                     structural_failure_stop=alert.get("structural_failure_stop"),
                     target_quality_score=alert.get("target_quality_score")

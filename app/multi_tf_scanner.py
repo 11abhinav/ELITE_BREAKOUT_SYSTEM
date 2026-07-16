@@ -637,18 +637,24 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 candle_low=low,
                                 vwap=vwap_val,
                                 ticker=df,
-                                swing_low_15m=_safe_float(tf_15m.iloc[-1].get("SWING_LOW")) if not tf_15m.empty else None,
-                                swing_high_15m=_safe_float(tf_15m.iloc[-1].get("SWING_HIGH")) if not tf_15m.empty else None,
-                                swing_low_30m=_safe_float(tf_30m.iloc[-1].get("SWING_LOW")) if not tf_30m.empty else None,
-                                swing_high_30m=_safe_float(tf_30m.iloc[-1].get("SWING_HIGH")) if not tf_30m.empty else None,
-                                swing_low_1h=_safe_float(tf_1h.iloc[-1].get("SWING_LOW")) if not tf_1h.empty else None,
-                                swing_high_1h=_safe_float(tf_1h.iloc[-1].get("SWING_HIGH")) if not tf_1h.empty else None
+                                # [MTF_TF_VAR_FIX_v1.0] BUG-3 FIX: tf_15m/tf_30m/tf_1h were undefined (stale refactor
+                                # variable names). The actual data lives in data_15m[symbol] and data_30m[symbol] dicts.
+                                # Using safe pd.DataFrame() fallback if symbol not in the dict or data is missing.
+                                swing_low_15m=_safe_float(data_15m[symbol].iloc[-1].get("SWING_LOW")) if symbol in data_15m and data_15m[symbol] is not None and not data_15m[symbol].empty else None,
+                                swing_high_15m=_safe_float(data_15m[symbol].iloc[-1].get("SWING_HIGH")) if symbol in data_15m and data_15m[symbol] is not None and not data_15m[symbol].empty else None,
+                                swing_low_30m=_safe_float(data_30m[symbol].iloc[-1].get("SWING_LOW")) if symbol in data_30m and data_30m[symbol] is not None and not data_30m[symbol].empty else None,
+                                swing_high_30m=_safe_float(data_30m[symbol].iloc[-1].get("SWING_HIGH")) if symbol in data_30m and data_30m[symbol] is not None and not data_30m[symbol].empty else None,
+                                swing_low_1h=None,
+                                swing_high_1h=None,
                             )
                             final_sl = sl_result["stop_loss"]
                             calc_target = sl_result["target_1"]
 
-                            if sl_result.get("rr_ratio", 0.0) < 1.5:
-                                logger.info(f"🚫 {symbol} alert SUPPRESSED: low R:R ratio {sl_result.get('rr_ratio')}")
+                            # [MTF_RR_KEY_FIX_v1.0] BUG-9 FIX: sl_result uses 'natural_rr' not 'rr_ratio'.
+                            # The old check always got 0.0 (the default) because 'rr_ratio' never existed in
+                            # the result dict, suppressing ALL valid intraday alerts incorrectly.
+                            if sl_result.get("natural_rr", sl_result.get("rr_ratio", 0.0)) < 1.5:
+                                logger.info(f"🚫 {symbol} alert SUPPRESSED: low R:R ratio {sl_result.get('natural_rr', sl_result.get('rr_ratio'))}")
                                 continue
 
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))

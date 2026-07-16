@@ -256,6 +256,18 @@ def _start_wrapper(force: bool = False):
         market_regime = get_macro_regime(nifty_ret_20d)
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
 
+        # [EOD_REGIME_CTX_FIX_v1.0] BUG-1 FIX: regime_ctx was never initialized in eod_scanner.
+        # Only market_regime (a string) was built via get_macro_regime().
+        # reversal_scanner and multi_tf_scanner both correctly build the full dict via
+        # MarketRegimeEngine.get_regime_context(). Now aligned.
+        try:
+            regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret_20d)
+            policy = StrategyPolicyEngine.get_policy(regime_ctx, "EOD")
+            regime_ctx["policy"] = policy
+        except Exception:
+            logger.warning("⚠️ Could not build regime_ctx from MarketRegimeEngine — using neutral fallback")
+            regime_ctx = {"trend": market_regime, "biases": {}}
+
         # [BUG-1 FIX v1.5] Compute threshold BEFORE regime check to avoid NameError
         BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
         global_min_score = BASE_SCORE_THRESHOLD
@@ -699,9 +711,15 @@ def _start_wrapper(force: bool = False):
                 }
 
                 if not is_test_mode:
+                    # [EOD_SAVE_ALERT_FIX_v1.0] BUG-5 FIX: dedup_key was passed as breakout_type (2nd positional).
+                    # save_alert_if_new(symbol, breakout_type, alert_time, ...) — 2nd arg must be the scanner type string.
+                    # Passing the full dedup_key string was corrupting the breakout_type column in the DB.
+                    # BUG-7 FIX: regime_ctx is not a named param in save_alert_if_new — it was silently swallowed by **kwargs.
+                    # Derive bayesian_regime (string) from the dict and pass it via the correct named param.
+                    _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
                     saved, reason, cap_alloc, shares = save_alert_if_new(
                         symbol,
-                        dedup_key,
+                        "EOD",
                         ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
                         scanner="EOD",
                         category=category,
@@ -717,7 +735,7 @@ def _start_wrapper(force: bool = False):
                         target_price=target_price,
                         context=context,
                         model_version=model_version,
-                        regime_ctx=regime_ctx,
+                        bayesian_regime=_bayesian_regime,
                         bayesian_weights=bayesian_weights,
                         structural_failure_stop=sl_result.get("structural_failure_stop"),
                         target_quality_score=sl_result.get("target_quality")
