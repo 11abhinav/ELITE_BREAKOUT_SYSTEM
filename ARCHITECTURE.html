@@ -1016,7 +1016,9 @@ The engine proactively suppresses secondary targets based on mathematically prov
 3. **Reversals:** Mean-reversion trades are highly speculative. The reversal scanner hardcodes `target_3` to `null` so it never chases runners on failing stocks.
 
 ### 19.2 The Hierarchical Separation of Concerns
-The system flows identically for all strategies (EOD, Reversal, Multi-TF):
+The pipeline is designed to be the universal standard for all strategies. **Currently, this full pipeline is ONLY implemented for the `MULTI_TF` scanner.** The `EOD` and `Reversal` scanners utilize the V6.4 Target Engine, but they bypass the Opportunity Manager and write directly to the database (legacy execution).
+
+Future roadmaps will unify all scanners to use this exact flow:
 ```mermaid
 graph TD
     A[Scanner Script] -->|Emits Candidates| B(CandidatePool Interface)
