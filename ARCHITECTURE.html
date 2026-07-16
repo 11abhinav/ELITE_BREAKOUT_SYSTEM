@@ -742,7 +742,11 @@ Breakout targets are **never hardcoded** multipliers. The system dynamically anc
 - **Trailing Rule:** "Book 50% at T1 (EMA20). Trail remainder to breakeven."
 
 ### 18.6 Multibagger Scanner (Value Investing)
+- **Routing:** Multibagger is part of the standard breakout ecosystem. Its alerts are routed to the `ALL_TRADES` table and appear on the Admin and User dashboards.
 - **Stop-Loss:** `0.0` (None). Multibagger operates on a long-term value accumulation thesis. Strict stop-losses are not applied, as price drops in fundamentally stellar, low-debt companies are treated as accumulating opportunities rather than invalidations.
+
+### 18.7 Wealth System / Dashboard (Separate Entity)
+- **Routing:** The Wealth System uses its own fundamental evaluation logic (the V5 pipeline). Its alerts ("New Wealth Buy Alert" / "Position Closed") are completely isolated from `ALL_TRADES` and live exclusively in the dedicated **Wealth Dashboard**. They do not show up in the standard admin/user tables.
 - **Targets:** Intrinsic Valuation targets. The system computes a `target_multiple` by averaging Graham Intrinsic Value and DCF models (factoring in Margin of Safety), establishing a fair-value exit horizon rather than a technical trading target.
 
 ---

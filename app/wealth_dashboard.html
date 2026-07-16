@@ -1703,7 +1703,7 @@ async function fetchNotifications() {
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
-                <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}')">
+                <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`)">
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
                     <button class="clear-notif-btn" onclick="event.stopPropagation(); clearNotification(${n.id})" title="Clear notification">✕</button>
                     <div class="notification-item-msg">${n.message}</div>
@@ -1744,16 +1744,23 @@ async function clearNotification(id) {
     } catch(e) { console.error('Failed to clear notification', e); }
 }
 
-async function markNotificationSeen(id, symbol) {
+async function markNotificationSeen(id, symbol, title) {
     try {
         await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
         fetchNotifications(); // refresh
         // Also pre-fill the search/filter if the user clicked it
         if(symbol && symbol !== 'null') {
-            const searchInput = document.getElementById('search');
-            if(searchInput) {
-                searchInput.value = symbol;
-                searchInput.dispatchEvent(new Event('input'));
+            title = title || '';
+            const upTitle = title.toUpperCase();
+            if (!(upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED')) {
+                window.location.href = '/admin?sym=' + encodeURIComponent(symbol);
+                return;
+            }
+            const filterInput = document.getElementById('filter-alert-symbol');
+            if(filterInput) {
+                filterInput.value = symbol;
+                applyAlertFilters();
+                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
             }
         }
         document.getElementById('notif-dropdown').classList.remove('show');
@@ -1786,6 +1793,21 @@ async function clearAllNotifications(e) {
 // Poll every 5 seconds
 setInterval(fetchNotifications, 5000);
 fetchNotifications();
+
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sym = urlParams.get('sym');
+    if (sym) {
+        setTimeout(() => {
+            const filterInput = document.getElementById('filter-alert-symbol');
+            if (filterInput) {
+                filterInput.value = sym;
+                applyAlertFilters();
+                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
+            }
+        }, 500);
+    }
+});
 // ============================================================================
 
 </script>

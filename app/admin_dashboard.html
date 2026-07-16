@@ -5253,7 +5253,7 @@ async function fetchNotifications() {
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
-    <div class="notification-item ${unseenClass}" onclick = "markNotificationSeen(${n.id}, '${n.symbol}')" >
+    <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`)">
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
                     <button class="clear-notif-btn" onclick="event.stopPropagation(); clearNotification(${n.id})" title="Clear notification">✕</button>
                     <div class="notification-item-msg">${n.message}</div>
@@ -5294,12 +5294,18 @@ async function clearNotification(id) {
     } catch(e) { console.error('Failed to clear notification', e); }
 }
 
-async function markNotificationSeen(id, symbol) {
+async function markNotificationSeen(id, symbol, title) {
     try {
-        await fetch(`/ api / notifications / mark_seen / ${ id } `, {method: 'POST'});
+        await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
         fetchNotifications(); // refresh
         // Also pre-fill the search/filter if the user clicked it
         if(symbol && symbol !== 'null') {
+            title = title || '';
+            const upTitle = title.toUpperCase();
+            if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
+                window.location.href = '/wealth?sym=' + encodeURIComponent(symbol);
+                return;
+            }
             const filterInput = document.getElementById('filterSymbol');
             if(filterInput) {
                 document.getElementById('filterDate').value = 'ALL';
@@ -5379,6 +5385,32 @@ function scheduleNextNotificationFetch() {
 
 // Initial fetch and start loop
 fetchNotifications().then(scheduleNextNotificationFetch);
+
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sym = urlParams.get('sym');
+    if (sym) {
+        const filterInput = document.getElementById('filterSymbol');
+        if (filterInput) {
+            filterInput.value = sym;
+            document.getElementById('filterDate').value = 'ALL';
+            document.getElementById('filterScanner').value = '';
+            document.getElementById('filterStatus').value = '';
+            const catInput = document.getElementById('filterCategory');
+            if (catInput) catInput.value = '';
+            setTimeout(() => {
+                renderTradeTable();
+                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
+                const table = document.querySelector('.tbl-wrap table');
+                if (table) {
+                    table.style.transition = 'background-color 0.5s';
+                    table.style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
+                    setTimeout(() => table.style.backgroundColor = '', 1000);
+                }
+            }, 500);
+        }
+    }
+});
 
 let cachedPendingUsers = [];
 let lastPendingFetch = 0;
