@@ -901,9 +901,20 @@ def api_shortlist():
     try:
         if not os.path.exists(WATCHLIST_PATH):
             return jsonify([])
+        import math
+        def sanitize_nans(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            elif isinstance(obj, dict):
+                return {k: sanitize_nans(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_nans(item) for item in obj]
+            return obj
+
         df = pd.read_parquet(WATCHLIST_PATH)
-        import json
-        records = json.loads(df.to_json(orient="records"))
+        df = df.replace([float('inf'), float('-inf')], float('nan'))
+        df = df.where(pd.notnull(df), None)
+        records = sanitize_nans(df.to_dict(orient="records"))
         return jsonify(records)
     except Exception as e:
         logger.exception(f"Failed to load shortlist JSON")
@@ -919,9 +930,20 @@ def api_shortlist_excluded():
         excluded_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
         if not os.path.exists(excluded_path):
             return jsonify([])
+        import math
+        def sanitize_nans(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            elif isinstance(obj, dict):
+                return {k: sanitize_nans(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_nans(item) for item in obj]
+            return obj
+
         df = pd.read_csv(excluded_path).fillna("")
-        import json
-        records = json.loads(df.to_json(orient="records"))
+        df = df.replace([float('inf'), float('-inf')], float('nan'))
+        df = df.where(pd.notnull(df), None)
+        records = sanitize_nans(df.to_dict(orient="records"))
         return jsonify(records)
     except Exception as e:
         logger.exception(f"Failed to load excluded stocks JSON")
@@ -945,11 +967,22 @@ def api_wealth():
         if _wealth_cache["mtime"] == mtime and _wealth_cache["payload"] is not None:
             return Response(_wealth_cache["payload"], mimetype="application/json")
         
-        # Re-parse parquet → JSON only when file changes
         import pandas as pd
         import json
+        import math
+        
+        def sanitize_nans(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            elif isinstance(obj, dict):
+                return {k: sanitize_nans(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_nans(item) for item in obj]
+            return obj
+
         df = pd.read_parquet(WEALTH_PATH)
-        records = json.loads(df.to_json(orient="records"))
+        records = df.to_dict(orient="records")
+        records = sanitize_nans(records)
         
         from zoneinfo import ZoneInfo
         from datetime import datetime
@@ -1196,7 +1229,7 @@ def api_get_portfolio():
             try:
                 f = float(v)
                 import math
-                return 0.0 if math.isnan(f) else f
+                return 0.0 if (math.isnan(f) or math.isinf(f)) else f
             except (ValueError, TypeError):
                 return 0.0
 
