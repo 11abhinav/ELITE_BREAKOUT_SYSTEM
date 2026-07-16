@@ -2051,7 +2051,11 @@ def has_error_concall_cache_within_24h(symbol: str) -> bool:
                       AND (
                           CASE
                               WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
-                              THEN (SUBSTRING(created_at, 1, 26))::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+                              THEN (
+                                  -- Strip everything after HH:MM:SS to avoid fractional seconds / timezone suffix
+                                  -- causing ::TIMESTAMP cast failures (e.g. '2026-06-14 12:41:10.76633+')
+                                  regexp_replace(created_at, '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*', '\\1')
+                              )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
                               ELSE NULL
                           END
                       ) >= NOW() - INTERVAL '7 days'
@@ -2078,7 +2082,11 @@ def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
                       AND (
                           CASE
                               WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
-                              THEN (SUBSTRING(created_at, 1, 26))::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+                              THEN (
+                                  -- Strip fractional seconds / timezone suffix before casting
+                                  -- e.g. '2026-06-14 12:41:10.76633+' -> '2026-06-14 12:41:10'
+                                  regexp_replace(created_at, '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*', '\\1')
+                              )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
                               ELSE NULL
                           END
                       ) >= NOW() - INTERVAL '1 day' * %s
