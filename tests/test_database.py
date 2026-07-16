@@ -117,3 +117,103 @@ def test_save_alert_with_nan_sanitization(mocker):
     assert context_dict["inf_val"] is None
     assert context_dict["nested"]["val"] is None
     assert context_dict["valid"] == 42.0
+
+# =====================================================================================
+# [VERSION: CONCALL_CACHE_QUERY_SAFETY_v1.0]
+# Tests to ensure ai_concall_cache_v3 queries NEVER regress to fragile TEXT timestamp
+# casting (e.g. SUBSTRING(created_at, 1, 26)::TIMESTAMP which breaks on 5-digit microseconds).
+# Root cause: commit d6bf25c1 introduced SUBSTRING hack that broke on rows like
+# '2026-06-14 12:41:10.76633+' (5 microsecond digits, + at position 26).
+# Fix: column migrated to TIMESTAMPTZ. Queries must use direct >= comparison.
+# =====================================================================================
+
+def test_has_valid_concall_cache_returns_true_when_row_exists(mocker):
+    """has_valid_concall_cache must return True when a non-error row exists for symbol."""
+    from app.database import has_valid_concall_cache
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = (1,)  # Row found
+
+    result = has_valid_concall_cache("TESTSTOCK")
+
+    assert result is True
+    sql = mock_cur.execute.call_args[0][0]
+    # Must NOT use fragile SUBSTRING or TEXT casting — query must be simple
+    assert "SUBSTRING" not in sql, "REGRESSION: SUBSTRING cast detected — breaks on 5-digit microseconds"
+    assert "::TIMESTAMP" not in sql, "REGRESSION: ::TIMESTAMP cast detected — use TIMESTAMPTZ column directly"
+    assert "ai_concall_cache_v3" in sql
+    assert "error" in sql
+
+
+def test_has_valid_concall_cache_returns_false_when_no_row(mocker):
+    """has_valid_concall_cache must return False when no non-error row exists."""
+    from app.database import has_valid_concall_cache
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = None  # No row
+
+    result = has_valid_concall_cache("UNKNOWNSYMBOL")
+    assert result is False
+
+
+def test_has_error_concall_cache_query_uses_timestamptz_comparison(mocker):
+    """has_error_concall_cache_within_24h must NOT use SUBSTRING or TEXT casting.
+    The query must use direct TIMESTAMPTZ >= comparison after column migration."""
+    from app.database import has_error_concall_cache_within_24h
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = (1,)
+
+    result = has_error_concall_cache_within_24h("TESTSTOCK")
+
+    assert result is True
+    sql = mock_cur.execute.call_args[0][0]
+    # [VERSION: CONCALL_CACHE_QUERY_SAFETY_v1.0] Guard against SUBSTRING regression
+    assert "SUBSTRING" not in sql, (
+        "REGRESSION DETECTED: SUBSTRING(created_at, 1, 26)::TIMESTAMP breaks on rows with "
+        "5-digit microseconds (e.g. '2026-06-14 12:41:10.76633+'). Column is now TIMESTAMPTZ — "
+        "use 'created_at >= NOW() - INTERVAL ...' directly."
+    )
+    assert "regexp_replace" not in sql, (
+        "REGRESSION DETECTED: regexp_replace timestamp hack detected. Column is TIMESTAMPTZ — "
+        "use direct comparison."
+    )
+    assert "created_at" in sql
+    assert "INTERVAL" in sql
+
+
+def test_get_recent_concall_analysis_returns_data_when_found(mocker):
+    """get_recent_concall_analysis must return analysis_data dict when row found,
+    and query must NOT use fragile SUBSTRING/TEXT casting."""
+    from app.database import get_recent_concall_analysis
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    expected = {"management_confidence": 8, "summary": "Strong growth"}
+    mock_cur.fetchone.return_value = (expected,)
+
+    result = get_recent_concall_analysis("TESTSTOCK", max_age_days=60)
+
+    assert result == expected
+    sql = mock_cur.execute.call_args[0][0]
+    # [VERSION: CONCALL_CACHE_QUERY_SAFETY_v1.0] Permanently guard clean query
+    assert "SUBSTRING" not in sql, (
+        "REGRESSION: SUBSTRING cast found. This breaks when microseconds are 5 digits. "
+        "created_at is now TIMESTAMPTZ — use direct >= comparison."
+    )
+    assert "::TIMESTAMP" not in sql, (
+        "REGRESSION: ::TIMESTAMP cast found. Use TIMESTAMPTZ column directly."
+    )
+    assert "created_at >=" in sql or "created_at>=" in sql, (
+        "Query must use direct TIMESTAMPTZ comparison: 'created_at >= NOW() - INTERVAL ...'"
+    )
+
+
+def test_get_recent_concall_analysis_returns_none_when_not_found(mocker):
+    """get_recent_concall_analysis must return None when no recent cache exists."""
+    from app.database import get_recent_concall_analysis
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = None
+
+    result = get_recent_concall_analysis("NOSUCHSYMBOL", max_age_days=60)
+    assert result is None
