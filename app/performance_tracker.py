@@ -277,6 +277,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["closed_at"] = ts_str
             continue
             
+        status = t["status"]
         # 2. Evaluate T1
         if status == "OPEN" and high >= t1:
             exit_p = open_p if open_p > t1 else t1
@@ -315,8 +316,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["exit_price"] = exit_p
                 if "T1_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
-            continue
+                continue
             
+        status = t["status"]
         # 3. Evaluate T2
         if t2 and status == "PARTIAL_WIN_1" and high >= t2:
             exit_p = open_p if open_p > t2 else t2
@@ -357,8 +359,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["exit_price"] = exit_p
                 if "T2_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT")
-            continue
+                continue
             
+        status = t["status"]
         # 4. Evaluate T3 (Final Target)
         if status == "PARTIAL_WIN_2" and high >= t3:
             exit_p = open_p if open_p > t3 else t3

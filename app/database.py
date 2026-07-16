@@ -4320,6 +4320,13 @@ def reallocate_capital(alert_id: int):
                 stop_loss = float(stop_loss) if stop_loss else 0.0
                 target_price = float(target_price) if target_price else 0.0
                 
+                if scanner in ('MULTIBAGGER', 'WEALTH', 'Wealth Engine'):
+                    msg = f"Blocked reallocation for {scanner} alert #{alert_id}. Long-term investments do not support automatic reallocation or SL modification."
+                    logger.warning(f"⚠️ {msg}")
+                    from database import insert_notification
+                    insert_notification('error', 'Reallocation Blocked', msg)
+                    return False
+                
                 if entry_price > 0 and stop_loss <= 0:
                     # ── SCANNER-AWARE FALLBACK LOGIC ──
                     import json
@@ -4423,6 +4430,13 @@ def reallocate_capital_multiple(alert_ids: list):
                 entry_price = float(entry_price) if entry_price else 0.0
                 stop_loss = float(stop_loss) if stop_loss else 0.0
                 target_price = float(target_price) if target_price else 0.0
+                
+                if scanner in ('MULTIBAGGER', 'WEALTH', 'Wealth Engine'):
+                    msg = f"Blocked reallocation for {scanner} alert #{a_id}. Long-term investments do not support automatic reallocation or SL modification."
+                    logger.warning(f"⚠️ {msg}")
+                    from database import insert_notification
+                    insert_notification('error', 'Reallocation Blocked', msg)
+                    continue
                 
                 if entry_price > 0 and stop_loss <= 0:
                     import json
