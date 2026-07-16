@@ -1839,13 +1839,13 @@ def get_todays_alerts(today_str: str) -> list[dict]:
             try:
                 cur.execute("""
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, scanner, category, entry_price,
-                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin
+                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin, is_rejected
                     FROM alerts
                     WHERE alert_date = %s
                     UNION ALL
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
                         NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_price, NULL::int as remaining_shares, entry_signal as signals, fm_score::int as score, 
-                        CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin
+                        CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected
                     FROM wealth_buy_alert
                     WHERE alert_date = %s
                     ORDER BY alert_time DESC

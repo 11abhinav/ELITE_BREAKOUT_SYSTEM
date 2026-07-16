@@ -813,6 +813,12 @@
       color: #9ca3af;
     }
 
+    .badge-rejected {
+      background: rgba(239, 68, 68, .15);
+      color: #ef4444;
+      text-decoration: line-through;
+    }
+
     .badge-scanner {
       background: rgba(245, 158, 11, .12);
       color: var(--amber);
@@ -885,6 +891,19 @@
       padding: 0;
       background: linear-gradient(135deg, var(--accent-dim), transparent);
       border-bottom: 2px solid rgba(0, 212, 161, .15);
+    }
+
+    .kpi-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+    
+    .kpi-row .kpi {
+      flex: 1 1 calc(25% - 12px);
+      min-width: 200px;
+      box-sizing: border-box;
     }
 
     .detail-panel {
@@ -1114,9 +1133,8 @@
       .header-right { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
       .scanner-grid { display: flex; flex-wrap: wrap; gap: 24px; }
       .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
-      .kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      /* V_DASHBOARD_FLEX_WRAP_FIX_01: Make the last KPI span full width if it's odd to prevent blank space on the right */
-      .kpi-row .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
+      .kpi-row { display: flex; flex-wrap: wrap; gap: 8px; }
+      .kpi-row .kpi { flex: 1 1 calc(50% - 4px); box-sizing: border-box; min-width: 130px; }
       .scanner-alert-tooltip { width: 90vw; }
       
       /* Make all tables scrollable horizontally */
@@ -2027,7 +2045,7 @@
     const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
     const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
     const badgeHtml = s => {
-      const m = { WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', NEUTRAL: 'badge-neutral' };
+      const m = { WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
       return `<span class="badge ${m[s] || 'badge-neutral'}">${s}</span>`;
     };
     const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
@@ -2135,7 +2153,7 @@
 
     async function loadData() {
       const urls = [
-        
+        '/api/summary',
         '/data/performance_data.json', '../data/performance_data.json', './data/performance_data.json', 'performance_data.json',
       ];
       const t = new Date().getTime();
@@ -4095,7 +4113,10 @@
         }
       }
 
-      ALL_TRADES = data.trades || [];
+      ALL_TRADES = (data.trades || []).map(t => {
+        if (t.is_rejected) t.status = 'REJECTED';
+        return t;
+      });
       EXIT_HISTORY_CACHE.clear();
       populateFilters(ALL_TRADES);
       await loadCapitalInfo(); // Ensure capital is always fresh on refresh

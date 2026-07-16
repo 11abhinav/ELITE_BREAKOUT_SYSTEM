@@ -1321,6 +1321,12 @@ def api_todays_alerts():
         from zoneinfo import ZoneInfo
         today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
         rows = get_todays_alerts(today)
+        
+        # [VERSION: GHOST_PNL_FIX_v1.0] Mask rejected trades in the JSON API for non-admins
+        is_admin = session.get('role') == 'admin'
+        if not is_admin:
+            rows = [r for r in rows if not r.get('is_rejected', False)]
+            
         return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
