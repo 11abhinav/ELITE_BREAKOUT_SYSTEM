@@ -1124,11 +1124,12 @@ The `performance_tracker.py` is fully decoupled from the Scanners. It processes 
 **Incident:** The Admin Dashboard continuously showed the loading overlay and failed to render, while backend server logs showed no crashes. EOD and Reversal scanners were incorrectly reported as not triggering.
 **Root Cause:** 
 - A closed trade in the database had a missing or zero cost basis, causing the backend performance tracking calculations to yield `NaN` (Not-a-Number) and `Infinity`.
-- The `performance_tracker.py` serialized these mathematical anomalies directly into the `performance_data.json` payload.
-- The browser-side JSON parser threw an uncaught `SyntaxError: Unexpected token N in JSON at position X`, causing the frontend JavaScript promise to reject silently and permanently freeze the UI in a loading state.
+- The `performance_tracker.py` serialized these mathematical anomalies directly into the `performance_data.json` payload. While `math.isnan` was sanitized in an earlier patch, Python's `json.dumps()` still passed `float('inf')` as `Infinity`.
+- The browser-side JSON parser threw an uncaught `SyntaxError: Unexpected token I in JSON at position X` because `Infinity` is strictly invalid in JSON.
+- Because `await r.json()` was unhandled in the original JS, this caused a silent unhandled promise rejection that permanently froze the UI in a loading state.
 **Resolution & Architectural Rule:**
-- **Sanitization:** All JSON payloads transmitted to the frontend MUST sanitize float values. `performance_tracker.py` was updated to replace `math.isnan` and `math.isinf` values with `0.0` or `null` before serialization.
-- **Frontend Fault Tolerance:** The frontend API fetch calls in `admin_dashboard.html` were wrapped in `try/catch` blocks. If parsing fails, the UI must gracefully degrade to a fallback state (e.g., "No alert history") rather than halting the entire dashboard execution thread.
+- **Sanitization:** All JSON payloads transmitted to the frontend MUST sanitize ALL float anomalies. `performance_tracker.py` was updated to check both `math.isnan(obj)` and `math.isinf(obj)` and replace them with `0.0` or `null` before serialization. Additionally, a crash in the `_write_empty` fallback function was resolved.
+- **Frontend Fault Tolerance:** The frontend API fetch calls in `admin_dashboard.html` were wrapped in `try/catch` blocks using `await r.json()`. If parsing fails, the UI must gracefully degrade to a fallback state (e.g., "No alert history") rather than halting the entire dashboard execution thread.
 
 ### 30.2 Background Thread Deletion & Schedule Desync
 **Incident:** Following a system orchestrator (`main.py`) refactor, essential background threads (like the Daily Builder and Staleness Watchdog) ceased executing on local deployments.

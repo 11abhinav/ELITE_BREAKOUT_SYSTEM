@@ -854,7 +854,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     try:
         import math
         def sanitize_nans(obj):
-            if isinstance(obj, float) and math.isnan(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
                 return None
             elif isinstance(obj, dict):
                 return {k: sanitize_nans(v) for k, v in obj.items()}
@@ -902,7 +902,8 @@ def _write_empty():
         "scanner_stats": {},
     }
     try:
-        save_system_state("performance_summary", json.dumps(summary, default=str))
+        payload_str = json.dumps(payload, default=str)
+        save_system_state("performance_summary", json.dumps(payload["summary"], default=str))
         save_system_state("performance_generated_at", json.dumps(payload["generated_at"]))
         save_system_state("performance_data", payload_str)
         logger.info("✅ PERFORMANCE TRACKER | Stored empty performance metrics in PostgreSQL")
