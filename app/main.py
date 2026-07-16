@@ -57,6 +57,8 @@ except Exception as e:
 
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
+    "IntradayScanner":    "INTRADAY",
+    "LiveScanner":        "1H",
     "EODScanner":         "EOD",
     "ReversalScanner":    "REVERSAL",
     "MultiTFScanner":     "MULTI_TF",
@@ -82,6 +84,7 @@ def _clear_down(name: str):
 
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
+    "intraday": (dt_time(9, 32),  dt_time(15, 30)),
     "live":     (dt_time(10, 17), dt_time(15, 30)),
     "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
     "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
@@ -107,7 +110,7 @@ def _cleanup_old_scanner_names():
                 cur.execute("""
                     UPDATE scanner_health 
                     SET status='OK', error_msg=NULL, is_acknowledged=TRUE
-                    WHERE scanner_name IN ('EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER')
+                    WHERE scanner_name IN ('INTRADAY', '1H', 'EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER')
                       AND status = 'DOWN';
                 """)
             conn.commit()
@@ -186,136 +189,178 @@ def _run(name, fn):
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = threading.Lock()
 
-def run_reversal_scanner():
-    """
-    REVERSAL Scanner:
-    - Wait for 6:30 PM window
-    - Run scan
-    - On SUCCESS: Mark completed and EXIT cleanly
-    - On ERROR: Retry every minute until midnight, then force stop
-    """
-    retry_count = 0
+def run_intraday_scanner():
+    wait_for_window("intraday")
+    import intraday
+    intraday.start()
+    time.sleep(15)
+
+def run_live_scanner():
+    wait_for_window("live")
+    import live_scanner
+    live_scanner.start()
+    time.sleep(15)
+
+def run_multi_tf_scanner():
+    wait_for_window("live")
+    import multi_tf_scanner
+    multi_tf_scanner.start()
+    time.sleep(15)
+
+def run_performance_tracker():
+    """Refreshes dashboard data every 5 minutes all day on weekdays."""
+    from performance_tracker import build_performance_data
+    from database import upsert_scanner_health
+    
+    # Always run once on boot to ensure fresh dashboard data, even on weekends
+    try:
+        # RCA & DESIGN DECISION (2026-07-15):
+        # - Removed scanner_execution_lock here so performance data builds can run
+        #   concurrently with active scanners. Prevents dashboard lags during long runs.
+        build_performance_data()
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER", status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Every 5min (all day)"
+        )
+    except Exception:
+        logger.exception("❌ PERFORMANCE TRACKER | Initial boot refresh failed")
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER", status="DOWN",
+            error_msg="Boot refresh failed",
+            scheduled_for="Every 5min (all day)"
+        )
+        
+    from market_utils import is_market_open
+    
     while True:
-        block_until_watchlist_ready()
-        wait_for_window("reversal")
-        now = datetime.now(IST)
-        today_str = now.strftime("%Y-%m-%d")
-        
-        # Check database if we already succeeded today
-        try:
-            from database import get_all_scanner_health
-            health_records = get_all_scanner_health()
-            already_ran = False
-            for rec in health_records:
-                if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
-                    last_success_str = str(rec["last_success"])
-                    if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
-            
-            if already_ran:
-                logger.info("🔄 REVERSAL SCAN | Already successfully executed today. Sleeping until tomorrow...")
-                time.sleep(3600)  # Sleep 1 hour
-                continue
-        except Exception as e:
-            logger.warning(f"Could not verify REVERSAL previous run status: {e}")
-        
-        try:
-            logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
-            import reversal_scanner
-            with scanner_execution_lock:
-                total = reversal_scanner.start()   # returns int
-                time.sleep(15)
-            if total == 0:
-                msg = (
-                    f"🔄 REVERSAL SCAN — {today_str}\n"
-                    f"ℹ️ No mean-reversion setups found today.\n"
-                    f"All stocks screened — none passed the filters."
-                )
-                logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification (removed 2026-06-17)")
-            else:
-                logger.info(f"🔄 REVERSAL | Completed — {total} alert(s) sent")
-            
-            # Successfully finished Reversal scan for today — MARK COMPLETED AND EXIT
-            from database import upsert_scanner_health
-            upsert_scanner_health(
-                "REVERSAL",
-                status="OK",
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total,
-                scheduled_for="18:30 IST"
-            )
-            # Rebuild performance data on scanner completion (debounced, async)
+        if is_market_open():
             try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
-            logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
-            retry_count = 0  # reset on successful completion
-            continue
-            
-        except Exception as exc:
-            retry_count += 1
-            now = datetime.now(IST)
-            
-            # Force stop at midnight (between 00:00 and 06:00)
-            if 0 <= now.hour < 6:
-                logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
+                # Removed scanner_execution_lock here to allow background 5m refreshes
+                # to run concurrently with active scanners.
+                build_performance_data()
                 upsert_scanner_health(
-                    "REVERSAL",
-                    status="DOWN",
-                    error_msg=f"Stopped at midnight after {retry_count} failed attempts",
-                    scheduled_for="18:30 IST"
+                    "PERFORMANCE_TRACKER", status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Every 5min (all day)"
                 )
-                retry_count = 0
-                continue
-            
-            # Retry logic
-            tb = traceback.format_exc()
-            msg = (
-                f"🚨 REVERSAL SCAN FAILED — {now.strftime('%Y-%m-%d')} (Retry #{retry_count})\n"
-                f"Error: {exc}\n\n"
-                f"{tb[-500:]}"
-            )
-            logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
-            
+            except Exception as e:
+                logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+                try:
+                    upsert_scanner_health(
+                        "PERFORMANCE_TRACKER", status="DOWN",
+                        error_msg=str(e)[:500],
+                        scheduled_for="Every 5min (all day)"
+                    )
+                except Exception:
+                    pass
+        
+        time.sleep(300)
+
+_watchlist_build_lock = threading.Lock()
+
+def verify_watchlist_is_pristine() -> bool:
+    """
+    Check if local disk has today's watchlist.
+    Logic: Cache → DB (today) → Delete stale from DB → Fresh rebuild → Save to DB → Start scanner
+    """
+    from config import WATCHLIST_PATH
+    import pandas as pd
+    from database import download_parquet_from_db_today, delete_stale_parquet_from_db
+    import os
+    
+    now = datetime.now(IST)
+    today_str = now.strftime("%Y-%m-%d")
+    
+    def is_disk_fresh():
+        """Returns True if local disk has watchlist from today."""
+        if not os.path.exists(WATCHLIST_PATH): return False
+        try:
+            df = pd.read_parquet(WATCHLIST_PATH)
+            if "Scan Time" in df.columns and not df.empty:
+                scan_date_str = str(df["Scan Time"].iloc[0])[:10]
+                scan_date = datetime.strptime(scan_date_str, "%Y-%m-%d").date()
+                return scan_date >= now.date()
+        except Exception:
+            pass
+        return False
+
+    with _watchlist_build_lock:
+        # STEP 1: Check local disk cache
+        if is_disk_fresh():
+            logger.info(f"✅ [CACHE] Watchlist from today ({today_str}) found on local disk.")
+            return True
+        
+        logger.warning(f"⚠️ [CACHE] Local disk missing/stale watchlist. Checking DB for today's data ({today_str})...")
+        
+        # STEP 2: Try to restore from DB (TODAY ONLY)
+        if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH):
+            if is_disk_fresh():
+                logger.info(f"✅ [DB] Watchlist from today successfully restored from DB to local disk.")
+                from watchlist_cache import get_watchlist
+                get_watchlist()
+                return True
+        
+        # STEP 3: DB has old/stale data. Delete it and trigger rebuild.
+        logger.warning(f"⚠️ [DB] No today's data in cache or DB! Deleting stale entries from DB...")
+        delete_stale_parquet_from_db("daily_builder")
+        
+        logger.warning(f"⚠️ [REBUILD] Triggering fresh Daily Builder rebuild for {today_str}...")
+        try:
+            from daily_builder import main as build_watchlist
+            build_watchlist(force_rebuild=True)
+            from watchlist_cache import get_watchlist
+            get_watchlist()
+        except Exception as e:
+            logger.exception(f"❌ Daily Builder rebuild FAILED (full traceback above): {e}")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health(
-                "REVERSAL",
-                status="DOWN",
-                error_msg=str(exc)[:500],
-                retry_count=retry_count,
-                scheduled_for="18:30 IST"
-            )
-            
-            # Notify admin on first failure only
-            if retry_count == 1:
-                try:
-                    from telegram_engine import queue_telegram_message
-                    queue_telegram_message(
-                        f"🚨 <b>REVERSAL SCANNER CRASHED</b>\n\n"
-                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
-                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
-                        f"🔄 Will auto-retry with backoff until midnight."
-                    )
-                except Exception:
-                    pass
-                try:
-                    insert_notification(
-                        notif_type="scanner_down",
-                        title="🚨 REVERSAL Scanner CRASHED",
-                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
-                    )
-                except Exception:
-                    pass
-            
-            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
-            logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next REVERSAL retry...")
-            time.sleep(wait_time)
+            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+            try:
+                insert_notification(
+                    notif_type="scanner_down",
+                    title="🚨 Daily Builder FAILED to rebuild",
+                    message=f"Watchlist is stale and rebuild failed: {str(e)[:400]}"
+                )
+            except Exception:
+                pass
+            return False
+        
+        # STEP 4: Verify fresh data was created
+        if is_disk_fresh():
+            logger.info(f"✅ [NEW] Fresh watchlist created for {today_str}. Ready to scan.")
+            return True
+        else:
+            logger.error(f"❌ [NEW] Fresh watchlist created but failed freshness check!")
+            return False
+
+def block_until_watchlist_ready():
+    """Blocks the thread until the watchlist is pristine."""
+    from database import upsert_scanner_health
+    first_block = True
+    while not verify_watchlist_is_pristine():
+        if first_block:
+            logger.warning("⏳ Watchlist not ready. Updating dashboard to show scanners as WAITING...")
+            for scanner in ["Wealth Engine", "MULTI-TF LADDER", "REVERSAL", "EOD"]:
+                upsert_scanner_health(
+                    scanner,
+                    status="IDLE",
+                    error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
+                )
+            first_block = False
+        logger.warning("⏳ Retrying watchlist check in 60 seconds...")
+        time.sleep(60)
+    if not first_block:
+        logger.info("✅ Watchlist is pristine. Unblocking scanners.")
 
 
-
+# =====================================================================================
+# SINGLE-SHOT RUNNERS — EOD & Reversal
+#
+# Rules:
+#   • Runs between 18:30 IST and midnight.
+#   • If the scan raises an exception  → send Telegram crash alert, and RETRY in 5 minutes.
+#   • Once it finishes successfully    → do NOT run again until the next day's window.
+# =====================================================================================
 
 def run_eod_scanner():
     """
@@ -446,7 +491,515 @@ def run_eod_scanner():
             time.sleep(wait_time)
 
 
+def run_reversal_scanner():
+    """
+    REVERSAL Scanner:
+    - Wait for 6:30 PM window
+    - Run scan
+    - On SUCCESS: Mark completed and EXIT cleanly
+    - On ERROR: Retry every minute until midnight, then force stop
+    """
+    retry_count = 0
+    while True:
+        block_until_watchlist_ready()
+        wait_for_window("reversal")
+        now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # Check database if we already succeeded today
+        try:
+            from database import get_all_scanner_health
+            health_records = get_all_scanner_health()
+            already_ran = False
+            for rec in health_records:
+                if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
+                    last_success_str = str(rec["last_success"])
+                    if last_success_str.startswith(today_str):
+                        already_ran = True
+                        break
+            
+            if already_ran:
+                logger.info("🔄 REVERSAL SCAN | Already successfully executed today. Sleeping until tomorrow...")
+                time.sleep(3600)  # Sleep 1 hour
+                continue
+        except Exception as e:
+            logger.warning(f"Could not verify REVERSAL previous run status: {e}")
+        
+        try:
+            logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
+            import reversal_scanner
+            with scanner_execution_lock:
+                total = reversal_scanner.start()   # returns int
+                time.sleep(15)
+            if total == 0:
+                msg = (
+                    f"🔄 REVERSAL SCAN — {today_str}\n"
+                    f"ℹ️ No mean-reversion setups found today.\n"
+                    f"All stocks screened — none passed the filters."
+                )
+                logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification (removed 2026-06-17)")
+            else:
+                logger.info(f"🔄 REVERSAL | Completed — {total} alert(s) sent")
+            
+            # Successfully finished Reversal scan for today — MARK COMPLETED AND EXIT
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                "REVERSAL",
+                status="OK",
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=total,
+                scheduled_for="18:30 IST"
+            )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
+            logger.info("✅ REVERSAL SCANNER | Completed successfully for today — waiting for tomorrow.")
+            retry_count = 0  # reset on successful completion
+            continue
+            
+        except Exception as exc:
+            retry_count += 1
+            now = datetime.now(IST)
+            
+            # Force stop at midnight (between 00:00 and 06:00)
+            if 0 <= now.hour < 6:
+                logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
+                upsert_scanner_health(
+                    "REVERSAL",
+                    status="DOWN",
+                    error_msg=f"Stopped at midnight after {retry_count} failed attempts",
+                    scheduled_for="18:30 IST"
+                )
+                retry_count = 0
+                continue
+            
+            # Retry logic
+            tb = traceback.format_exc()
+            msg = (
+                f"🚨 REVERSAL SCAN FAILED — {now.strftime('%Y-%m-%d')} (Retry #{retry_count})\n"
+                f"Error: {exc}\n\n"
+                f"{tb[-500:]}"
+            )
+            logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
+            
+            from database import upsert_scanner_health, insert_notification
+            upsert_scanner_health(
+                "REVERSAL",
+                status="DOWN",
+                error_msg=str(exc)[:500],
+                retry_count=retry_count,
+                scheduled_for="18:30 IST"
+            )
+            
+            # Notify admin on first failure only
+            if retry_count == 1:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"🚨 <b>REVERSAL SCANNER CRASHED</b>\n\n"
+                        f"❌ <b>Error:</b> {str(exc)[:300]}\n"
+                        f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}\n"
+                        f"🔄 Will auto-retry with backoff until midnight."
+                    )
+                except Exception:
+                    pass
+                try:
+                    insert_notification(
+                        notif_type="scanner_down",
+                        title="🚨 REVERSAL Scanner CRASHED",
+                        message=f"Error: {str(exc)[:400]}. Auto-retrying."
+                    )
+                except Exception:
+                    pass
+            
+            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
+            logger.info(f"⏳ Sleeping for {wait_time:.1f}s before next REVERSAL retry...")
+            time.sleep(wait_time)
 
+
+def run_bayesian_loop():
+    """Runs the Bayesian Updater loop. Triggers immediately on boot, then waits 24h."""
+    from bayesian_updater import run_bayesian_updater
+    while True:
+        try:
+            logger.info("🧠 BAYESIAN UPDATER | Waking up to process trades...")
+            run_bayesian_updater()
+        except Exception as e:
+            logger.exception("❌ BAYESIAN UPDATER | Crashed")
+            # Telegram notification removed (2026-06-17)
+        
+        # Run daily (86400 seconds)
+        logger.info("🧠 BAYESIAN UPDATER | Sleeping for 24h")
+        time.sleep(86400)
+
+
+# =====================================================================================
+# TIME-BASED SCHEDULER
+# =====================================================================================
+def run_system_scheduler():
+    """
+    Custom time-based scheduler (replaces schedule library for reliability).
+    
+    Timing:
+    - 1:00 AM: Daily Builder (fresh watchlist)
+    - 1:05 AM: Wealth Engine (initial setup with fresh watchlist)
+    - 8:30 AM: Verify file readiness
+    - Market hours (9:15 AM - 3:30 PM): Wealth Engine hourly at :05 to generate new buy signals
+    """
+    from daily_builder import build_watchlist
+    from wealth_engine import run_wealth_scan
+    from config import WATCHLIST_PATH, DATA_DIR
+    from database import upsert_scanner_health
+    
+    WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+    
+    # Track which tasks have run today
+    daily_builder_ran = False
+    wealth_initial_ran = False
+    verify_scans_ran = False
+    last_wealth_market_run = None  # Track last market-hours wealth run
+
+    def safe_run_daily_builder():
+        """Helper to run the builder and update the memory cache."""
+        try:
+            import os
+            import pandas as pd
+            from config import WATCHLIST_PATH
+            
+            already_fresh = False
+            if os.path.exists(WATCHLIST_PATH):
+                try:
+                    df = pd.read_parquet(WATCHLIST_PATH)
+                    if "Scan Time" in df.columns and not df.empty:
+                        scan_date_str = str(df["Scan Time"].iloc[0])[:10]
+                        if datetime.strptime(scan_date_str, "%Y-%m-%d").date() >= datetime.now(IST).date():
+                            already_fresh = True
+                except Exception:
+                    pass
+            
+            if already_fresh:
+                logger.info("🕒 SCHEDULER | [1:00 AM] Watchlist already fresh for today. Skipping redundant build.")
+            else:
+                logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
+                from daily_builder import main as build_watchlist
+                build_watchlist()
+            
+            # Update memory cache
+            from watchlist_cache import get_watchlist
+            get_watchlist()
+            
+            # Mark success
+            now_str = datetime.now(IST).isoformat()
+            try:
+                upsert_scanner_health(
+                    "DAILY_BUILDER",
+                    status="OK",
+                    last_success=now_str,
+                    scheduled_for="01:00 IST"
+                )
+            except Exception:
+                logger.warning("⚠️ Could not update Daily Builder health status")
+            logger.info("✅ Daily Builder completed successfully")
+            return True
+        except Exception as e:
+            logger.exception("❌ SCHEDULER | Daily Builder crashed")
+            # Telegram notifications disabled (2026-06-17)
+            try:
+                upsert_scanner_health(
+                    "DAILY_BUILDER",
+                    status="DOWN",
+                    error_msg=str(e)[:500],
+                    scheduled_for="01:00 IST"
+                )
+            except Exception:
+                pass
+            return False
+
+    def safe_run_wealth_scan_initial():
+        """Run Wealth Engine at 1:05 AM with fresh watchlist."""
+        try:
+            logger.info("🕒 SCHEDULER | [1:05 AM] Triggering Wealth Engine (initial setup)")
+            run_wealth_scan()
+            
+            # Mark success
+            now_str = datetime.now(IST).isoformat()
+            upsert_scanner_health(
+                "Wealth Engine",
+                status="OK",
+                last_success=now_str,
+                scheduled_for="01:05 IST"
+            )
+            logger.info("✅ Wealth Engine (initial) completed successfully")
+            return True
+        except Exception as e:
+            logger.exception("❌ SCHEDULER | Wealth Engine (initial) crashed")
+            upsert_scanner_health(
+                "Wealth Engine",
+                status="DOWN",
+                error_msg=str(e)[:500],
+                scheduled_for="01:05 IST"
+            )
+            return False
+
+    def safe_run_wealth_market_hours():
+        """Run Wealth Engine during market hours (5-min loop from 9:15 AM to 3:30 PM)."""
+        nonlocal last_wealth_market_run
+        try:
+            now = datetime.now(IST)
+            # Only run once per 5 minutes (300 seconds)
+            if last_wealth_market_run and (now - last_wealth_market_run).total_seconds() < 300:
+                return False
+            
+            logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
+            run_wealth_scan()
+            
+            # Run exit monitor in isolated try/except so a crash here
+            # does NOT mark Wealth Engine as DOWN (Issue #5 from audit)
+            try:
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
+                from multibagger import run_standalone_exit_monitor
+                run_standalone_exit_monitor()
+            except Exception as exit_err:
+                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed (Wealth Engine unaffected): {exit_err}")
+            
+            last_wealth_market_run = now
+            # Mark success
+            now_str = now.isoformat()
+            upsert_scanner_health(
+                "Wealth Engine",
+                status="OK",
+                last_success=now_str,
+                scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+            )
+            logger.info("✅ Wealth Engine (market hours) completed successfully")
+            return True
+        except Exception as e:
+            logger.exception("❌ SCHEDULER | Wealth Engine (market hours) crashed")
+            upsert_scanner_health(
+                "Wealth Engine",
+                status="DOWN",
+                error_msg=str(e)[:500],
+                scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+            )
+            return False
+
+    def verify_scans():
+        """Verify file readiness at 8:30 AM."""
+        logger.info("🕒 SCHEDULER | [8:30 AM] Verifying file readiness for today's scan")
+        now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
+
+        # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
+        logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
+        block_until_watchlist_ready()
+
+        # 2. Verify Wealth Engine
+        try:
+            if not os.path.exists(WEALTH_PATH):
+                logger.warning(f"⚠️ Wealth system missing from disk. Attempting DB restore for {today_str}...")
+                try:
+                    from database import download_parquet_from_db_today
+                    restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
+                    if restored and os.path.exists(WEALTH_PATH):
+                        logger.info("✅ Wealth system restored from DB (today's data).")
+                    else:
+                        logger.warning("⚠️ Wealth system missing from DB too! Forcing fresh run.")
+                        safe_run_wealth_scan_initial()
+                except Exception as e:
+                    logger.exception(f"Failed to restore wealth from DB; forcing run: {e}")
+                    safe_run_wealth_scan_initial()
+            else:
+                mtime_ts = os.path.getmtime(WEALTH_PATH)
+                mtime = datetime.fromtimestamp(mtime_ts, IST)
+                if mtime.date() < now.date():
+                    logger.warning(f"⚠️ Wealth system is from {mtime.date()}, not today ({today_str}). Attempting DB restore...")
+                    try:
+                        from database import download_parquet_from_db_today, delete_stale_parquet_from_db
+                        restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
+                        if restored and os.path.exists(WEALTH_PATH):
+                            logger.info("✅ Wealth system restored from DB (today's data).")
+                        else:
+                            logger.warning("⚠️ Wealth system not in today's DB data. Deleting old entries and forcing run.")
+                            delete_stale_parquet_from_db("wealth_engine")
+                            safe_run_wealth_scan_initial()
+                    except Exception as e:
+                        logger.exception(f"Failed to restore wealth; forcing run: {e}")
+                        safe_run_wealth_scan_initial()
+                else:
+                    logger.info(f"✅ Wealth system from today ({mtime.date()}) is fresh.")
+        except Exception as e:
+            logger.exception(f"Failed to verify wealth system: {e}")
+
+        logger.info("✅ SCHEDULER | [8:30 AM] File readiness verification complete")
+
+    logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
+    
+    # Run boot verification
+    verify_scans()
+
+    # Main scheduler loop
+    while True:
+        now = datetime.now(IST)
+        
+        # Weekdays only
+        if now.weekday() < 5:  # Mon-Fri
+            # 1:00 AM - Daily Builder
+            if now.hour == 1 and now.minute >= 0 and not daily_builder_ran:
+                daily_builder_ran = True
+                safe_run_daily_builder()
+            elif now.hour != 1:
+                daily_builder_ran = False
+            
+            # Refresh now in case daily builder blocked for a long time
+            now = datetime.now(IST)
+            
+            # 1:30 AM - Wealth Engine (initial)
+            if now.hour == 1 and now.minute >= 30 and not wealth_initial_ran:
+                wealth_initial_ran = True
+                safe_run_wealth_scan_initial()
+            elif now.hour != 1:
+                wealth_initial_ran = False
+            
+            now = datetime.now(IST)
+            
+            # 8:30 AM - Verify Scans
+            if now.hour == 8 and now.minute >= 30 and not verify_scans_ran:
+                verify_scans_ran = True
+                verify_scans()
+            elif now.hour != 8:
+                verify_scans_ran = False
+            
+            from market_utils import is_market_open
+            # Market hours: Wealth Engine every 5 minutes from 9:15 AM - 3:30 PM
+            if is_market_open(now):
+                safe_run_wealth_market_hours()
+                check_scanner_staleness(now)
+                
+        # Sunday only
+        time.sleep(30)  # Check every 30 seconds
+
+
+def check_scanner_staleness(now):
+    """Check if any active scanner has gone stale (no heartbeat in expected cadence × 3).
+    
+    Runs during market hours only. If a scanner's last_success is too old,
+    marks it DOWN and sends a Telegram + in-app notification.
+    """
+    # Expected max gap (in minutes) for each scanner before it's considered stale
+    SCANNER_CADENCE = {
+        "MULTI_TF":            20,   # runs every 5 min → stale if no heartbeat in 20 min
+        "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
+        "Wealth Engine":       20,   # runs every 5 min during market hours
+        "DAILY_BUILDER":       "DAILY",
+        "EOD":                 "DAILY",
+        "REVERSAL":            "DAILY"
+    }
+    
+    # Throttle: only run this check every 15 minutes
+    if not hasattr(check_scanner_staleness, '_last_check'):
+        check_scanner_staleness._last_check = None
+    
+    if check_scanner_staleness._last_check and (now - check_scanner_staleness._last_check).total_seconds() < 900:
+        return
+    check_scanner_staleness._last_check = now
+    
+    try:
+        from database import get_all_scanner_health, upsert_scanner_health, insert_notification
+        health_rows = get_all_scanner_health()
+        
+        for row in health_rows:
+            sc = row.get("scanner_name")
+            if sc not in SCANNER_CADENCE:
+                continue
+            
+            # Skip if already DOWN (don't spam)
+            if row.get("status") == "DOWN":
+                continue
+                
+            last_success = row.get("last_success")
+            if not last_success:
+                continue
+            
+            # Parse last_success timestamp
+            try:
+                if isinstance(last_success, str):
+                    from datetime import datetime as dt
+                    ls = dt.fromisoformat(last_success.replace('Z', '+00:00'))
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=IST)
+                else:
+                    ls = last_success
+                    if ls.tzinfo is None:
+                        ls = ls.replace(tzinfo=IST)
+                
+                cadence = SCANNER_CADENCE[sc]
+                is_stale = False
+                stale_msg = ""
+                gap_minutes = (now - ls).total_seconds() / 60.0
+                
+                if cadence == "DAILY":
+                    # Daily scanners must succeed at least once today by 11:30 PM
+                    # (For DAILY_BUILDER, it should succeed by 2 AM, but we can just check if it succeeded today by 11:30 PM)
+                    if now.hour == 23 and now.minute >= 30:
+                        if ls.date() != now.date():
+                            is_stale = True
+                            stale_msg = f"Stale: Did not complete successfully today (last success: {ls.strftime('%Y-%m-%d')})"
+                else:
+                    max_gap = cadence
+                    if gap_minutes > max_gap:
+                        is_stale = True
+                        stale_msg = f"Stale: No heartbeat in {int(gap_minutes)} minutes (expected every {max_gap // 3} min)"
+                
+                if is_stale:
+                    logger.warning(f"🕐 STALENESS DETECTED | {sc} | {stale_msg}")
+                    
+                    upsert_scanner_health(sc, status="DOWN", error_msg=stale_msg)
+                    
+                    # Telegram alert
+                    try:
+                        from telegram_engine import queue_telegram_message
+                        msg = (
+                            f"🕐 <b>SCANNER STALE</b>\n\n"
+                            f"📛 <b>Scanner:</b> {sc}\n"
+                            f"⏱ <b>Last heartbeat:</b> {int(gap_minutes)} min ago\n"
+                            f"🕐 <b>Time:</b> {now.strftime('%H:%M:%S IST')}"
+                        )
+                        queue_telegram_message(msg)
+                    except Exception:
+                        logger.exception(f"❌ Could not send staleness Telegram for {sc}")
+                    
+                    # In-app notification and Push
+                    try:
+                        from push_service import send_push_to_all
+                        insert_notification(
+                            notif_type="scanner_stale",
+                            title=f"🕐 {sc} is STALE",
+                            message=stale_msg
+                        )
+                        send_push_to_all(f"❌ {sc} STALE/DOWN", stale_msg)
+                    except Exception:
+                        pass
+                        
+            except Exception:
+                logger.warning(f"Could not parse last_success for {sc}: {last_success}")
+                
+    except Exception:
+        logger.exception("❌ Staleness check failed")
+
+
+# =====================================================================================
+# SELF-HEALING WATCHDOG  (runs in background thread)
+#
+# EOD and REVERSAL are intentionally excluded from auto-restart — they run once and
+# exit.  The watchdog will see completed_cleanly=True and simply drop them.
+# =====================================================================================
+
+# [VERSION: TRIGGER_AI_WORKER_v1.2] Uncomment AI Worker thread and imports to enable background concall worker daemon
+from ai_worker import run_worker_loop
+from pledge_worker import worker_loop as run_pledge_loop
 
 def run_multibagger_scanner():
     """
@@ -529,8 +1082,6 @@ ONE_SHOT_THREADS = {}
 ALL_THREADS = {**RESTARTABLE_THREADS, **ONE_SHOT_THREADS}
 
 
-
-
 def start_thread(name, target):
     t = threading.Thread(target=lambda: _run(name, target), name=name, daemon=True)
     t.completed_cleanly = False
@@ -611,6 +1162,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "REVERSAL":      _trigger_reversal,
         "Wealth Engine": _trigger_wealth_engine,
         "INTRADAY":      _trigger_intraday,
+        "1H":            _trigger_live_scanner,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
@@ -627,6 +1179,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "EOD":           lambda: __import__('eod_scanner')._scan_lock,
         "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
+        "INTRADAY":      lambda: __import__('intraday')._scan_lock,
+        "1H":            lambda: __import__('live_scanner')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
