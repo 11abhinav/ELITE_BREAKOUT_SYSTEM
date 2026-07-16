@@ -1021,6 +1021,22 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 - **Rule**: When evaluating target progressions (e.g. T1 -> T2 -> T3), do not assume all targets will be populated. Different scanning timeframes (like MF/Multi-Timeframe) intentionally omit T3 to cap exposure.
 - **Guideline**: The state machine must elegantly fallback. If `T3` is null or missing when `T2` is hit, the engine must immediately liquidate the entire remaining position (`shares_to_sell = rem_shares`) rather than calculating a percentage exit and leaving stranded shares.
 
+### 29.11 Observability Blindspots in Exception Handlers
+- **Rule**: Catching exceptions to prevent crashes is necessary, but using bare `except Exception:` without logging tracebacks causes catastrophic losses of observability.
+- **Guideline**: If an exception is expected to happen and shouldn't crash the loop, ALWAYS use `logger.exception(f"Context msg: {e}")`. This ensures custom database logging handlers that rely on `sys.exc_info()` can correctly insert the full traceback into the `system_logs` table for admin debugging.
+
+### 29.12 Graceful Degradation in Date Parsing Fallbacks
+- **Rule**: When parsing dynamic database string values (like `alert_date`), failing to parse the date MUST fallback to the safest, most neutral value possible.
+- **Guideline**: In the `multibagger` auto-exit monitor, an unparseable date defaulted to `days_held = 999`. This erroneously triggered time-based holding decay exits, ruining the portfolio logic. Always use safe, non-triggering defaults (like `days_held = 0`) when date parsing exceptions occur, and log the failure.
+
+### 29.13 Pandas Timezone Comparison TypeErrors
+- **Rule**: You cannot filter a localized timezone-aware pandas index (e.g. `df.index`) using a timezone-naive datetime object (e.g. `block_start`). 
+- **Guideline**: Pandas will natively throw a silent `TypeError: Cannot compare tz-naive and tz-aware timestamps`. If the dataframe is localized to `Asia/Kolkata`, explicitly ensure the comparison variable is either localized or converted: `block_start = block_start.tz_localize(IST) if getattr(block_start, 'tzinfo', None) is None else block_start.tz_convert(IST)`.
+
+### 29.14 API JSON Parse Vulnerabilities
+- **Rule**: If a frontend-facing health API relies on database values formatted as JSON, it must gracefully catch JSON parse failures.
+- **Guideline**: In Railway or similar serverless containers, an uncaught exception in the `/health` check will cause the load balancer to forcefully restart the container. Wrap API JSON loading in `try/except as e:` and use `logger.warning()` rather than `logger.exception()` if it runs frequently, to prevent flooding the database `system_logs` with recurring errors.
+
 </textarea>
 
 
