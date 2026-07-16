@@ -443,10 +443,49 @@ def init_db():
                         symbol        TEXT NOT NULL,
                         pdf_url       TEXT NOT NULL,
                         analysis_data JSONB NOT NULL,
-                        created_at    TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         UNIQUE (symbol, pdf_url)
                     )
                 """)
+                # [VERSION: CONCALL_CACHE_TS_MIGRATION_v1.0] Migrate created_at from TEXT to TIMESTAMPTZ
+                # The TEXT column stored values like '2026-06-14 12:41:10.76633+05:30' which caused
+                # InvalidDatetimeFormat errors when casting back to TIMESTAMP in queries.
+                try:
+                    cur.execute("""
+                        DO $$
+                        BEGIN
+                            -- Only migrate if column is still TEXT type
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'ai_concall_cache_v3'
+                                  AND column_name = 'created_at'
+                                  AND data_type = 'text'
+                            ) THEN
+                                -- Convert TEXT → TIMESTAMPTZ using safe regex to strip microseconds/tz suffix
+                                ALTER TABLE ai_concall_cache_v3
+                                    ALTER COLUMN created_at TYPE TIMESTAMPTZ
+                                    USING (
+                                        CASE
+                                            WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                                            THEN (
+                                                regexp_replace(
+                                                    created_at,
+                                                    '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*',
+                                                    '\1'
+                                                )
+                                            )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+                                            ELSE NOW()
+                                        END
+                                    );
+                                ALTER TABLE ai_concall_cache_v3
+                                    ALTER COLUMN created_at SET DEFAULT NOW();
+                            END IF;
+                        END
+                        $$;
+                    """)
+                    logger.info("✅ ai_concall_cache_v3.created_at migrated to TIMESTAMPTZ (or already correct)")
+                except Exception as _ts_err:
+                    logger.warning(f"⚠️ ai_concall_cache_v3 TIMESTAMPTZ migration skipped: {_ts_err}")
                 # [VERSION: CONCALL_CACHE_UNIQUE_FIX_v1.0] Migration: drop old pdf_url-only unique
                 # constraint (which caused silent save failures when two symbols shared a PDF URL)
                 # and replace with the correct (symbol, pdf_url) composite unique constraint.
@@ -2048,17 +2087,7 @@ def has_error_concall_cache_within_24h(symbol: str) -> bool:
                     FROM ai_concall_cache_v3
                     WHERE symbol = %s
                       AND (analysis_data->>'error') IS NOT NULL
-                      AND (
-                          CASE
-                              WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
-                              THEN (
-                                  -- Strip everything after HH:MM:SS to avoid fractional seconds / timezone suffix
-                                  -- causing ::TIMESTAMP cast failures (e.g. '2026-06-14 12:41:10.76633+')
-                                  regexp_replace(created_at, '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*', '\\1')
-                              )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
-                              ELSE NULL
-                          END
-                      ) >= NOW() - INTERVAL '7 days'
+                      AND created_at >= NOW() - INTERVAL '7 days'
                     LIMIT 1
                 """, (symbol,))
                 return cur.fetchone() is not None
@@ -2079,17 +2108,7 @@ def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
                     SELECT analysis_data
                     FROM ai_concall_cache_v3
                     WHERE symbol = %s
-                      AND (
-                          CASE
-                              WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'
-                              THEN (
-                                  -- Strip fractional seconds / timezone suffix before casting
-                                  -- e.g. '2026-06-14 12:41:10.76633+' -> '2026-06-14 12:41:10'
-                                  regexp_replace(created_at, '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*', '\\1')
-                              )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
-                              ELSE NULL
-                          END
-                      ) >= NOW() - INTERVAL '1 day' * %s
+                      AND created_at >= NOW() - INTERVAL '1 day' * %s
                     ORDER BY id DESC
                     LIMIT 1
                 """, (symbol, max_age_days))
