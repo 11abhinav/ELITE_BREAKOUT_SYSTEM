@@ -1152,6 +1152,25 @@ The `performance_tracker.py` is fully decoupled from the Scanners. It processes 
 - **UI Truth Sync:** The `scheduled_for` database string must perfectly mirror the backend chron constraint. EOD and Reversal schedule strings were corrected to `18:30 IST` and Multibagger to `Daily 19:00 IST` to prevent admin confusion regarding trigger times.
 - **Zero-Alert Silence:** Scanners are intentionally designed to succeed silently if 0 alerts are found (without Telegram spam). Admins must verify health via the "Scanners Health" dashboard pane, which necessitates that the dashboard UI remains highly fault-tolerant (see 30.1).
 
+---
+
+## 31. Scanner Notifications & Admin Push Architecture
+
+The notification system uses `push_service.py` (`send_push_to_all`) to dispatch real-time web push notifications to the Admin Dashboard and subscribed devices.
+
+### 31.1 Notification States per Scanner
+
+To ensure administrators have complete observability without relying solely on Telegram, the system pushes notifications across three critical execution states:
+
+| Scanner | Success (Empty) / 0 Alerts | Success / >0 Alerts | Crash / Degraded |
+| :--- | :--- | :--- | :--- |
+| **EOD Scanner** | `send_push_to_all` triggered (Empty Watchlist or 0 breakouts). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on Exception (`DOWN`) or Stale Data (`DEGRADED`). |
+| **Reversal Scanner** | `send_push_to_all` triggered (Empty Watchlist or 0 reversals). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on Exception (`DOWN`) or Stale Data (`DEGRADED`). |
+| **Multibagger** | `send_push_to_all` triggered (0 qualified stocks). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on execution crash (`main.py`) or Incomplete Data (`DEGRADED`). |
+
+### 31.2 Throttle Bypass
+For automated background scanner tasks, the `bypass_throttle=True` flag is heavily utilized in `send_push_to_all` to guarantee the delivery of scanner completion states, bypassing the default anti-spam caching limits. This ensures that even if scanners finish closely together, notifications are reliably delivered to the Admin Dashboard.
+
 </textarea>
 
 
