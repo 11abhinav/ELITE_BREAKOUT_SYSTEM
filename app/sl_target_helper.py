@@ -1621,7 +1621,8 @@ def compute_sl_and_target(
     kwargs["atr"] = atr
     kwargs["candle_range"] = candle_range
 
-    
+    if scanner in ("INTRADAY", "15M"):
+        adapter = IntradayAdapter(scanner, kwargs)
     elif scanner in ("1H", "LIVE_1H"):
         adapter = HourlyAdapter(scanner, kwargs)
     elif scanner == "REVERSAL":

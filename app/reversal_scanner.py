@@ -38,8 +38,8 @@ from config import (
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
 from trade_ranking_engine import TradeRankingEngine
-from macro_utils import MarketRegimeEngine
-from strategy_policy import StrategyPolicyEngine, get_nifty_20d_return, get_macro_regime
+from macro_utils import MarketRegimeEngine, get_nifty_20d_return, get_macro_regime
+from strategy_policy import StrategyPolicyEngine
 
 
 logger = logging.getLogger(__name__)
