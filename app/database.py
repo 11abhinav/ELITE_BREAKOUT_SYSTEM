@@ -474,7 +474,7 @@ def init_db():
                                                 regexp_replace(
                                                     created_at,
                                                     '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*',
-                                                    '\1'
+                                                    '\\1'
                                                 )
                                             )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
                                             ELSE NOW()
