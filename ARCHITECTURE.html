@@ -1116,6 +1116,29 @@ The `performance_tracker.py` is fully decoupled from the Scanners. It processes 
 ### 29.14 API JSON Parse Vulnerabilities
 - **Rule**: If a frontend-facing health API relies on database values formatted as JSON, it must gracefully catch JSON parse failures.
 - **Guideline**: In Railway or similar serverless containers, an uncaught exception in the `/health` check will cause the load balancer to forcefully restart the container. Wrap API JSON loading in `try/except as e:` and use `logger.warning()` rather than `logger.exception()` if it runs frequently, to prevent flooding the database `system_logs` with recurring errors.
+---
+
+## 30. Incident Reports & Root Cause Analyses (RCA)
+
+### 30.1 Admin Dashboard Infinite Loading Freeze (July 2026)
+**Incident:** The Admin Dashboard continuously showed the loading overlay and failed to render, while backend server logs showed no crashes. EOD and Reversal scanners were incorrectly reported as not triggering.
+**Root Cause:** 
+- A closed trade in the database had a missing or zero cost basis, causing the backend performance tracking calculations to yield `NaN` (Not-a-Number) and `Infinity`.
+- The `performance_tracker.py` serialized these mathematical anomalies directly into the `performance_data.json` payload.
+- The browser-side JSON parser threw an uncaught `SyntaxError: Unexpected token N in JSON at position X`, causing the frontend JavaScript promise to reject silently and permanently freeze the UI in a loading state.
+**Resolution & Architectural Rule:**
+- **Sanitization:** All JSON payloads transmitted to the frontend MUST sanitize float values. `performance_tracker.py` was updated to replace `math.isnan` and `math.isinf` values with `0.0` or `null` before serialization.
+- **Frontend Fault Tolerance:** The frontend API fetch calls in `admin_dashboard.html` were wrapped in `try/catch` blocks. If parsing fails, the UI must gracefully degrade to a fallback state (e.g., "No alert history") rather than halting the entire dashboard execution thread.
+
+### 30.2 Background Thread Deletion & Schedule Desync
+**Incident:** Following a system orchestrator (`main.py`) refactor, essential background threads (like the Daily Builder and Staleness Watchdog) ceased executing on local deployments.
+**Root Cause:**
+- An automated patch inadvertently deleted the `run_system_scheduler` and `run_performance_tracker` functions from `main.py`, as well as removing them from the `RESTARTABLE_THREADS` orchestration dictionary.
+- Schedule labels in `admin_dashboard.html` became desynchronized from the actual `wait_for_window` constraints.
+**Resolution & Architectural Rule:**
+- The missing blocks were restored by directly extracting them from `main_origin.py`.
+- **UI Truth Sync:** The `scheduled_for` database string must perfectly mirror the backend chron constraint. EOD and Reversal schedule strings were corrected to `18:30 IST` and Multibagger to `Daily 19:00 IST` to prevent admin confusion regarding trigger times.
+- **Zero-Alert Silence:** Scanners are intentionally designed to succeed silently if 0 alerts are found (without Telegram spam). Admins must verify health via the "Scanners Health" dashboard pane, which necessitates that the dashboard UI remains highly fault-tolerant (see 30.1).
 
 </textarea>
 
