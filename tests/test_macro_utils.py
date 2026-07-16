@@ -23,16 +23,21 @@ def setup_function():
 
 @patch('macro_utils._get_daily_nifty')
 def test_get_macro_regime(mock_fetch):
-    # Create mock dataframe with 20 rows
-    dates = pd.date_range('2026-01-01', periods=20)
-    data = {'Close': [100.0] * 19 + [110.0]} # 10% return
+    # Create mock dataframe with 250 rows to satisfy MarketRegimeEngine's len(df) >= 200 check
+    dates = pd.date_range('2026-01-01', periods=250)
+    data = {
+        'Close': [100.0] * 249 + [110.0],
+        'High': [100.0] * 249 + [110.0],
+        'Low': [100.0] * 249 + [110.0],
+    } # 10% return
     mock_df = pd.DataFrame(data, index=dates)
     mock_fetch.return_value = mock_df
     
     assert get_macro_regime() == "BULL"
     
     # Test BEAR
-    data['Close'] = [100.0] * 19 + [90.0]
+    data['Close'] = [100.0] * 249 + [90.0]
+    data['Low'] = [100.0] * 249 + [90.0]
     mock_df = pd.DataFrame(data, index=dates)
     
     mock_fetch.return_value = mock_df
