@@ -99,7 +99,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             chunk_size = 100
             for i in range(0, len(yf_symbols), chunk_size):
                 chunk = yf_symbols[i:i+chunk_size]
-                df = yf.download(" ".join(chunk), period="1d", group_by="ticker", progress=False, threads=True)
+                df = yf.download(" ".join(chunk), period="1d", group_by="ticker", progress=False, threads=True, auto_adjust=True)
                 
                 if len(chunk) == 1:
                     # Single ticker returns flat columns: Open, High, Low, Close

@@ -160,9 +160,9 @@ class PriceProvider:
             tickers_arg = " ".join(tickers)
             try:
                 if start and end:
-                    df = yf.download(tickers=tickers_arg, start=start, end=end, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60)
+                    df = yf.download(tickers=tickers_arg, start=start, end=end, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True)
                 else:
-                    df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60)
+                    df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True)
                 # success
                 last_exc = None
                 break
