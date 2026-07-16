@@ -145,9 +145,10 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Op
     if df5 is None or len(df5) < 40:
         return None
 
-    block_close = setup["last_15m_time"]
+    block_start = setup["last_15m_time"]
     
-    seq = df5.loc[(df5.index > block_close - pd.Timedelta(minutes=15)) & (df5.index <= block_close)].copy()
+    # Yfinance labels candles by their start time. A 15m candle at 09:15 contains 5m candles at 09:15, 09:20, and 09:25.
+    seq = df5.loc[(df5.index >= block_start) & (df5.index < block_start + pd.Timedelta(minutes=15))].copy()
     # [FINDING-4 FIX] Relaxed from == 3 to >= 2. YFinance timestamp misalignment
     # or missing bars caused the exact-3 check to reject 100% of triggers.
     if len(seq) < 2:
@@ -178,7 +179,8 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Op
         ((seq["Low"] <= zone_hi) & (seq["High"] >= zone_lo) & (seq["Close"] > resistance)).any()
     )
 
-    recent = df5.loc[df5.index <= block_close - pd.Timedelta(minutes=15)].copy()
+    # recent should be all candles strictly before the breakout block starts
+    recent = df5.loc[df5.index < block_start].copy()
     if len(recent) < 20:
         return None
 
