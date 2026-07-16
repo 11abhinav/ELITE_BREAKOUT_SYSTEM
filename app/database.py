@@ -1440,12 +1440,21 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
             try:
                 with conn.cursor() as cur:
                     # Verify alert exists and get some base data
-                    cur.execute("SELECT status, stop_loss, initial_stop_loss, shares_bought FROM alerts WHERE id = %s", (alert_id,))
+                    cur.execute("SELECT status, stop_loss, initial_stop_loss, shares_bought, scanner FROM alerts WHERE id = %s", (alert_id,))
                     row = cur.fetchone()
                     if not row:
                         return False
                     
-                    old_status, current_sl, initial_sl, shares_bought = row
+                    old_status, current_sl, initial_sl, shares_bought, scanner_name = row
+                    
+                    if scanner_name in ('MULTIBAGGER', 'WEALTH'):
+                        msg = f"Blocked recalculation for {scanner_name} alert #{alert_id}. Long-term investments do not support tick-by-tick replays or trailing SLs."
+                        logger.warning(f"⚠️ {msg}")
+                        # Show notification to Admin
+                        from database import insert_notification
+                        insert_notification('error', 'Recalculation Blocked', msg)
+                        return False
+                    
                     
                     # If initial_stop_loss is null for some legacy reason, use current_sl as fallback
                     reset_sl = initial_sl if initial_sl else current_sl

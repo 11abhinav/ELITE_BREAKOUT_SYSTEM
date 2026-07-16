@@ -1390,7 +1390,7 @@ def api_recalculate_alert():
             trigger_performance_rebuild(recalc_ids=[int(aid) for aid in alert_ids])
             return jsonify({'success': True, 'count': success_count})
         else:
-            return jsonify({'error': 'Alerts not found or reset failed'}), 400
+            return jsonify({'error': 'Failed to recalculate: Alerts not found, or recalculation was blocked for long-term trades (Multibagger/Wealth).'}), 400
     except Exception as e:
         logger.exception('❌ /api/alert/recalculate failed')
         return jsonify({'error': str(e)}), 500

@@ -2867,9 +2867,14 @@
         const isMissingSLTarget = (!t.stop_loss || t.stop_loss <= 0 || !t.target_price || t.target_price <= 0) && t.status === 'OPEN' && t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH';
         const missingStyle = isMissingSLTarget ? 'background-color: rgba(255, 77, 109, 0.15); border-left: 3px solid #ff4d6d;' : '';
 
+        const isLongTerm = (t.scanner === 'MULTIBAGGER' || t.scanner === 'WEALTH');
+        const checkboxHtml = isLongTerm ? 
+            `<span title="Cannot recalculate long-term trades" style="color:var(--muted); font-size:10px;">—</span>` : 
+            `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
+
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')" style="${missingStyle}">
-      <td onclick="event.stopPropagation();"><input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()"></td>
+      <td onclick="event.stopPropagation();">${checkboxHtml}</td>
       <td>${isOpen ? '\u25bc' : '\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
