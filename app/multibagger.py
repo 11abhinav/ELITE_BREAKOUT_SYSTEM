@@ -985,9 +985,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         adate = datetime.strptime(str(pos["alert_date"])[:10], "%Y-%m-%d").date()
                         days_held = (datetime.now(IST).date() - adate).days
                     else:
-                        days_held = 999
-                except Exception:
-                    days_held = 999
+                        days_held = 0
+                except Exception as e:
+                    logger.exception(f"Failed to parse alert_date for {symbol}: {e}")
+                    days_held = 0
 
                 exit_triggered = False
                 exit_reason = ""

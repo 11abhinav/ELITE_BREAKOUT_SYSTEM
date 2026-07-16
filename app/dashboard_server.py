@@ -702,8 +702,8 @@ def health():
                     gen_dt = gen_dt.replace(tzinfo=IST)
                 now_dt = datetime.now(IST)
                 perf_age = round((now_dt - gen_dt).total_seconds() / 3600, 1)
-    except Exception:
-        logger.exception("❌ Health check failed to load/parse performance data")
+    except Exception as e:
+        logger.warning(f"⚠️ Health check failed to parse performance data: {e}")
 
     return jsonify({
         "status":            "ok",

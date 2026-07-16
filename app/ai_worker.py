@@ -121,8 +121,8 @@ def run_ai_worker_scan_once() -> dict:
                         logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
                         try:
                             upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall', error_msg)
-                        except Exception:
-                            logger.exception("Failed to upsert fetch_error for AI Worker")
+                        except Exception as inner_e:
+                            logger.exception(f"Failed to upsert fetch_error for AI Worker: {inner_e}")
                         upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
 
                         # Classify error for retry vs. negative-cache strategy
@@ -145,8 +145,8 @@ def run_ai_worker_scan_once() -> dict:
                     logger.exception(f"❌ [AI WORKER] Error processing {sym}")
                     try:
                         upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall_failure', str(e))
-                    except Exception:
-                        logger.exception(f"Failed to upsert fetch_error for {sym}")
+                    except Exception as inner_e:
+                        logger.exception(f"Failed to upsert fetch_error for {sym}: {inner_e}")
                     failed_stocks.append(sym)
                     time.sleep(10)
                     
@@ -163,8 +163,8 @@ def run_ai_worker_scan_once() -> dict:
                     try:
                         upsert_fetch_error('ai', 'AI Worker', fsym, None, 'ai_concall', 'Giving up after retries')
                         save_concall_analysis(fsym, f"NONE_{fsym}", {"error": "Giving up after retries"})
-                    except Exception:
-                        logger.exception(f"Failed to upsert final fetch_error for {fsym}")
+                    except Exception as inner_e:
+                        logger.exception(f"Failed to upsert final fetch_error for {fsym}: {inner_e}")
                         
         return {"total_count": total_stocks, "processed_count": db_processed_count}
         
@@ -279,8 +279,8 @@ def run_worker_loop():
                 from push_service import send_push_to_all
                 insert_notification("admin", f"❌ AI WORKER CRASHED (DOWN)", f"Error: {str(e)[:200]}")
                 send_push_to_all("❌ AI WORKER DOWN", f"Crash: {str(e)[:100]}")
-            except Exception:
-                pass
+            except Exception as outer_e:
+                logger.exception(f"Failed to send crash notifications: {outer_e}")
             
         time.sleep(300)
 

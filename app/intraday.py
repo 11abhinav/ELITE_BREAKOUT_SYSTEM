@@ -146,6 +146,10 @@ def evaluate_5m_trigger(df5: pd.DataFrame, setup: dict, ist_now: datetime) -> Op
         return None
 
     block_start = setup["last_15m_time"]
+    if getattr(block_start, 'tzinfo', None) is None:
+        block_start = block_start.tz_localize(IST)
+    else:
+        block_start = block_start.tz_convert(IST)
     
     # Yfinance labels candles by their start time. A 15m candle at 09:15 contains 5m candles at 09:15, 09:20, and 09:25.
     seq = df5.loc[(df5.index >= block_start) & (df5.index < block_start + pd.Timedelta(minutes=15))].copy()
