@@ -852,6 +852,19 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     }
 
     try:
+        import math
+        def sanitize_nans(obj):
+            if isinstance(obj, float) and math.isnan(obj):
+                return None
+            elif isinstance(obj, dict):
+                return {k: sanitize_nans(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_nans(item) for item in obj]
+            return obj
+            
+        payload = sanitize_nans(payload)
+        summary = sanitize_nans(summary)
+
         payload_str = json.dumps(payload, default=str)
         save_system_state("performance_summary", json.dumps(summary, default=str))
         save_system_state("performance_generated_at", json.dumps(payload["generated_at"]))

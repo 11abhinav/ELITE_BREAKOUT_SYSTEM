@@ -1040,7 +1040,7 @@ async function loadData(forceRebuild = false) {
   ];
   const t = new Date().getTime();
   for (const url of urls) {
-    try { const r = await fetch(url + '?t=' + t + (forceRebuild ? '&rebuild=true' : ''), {cache: 'no-store'}); if (r.ok) return r.json(); } catch {}
+    try { const r = await fetch(url + '?t=' + t + (forceRebuild ? '&rebuild=true' : ''), {cache: 'no-store'}); if (r.ok) return await r.json(); } catch {}
   }
 
   console.warn('Failed to load performance data, returning empty state.');
