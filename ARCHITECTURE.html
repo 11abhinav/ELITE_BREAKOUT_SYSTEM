@@ -1131,7 +1131,18 @@ The `performance_tracker.py` is fully decoupled from the Scanners. It processes 
 - **Sanitization:** All JSON payloads transmitted to the frontend MUST sanitize ALL float anomalies. `performance_tracker.py` was updated to check both `math.isnan(obj)` and `math.isinf(obj)` and replace them with `0.0` or `null` before serialization. Additionally, a crash in the `_write_empty` fallback function was resolved.
 - **Frontend Fault Tolerance:** The frontend API fetch calls in `admin_dashboard.html` were wrapped in `try/catch` blocks using `await r.json()`. If parsing fails, the UI must gracefully degrade to a fallback state (e.g., "No alert history") rather than halting the entire dashboard execution thread.
 
-### 30.2 Background Thread Deletion & Schedule Desync
+### 30.2 User and Wealth Dashboard Freeze (Pandas DataFrame JSON Serialization)
+**Incident:** The user and wealth dashboards suffered from incomplete or frozen loading states.
+**Root Cause:**
+- Similar to incident 30.1, the dashboards process large payloads of JSON data parsed natively in the browser via `await r.json()`.
+- The APIs returning this data (`/api/wealth`, `/api/shortlist`) utilized Pandas DataFrame's `.to_json(orient="records")` method and passed the output through `json.loads()` and `json.dumps()`.
+- Because Pandas converts missing values or anomalies to `NaN` or `Infinity`, and Python's native JSON library accepts these, the server payload was being sent with unquoted `NaN`/`Infinity` literals.
+- Browsers throw a strict `SyntaxError` on encountering these literals during JSON parsing, causing the frontend JavaScript loop to permanently crash and leaving the DOM in a perpetually frozen/loading state.
+**Resolution & Architectural Rule:**
+- **DataFrame Sanitization:** Never rely on native `df.to_json()` when streaming directly to web frontends if the data potentially contains float anomalies (like ratios, P/E, PEG).
+- Always convert to a dictionary `df.to_dict(orient="records")` and recursively sanitize all `math.isnan` and `math.isinf` values to `None` BEFORE invoking `jsonify` or `json.dumps()`.
+
+### 30.3 Background Thread Deletion & Schedule Desync
 **Incident:** Following a system orchestrator (`main.py`) refactor, essential background threads (like the Daily Builder and Staleness Watchdog) ceased executing on local deployments.
 **Root Cause:**
 - An automated patch inadvertently deleted the `run_system_scheduler` and `run_performance_tracker` functions from `main.py`, as well as removing them from the `RESTARTABLE_THREADS` orchestration dictionary.
