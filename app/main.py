@@ -1054,6 +1054,8 @@ def run_multibagger_scanner():
                     error_msg=str(e)[:500],
                     scheduled_for="Daily 19:00 IST"
                 )
+                from push_service import send_push_to_all
+                send_push_to_all("❌ MULTIBAGGER Scanner DOWN", f"Crash: {str(e)[:100]}", bypass_throttle=True)
             except Exception:
                 pass
                 

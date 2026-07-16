@@ -300,6 +300,9 @@ def _run_scan(force: bool = False):
             try:
                 from database import insert_notification
                 upsert_scanner_health("REVERSAL", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
+                insert_notification("admin", "🚀 Reversal Scanner ran successfully. Found 0 new alerts.", "Generated 0 alerts. The watchlist is currently empty.")
+                from push_service import send_push_to_all
+                send_push_to_all("🚀 REVERSAL Scanner OK", "Found 0 new alerts.", bypass_throttle=True)
             except Exception:
                 pass
         return 0
@@ -964,9 +967,10 @@ def _run_scan(force: bool = False):
                 from push_service import send_push_to_all
                 if status == "OK" and force:
                     insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+                    send_push_to_all("🚀 REVERSAL Scanner OK", f"Found {total_alerts} new alerts.", bypass_throttle=True)
                 elif status == "DEGRADED":
                     insert_notification("admin", f"⚠️ REVERSAL Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
-                    send_push_to_all("⚠️ REVERSAL Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
+                    send_push_to_all("⚠️ REVERSAL Scanner DEGRADED", error_msg or "Stale data exceeded limit.", bypass_throttle=True)
             except Exception:
                 pass
                 

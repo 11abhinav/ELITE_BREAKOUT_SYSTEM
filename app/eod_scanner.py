@@ -132,6 +132,8 @@ def _start_wrapper(force: bool = False):
                 try:
                     insert_notification("admin", "🚀 EOD Scanner ran successfully. Found 0 new breakout alerts.", "Generated 0 alerts. The fundamental watchlist universe is currently empty.")
                     upsert_scanner_health("EOD", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=0, total_count=0)
+                    from push_service import send_push_to_all
+                    send_push_to_all("🚀 EOD Scanner OK", "Found 0 new breakout alerts.", bypass_throttle=True)
                 except Exception:
                     pass
             return 0
@@ -843,6 +845,8 @@ def _start_wrapper(force: bool = False):
             if status == "OK":
                 try:
                     insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+                    from push_service import send_push_to_all
+                    send_push_to_all("🚀 EOD Scanner OK", f"Found {total_alerts} new breakout alerts.", bypass_throttle=True)
                 except Exception:
                     pass
             elif status == "DEGRADED":

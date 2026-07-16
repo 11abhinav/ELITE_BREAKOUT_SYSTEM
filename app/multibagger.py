@@ -1259,6 +1259,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             if not is_test_mode:
                 try:
                     upsert_scanner_health(scanner_name="MULTIBAGGER", status="DEGRADED", error_msg=error_msg)
+                    from push_service import send_push_to_all
+                    send_push_to_all("⚠️ MULTIBAGGER Scanner DEGRADED", error_msg, bypass_throttle=True)
                 except Exception:
                     pass
             # Allow the valid subset to continue rather than raising an Exception
@@ -1610,6 +1612,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     try:
         from database import insert_notification
         insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks.")
+        from push_service import send_push_to_all
+        send_push_to_all("🚀 MULTIBAGGER Scanner OK", f"Found {alerts_count} new alerts.", bypass_throttle=True)
     except Exception as e:
         logger.error(f"Could not insert admin notification: {e}")
     return {
