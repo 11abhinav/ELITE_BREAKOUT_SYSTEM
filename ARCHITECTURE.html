@@ -1005,6 +1005,22 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 - **Rule**: When using `ThreadPoolExecutor.as_completed(timeout=X)`, the timeout must NEVER be a hardcoded static value if the underlying tasks are rate-limited.
 - **Guideline**: Rate limiters (e.g., 1.5 requests/sec for Fyers) enforce a mathematical floor on execution time. If you batch fetch 750 symbols at 1.5/sec, it will take at least 500 seconds. A hardcoded 300s timeout will abruptly kill the batch exactly 300 seconds in (after 450 symbols), silently dropping data. Always compute timeouts dynamically based on the input size: `calc_timeout = max(300, len(symbols) * 2)` to guarantee safety buffers.
 
+### 29.7 Dashboard UI Flexbox Layouts vs Rigid Grids
+- **Rule**: Avoid rigid CSS Grids for highly dynamic data-dense KPI rows unless strict column wrapping is controlled via media queries.
+- **Guideline**: Use CSS Flexbox (`display: flex; flex-wrap: wrap; gap: 1rem`) for `.kpi-row` components. This prevents overlapping numbers and horizontal overflow cropping on mobile or split-screen views, allowing cards to naturally reflow.
+
+### 29.8 Timezone Boundary Leaks in 5m YFinance Pipelines
+- **Rule**: If the underlying fetcher drops timezone awareness, 5m intra-day bars will implicitly fallback to UTC, completely misaligning local market trading logic.
+- **Guideline**: Implement strict explicit normalization (`normalize_index`) immediately after dataframe initialization. Ensure `df.index` is actively localized to `Asia/Kolkata` before passing to any timeframe bounding logic or indicator applications.
+
+### 29.9 Intraday Candle Alignment & YFinance 15m Overlaps
+- **Rule**: Strict bar counts (e.g., expecting exactly three 5m bars inside a 15m block) will fail frequently due to provider anomalies or delayed ticks at the market open (e.g., 9:15).
+- **Guideline**: Always relax exact bounds to soft bounds. For instance, `len(seq) < 2` is a safer fallback than `len(seq) != 3`. This accommodates missing provider data while maintaining enough structural integrity to validate the pattern.
+
+### 29.10 Missing Target Handling in State Machines
+- **Rule**: When evaluating target progressions (e.g. T1 -> T2 -> T3), do not assume all targets will be populated. Different scanning timeframes (like MF/Multi-Timeframe) intentionally omit T3 to cap exposure.
+- **Guideline**: The state machine must elegantly fallback. If `T3` is null or missing when `T2` is hit, the engine must immediately liquidate the entire remaining position (`shares_to_sell = rem_shares`) rather than calculating a percentage exit and leaving stranded shares.
+
 </textarea>
 
 
