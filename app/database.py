@@ -2312,10 +2312,10 @@ def save_concall_analysis(symbol: str, pdf_url: str, analysis_data: dict) -> boo
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO ai_concall_cache_v3 (symbol, pdf_url, analysis_data, created_at)
-                    VALUES (%s, %s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                    VALUES (%s, %s, %s, now())
                     ON CONFLICT (symbol, pdf_url) DO UPDATE
                     SET analysis_data = EXCLUDED.analysis_data,
-                        created_at    = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                        created_at    = now()
                 """, (symbol, pdf_url, PgJson(analysis_data)))
             conn.commit()
         logger.info(f"✅ [DB] Concall cache saved for {symbol} | pdf_url_prefix={pdf_url[:60]}")
