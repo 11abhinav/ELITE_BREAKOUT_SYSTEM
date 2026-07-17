@@ -95,7 +95,7 @@ class OpportunityManager:
         Suppresses exact duplicates (same symbol + breakout_type).
         """
         symbol = candidate.get("symbol")
-        btype  = candidate.get("breakout_type", "INTRADAY")
+        btype  = candidate.get("breakout_type", "MULTI_TF")
 
         # Duplicate suppression
         existing = self._pool.get_candidates()
@@ -210,7 +210,7 @@ class OpportunityManager:
                 try:
                     save_alert_if_new(
                         symbol=symbol,
-                        breakout_type=c.get("breakout_type", "INTRADAY"),
+                        breakout_type=c.get("breakout_type", "MULTI_TF"),
                         alert_time=now_ist,
                         scanner=c.get("scanner", "MULTI_TF"),
                         category=c.get("category"),
@@ -241,7 +241,7 @@ class OpportunityManager:
                 try:
                     save_candidate(
                         symbol=symbol,
-                        breakout_type=c.get("breakout_type", "INTRADAY"),
+                        breakout_type=c.get("breakout_type", "MULTI_TF"),
                         scanner=c.get("scanner", ""),
                         technical_score=c.get("technical_score", 0),
                         volume_ratio=c.get("volume_ratio", 0.0),

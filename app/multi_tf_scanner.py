@@ -18,7 +18,7 @@ from database import (
     upsert_scanner_health
 )
 import json
-from config import MIN_STOCK_PRICE, ACTIVE_ALGO_VERSION, INTRADAY_CONFIG, LIVE_1H_CONFIG
+from config import MIN_STOCK_PRICE, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -636,7 +636,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             logger.info(f"Skipping buy alert for {symbol} because data is stale")
                             continue
                         # Idempotency check before alert
-                        if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="INTRADAY", lookback_minutes=390):
+                        if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="MULTI_TF", lookback_minutes=390):
                             from sl_target_helper import compute_sl_and_target
                             
                             # [VERSION: MTF_VWAP_FALLBACK_FIX] Fallback to EMA20 if VWAP is missing due to lack of intraday volume
@@ -699,7 +699,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 "sl_result": sl_result,
                                 "algo_version": ACTIVE_ALGO_VERSION,
                                 "algo_params": {
-                                    **INTRADAY_CONFIG,
+                                    **MULTI_TF_CONFIG,
                                     "MIN_BREAKOUT_MARGIN": 0.003, # 15m default
                                     "MAX_TARGET_ATR": 5.0
                                 }
@@ -726,7 +726,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 opportunity_manager.add({
 
                                     "symbol": symbol,
-                                    "breakout_type": "INTRADAY",
+                                    "breakout_type": "MULTI_TF",
                                     "scanner": "MULTI_TF",
                                     "category": cat,
                                     "technical_score": final_score,

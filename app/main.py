@@ -82,8 +82,7 @@ def _clear_down(name: str):
 
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
-    "intraday": (dt_time(9, 32),  dt_time(15, 30)),
-    "live":     (dt_time(10, 17), dt_time(15, 30)),
+    "multi_tf": (dt_time(10, 17), dt_time(15, 30)),
     "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
     "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
 }
@@ -188,7 +187,7 @@ def _run(name, fn):
 scanner_execution_lock = threading.Lock()
 
 def run_multi_tf_scanner():
-    wait_for_window("live")
+    wait_for_window("multi_tf")
     import multi_tf_scanner
     multi_tf_scanner.start()
     time.sleep(15)

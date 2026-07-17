@@ -23,12 +23,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 
 _thread_eod      = os.getenv("THREAD_EOD")
-_thread_intraday = os.getenv("THREAD_INTRADAY")
+_thread_multi_tf = os.getenv("THREAD_MULTI_TF")
 _thread_1h       = os.getenv("THREAD_1H")
 _thread_reversal = os.getenv("THREAD_REVERSAL")
 
 THREAD_EOD      = int(_thread_eod)      if _thread_eod      else None
-THREAD_INTRADAY = int(_thread_intraday) if _thread_intraday else None
+THREAD_MULTI_TF = int(_thread_multi_tf) if _thread_multi_tf else None
 THREAD_1H       = int(_thread_1h)       if _thread_1h       else None
 THREAD_REVERSAL = int(_thread_reversal) if _thread_reversal else None
 
@@ -60,7 +60,7 @@ SCORE_THRESHOLDS = {
 ACTIVE_ALGO_VERSION = "SL_ENGINE_V6.4"  # Updated: MarketRegime + StrategyPolicy + TradeRankingEngine + PortfolioEngine + OpportunityManager
 
 
-INTRADAY_CONFIG = {
+MULTI_TF_CONFIG = {
     "MIN_SIGNALS":        2,
     "MIN_BODY_RATIO":     0.60,
     "MIN_CLOSE_POSITION": 0.70,
@@ -131,9 +131,7 @@ REVERSAL_CONFIG = {
 
 ALERT_COOLDOWN_MINUTES = {
     "EOD": 390,
-    "REVERSAL": 240,
-    "LIVE": 240,
-    "INTRADAY": 90
+    "REVERSAL": 240
 }
 
 
@@ -215,8 +213,6 @@ ADAPTIVE_TARGET_CAPS = {
 # =====================================================================================
 
 MIN_NATURAL_RR = {
-    "INTRADAY": 1.5,
-    "LIVE_1H": 2.0,
     "MULTI_TF": 1.5,
     "EOD": 2.5,
     "REVERSAL": 3.0,
@@ -235,24 +231,14 @@ MIN_STOP_PCT = {
 }
 
 
-MIN_REWARD_POTENTIAL = {
-    "INTRADAY": 1.5,
-    "LIVE_1H":  3.0,
-    "EOD":      5.0,
-    "REVERSAL": 4.0
-}
 
 TARGET_QUALITY_THRESHOLD = {
-    "INTRADAY": 45,
-    "LIVE_1H":  50,
     "EOD":      55,
     "REVERSAL": 50
 }
 
 # [T1%, T2%, T3%]
 PARTIAL_EXIT = {
-    "INTRADAY": [70, 30, 0],
-    "LIVE_1H":  [50, 30, 20],
     "EOD":      [40, 30, 30],
     "REVERSAL": [30, 30, 40]
 }

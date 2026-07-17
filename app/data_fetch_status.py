@@ -29,7 +29,7 @@ def _now_iso() -> str:
 
 # Map external sources to scanners that rely on them. Update this map when adding scanners.
 SOURCE_IMPACT_MAP = {
-    'yfinance': ["EOD", "INTRADAY", "1H", "REVERSAL", "Wealth Engine"],
+    'yfinance': ["EOD", "MULTI_TF", "REVERSAL", "Wealth Engine"],
     'nse_announcements': ["Wealth Engine", "DAILY_BUILDER"],
     'nse_bhavcopy': ["EOD", "DAILY_BUILDER"],
     'scraperapi': ["Pledge Worker", "Pledge Worker"],
@@ -48,10 +48,10 @@ def _split_source(source_name: str) -> tuple[str, Optional[str]]:
 
 
 INTERVAL_TO_SCANNER = {
-    '1m': 'INTRADAY',
-    '15m': 'INTRADAY',
-    '1h': '1H',
-    '60m': '1H',
+    '1m': 'MULTI_TF',
+    '15m': 'MULTI_TF',
+    '1h': 'MULTI_TF',
+    '60m': 'MULTI_TF',
     '1d': 'EOD',
     'daily': 'EOD',
 }

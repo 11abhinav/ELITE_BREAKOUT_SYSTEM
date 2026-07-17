@@ -83,15 +83,11 @@ _DIV = "- " * 16
 
 _SCANNER_LABEL = {
     "EOD":      "📊 EOD BREAKOUT ALERT",
-    "1H":       "🚀 TREND CONFIRMED ALERT — 1H",
-    "INTRADAY": "⚡ EARLY MOMENTUM ALERT — 15M",
     "REVERSAL": "🔄 DEEP VALUE REVERSAL ALERT",
 }
 
 _BAR_LABEL = {
     "EOD":      "Daily (EOD)",
-    "1H":       "1H (completed)",
-    "INTRADAY": "15M (completed)",
     "REVERSAL": "Daily (Mean Reversion)",
 }
 

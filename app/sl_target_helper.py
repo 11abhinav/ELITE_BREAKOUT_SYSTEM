@@ -7,8 +7,7 @@
 #
 # MODES:
 #   "EOD"      → Daily momentum breakout (swing trade, hold days–weeks)
-#   "INTRADAY" → 15m early-momentum scalp (hold position until SL or Target is hit)
-#   "LIVE_1H"  → Hourly swing continuation (hold 1–5 days)
+#   "MULTI_TF" → Multi-timeframe dynamic engine
 #   "REVERSAL" → Counter-trend oversold bounce (mean reversion, hold days–weeks)
 #
 #
@@ -32,21 +31,18 @@
 #   → This makes the stop hunt unprofitable for operators (too far to sweep)
 #
 # SL BUFFER TABLE (per mode):
-#   INTRADAY  → max(0.5×ATR, 0.30% price) — tight momentum scalp trade
-#   LIVE_1H   → max(0.5×ATR, 0.50% price) — moderate, hourly swing
+
 #   EOD       → max(0.75×ATR, 0.75% price) — meaningful, daily trade
 #   REVERSAL  → max(1.0×ATR, 1.00% price) — widest, volatile beaten stocks
 #
 # MINIMUM R:R TABLE (per mode):
-#   INTRADAY  → 1.5:1 (scalp — quicker in/out)
-#   LIVE_1H   → 2.0:1 (hourly swing — higher bar)
+
 #   EOD       → 2.0:1 (daily trade — overnight risk demands it)
 #   REVERSAL  → 2.0:1 (counter-trend — higher base risk)
 #
 # TARGET PHILOSOPHY (per mode):
 #   EOD       → Nearest swing high / R1 pivot → R2 → 52W high zone
-#   INTRADAY  → Session high / BB_UPPER → Day's R1 (no T3 — hold until SL/Target)
-#   LIVE_1H   → R1 / BB_UPPER → R2 (no T3 — 1H has limited range)
+
 #   REVERSAL  → EMA20 or BB_MID (mean reversion T1) → SMA50 (T2) → R1 (T3)
 # =====================================================================================
 
@@ -62,8 +58,7 @@ from config import ADAPTIVE_TARGET_CAPS, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, T
 _MODE_CONFIG = {
     #           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
     "EOD":      (2.00,    0.75,       0.0075,     3.0),
-    "INTRADAY": (1.00,    0.50,       0.0030,     2.5),
-    "LIVE_1H":  (1.50,    0.50,       0.0050,     2.5),
+
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
 }
 _DEFAULT_CONFIG = (1.50, 0.50, 0.0050, 3.0)
@@ -907,201 +902,6 @@ def _compute_eod(
 # INTRADAY — 15m Early Momentum Scalp (same-day trade)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_intraday(
-    entry: float, eff_atr: float, adx, rsi, macd_hist, atr_pct,
-    swing_low, swing_high, bb_upper, bb_lower,
-    s1, s2, r1, r2, swing_low_raw, swing_high_raw,
-    candle_low: Optional[float] = None,
-    vwap: Optional[float] = None,
-    swing_low_cluster: Optional[float] = None,
-    macro_regime: str = "NEUTRAL",
-    volume_ratio: Optional[float] = None,
-) -> dict:
-    """
-    Intraday 15m scalp logic (v6.0 upgrade):
-    • SL   — VWAP-anchored or below candle_low
-    • T1   — session high / R1 / BB_UPPER
-    • Natural RR & Reward Potential gates applied early.
-    """
-    from config import MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, TARGET_QUALITY_THRESHOLD
-    
-    atr_base, sl_atr_buf, sl_pct_buf, max_sl_atr = _MODE_CONFIG["INTRADAY"]
-    min_rr = MIN_NATURAL_RR["INTRADAY"]
-    min_rp = MIN_REWARD_POTENTIAL["INTRADAY"]
-    min_tq = TARGET_QUALITY_THRESHOLD["INTRADAY"]
-
-    # ADX-aware buffer widening for intraday momentum
-    adx_v = _safe(adx)
-    if adx_v is not None and adx_v > 35:
-        sl_atr_buf *= 1.20
-
-    buf = max(sl_atr_buf * eff_atr, sl_pct_buf * entry)
-
-    vwap_v = _safe(vwap)
-    if vwap_v is not None and candle_low is not None and _safe(candle_low):
-        candle_low_f = float(candle_low)
-        if candle_low_f < vwap_v < entry:
-            raw_sl    = vwap_v - buf
-            sl_method = f"VWAP ₹{round(vwap_v, 2)} buffer ₹{round(buf, 2)}"
-        elif candle_low_f < entry:
-            raw_sl    = candle_low_f - buf
-            sl_method = f"Candle low ₹{round(candle_low_f, 2)} buffer ₹{round(buf, 2)}"
-        else:
-            support, sup_label = _pick_support(
-                entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
-                swing_low_cluster=swing_low_cluster
-            )
-            if support is not None:
-                raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
-            else:
-                fallback_dist = max(1.0 * eff_atr, sl_pct_buf * entry)
-                raw_sl    = entry - fallback_dist
-                sl_method = f"1×ATR fallback"
-    elif candle_low is not None and _safe(candle_low) and candle_low < entry:
-        raw_sl    = candle_low - buf
-        sl_method = f"Candle low ₹{round(candle_low, 2)} buffer ₹{round(buf, 2)}"
-    else:
-        support, sup_label = _pick_support(
-            entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
-            swing_low_cluster=swing_low_cluster
-        )
-        if support is not None:
-            raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
-        else:
-            fallback_dist = max(1.0 * eff_atr, sl_pct_buf * entry)
-            raw_sl    = entry - fallback_dist
-            sl_method = f"1×ATR fallback"
-
-    if (entry - raw_sl) > max_sl_atr * eff_atr:
-        raw_sl    = entry - max_sl_atr * eff_atr
-        sl_method = f"Capped at {max_sl_atr}×ATR"
-
-    stop_loss = round(raw_sl, 2)
-    risk      = max(entry - stop_loss, entry * 0.003)
-    
-    structural_failure_stop = _compute_structural_failure_stop(
-        stop_loss, eff_atr, 
-        [_safe(swing_low_cluster), _safe(swing_low), _safe(swing_low_raw), _safe(s1)]
-    )
-
-    resistance, res_label = _pick_resistance(entry, _safe(swing_high), _safe(r1), _safe(bb_upper), _safe(swing_high_raw), _safe(r2))
-
-    t1_raw = resistance if resistance is not None else (entry + min_rr * risk)
-    
-    # 1. Natural RR Gate
-    natural_rr = round((t1_raw - entry) / risk, 2) if risk > 0 else 0
-    if natural_rr < min_rr:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_NATURAL_RR] Natural RR {natural_rr} < {min_rr}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-        
-    # 2. Reward Potential Gate
-    reward_potential_pct = round(((t1_raw - entry) / entry) * 100, 2) if entry > 0 else 0
-    if reward_potential_pct < min_rp:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_REWARD_POTENTIAL] Reward Potential {reward_potential_pct}% < {min_rp}%",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-
-    t1_raw   = _cap_target(t1_raw, entry, eff_atr, "15m", macro_regime, _safe(atr_pct))
-    target_1 = round(t1_raw, 2)
-
-    zone = _rsi_zone(rsi)
-    target_2 = None
-    if zone != "overbought":
-        r2_v = _safe(r2)
-        if r2_v and r2_v > target_1:
-            target_2 = round(_cap_target(r2_v, entry, eff_atr, "15m", macro_regime, _safe(atr_pct)), 2)
-        else:
-            target_2 = round(_cap_target(entry + 2.5 * risk, entry, eff_atr, "15m", macro_regime, _safe(atr_pct)), 2)
-
-    # Quality Score
-    tq, bd = _compute_target_quality(
-        natural_rr, _safe(rsi), _safe(adx), _safe(macd_hist), _safe(volume_ratio),
-        _safe(swing_high), _safe(r1), _safe(r2), _safe(bb_upper)
-    )
-    
-    if tq < min_tq:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_TARGET_QUALITY] Target Quality {tq} < {min_tq}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": target_1,
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "target_quality": tq,
-            "quality_breakdown": bd,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-
-    return {
-        "engine_version": "SL_ENGINE_V6",
-        "stop_loss": stop_loss,
-        "structural_failure_stop": structural_failure_stop,
-        "target_1": target_1,
-        "target_2": target_2,
-        "target_3": None,
-        "natural_rr": natural_rr,
-        "reward_potential_pct": reward_potential_pct,
-        "sl_method": sl_method,
-        "target_method": res_label if resistance else "ATR Expansion",
-        "target_quality": tq,
-        "quality_breakdown": bd,
-        "is_rejected": False,
-        "rejection_reason": None
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LIVE_1H — Hourly Swing Continuation (hold 1–5 days)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _compute_reversal(
     entry: float, eff_atr: float, adx, rsi, macd_hist, atr_pct,
     swing_low, swing_high, bb_upper, bb_lower,
@@ -1320,8 +1120,7 @@ def _legacy_compute_sl_and_target(
     # Priority: mode > timeframe > "EOD" default
     _TIMEFRAME_MAP = {
         "EOD": "EOD", "1d": "EOD",
-        "INTRADAY": "INTRADAY", "15m": "INTRADAY",
-        "1H": "LIVE_1H", "1h": "LIVE_1H", "LIVE_1H": "LIVE_1H",
+
         "REVERSAL": "REVERSAL",
     }
     effective_mode = (
@@ -1360,15 +1159,7 @@ def _legacy_compute_sl_and_target(
         return _compute_multi_tf(**kwargs)
     elif effective_mode == "REVERSAL":
         return _compute_reversal(**kwargs, ema20=ema20, bb_mid=bb_mid, sma50=sma50)
-    elif effective_mode in ("INTRADAY", "15M"):
-        # [SL_DISPATCH_FIX_v1.0] BUG-8 FIX: INTRADAY was falling through to _compute_eod (daily stops).
-        # _compute_intraday exists at L834 — routed correctly now.
-        return _compute_intraday(**kwargs, candle_low=candle_low, vwap=vwap)
-    elif effective_mode in ("LIVE_1H", "1H"):
-        # [SL_DISPATCH_FIX_v1.0] BUG-8+11 FIX: _compute_live_1h does not exist (removed in refactor).
-        # LIVE_1H is intraday-style (hold 1-5 days). _compute_intraday is the closest safe equivalent.
-        # Using it prevents daily-width stops from being applied to 1H scalp trades.
-        return _compute_intraday(**kwargs, candle_low=candle_low, vwap=vwap)
+
     else:
         return _compute_eod(**kwargs)  # safe default
 
@@ -1666,17 +1457,7 @@ class ReversalAdapter(BaseRiskEngine):
     def get_historical_stats(self) -> dict:
         return {"win_rate": 0.52, "avg_win": 3.2, "avg_loss": 1.0}
 
-class IntradayAdapter(BaseRiskEngine):
-    def get_time_stop(self) -> str:
-        return "End of session"
-    def get_historical_stats(self) -> dict:
-        return {"win_rate": 0.48, "avg_win": 2.0, "avg_loss": 1.0}
 
-class HourlyAdapter(BaseRiskEngine):
-    def get_time_stop(self) -> str:
-        return "10 candles"
-    def get_historical_stats(self) -> dict:
-        return {"win_rate": 0.55, "avg_win": 2.2, "avg_loss": 1.0}
 
 
 def compute_sl_and_target(
@@ -1708,11 +1489,7 @@ def compute_sl_and_target(
     kwargs["atr"] = atr
     kwargs["candle_range"] = candle_range
 
-    if scanner in ("INTRADAY", "15M"):
-        adapter = IntradayAdapter(scanner, kwargs)
-    elif scanner in ("1H", "LIVE_1H"):
-        adapter = HourlyAdapter(scanner, kwargs)
-    elif scanner == "REVERSAL":
+    if scanner == "REVERSAL":
         adapter = ReversalAdapter(scanner, kwargs)
     else:
         adapter = BreakoutAdapter(scanner, kwargs)
