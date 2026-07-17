@@ -106,7 +106,7 @@ def _cleanup_old_scanner_names():
                 # from a previous deploy from showing RED on the dashboard.
                 cur.execute("""
                     UPDATE scanner_health 
-                    SET status='OK', error_msg=NULL, is_acknowledged=TRUE
+                    SET status='IDLE', error_msg=NULL, is_acknowledged=TRUE
                     WHERE scanner_name IN ('EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
                       AND status IN ('DOWN', 'RUNNING');
                 """)

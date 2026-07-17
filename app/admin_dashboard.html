@@ -380,6 +380,12 @@
     .scanner-card.status-ok {
       border-left: 3px solid var(--win);
     }
+    
+    .scanner-card.status-running {
+      border-left: 3px solid var(--brand);
+      background: linear-gradient(to right, rgba(99,102,241,0.05), var(--card));
+      animation: runPulse 2s infinite;
+    }
 
     .scanner-card.status-down {
       border-left: 3px solid var(--warn);
@@ -394,6 +400,11 @@
     @keyframes downPulse {
       0%, 100% { box-shadow: none; }
       50% { box-shadow: 0 0 16px rgba(220,38,38,0.1); }
+    }
+    
+    @keyframes runPulse {
+      0%, 100% { box-shadow: none; }
+      50% { box-shadow: 0 0 12px rgba(99,102,241,0.2); }
     }
 
     .scanner-header {
@@ -423,6 +434,7 @@
     }
 
     .badge-ok   { background: rgba(5,150,105,.1); color: var(--win); border: 1px solid rgba(5,150,105,.2); }
+    .badge-running { background: rgba(99,102,241,.1); color: var(--brand); border: 1px solid rgba(99,102,241,.2); }
     .badge-down { background: rgba(220,38,38,.1); color: var(--warn); border: 1px solid rgba(220,38,38,.2); }
     .badge-idle { background: var(--card3); color: var(--muted); border: 1px solid var(--border); }
 
@@ -2242,10 +2254,31 @@
           // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
           const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
           const isDown = isCriticalError;
-          const isIdle = !data.last_success;
-          const statusClass = isDown ? 'status-down' : isIdle ? 'status-idle' : 'status-ok';
-          const badgeClass = isDown ? 'badge-down' : isIdle ? 'badge-idle' : 'badge-ok';
-          const badgeText = isDown ? (data.status === 'DEGRADED' ? '● DEGRADED' : '● DOWN') : isIdle ? '○ IDLE' : '● LIVE';
+          const isIdle = !data.last_success && data.status !== 'RUNNING';
+          const isRunning = data.status === 'RUNNING';
+          const isOk = data.status === 'OK';
+          
+          let statusClass = 'status-ok';
+          let badgeClass = 'badge-ok';
+          let badgeText = '● ' + (data.status || 'LIVE');
+          
+          if (isDown) {
+             statusClass = 'status-down';
+             badgeClass = 'badge-down';
+             badgeText = data.status === 'DEGRADED' ? '● DEGRADED' : '● DOWN';
+          } else if (isRunning) {
+             statusClass = 'status-running';
+             badgeClass = 'badge-running';
+             badgeText = '● RUNNING';
+          } else if (isOk) {
+             statusClass = 'status-ok';
+             badgeClass = 'badge-ok';
+             badgeText = '● OK';
+          } else if (isIdle) {
+             statusClass = 'status-idle';
+             badgeClass = 'badge-idle';
+             badgeText = '○ IDLE';
+          }
           const alertColor = data.today_alerts > 0 ? 'green' : 'amber';
 
           // For RED scanners, fetch error details from fetch_errors table
@@ -2322,6 +2355,10 @@
           ${data.today_alerts > 0 ? `<span style="font-size:11px;color:var(--muted);font-weight:400"> alerts</span>` : ''}
         </div>`;
           let alertSub = data.today_alerts > 0 ? 'hover to preview · click to expand' : 'no new alerts today';
+          
+          if (isRunning && data.error) {
+              alertSub = `<span style="color:var(--brand); font-weight:600;">${data.error}</span>`;
+          }
           let dismissBtn = "";
           
           if (data.total_count != null) {
