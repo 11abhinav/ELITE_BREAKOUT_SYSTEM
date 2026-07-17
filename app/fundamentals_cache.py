@@ -261,9 +261,10 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
         entry_date = datetime.strptime(cache_entry["date"], "%Y-%m-%d").date()
         days_old = (datetime.now(IST).date() - entry_date).days
         
-        # If it failed to fetch (no data), respect a 2-day cooldown before retrying
+        # If it failed to fetch (no data), retry on the next run (0 day cooldown)
         if cache_entry.get("failed", False):
-            return days_old >= 2
+            return True
+
             
         return days_old > FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)
     except Exception:
