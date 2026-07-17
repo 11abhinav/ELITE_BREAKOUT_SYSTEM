@@ -1,0 +1,194 @@
+2026-07-17 09:59:08 | WARNING | ⚠️ diagnostics module not found (new deployment). Continuing without diagnostics.
+2026-07-17 09:59:08 | INFO | ✅ Watchlist found | /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/elite_fundamental_watchlist.parquet
+2026-07-17 09:59:09 | WARNING | Failed to cleanup old scanner names: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:09 | ERROR | ❌ FATAL: Missing env vars: ['BOT_TOKEN', 'CHAT_ID']
+2026-07-17 09:59:09 | ERROR | ❌ Telegram queue flush error: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/telegram_engine.py", line 121, in flush_telegram_queue
+    pending = get_pending_telegram_alerts(limit=batch_size)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 3183, in get_pending_telegram_alerts
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:09 | INFO | 📨 Background Telegram queue flusher thread started.
+2026-07-17 09:59:09 | INFO | ======================================================================
+2026-07-17 09:59:09 | INFO | 🛡️  SELF-HEALING WATCHDOG ACTIVE | All Scanners Initialized
+2026-07-17 09:59:09 | INFO | 🌐  Dashboard: https://elitebreakoutsystem-production.up.railway.app/
+2026-07-17 09:59:09 | INFO | ======================================================================
+2026-07-17 09:59:09 | INFO | ✅ Watchlist build complete — all scanners can proceed
+2026-07-17 09:59:10 | ERROR | ❌ Telegram queue flush error: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/telegram_engine.py", line 121, in flush_telegram_queue
+    pending = get_pending_telegram_alerts(limit=batch_size)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 3183, in get_pending_telegram_alerts
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | INFO | 🌐 Dashboard server binding to port 8080 (main thread)
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: MULTI_TF
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: PERFORMANCE_TRACKER
+2026-07-17 09:59:10 | INFO | 🌐 Dashboard server starting on port 8080
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: AI Worker
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: Pledge Worker
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: SystemScheduler
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for MULTI_TF
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: EOD
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: REVERSAL
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for PERFORMANCE_TRACKER
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | INFO | 🟢 Scanner recovering: MultibaggerScanner
+2026-07-17 09:59:10 | INFO | 🌐 Serving User HTML from: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/user_dashboard.html
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for AI Worker
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for Pledge Worker
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for SystemScheduler
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for EOD
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for REVERSAL
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | ERROR | ❌ Could not clear DOWN status for MultibaggerScanner
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py", line 2435, in clear_scanner_down
+    upsert_scanner_health(scanner_name, status="OK", error_msg=None)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 1857, in upsert_scanner_health
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
+2026-07-17 09:59:10 | INFO | 🌐 Serving Admin HTML from: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/admin_dashboard.html
+2026-07-17 09:59:10 | INFO | 🤖 AI Worker Thread Started. Monitoring watchlist for missing caches...
+2026-07-17 09:59:10 | INFO | 🚀 Starting Pledge Worker Daemon
+2026-07-17 09:59:10 | INFO | 🌐 Performance JSON path: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/performance_data.json
+ * Serving Flask app 'dashboard_server'
+ * Debug mode: off
+Address already in use
+Port 8080 is in use by another program. Either identify and stop that program, or start the server with a different port.
+2026-07-17 09:59:10 | ERROR | ❌ Unhandled exception in Pledge Worker
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/main.py", line 173, in _run
+    fn()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/pledge_worker.py", line 135, in worker_loop
+    init_db()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 186, in init_db
+    with get_connection() as conn:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 102, in get_connection
+    p = _get_pool()
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py", line 71, in _get_pool
+    raise RuntimeError(
+RuntimeError: DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically.
