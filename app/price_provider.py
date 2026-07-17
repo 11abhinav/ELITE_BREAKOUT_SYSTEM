@@ -296,7 +296,7 @@ class PriceProvider:
                 try:
                     with ThreadPoolExecutor(max_workers=min(4, len(batches))) as ex:
                         futures = {ex.submit(self._download_batch, batch, period, interval, start, end): idx for idx, batch in enumerate(batches)}
-                        for fut in as_completed(futures, timeout=300):
+                        for fut in as_completed(futures, timeout=1800):
                             idx = futures[fut]
                             batch = batches[idx]
                             try:
@@ -367,7 +367,9 @@ class PriceProvider:
                             if clean_orig.endswith(".NS") or clean_orig.endswith(".BO"):
                                 clean_orig = clean_orig[:-3]
                                 
-                            save_bse_mapping(clean_orig, bo_sym)
+                            # Only save persistent mapping if original symbol is genuinely BSE
+                            if clean_orig.strip().isdigit() or clean_orig.strip().upper().endswith(".BO") or clean_orig.strip().upper().startswith("BSE:"):
+                                save_bse_mapping(clean_orig, bo_sym)
                             logger.info(f"✅ price_provider: Recovered {orig_ns} via {bo_sym}")
                             
                             self._cache_set((bo_sym, period, interval, start, end), frame)

@@ -138,7 +138,9 @@ def fetch_single_piotroski(symbol: str) -> dict:
                     t, info, fin, bs = try_fetch(bse_sym)
                     if not (fin.empty and bs.empty):
                         yf_sym = bse_sym
-                        save_bse_mapping(symbol, bse_sym)
+                        # Only save persistent mapping if original symbol is genuinely BSE
+                        if symbol.strip().isdigit() or symbol.strip().upper().endswith(".BO") or symbol.strip().upper().startswith("BSE:"):
+                            save_bse_mapping(symbol, bse_sym)
                         success = True
                         break
                 raise ValueError("Financials and Balance Sheet are both empty.")
@@ -160,7 +162,9 @@ def fetch_single_piotroski(symbol: str) -> dict:
                     t, info, fin, bs = try_fetch(alt_sym)
                     if not (fin.empty and bs.empty):
                         yf_sym = alt_sym
-                        save_bse_mapping(symbol, alt_sym)
+                        # Only save persistent mapping if original symbol is genuinely BSE
+                        if symbol.strip().isdigit() or symbol.strip().upper().endswith(".BO") or symbol.strip().upper().startswith("BSE:"):
+                            save_bse_mapping(symbol, alt_sym)
                         success = True
                         break
                 except Exception:
@@ -293,7 +297,7 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             futures = [executor.submit(process, sym) for sym in to_fetch]
-            for idx, future in enumerate(concurrent.futures.as_completed(futures, timeout=300)):
+            for idx, future in enumerate(concurrent.futures.as_completed(futures, timeout=1800)):
                 sym, result = future.result()
                 
                 # None means rate limited or circuit open -> skip caching so it's retried next time

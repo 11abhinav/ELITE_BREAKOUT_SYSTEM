@@ -637,6 +637,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.debug(f"⏭️  {sym} already closed ({t['status']}) — skipping bar fetch")
             continue
 
+        # ── Skip Rejected Trades ────────────────────────────────────────────────
+        if t.get("is_rejected"):
+            logger.debug(f"⏭️  {sym} is REJECTED — skipping SL/Target evaluation")
+            continue
+
         # FIX: use `is None` (not falsy check) so ep=0.0 doesn't misfire.
         # When ep is None we cannot compute any P&L — mark status and move on.
         if ep is None:

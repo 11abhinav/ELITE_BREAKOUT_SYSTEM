@@ -1210,7 +1210,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         fetched_count = 0
         try:
             import concurrent.futures
-            for future in as_completed(futures, timeout=300):
+            for future in as_completed(futures, timeout=1800):
                 sym = futures[future]
                 try:
                     fund = future.result()

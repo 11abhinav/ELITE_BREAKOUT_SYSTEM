@@ -4411,7 +4411,7 @@ def reject_alert(alert_id: int):
             if is_rejected:
                 return True
                 
-            cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+            cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
             
             cap = float(capital_allocated) if capital_allocated else 0.0
             if cap > 0:
@@ -4437,7 +4437,7 @@ def reject_multiple_alerts(alert_ids: list):
                 if is_rejected:
                     continue
                     
-                cur.execute("UPDATE alerts SET is_rejected = TRUE WHERE id = %s", (alert_id,))
+                cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
                 
                 cap = float(capital_allocated) if capital_allocated else 0.0
                 if cap > 0:

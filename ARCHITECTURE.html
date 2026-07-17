@@ -1171,6 +1171,20 @@ To ensure administrators have complete observability without relying solely on T
 ### 31.2 Throttle Bypass
 For automated background scanner tasks, the `bypass_throttle=True` flag is heavily utilized in `send_push_to_all` to guarantee the delivery of scanner completion states, bypassing the default anti-spam caching limits. This ensures that even if scanners finish closely together, notifications are reliably delivered to the Admin Dashboard.
 
+---
+
+## 32. Rejected Trades Lifecycle & KPI Integrity
+
+The execution engine maintains rigorous boundaries between active monitoring and manually rejected stocks to prevent false PnL tracking and KPI pollution.
+
+### 32.1 The Rejection State
+- When an admin explicitly rejects an alert from the Dashboard (e.g., due to poor Natural RR or structural invalidation), the API updates the trade in the database by setting **`is_rejected = TRUE`** and hardcoding **`status = 'REJECTED'`**.
+- Rejected trades are immediately filtered out from the `performance_tracker.py` active tracking loop. This prevents the execution engine from erroneously monitoring the rejected stock's live ticks for Stop Loss or Target breaches.
+- Consequently, a rejected stock will **never** mutate into a `WIN` or `LOSS` state, ensuring zero impact on the system's global Win Rate or Average Return KPIs.
+
+### 32.2 KPI Scrubbing (Historical Cleanup)
+- In the event of a state misalignment (where a rejected trade incorrectly morphed into a `LOSS`), the `fix_rejected_status.py` cleanup script serves as a hard override. It retroactively scans for trades with `is_rejected = TRUE` and forcibly nullifies false PnL values while locking the state back to `REJECTED`.
+
 </textarea>
 
 

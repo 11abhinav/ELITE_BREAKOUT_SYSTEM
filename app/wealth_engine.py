@@ -955,7 +955,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
                 futures = {executor.submit(process_symbol, i, sym, all_historical_data): i for i, sym in enumerate(all_symbols_to_fetch)}
                 completed = 0
-                for future in concurrent.futures.as_completed(futures, timeout=300):
+                for future in concurrent.futures.as_completed(futures, timeout=1800):
                     try:
                         technicals.append(future.result())
                     except Exception:
