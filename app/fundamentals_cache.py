@@ -170,6 +170,27 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 except Exception:
                     pass
             
+            # --- LAST RESORT FALLBACK via Yahoo Search API ---
+            if not success:
+                import requests
+                logger.info(f"🔍 Both standard NS/BO failed for {symbol}. Trying Yahoo Search API...")
+                try:
+                    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol.strip()}&quotesCount=3&country=India"
+                    r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                    if r.status_code == 200:
+                        quotes = r.json().get('quotes', [])
+                        for q in quotes:
+                            s = q.get('symbol', '')
+                            if s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE'):
+                                logger.info(f"🔍 Search API found: {s}")
+                                t, info, fin, bs = try_fetch(s)
+                                if not (fin.empty and bs.empty):
+                                    yf_sym = s
+                                    success = True
+                                    break
+                except Exception as search_err:
+                    logger.debug(f"Search API fallback failed: {search_err}")
+            
             if success:
                 break
                 
