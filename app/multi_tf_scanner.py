@@ -570,13 +570,6 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     mean_vol = max(mean_vol, 1.0)
                     vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
                 
-                    # Extension limit strict check
-                    if close > trigger_level + (max_ext_atr * atr20):
-                        continue
-
-                    is_ready = False
-                    trigger_type = ""
-                
                     candle_range = _safe_float(latest.get("High")) - _safe_float(latest.get("Low"))
                     if candle_range > 0:
                         close_position = (close - low) / candle_range
@@ -584,6 +577,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     else:
                         close_position = 0.5
                         upper_wick_ratio = 0.0
+
+                    # Extension limit strict check
+                    if close > trigger_level + (max_ext_atr * atr20):
+                        if atr20 > 0:
+                            dist_atr = (close - trigger_level) / atr20
+                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
+                        continue
+
+                    is_ready = False
+                    trigger_type = ""
                 
                     # Thrust/Continuation Trigger
                     # Price breaks local high while still close to level, with volume
@@ -599,6 +602,22 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             if close_position >= 0.6:  # strong interaction/engulfing
                                 is_ready = True
                                 trigger_type = "pullback"
+
+                    if not is_ready:
+                        # Log reasons only if stock has touched/entered the trigger zone
+                        if close >= (trigger_level - buffer_val) or low <= max(trigger_level, e9):
+                            reasons = []
+                            if close <= float(prev["High"]):
+                                reasons.append("PD02_ENGULFING_FAILED")
+                            if vol_ratio <= 1.0:
+                                reasons.append("PD03_LOW_VOLUME")
+                            if close_position < 0.6:
+                                reasons.append("PD04_WEAK_CLOSE")
+                            if not reasons:
+                                reasons.append("PD05_MULTI_FACTOR")
+                            
+                            dist_atr = ((close - trigger_level) / atr20) if atr20 > 0 else 0.0
+                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={'|'.join(reasons)} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
                 
                     if is_ready:
                         # Do not generate new buy alerts on stale data returned by provider
