@@ -82,6 +82,8 @@ def _clear_down(name: str):
 
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
+    "intraday": (dt_time(9, 32),  dt_time(15, 30)),
+    "live":     (dt_time(10, 17), dt_time(15, 30)),
     "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
     "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
 }
