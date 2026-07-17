@@ -606,18 +606,29 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     if not is_ready:
                         # Log reasons only if stock has touched/entered the trigger zone
                         if close >= (trigger_level - buffer_val) or low <= max(trigger_level, e9):
+                            # Boolean evaluations for decision trace
+                            c_engulf = close > float(prev["High"])
+                            c_vol = vol_ratio > 1.0
+                            c_close_pos = close_position >= 0.6
+                            c_bull_body = close > open_px
+                            c_defended = low <= max(trigger_level, e9)
+                            c_above_trig = close >= trigger_level
+                            
                             reasons = []
-                            if close <= float(prev["High"]):
-                                reasons.append("PD02_ENGULFING_FAILED")
-                            if vol_ratio <= 1.0:
-                                reasons.append("PD03_LOW_VOLUME")
-                            if close_position < 0.6:
-                                reasons.append("PD04_WEAK_CLOSE")
+                            if not c_engulf:
+                                reasons.append("PD02")
+                            if not c_vol:
+                                reasons.append("PD03")
+                            if not c_close_pos:
+                                reasons.append("PD04")
                             if not reasons:
-                                reasons.append("PD05_MULTI_FACTOR")
+                                reasons.append("PD05")
+                                
+                            trace = f"Engulf={c_engulf} BullBody={c_bull_body} Defended={c_defended} AboveTrig={c_above_trig} Vol={c_vol} StrongClose={c_close_pos}"
+                            reason_str = f"{'|'.join(reasons)} [{trace}]"
                             
                             dist_atr = ((close - trigger_level) / atr20) if atr20 > 0 else 0.0
-                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={'|'.join(reasons)} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
+                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
                 
                     if is_ready:
                         # Do not generate new buy alerts on stale data returned by provider
