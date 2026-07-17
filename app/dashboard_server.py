@@ -909,6 +909,8 @@ def api_shortlist():
                 return {k: sanitize_nans(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [sanitize_nans(item) for item in obj]
+            elif hasattr(obj, 'isoformat') and callable(getattr(obj, 'isoformat')):
+                return obj.isoformat()
             return obj
 
         df = pd.read_parquet(WATCHLIST_PATH)
@@ -938,6 +940,8 @@ def api_shortlist_excluded():
                 return {k: sanitize_nans(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [sanitize_nans(item) for item in obj]
+            elif hasattr(obj, 'isoformat') and callable(getattr(obj, 'isoformat')):
+                return obj.isoformat()
             return obj
 
         df = pd.read_csv(excluded_path).fillna("")
@@ -978,6 +982,8 @@ def api_wealth():
                 return {k: sanitize_nans(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [sanitize_nans(item) for item in obj]
+            elif hasattr(obj, 'isoformat') and callable(getattr(obj, 'isoformat')):
+                return obj.isoformat()
             return obj
 
         df = pd.read_parquet(WEALTH_PATH)
