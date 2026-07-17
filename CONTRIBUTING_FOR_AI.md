@@ -41,7 +41,12 @@ When a test fails, follow this order:
 - **Snapshot Immutability:** Never overwrite a versioned Golden Snapshot (e.g., `market_snapshot_v1`). If the strategy intentionally changes, generate a `v2` baseline and document the reason. Never update golden snapshots automatically; snapshot changes require explicit review.
 - **Always Explain Diffs:** If an AI change causes a snapshot diff, the AI must halt and explicitly explain the diff (and why it is expected) to the user before proceeding.
 
-## 4. General Development
+## 4. UI and Frontend Policies (MANDATORY)
+1. **No Disruptive Background Polling:** Never place `window.scrollTo`, `location.reload`, or focus-stealing logic inside `setInterval` or background data refresh loops (like `doRefresh`). 
+2. **Preserve User State:** Background updates must mutate the DOM in-place (e.g., updating a table row or a metric) seamlessly without disrupting the user's current scroll position, selected text, or form inputs.
+3. **Graceful Degradation:** If an API endpoint fails, the UI must gracefully log the error without causing infinite refresh loops or blinding the user with repeated error modals.
+
+## 5. General Development
 - **No Silent Degration:** If a fallback mechanism fails (e.g., `.BO` fetch fails), fail gracefully but loudly. Do not suppress errors or introduce infinite retry loops.
 - **Regression Tests Required:** Every bug fix must include or update at least one regression test (unit, behavioral, or snapshot update) that explicitly breaks under the old logic and passes under the new logic.
 - **Code Duplication:** Prefer extending existing business rules over introducing duplicate logic in new modules.
