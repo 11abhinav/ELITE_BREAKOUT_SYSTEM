@@ -4179,7 +4179,6 @@ async function initDashboard() {
 
   // Auto-Refresh Every 3 Minutes
   setInterval(() => {
-    window.scrollTo(0, 0);
     loadData().then(data => {
       if (data.trades) {
         ALL_TRADES = data.trades;
