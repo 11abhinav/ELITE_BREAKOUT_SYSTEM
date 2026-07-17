@@ -21,7 +21,7 @@
 #
 #  Step 5 — Add to config.py:
 #            THREAD_EOD      = 123    # replace with real IDs
-#            THREAD_INTRADAY = 456
+#            THREAD_MULTI_TF = 456
 #            THREAD_1H       = 789
 #
 #  If THREAD_* values are not set in config.py, messages go to General (no topic).
@@ -48,9 +48,9 @@ except ImportError:
     THREAD_EOD = None
 
 try:
-    from config import THREAD_INTRADAY
+    from config import THREAD_MULTI_TF
 except ImportError:
-    THREAD_INTRADAY = None
+    THREAD_MULTI_TF = None
 
 try:
     from config import THREAD_1H
@@ -68,7 +68,7 @@ except ImportError:
 
 THREAD_MAP = {
     "EOD":      THREAD_EOD,
-    "INTRADAY": THREAD_INTRADAY,
+    "MULTI_TF": THREAD_MULTI_TF,
     "1H":       THREAD_1H,
     "REVERSAL": THREAD_REVERSAL,
 }
@@ -84,7 +84,7 @@ def send_telegram_message(message: str, scan_type: str = None, retries: int = 3)
     Parameters
     ----------
     message   : str  — alert text (HTML tags supported: <b>, <i>, <code>, <pre>)
-    scan_type : str  — "EOD" | "INTRADAY" | "1H"
+    scan_type : str  — "EOD" | "MULTI_TF" | "1H"
                        Routes to the matching group topic if THREAD_* is set in config.
                        Pass None to post to General.
     retries   : int  — retry attempts on failure (default 3)

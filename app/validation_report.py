@@ -17,7 +17,7 @@ import config
 ACTIVE_VERSION = "SL_ENGINE_V6"
 
 LOOKAHEAD_WINDOWS = {
-    "INTRADAY": 1,
+    "MULTI_TF": 1,
     "LIVE_1H": 5,
     "EOD": 15,
     "REVERSAL": 20
