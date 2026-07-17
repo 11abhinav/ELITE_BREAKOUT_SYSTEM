@@ -85,6 +85,11 @@ def _start_wrapper(force: bool = False):
     is_test_mode = True  # Safe default
     init_db()
     
+    try:
+        upsert_scanner_health("EOD", "RUNNING", error_msg="EOD Scan in progress...")
+    except Exception:
+        logger.warning("⚠️ Could not mark EOD as RUNNING")
+    
     force_refresh_blacklist()
     
     nifty_ret_20d = get_nifty_20d_return()

@@ -4510,7 +4510,7 @@ def reallocate_capital(alert_id: int):
                             atr = float(ctx.get("execution", {}).get("atr", 0))
                             if atr > 0:
                                 fallback_sl = entry_price - (1.5 * atr)
-                        elif scanner == "multi_tf_scanner":
+                        elif scanner == "MULTI_TF":
                             # Explicit final_sl is often stored here
                             f_sl = float(ctx.get("final_sl", 0))
                             if f_sl > 0:
@@ -4618,7 +4618,7 @@ def reallocate_capital_multiple(alert_ids: list):
                         if scanner in ("1H", "INTRADAY"):
                             atr = float(ctx.get("execution", {}).get("atr", 0))
                             if atr > 0: fallback_sl = entry_price - (1.5 * atr)
-                        elif scanner == "multi_tf_scanner":
+                        elif scanner == "MULTI_TF":
                             f_sl = float(ctx.get("final_sl", 0))
                             if f_sl > 0: fallback_sl = f_sl
                         elif scanner == "EOD":

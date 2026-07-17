@@ -57,8 +57,6 @@ except Exception as e:
 
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
-    "IntradayScanner":    "INTRADAY",
-    "LiveScanner":        "1H",
     "EODScanner":         "EOD",
     "ReversalScanner":    "REVERSAL",
     "MultiTFScanner":     "MULTI_TF",
@@ -84,8 +82,6 @@ def _clear_down(name: str):
 
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
-    "intraday": (dt_time(9, 32),  dt_time(15, 30)),
-    "live":     (dt_time(10, 17), dt_time(15, 30)),
     "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
     "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
 }
@@ -110,8 +106,8 @@ def _cleanup_old_scanner_names():
                 cur.execute("""
                     UPDATE scanner_health 
                     SET status='OK', error_msg=NULL, is_acknowledged=TRUE
-                    WHERE scanner_name IN ('INTRADAY', '1H', 'EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER')
-                      AND status = 'DOWN';
+                    WHERE scanner_name IN ('EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
+                      AND status IN ('DOWN', 'RUNNING');
                 """)
             conn.commit()
     except Exception as e:
@@ -189,18 +185,6 @@ def _run(name, fn):
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = threading.Lock()
 
-def run_intraday_scanner():
-    wait_for_window("intraday")
-    import intraday
-    intraday.start()
-    time.sleep(15)
-
-def run_live_scanner():
-    wait_for_window("live")
-    import live_scanner
-    live_scanner.start()
-    time.sleep(15)
-
 def run_multi_tf_scanner():
     wait_for_window("live")
     import multi_tf_scanner
@@ -214,19 +198,19 @@ def run_performance_tracker():
     
     # Always run once on boot to ensure fresh dashboard data, even on weekends
     try:
-        # RCA & DESIGN DECISION (2026-07-15):
-        # - Removed scanner_execution_lock here so performance data builds can run
-        #   concurrently with active scanners. Prevents dashboard lags during long runs.
         build_performance_data()
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
             scheduled_for="Every 5min (all day)"
         )
-    except Exception:
-        logger.exception("❌ PERFORMANCE TRACKER | Initial boot refresh failed")
-        upsert_scanner_health(
-            "PERFORMANCE_TRACKER", status="DOWN",
+    except Exception as e:
+        if "actively running" in str(e).lower():
+            pass
+        else:
+            logger.exception("❌ PERFORMANCE TRACKER | Initial boot refresh failed")
+            upsert_scanner_health(
+                "PERFORMANCE_TRACKER", status="DOWN",
             error_msg="Boot refresh failed",
             scheduled_for="Every 5min (all day)"
         )
@@ -236,8 +220,6 @@ def run_performance_tracker():
     while True:
         if is_market_open():
             try:
-                # Removed scanner_execution_lock here to allow background 5m refreshes
-                # to run concurrently with active scanners.
                 build_performance_data()
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
@@ -245,6 +227,8 @@ def run_performance_tracker():
                     scheduled_for="Every 5min (all day)"
                 )
             except Exception as e:
+                if "actively running" in str(e).lower():
+                    continue
                 logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
                 try:
                     upsert_scanner_health(
@@ -312,6 +296,9 @@ def verify_watchlist_is_pristine() -> bool:
             from watchlist_cache import get_watchlist
             get_watchlist()
         except Exception as e:
+            if "actively running" in str(e).lower():
+                logger.info("⏳ Daily Builder is actively running.")
+                return False
             logger.exception(f"❌ Daily Builder rebuild FAILED (full traceback above): {e}")
             from database import upsert_scanner_health, insert_notification
             upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
@@ -386,8 +373,19 @@ def run_eod_scanner():
                 if rec.get("scanner_name") == "EOD" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 18:30 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             
             if already_ran:
                 logger.info("📊 EOD SCAN | Already successfully executed today. Sleeping until tomorrow...")
@@ -432,6 +430,11 @@ def run_eod_scanner():
             continue
             
         except Exception as exc:
+            if "actively running" in str(exc).lower():
+                logger.info("⏳ EOD scanner is already running in another process. Waiting...")
+                time.sleep(60)
+                continue
+                
             retry_count += 1
             now = datetime.now(IST)
             
@@ -515,8 +518,19 @@ def run_reversal_scanner():
                 if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["reversal"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("🔄 REVERSAL SCAN | Previous run today was BEFORE 18:30 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             
             if already_ran:
                 logger.info("🔄 REVERSAL SCAN | Already successfully executed today. Sleeping until tomorrow...")
@@ -561,6 +575,11 @@ def run_reversal_scanner():
             continue
             
         except Exception as exc:
+            if "actively running" in str(exc).lower():
+                logger.info("⏳ REVERSAL scanner is already running in another process. Waiting...")
+                time.sleep(60)
+                continue
+                
             retry_count += 1
             now = datetime.now(IST)
             
@@ -705,6 +724,11 @@ def run_system_scheduler():
             logger.info("✅ Daily Builder completed successfully")
             return True
         except Exception as e:
+            err_str = str(e).lower()
+            if "actively running" in err_str:
+                logger.info("⏳ DAILY_BUILDER is already running. Skipping scheduler trigger.")
+                return False
+                
             logger.exception("❌ SCHEDULER | Daily Builder crashed")
             # Telegram notifications disabled (2026-06-17)
             try:
@@ -735,6 +759,9 @@ def run_system_scheduler():
             logger.info("✅ Wealth Engine (initial) completed successfully")
             return True
         except Exception as e:
+            if "actively running" in str(e).lower():
+                logger.info("⏳ Wealth Engine is actively running.")
+                return False
             logger.exception("❌ SCHEDULER | Wealth Engine (initial) crashed")
             upsert_scanner_health(
                 "Wealth Engine",
@@ -777,6 +804,9 @@ def run_system_scheduler():
             logger.info("✅ Wealth Engine (market hours) completed successfully")
             return True
         except Exception as e:
+            if "actively running" in str(e).lower():
+                logger.info("⏳ Wealth Engine is actively running.")
+                return False
             logger.exception("❌ SCHEDULER | Wealth Engine (market hours) crashed")
             upsert_scanner_health(
                 "Wealth Engine",
@@ -1045,6 +1075,11 @@ def run_multibagger_scanner():
                 multibagger_ran = False
                 
         except Exception as e:
+            if "actively running" in str(e).lower():
+                logger.info("⏳ MULTIBAGGER scanner is already running. Skipping...")
+                time.sleep(60)
+                continue
+                
             logger.exception("❌ MULTIBAGGER SCAN | Failed")
             try:
                 from database import upsert_scanner_health
@@ -1063,15 +1098,11 @@ def run_multibagger_scanner():
 
 
 RESTARTABLE_THREADS = {
-    # Intraday and Live scanners disabled per ops request to reduce API load during market hours.
-    # "IntradayScanner":    run_intraday_scanner,
-    # "LiveScanner":        run_live_scanner,
     "MultiTFScanner":     run_multi_tf_scanner,
     "PerformanceTracker": run_performance_tracker,
     # [VERSION: TRIGGER_AI_WORKER_v1.3] Uncomment AI Worker thread
     "AI Worker":          run_worker_loop,
     "Pledge Worker":      run_pledge_loop,
-    # "BayesianUpdater":    run_bayesian_loop,
     "SystemScheduler":    run_system_scheduler,
     "EODScanner":         run_eod_scanner,
     "ReversalScanner":    run_reversal_scanner,
@@ -1163,8 +1194,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "EOD":           _trigger_eod,
         "REVERSAL":      _trigger_reversal,
         "Wealth Engine": _trigger_wealth_engine,
-        "INTRADAY":      _trigger_intraday,
-        "1H":            _trigger_live_scanner,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
@@ -1181,8 +1210,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "EOD":           lambda: __import__('eod_scanner')._scan_lock,
         "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
-        "INTRADAY":      lambda: __import__('intraday')._scan_lock,
-        "1H":            lambda: __import__('live_scanner')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
@@ -1291,14 +1318,6 @@ def _trigger_reversal():
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan
     run_wealth_scan()
-
-def _trigger_intraday():
-    import intraday
-    intraday.start(run_once=True)
-
-def _trigger_live_scanner():
-    import live_scanner
-    live_scanner.start(run_once=True)
 
 def _trigger_multibagger():
     import multibagger

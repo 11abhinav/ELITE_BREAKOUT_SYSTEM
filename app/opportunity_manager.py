@@ -212,7 +212,7 @@ class OpportunityManager:
                         symbol=symbol,
                         breakout_type=c.get("breakout_type", "INTRADAY"),
                         alert_time=now_ist,
-                        scanner=c.get("scanner", "multi_tf_scanner"),
+                        scanner=c.get("scanner", "MULTI_TF"),
                         category=c.get("category"),
                         entry_price=c.get("entry_price"),
                         stop_loss=c.get("stop_loss"),

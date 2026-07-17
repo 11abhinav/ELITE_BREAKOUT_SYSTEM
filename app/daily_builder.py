@@ -905,9 +905,9 @@ def _main_wrapper(force_rebuild: bool = False):
 
     from database import upsert_scanner_health
     try:
-        upsert_scanner_health("DAILY_BUILDER", "OK", error_msg=None)
+        upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="Building watchlist...")
     except Exception:
-        logger.warning("⚠️ Could not mark Daily Builder as OK")
+        logger.warning("⚠️ Could not mark Daily Builder as RUNNING")
 
     try:
         _main_impl(force_rebuild=force_rebuild)

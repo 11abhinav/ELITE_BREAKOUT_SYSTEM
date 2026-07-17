@@ -727,7 +727,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
                                     "symbol": symbol,
                                     "breakout_type": "INTRADAY",
-                                    "scanner": "multi_tf_scanner",
+                                    "scanner": "MULTI_TF",
                                     "category": cat,
                                     "technical_score": final_score,
                                     "volume_ratio": vol_ratio,
@@ -739,7 +739,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     "target_1": sl_result.get("target_1"),
                                     "target_2": sl_result.get("target_2"),
                                     "target_3": sl_result.get("target_3"),
-                                    "signals": f"Multi-TF Ladder (1h→30m→15m→5m) | {trigger_type}",
+                                    "signals": f"MULTI_TF Ladder (1h→30m→15m→5m) | {trigger_type}",
                                     "rsi": _safe_float(latest.get("RSI", 0)),
                                     "context": ctx,
                                     "item_category": cat,
@@ -844,6 +844,12 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 
             logger.info("=========================================")
             logger.info(f"🚀 [START] MULTI-TF LADDER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF Scan in progress...")
+            except Exception:
+                pass
                 
             # Cache regime once per cycle
             # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 1] Pass nifty_ret explicitly to get_macro_regime to avoid redundant API calls

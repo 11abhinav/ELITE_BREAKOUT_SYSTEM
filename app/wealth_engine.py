@@ -793,7 +793,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
     
     import database
     if not getattr(database, "DONT_SAVE_WEALTH", False):
-        upsert_scanner_health("Wealth Engine", "IDLE", last_success=None, today_alerts=0)
+        upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine Scan in progress...")
 
     try:
         if not os.path.exists(WATCHLIST_PATH):

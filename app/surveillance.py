@@ -114,7 +114,7 @@ def get_live_blacklist() -> set[str]:
                         raise # Re-raise on final failure to hit outer exception handler
             
         except Exception as e:
-            logger.exception(f"Failed to fetch live NSE surveillance lists")
+            logger.warning(f"Failed to fetch live NSE surveillance lists: {e}. Falling back to cache.")
             # On failure, check if we have in-memory or on-disk cache
             if _blacklist_cache is not None:
                 logger.warning("Using stale in-memory surveillance cache due to fetch failure.")

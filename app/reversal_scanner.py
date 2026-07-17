@@ -1017,6 +1017,11 @@ def _start_wrapper(force: bool = False) -> int:
     """
     init_db()
 
+    try:
+        upsert_scanner_health("REVERSAL", "RUNNING", error_msg="Reversal Scan in progress...")
+    except Exception:
+        logger.warning("⚠️ Could not mark Reversal as RUNNING")
+
     from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
 
