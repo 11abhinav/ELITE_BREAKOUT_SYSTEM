@@ -866,6 +866,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
+                    from database import upsert_scanner_health
                     upsert_scanner_health(
                         scanner_name="MULTI_TF",
                         status=status,
@@ -900,6 +901,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             logger.exception("❌ MULTI-TF LADDER CRASHED")
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
+                    from database import upsert_scanner_health
                     upsert_scanner_health(
                         scanner_name="MULTI_TF",
                         status="DOWN",
