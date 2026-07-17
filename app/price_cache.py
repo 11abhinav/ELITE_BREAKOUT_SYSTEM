@@ -412,8 +412,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             all_data[sym] = new_df
                             
-                        # If this was a FULL fetch, record the earliest available date
-                        if group_key == "FULL" and not new_df.empty:
+                        # If this was a FULL fetch for a long historical period, record the earliest available date
+                        if group_key == "FULL" and not new_df.empty and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
                             try:
                                 t_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
                                 earliest_ts = pd.to_datetime(new_df[t_col].iloc[0]) if t_col else pd.to_datetime(new_df.index[0])
