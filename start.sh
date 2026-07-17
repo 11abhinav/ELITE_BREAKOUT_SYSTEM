@@ -2,6 +2,9 @@
 
 echo "🚀 Starting Elite Breakout System Supervisor..."
 
+echo "🧹 Running database symbol mappings cleanup..."
+python3 app/clear_poisoned_mappings.py
+
 while true; do
     echo "▶️ Launching app/main.py..."
     python3 app/main.py
