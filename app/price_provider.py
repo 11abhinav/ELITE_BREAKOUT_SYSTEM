@@ -221,6 +221,63 @@ class PriceProvider:
 
         return result
 
+    def _normalize_symbol(self, symbol: str) -> str:
+        # Check DB mappings first
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            mappings = load_bse_mappings()
+            upper_sym = symbol.strip().upper()
+            if upper_sym in mappings:
+                return mappings[upper_sym]
+            if upper_sym.endswith(".NS") and upper_sym[:-3] in mappings:
+                return mappings[upper_sym[:-3]]
+        except Exception:
+            pass
+
+        # Handle suffix stripping and is_bse logic
+        is_bse = symbol.endswith(".BO") or symbol.startswith("BSE:")
+        if symbol.endswith(".NS"):
+            base_sym = symbol[:-3]
+        elif symbol.endswith(".BO"):
+            base_sym = symbol[:-3]
+            is_bse = True
+        else:
+            base_sym = symbol
+
+        if base_sym.startswith("BSE:"):
+            base_sym = base_sym[4:]
+            is_bse = True
+        elif base_sym.startswith("NSE:"):
+            base_sym = base_sym[4:]
+            is_bse = False
+
+        if base_sym.isdigit():
+            is_bse = True
+
+        # Apply corrections
+        try:
+            from daily_builder import SYMBOL_CORRECTIONS
+            STALE_MAP = {
+                "M-M": "M&M",
+                "M-MFIN": "M&MFIN",
+                "J-KBANK": "J&KBANK",
+                "GVT-D": "GVT&D",
+                "L-TFH": "L&TFH",
+                "T-IPOWER": "T&IPOWER",
+            }
+            if base_sym in SYMBOL_CORRECTIONS:
+                base_sym = SYMBOL_CORRECTIONS[base_sym]
+            elif base_sym in STALE_MAP:
+                base_sym = STALE_MAP[base_sym]
+            else:
+                base_sym = base_sym.replace("_", "-")
+        except Exception:
+            base_sym = base_sym.replace("_", "-")
+
+        if base_sym.startswith("^"):
+            return base_sym
+        return f"{base_sym}.BO" if is_bse else f"{base_sym}.NS"
+
     def fetch_batch(self, tickers: List[str], period: str = "5d", interval: str = "5m", start: str = None, end: str = None) -> Dict[str, object]:
         """Fetch OHLCV data for tickers in batches. Returns ticker->DataFrame mapping.
 
@@ -230,27 +287,13 @@ class PriceProvider:
         if not tickers:
             return {}
 
-        try:
-            from bse_mapping_utils import load_bse_mappings
-            mappings = load_bse_mappings()
-        except Exception as e:
-            logger.error(f"Failed to load bse mappings in price_provider: {e}")
-            mappings = {}
-
-        # Map each input ticker to its resolved yfinance ticker, preserving the original ticker key
+        # Map each input ticker to its resolved yfinance ticker, preserving all original ticker keys (1:N)
         resolved_to_orig = {}
         resolved_tickers = []
         for t in tickers:
-            clean_sym = t.strip().upper()
-            if clean_sym in mappings:
-                res_sym = mappings[clean_sym]
-            elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
-                res_sym = mappings[clean_sym[:-3]]
-            else:
-                res_sym = t if t.endswith(".NS") or t.endswith(".BO") or t.startswith("^") else f"{t}.NS"
-            
+            res_sym = self._normalize_symbol(t)
             resolved_tickers.append(res_sym)
-            resolved_to_orig[res_sym] = t
+            resolved_to_orig.setdefault(res_sym, []).append(t)
 
         # normalize resolved_tickers order and dedupe
         resolved_tickers = list(dict.fromkeys(resolved_tickers))
@@ -315,7 +358,8 @@ class PriceProvider:
                                             outputs[t] = stale_val
                                         else:
                                             outputs[t] = None
-                                        # don't overwrite cache in this case
+                                        # Cache None to prevent infinite polling spam
+                                        self._cache_set((t, period, interval, start, end), None)
                                     else:
                                         self._cache_set((t, period, interval, start, end), frame)
                                         outputs[t] = frame
@@ -333,6 +377,8 @@ class PriceProvider:
                                         outputs[t] = stale_val
                                     else:
                                         outputs[t] = None
+                                    # Cache None to prevent infinite polling spam
+                                    self._cache_set((t, period, interval, start, end), None)
                 except concurrent.futures.TimeoutError:
                     logger.error("❌ Timeout during batch download in price_provider. Aborting remaining batches to prevent deadlock.")
 
@@ -340,16 +386,49 @@ class PriceProvider:
         for t in resolved_tickers:
             outputs.setdefault(t, None)
 
-        # Batch-level .BO Fallback
+        # Batch-level .BO Fallback & Poisoned Mapping Fix
         missing_ns_to_bo = {}
+        poisoned_bo_symbols = []
         for t, val in outputs.items():
-            # Only fallback if it's completely missing (or stale but we want to try BO for fresh)
             is_stale_df = hasattr(val, 'attrs') and val.attrs.get('is_stale', False)
             is_missing_df = val is None or (hasattr(val, 'empty') and val.empty)
-            if (is_missing_df or is_stale_df) and t.endswith(".NS"):
-                bo_sym = t[:-3] + ".BO"
-                missing_ns_to_bo[bo_sym] = t
+            if is_missing_df or is_stale_df:
+                if t.endswith(".NS"):
+                    bo_sym = t[:-3] + ".BO"
+                    missing_ns_to_bo[bo_sym] = t
+                elif t.endswith(".BO"):
+                    poisoned_bo_symbols.append(t)
 
+        # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback (BSE -> NSE)
+        if poisoned_bo_symbols and not circuit_open:
+            logger.info(f"🗑️ price_provider: Invalidating {len(poisoned_bo_symbols)} poisoned BSE mappings and retrying via NSE...")
+            try:
+                from bse_mapping_utils import invalidate_bse_mapping
+                ns_symbols = []
+                for bo_sym in poisoned_bo_symbols:
+                    ns_sym = bo_sym[:-3] + ".NS"
+                    ns_symbols.append(ns_sym)
+                    
+                    # Invalidate in DB for each mapped original ticker
+                    orig_list = resolved_to_orig.get(bo_sym, [bo_sym])
+                    for orig in orig_list:
+                        clean_orig = orig[:-3] if orig.endswith(".NS") or orig.endswith(".BO") else orig
+                        invalidate_bse_mapping(clean_orig)
+                        
+                ns_res = self._download_batch(ns_symbols, period, interval, start, end)
+                if ns_res:
+                    for ns_sym, frame in ns_res.items():
+                        if frame is not None and not frame.empty:
+                            bo_sym = ns_sym[:-3] + ".BO"
+                            logger.info(f"✅ price_provider: Recovered {bo_sym} via {ns_sym}")
+                            self._cache_set((ns_sym, period, interval, start, end), frame)
+                            outputs[bo_sym] = frame
+                        else:
+                            self._cache_set((ns_sym, period, interval, start, end), None)
+            except Exception as e:
+                logger.warning(f"Failed during Reverse Fallback: {e}")
+
+        # Normal NSE -> BSE Fallback
         if missing_ns_to_bo and not circuit_open:
             bo_symbols = list(missing_ns_to_bo.keys())
             logger.info(f"🔄 price_provider: {len(bo_symbols)} .NS symbols missing. Attempting .BO fallback...")
@@ -360,28 +439,28 @@ class PriceProvider:
                     for bo_sym, frame in bo_res.items():
                         if frame is not None and not frame.empty:
                             orig_ns = missing_ns_to_bo[bo_sym]
-                            orig_req = resolved_to_orig.get(orig_ns, orig_ns)
                             
-                            # Clean up the original request symbol for mapping (remove any trailing .NS or .BO)
-                            clean_orig = orig_req
-                            if clean_orig.endswith(".NS") or clean_orig.endswith(".BO"):
-                                clean_orig = clean_orig[:-3]
-                                
-                            # Only save persistent mapping if original symbol is genuinely BSE
-                            if clean_orig.strip().isdigit() or clean_orig.strip().upper().endswith(".BO") or clean_orig.strip().upper().startswith("BSE:"):
+                            orig_list = resolved_to_orig.get(orig_ns, [orig_ns])
+                            for orig in orig_list:
+                                clean_orig = orig[:-3] if orig.endswith(".NS") or orig.endswith(".BO") else orig
                                 save_bse_mapping(clean_orig, bo_sym)
+                                
                             logger.info(f"✅ price_provider: Recovered {orig_ns} via {bo_sym}")
                             
                             self._cache_set((bo_sym, period, interval, start, end), frame)
                             outputs[orig_ns] = frame
+                        else:
+                            # Cache the missed fallback so we don't hammer yfinance
+                            self._cache_set((bo_sym, period, interval, start, end), None)
             except Exception as e:
                 logger.warning(f"Failed during .BO batch fallback: {e}")
 
-        # Map output keys back to original requested tickers
+        # Map output keys back to all original requested tickers (1:N)
         final_outputs = {}
         for res_sym, frame in outputs.items():
-            orig = resolved_to_orig.get(res_sym, res_sym)
-            final_outputs[orig] = frame
+            orig_list = resolved_to_orig.get(res_sym, [res_sym])
+            for orig in orig_list:
+                final_outputs[orig] = frame
 
         # ensure all originally requested tickers are present in the final output
         for t in tickers:

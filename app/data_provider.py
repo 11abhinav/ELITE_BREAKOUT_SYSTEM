@@ -245,68 +245,7 @@ class YFinanceFetcher(DataFetcher):
                 df_clean = self._clean_df(df)
                 for orig_sym in orig_syms:
                     all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
-            else:
-                if ns_sym.endswith(".NS"):
-                    missing_symbols_to_retry.extend(orig_syms)
-                elif ns_sym.endswith(".BO"):
-                    # [VERSION: POISONED_MAPPING_FIX_v1.0] Identify mapped BSE symbols that failed
-                    try:
-                        from bse_mapping_utils import load_bse_mappings
-                        mappings = load_bse_mappings()
-                        for orig_sym in orig_syms:
-                            orig_clean = orig_sym.strip().upper()
-                            if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
-                                poisoned_symbols_to_retry.append(orig_sym)
-                    except Exception:
-                        pass
 
-        # If any NSE symbols failed, do exactly ONE batch retry using their BSE (.BO) equivalents!
-        if missing_symbols_to_retry:
-            bse_normalized_map = {}
-            for s in missing_symbols_to_retry:
-                bse_sym = self._normalize_symbol(s)[:-3] + ".BO"
-                bse_normalized_map.setdefault(bse_sym, []).append(s)
-                
-            bse_symbols = list(bse_normalized_map.keys())
-            logger.info(f"🔄 {prefix}Retrying {len(bse_symbols)} missing/failed symbols via BSE batch query...")
-            bse_fetched = self._fetch_batch_raw(bse_symbols, period, interval, range_from, range_to)
-            
-            for bse_sym, orig_syms in bse_normalized_map.items():
-                df = bse_fetched.get(bse_sym)
-                if df is not None and not df.empty:
-                    df_clean = self._clean_df(df)
-                    for orig_sym in orig_syms:
-                        all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
-                        try:
-                            from bse_mapping_utils import save_bse_mapping
-                            save_bse_mapping(orig_sym, bse_sym)
-                        except Exception as e:
-                            logger.warning(f"Failed to save BSE mapping inside get_batch_ohlcv: {e}")
-
-        # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback (BSE -> NSE) for poisoned mappings
-        if poisoned_symbols_to_retry:
-            logger.info(f"🗑️ {prefix}Invalidating {len(poisoned_symbols_to_retry)} poisoned BSE mappings and retrying via NSE...")
-            try:
-                from bse_mapping_utils import invalidate_bse_mapping
-                ns_recovery_map = {}
-                for s in poisoned_symbols_to_retry:
-                    invalidate_bse_mapping(s)
-                    clean_sym = s.strip().upper()
-                    ns_sym = (clean_sym[:-3] + ".NS") if (clean_sym.endswith(".NS") or clean_sym.endswith(".BO")) else (clean_sym + ".NS")
-                    ns_recovery_map.setdefault(ns_sym, []).append(s)
-
-                ns_symbols_to_fetch = list(ns_recovery_map.keys())
-                ns_fetched = self._fetch_batch_raw(ns_symbols_to_fetch, period, interval, range_from, range_to)
-                
-                for ns_sym, orig_syms in ns_recovery_map.items():
-                    df = ns_fetched.get(ns_sym)
-                    if df is not None and not df.empty:
-                        df_clean = self._clean_df(df)
-                        for orig_sym in orig_syms:
-                            all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
-                            logger.info(f"✅ Recovered poisoned symbol {orig_sym} via {ns_sym}")
-            except Exception as e:
-                logger.warning(f"Failed during poisoned mapping recovery in get_batch_ohlcv: {e}")
 
         for s in symbols:
             all_data.setdefault(s, None)
