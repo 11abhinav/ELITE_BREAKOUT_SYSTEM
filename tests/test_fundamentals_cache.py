@@ -46,15 +46,33 @@ def test_fundamentals_cache_bse_fallback(mocker):
     mocker.patch("fundamentals_cache.yf_acquire")
     mocker.patch("fundamentals_cache.yf_release")
     
-    # Fetch fundamentals for NSDL
+    # Fetch fundamentals for NSDL (NSE symbol)
     res = fetch_single_piotroski("NSDL")
     
     assert res is not None
     assert res.get("score") is not None
     assert res.get("failed") is not True
     
-    # Check that BSE mapping was recorded
+    # Check that BSE mapping was NOT saved for the standard NSE symbol
     mappings = bse_mapping_utils.load_bse_mappings()
-    assert mappings.get("NSDL") == "NSDL.BO"
+    assert mappings.get("NSDL") is None
+    
+    # Fetch fundamentals for a numeric BSE symbol (500180) to verify it gets mapped
+    # Mock yf.Ticker to return empty financials for 500180.NS but valid for 500180.BO
+    def mock_ticker_init_bse(sym):
+        if sym.endswith(".NS"):
+            return mock_ticker_ns
+        else:
+            return mock_ticker_bo
+            
+    mocker.patch("yfinance.Ticker", side_effect=mock_ticker_init_bse)
+    
+    res_bse = fetch_single_piotroski("500180")
+    assert res_bse is not None
+    assert res_bse.get("score") is not None
+    
+    # Check that BSE mapping WAS recorded for the numeric BSE symbol
+    mappings = bse_mapping_utils.load_bse_mappings()
+    assert mappings.get("500180") == "500180.BO"
     
     bse_mapping_utils._bse_mappings_cache = None
