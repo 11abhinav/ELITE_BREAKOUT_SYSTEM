@@ -138,9 +138,21 @@ def fetch_single_piotroski(symbol: str) -> dict:
                     t, info, fin, bs = try_fetch(bse_sym)
                     if not (fin.empty and bs.empty):
                         yf_sym = bse_sym
-                        # Only save persistent mapping if original symbol is genuinely BSE
-                        if symbol.strip().isdigit() or symbol.strip().upper().endswith(".BO") or symbol.strip().upper().startswith("BSE:"):
-                            save_bse_mapping(symbol, bse_sym)
+                        save_bse_mapping(symbol, bse_sym)
+                        success = True
+                        break
+                elif yf_sym.endswith(".BO"):
+                    logger.info(f"🗑️ fundamentals: Invalidating poisoned BSE mapping for {symbol} and retrying via NSE...")
+                    try:
+                        from bse_mapping_utils import invalidate_bse_mapping
+                        clean_orig = symbol[:-3] if symbol.endswith(".NS") or symbol.endswith(".BO") else symbol
+                        invalidate_bse_mapping(clean_orig)
+                    except Exception as e:
+                        logger.warning(f"Failed to invalidate mapping: {e}")
+                    ns_sym = yf_sym[:-3] + ".NS"
+                    t, info, fin, bs = try_fetch(ns_sym)
+                    if not (fin.empty and bs.empty):
+                        yf_sym = ns_sym
                         success = True
                         break
                 raise ValueError("Financials and Balance Sheet are both empty.")
@@ -162,8 +174,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                     t, info, fin, bs = try_fetch(alt_sym)
                     if not (fin.empty and bs.empty):
                         yf_sym = alt_sym
-                        # Only save persistent mapping if original symbol is genuinely BSE
-                        if symbol.strip().isdigit() or symbol.strip().upper().endswith(".BO") or symbol.strip().upper().startswith("BSE:"):
+                        if alt_sym.endswith(".BO"):
                             save_bse_mapping(symbol, alt_sym)
                         success = True
                         break
@@ -282,9 +293,9 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
         entry_date = datetime.strptime(cache_entry["date"], "%Y-%m-%d").date()
         days_old = (datetime.now(IST).date() - entry_date).days
         
-        # If it failed to fetch (no data), retry on the next run (0 day cooldown)
+        # If it failed to fetch (no data), retry on the next run after 2 days (48 hour cooldown)
         if cache_entry.get("failed", False):
-            return True
+            return days_old > 2
 
             
         return days_old > FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)

@@ -169,7 +169,8 @@ class YFinanceFetcher(DataFetcher):
                 orig_clean = symbol.strip().upper()
                 if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
                     logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE...")
-                    invalidate_bse_mapping(symbol)
+                    clean_orig = orig_clean[:-3] if orig_clean.endswith(".NS") or orig_clean.endswith(".BO") else orig_clean
+                    invalidate_bse_mapping(clean_orig)
                     recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
                     df = self._get_ohlcv_raw(recovery_sym, interval, period, retries, range_from, range_to)
             except Exception as e:
@@ -294,7 +295,8 @@ class YFinanceFetcher(DataFetcher):
                     orig_clean = symbol.strip().upper()
                     if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
                         logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE (quote)...")
-                        invalidate_bse_mapping(symbol)
+                        clean_orig = orig_clean[:-3] if orig_clean.endswith(".NS") or orig_clean.endswith(".BO") else orig_clean
+                        invalidate_bse_mapping(clean_orig)
                         recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
                         yf_acquire(context=f"DataFetcher.get_quote | {recovery_sym}")
                         try:

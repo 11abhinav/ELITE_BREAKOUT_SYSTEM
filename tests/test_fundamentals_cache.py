@@ -46,16 +46,23 @@ def test_fundamentals_cache_bse_fallback(mocker):
     mocker.patch("fundamentals_cache.yf_acquire")
     mocker.patch("fundamentals_cache.yf_release")
     
-    # Fetch fundamentals for NSDL (NSE symbol)
+    # Fetch fundamentals for NSDL (NSE symbol that falls back to BSE)
     res = fetch_single_piotroski("NSDL")
     
     assert res is not None
     assert res.get("score") is not None
     assert res.get("failed") is not True
     
-    # Check that BSE mapping was NOT saved for the standard NSE symbol
+    # RCA FIX (2026-07-17): BSE mapping SHOULD be saved for ALL symbols (not just
+    # numeric ones) when a fallback to .BO succeeds. This prevents redundant Yahoo
+    # API hits and rate-limit consumption on every future fundamental sweep.
+    # The OLD assertion "mappings.get('NSDL') is None" was wrong — it validated the
+    # broken isdigit() restriction that we intentionally removed.
     mappings = bse_mapping_utils.load_bse_mappings()
-    assert mappings.get("NSDL") is None
+    assert mappings.get("NSDL") == "NSDL.BO", (
+        "BSE fallback mapping should be saved for ALL symbols (alphabetical included) "
+        "to prevent repeated API hits on future fundamental sweeps."
+    )
     
     # Fetch fundamentals for a numeric BSE symbol (500180) to verify it gets mapped
     # Mock yf.Ticker to return empty financials for 500180.NS but valid for 500180.BO
@@ -71,7 +78,7 @@ def test_fundamentals_cache_bse_fallback(mocker):
     assert res_bse is not None
     assert res_bse.get("score") is not None
     
-    # Check that BSE mapping WAS recorded for the numeric BSE symbol
+    # Check that BSE mapping WAS recorded for the numeric BSE symbol too
     mappings = bse_mapping_utils.load_bse_mappings()
     assert mappings.get("500180") == "500180.BO"
     
