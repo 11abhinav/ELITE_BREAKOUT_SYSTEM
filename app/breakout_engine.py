@@ -282,7 +282,6 @@ def detect_breakouts(df: pd.DataFrame, timeframe: str = "15m") -> dict[str, floa
         if (
             close > prev_high
             and close > prev_high * (1 + min_margin)
-            and candle_low > prev_high * (1 - _WICK_TOLERANCE)
         ):
             # Calculate breakout strength: how much above the prior high (as %)
             breakout_strength = ((close - prev_high) / prev_high) * 100
@@ -313,12 +312,10 @@ def detect_breakouts(df: pd.DataFrame, timeframe: str = "15m") -> dict[str, floa
             not pd.isna(bb_width_5) and
             bb_width > bb_width_5   # bands expanding = breakout, not overextension
         ):
-            # Additional gate: candle body must be above BB_UPPER (not just wick)
-            candle_low = float(latest["Low"])
-            if candle_low > bb_upper * (1 - _WICK_TOLERANCE):
-                bb_strength = ((close - bb_upper) / bb_upper) * 100
-                weight = BREAKOUT_WEIGHTS.get("BB Breakout", 1.2)
-                signals["BB Breakout"] = round(bb_strength * weight * quality_multiplier, 3)
+            # (Removed candle_low check which erroneously required gap-ups above the BB)
+            bb_strength = ((close - bb_upper) / bb_upper) * 100
+            weight = BREAKOUT_WEIGHTS.get("BB Breakout", 1.2)
+            signals["BB Breakout"] = round(bb_strength * weight * quality_multiplier, 3)
 
     # ── VOLUME SURGE ──────────────────────────────────────────────────────────────
     # Current bar volume >= 3.0 Z-score AND price is up.

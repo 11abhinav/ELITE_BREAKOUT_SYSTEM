@@ -15,7 +15,9 @@ from zoneinfo import ZoneInfo
 from data_fetch_status import mark_success, mark_failure
 from database import upsert_fetch_error
 from data_provider import get_fetcher
-from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
+from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
+import json
+import os
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -209,7 +211,7 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
         # Intraday candles: allow a 30m buffer for early broker closures (e.g. 15:25 candle)
         return last_ts >= (last_close - timedelta(minutes=30))
 
-def _is_cache_long_enough(cached_df: pd.DataFrame, period: str) -> bool:
+def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -> bool:
     """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
     if cached_df.empty:
         return False
@@ -243,6 +245,19 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str) -> bool:
             # A requested period of N calendar days will have at least N * 0.65 calendar days diff
             # between the first and last candle. If days_diff is smaller, we are missing historical data.
             if days_diff < (req * 0.65):
+                # Check if we already hit the beginning of history (IPO/recent listing)
+                earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
+                if os.path.exists(earliest_path):
+                    try:
+                        with open(earliest_path, "r") as f:
+                            earliest_dates = json.load(f)
+                            if sym and earliest_dates.get(sym):
+                                first_dt = first_ts.date().isoformat() if hasattr(first_ts, 'date') else None
+                                if first_dt == earliest_dates[sym]:
+                                    # We have hit the absolute beginning of history for this symbol
+                                    return True
+                    except Exception:
+                        pass
                 return False
             
         return True
@@ -292,7 +307,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         
                     # 🚀 OPTIMIZATION: If data is already up to the last market close, skip DELTA fetch completely!
                     is_up_to_date = _is_cache_up_to_date(last_ts, interval)
-                    is_long_enough = _is_cache_long_enough(cached_df, period)
+                    is_long_enough = _is_cache_long_enough(cached_df, period, sym)
                     
                     if is_up_to_date:
                         if is_long_enough:
@@ -396,6 +411,24 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             all_data[sym] = combined
                         else:
                             all_data[sym] = new_df
+                            
+                        # If this was a FULL fetch, record the earliest available date
+                        if group_key == "FULL" and not new_df.empty:
+                            try:
+                                t_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
+                                earliest_ts = pd.to_datetime(new_df[t_col].iloc[0]) if t_col else pd.to_datetime(new_df.index[0])
+                                earliest_dt_str = earliest_ts.date().isoformat() if hasattr(earliest_ts, 'date') else None
+                                if earliest_dt_str:
+                                    earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
+                                    earliest_dates = {}
+                                    if os.path.exists(earliest_path):
+                                        with open(earliest_path, "r") as f:
+                                            earliest_dates = json.load(f)
+                                    earliest_dates[sym] = earliest_dt_str
+                                    with open(earliest_path, "w") as f:
+                                        json.dump(earliest_dates, f)
+                            except Exception as e:
+                                logger.debug(f"Failed to record earliest date for {sym}: {e}")
                             
                         # Save back to disk
                         try:
