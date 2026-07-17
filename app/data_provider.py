@@ -237,8 +237,10 @@ class YFinanceFetcher(DataFetcher):
         fetched = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
         
         all_data = {}
-        missing_symbols_to_retry = []
-        poisoned_symbols_to_retry = []
+        # NOTE: Price Provider (price_provider.py) handles BSE fallback, poisoned mapping
+        # recovery, and rate limiting centrally. Symbols missing from `fetched` below are
+        # those that failed after all retries in price_provider — they are set to None here
+        # so callers can handle them gracefully.
         
         for ns_sym, orig_syms in normalized_map.items():
             df = fetched.get(ns_sym)

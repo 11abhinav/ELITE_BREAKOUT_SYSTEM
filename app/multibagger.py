@@ -594,11 +594,47 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     bs = ticker.balance_sheet
                     cf = ticker.cashflow
                     ticker_name = bse_sym
-                    try:
-                        from bse_mapping_utils import save_bse_mapping
-                        save_bse_mapping(symbol, bse_sym)
-                    except Exception:
-                        pass
+                    if not (fin is None or fin.empty):
+                        try:
+                            from bse_mapping_utils import save_bse_mapping
+                            save_bse_mapping(symbol, bse_sym)
+                        except Exception:
+                            pass
+                finally:
+                    yf_release()
+            
+            # [VERSION: MULTIBAGGER_REVERSE_FALLBACK_v1.0] Poisoned BO mapping → recover via NS
+            # If the mapping pointed us to .BO but it returned empty financials, the BSE ticker
+            # is likely delisted/suspended. Invalidate the mapping and retry via NSE.
+            elif (fin is None or fin.empty) and ticker_name.endswith(".BO"):
+                logger.info(f"🗑️ Multibagger: poisoned BSE mapping for {symbol} ({ticker_name}). Invalidating and retrying via NSE...")
+                try:
+                    from bse_mapping_utils import load_bse_mappings, invalidate_bse_mapping
+                    orig_clean = symbol.strip().upper()
+                    # Strip any suffix — DB stores bare symbol
+                    bare_orig = orig_clean[:-3] if orig_clean.endswith(".NS") or orig_clean.endswith(".BO") else orig_clean
+                    invalidate_bse_mapping(bare_orig)
+                except Exception as inv_err:
+                    logger.warning(f"Failed to invalidate poisoned mapping for {symbol}: {inv_err}")
+                ns_sym = ticker_name[:-3] + ".NS"
+                yf_acquire(context=f"Multibagger Scanner | {symbol} (NS recovery)")
+                try:
+                    ticker_ns = yf.Ticker(ns_sym)
+                    fin_ns = ticker_ns.financials
+                    bs_ns = ticker_ns.balance_sheet
+                    if not (fin_ns is None or fin_ns.empty):
+                        ticker = ticker_ns
+                        info = ticker_ns.info
+                        fast_info = ticker_ns.fast_info
+                        fin = fin_ns
+                        bs = bs_ns
+                        cf = ticker_ns.cashflow
+                        ticker_name = ns_sym
+                        logger.info(f"✅ Multibagger: NSE recovery succeeded for {symbol} via {ns_sym}")
+                    else:
+                        logger.warning(f"⚠️ Multibagger: both .BO and .NS returned empty for {symbol}. Skipping.")
+                except Exception as ns_err:
+                    logger.warning(f"Multibagger NS recovery failed for {symbol}: {ns_err}")
                 finally:
                     yf_release()
             success = True

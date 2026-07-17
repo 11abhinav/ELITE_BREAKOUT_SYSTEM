@@ -342,46 +342,105 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
         elif bse_code:
             target_sym = f"{bse_code}.BO"
             
+        # [VERSION: VALUATION_RATE_LIMIT_FIX_v1.0] Wrap all yf calls under the global rate limiter
+        # so this code path is visible to the circuit breaker and counts toward 429 detection.
+        from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
+        
         if not ticker:
-            ticker = yf.Ticker(target_sym)
-            if ticker.history(period="1d").empty:
+            # Check if primary ticker has data; if not, try BSE fallback
+            yf_acquire(context=f"extract_raw_metrics | {target_sym}")
+            try:
+                ticker = yf.Ticker(target_sym)
+                hist = ticker.history(period="1d")
+            except Exception as hist_err:
+                msg = str(hist_err).lower()
+                if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                    record_rate_limit(context=f"extract_raw_metrics | {target_sym}")
+                raise hist_err
+            finally:
+                yf_release()
+                
+            if hist.empty:
                 if target_sym.endswith(".NS"):
                     bse_sym = target_sym[:-3] + ".BO"
-                    ticker = yf.Ticker(bse_sym)
-                    if not ticker.history(period="1d").empty:
-                        save_bse_mapping(symbol, bse_sym)
+                    yf_acquire(context=f"extract_raw_metrics | {bse_sym}")
+                    try:
+                        ticker = yf.Ticker(bse_sym)
+                        hist2 = ticker.history(period="1d")
+                    except Exception:
+                        hist2 = pd.DataFrame()
+                    finally:
+                        yf_release()
+                    if not hist2.empty:
+                        # [BUG-7 FIX] Strip suffix from symbol before saving so bare key is stored in DB
+                        bare_sym = clean_sym[:-3] if clean_sym.endswith(".NS") or clean_sym.endswith(".BO") else clean_sym
+                        save_bse_mapping(bare_sym, bse_sym)
                     elif bse_code:
+                        yf_acquire(context=f"extract_raw_metrics | {bse_code}.BO")
+                        try:
+                            ticker = yf.Ticker(f"{bse_code}.BO")
+                            hist3 = ticker.history(period="1d")
+                        except Exception:
+                            hist3 = pd.DataFrame()
+                        finally:
+                            yf_release()
+                        if not hist3.empty:
+                            bare_sym = clean_sym[:-3] if clean_sym.endswith(".NS") or clean_sym.endswith(".BO") else clean_sym
+                            save_bse_mapping(bare_sym, f"{bse_code}.BO")
+                elif bse_code:
+                    yf_acquire(context=f"extract_raw_metrics | {bse_code}.BO")
+                    try:
                         ticker = yf.Ticker(f"{bse_code}.BO")
-                        if not ticker.history(period="1d").empty:
-                            save_bse_mapping(symbol, f"{bse_code}.BO")
-                elif bse_code:
-                    ticker = yf.Ticker(f"{bse_code}.BO")
-                    if not ticker.history(period="1d").empty:
-                        save_bse_mapping(symbol, f"{bse_code}.BO")
+                        hist4 = ticker.history(period="1d")
+                    except Exception:
+                        hist4 = pd.DataFrame()
+                    finally:
+                        yf_release()
+                    if not hist4.empty:
+                        bare_sym = clean_sym[:-3] if clean_sym.endswith(".NS") or clean_sym.endswith(".BO") else clean_sym
+                        save_bse_mapping(bare_sym, f"{bse_code}.BO")
                 
+        _acquired = False
         try:
-            info = ticker.info
-        except Exception as e:
-            if "401" in str(e) or "Invalid Crumb" in str(e):
-                logger.warning(f"⚠️ YFinance crumb stale for {symbol}, clearing tzcache and retrying...")
-                import shutil, os
-                from config import BASE_DIR
-                tz_path = os.path.join(BASE_DIR, "data", "tzcache")
-                if os.path.exists(tz_path):
-                    shutil.rmtree(tz_path, ignore_errors=True)
-                # Re-init ticker to clear any in-memory cached session
-                mappings = load_bse_mappings()
-                target_sym = f"{symbol}.NS"
-                if clean_sym in mappings:
-                    target_sym = mappings[clean_sym]
-                elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
-                    target_sym = mappings[clean_sym[:-3]]
-                elif bse_code:
-                    target_sym = f"{bse_code}.BO"
-                ticker = yf.Ticker(target_sym)
+            yf_acquire(context=f"extract_raw_metrics.info | {target_sym}")
+            _acquired = True
+            try:
                 info = ticker.info
-            else:
-                raise e
+            except Exception as info_err:
+                msg = str(info_err).lower()
+                if '401' in str(info_err) or 'Invalid Crumb' in str(info_err):
+                    # Release the lock before the heavy crumb-cleanup work
+                    yf_release()
+                    _acquired = False
+                    logger.warning(f"⚠️ YFinance crumb stale for {symbol}, clearing tzcache and retrying...")
+                    import shutil, os
+                    from config import BASE_DIR
+                    tz_path = os.path.join(BASE_DIR, "data", "tzcache")
+                    if os.path.exists(tz_path):
+                        shutil.rmtree(tz_path, ignore_errors=True)
+                    mappings = load_bse_mappings()
+                    target_sym = f"{symbol}.NS"
+                    if clean_sym in mappings:
+                        target_sym = mappings[clean_sym]
+                    elif clean_sym.endswith(".NS") and clean_sym[:-3] in mappings:
+                        target_sym = mappings[clean_sym[:-3]]
+                    elif bse_code:
+                        target_sym = f"{bse_code}.BO"
+                    yf_acquire(context=f"extract_raw_metrics.info.retry | {target_sym}")
+                    _acquired = True
+                    try:
+                        ticker = yf.Ticker(target_sym)
+                        info = ticker.info
+                    finally:
+                        yf_release()
+                        _acquired = False
+                else:
+                    if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                        record_rate_limit(context=f"extract_raw_metrics | {target_sym}")
+                    raise info_err
+        finally:
+            if _acquired:
+                yf_release()
         
         sector = info.get('sector')
         raw_industry = info.get('industry')

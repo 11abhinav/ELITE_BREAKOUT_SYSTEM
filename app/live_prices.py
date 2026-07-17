@@ -99,7 +99,23 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             chunk_size = 100
             for i in range(0, len(yf_symbols), chunk_size):
                 chunk = yf_symbols[i:i+chunk_size]
-                df = yf.download(" ".join(chunk), period="1d", group_by="ticker", progress=False, threads=True, auto_adjust=True)
+                
+                # [VERSION: LIVE_PRICES_RATE_LIMIT_FIX_v1.0]
+                # Wrap yf.download with the global rate limiter so that this fallback
+                # path is visible to the circuit breaker. Use threads=False to prevent
+                # yfinance from spawning its own threads that bypass the semaphore.
+                from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
+                try:
+                    yf_acquire(context=f"LivePrices.yfinance_fallback | batch {i//chunk_size}")
+                    df = yf.download(" ".join(chunk), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
+                except Exception as dl_err:
+                    msg = str(dl_err).lower()
+                    if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                        record_rate_limit(context=f"LivePrices.yfinance_fallback | batch {i//chunk_size}")
+                    logger.warning(f"⚠️ YFinance download failed for live_prices batch {i//chunk_size}: {dl_err}")
+                    continue
+                finally:
+                    yf_release()
                 
                 if len(chunk) == 1:
                     # Single ticker returns flat columns: Open, High, Low, Close
@@ -108,7 +124,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                         if val > 0:
                             prices[yf_reverse_map[chunk[0]]] = val
                 else:
-                    # Multiple tickers return MultiIndex columns
+                    # Multiple tickers: yfinance returns MultiIndex columns
+                    # [BUG-5 FIX] Guard against flat columns when all tickers fail
+                    if not hasattr(df.columns, 'levels'):
+                        logger.warning(f"⚠️ yf.download returned flat (non-MultiIndex) columns for multi-ticker batch {i//chunk_size}. All symbols may have failed.")
+                        continue
                     for y_sym in chunk:
                         try:
                             if y_sym in df.columns.levels[0]:
