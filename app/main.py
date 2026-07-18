@@ -1231,8 +1231,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         except Exception:
             pass
     
+    # Compute Queue Position dynamically
+    queued_status = "QUEUED-1"
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM scanner_health WHERE status LIKE 'QUEUED%'")
+                q_count = cur.fetchone()[0]
+                queued_status = f"QUEUED-{q_count + 1}"
+    except Exception as e:
+        logger.warning(f"Could not compute queue position: {e}")
+        
     # Mark as queued (will change to RUNNING once lock is acquired)
-    upsert_scanner_health(scanner_key, status="QUEUED", error_msg="⏳ Manual trigger in progress... (Waiting for lock)")
+    upsert_scanner_health(scanner_key, status=queued_status, error_msg="⏳ Manual trigger in progress... (Waiting for lock)")
     
     # Run in background thread so the API returns immediately
     def _run():

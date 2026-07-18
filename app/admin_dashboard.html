@@ -2261,9 +2261,9 @@
           // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
           const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
           const isDown = isCriticalError;
-          const isIdle = !data.last_success && data.status !== 'RUNNING' && data.status !== 'QUEUED';
+          const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED'));
           const isRunning = data.status === 'RUNNING';
-          const isQueued = data.status === 'QUEUED';
+          const isQueued = data.status && data.status.startsWith('QUEUED');
           const isOk = data.status === 'OK';
           
           let statusClass = 'status-ok';
@@ -2281,7 +2281,13 @@
           } else if (isQueued) {
              statusClass = 'status-queued';
              badgeClass = 'badge-queued';
-             badgeText = '● IN QUEUE';
+             // If it's literally "QUEUED", say IN QUEUE. Else if it's "QUEUED-1", say IN QUEUE (1), etc.
+             if (data.status === 'QUEUED') {
+                 badgeText = '● IN QUEUE';
+             } else {
+                 const num = data.status.replace('QUEUED-', '');
+                 badgeText = `● IN QUEUE (${num})`;
+             }
           } else if (isOk) {
              statusClass = 'status-ok';
              badgeClass = 'badge-ok';

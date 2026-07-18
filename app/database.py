@@ -1098,7 +1098,7 @@ ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
 ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')) NOT VALID;
 ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
-ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED')) NOT VALID;
+ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED') OR status LIKE 'QUEUED%') NOT VALID;
 ALTER TABLE telegram_queue DROP CONSTRAINT IF EXISTS chk_tg_status;
 ALTER TABLE telegram_queue ADD CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
 ALTER TABLE bayesian_model_updates DROP CONSTRAINT IF EXISTS chk_bayes_status;
@@ -1861,7 +1861,7 @@ def upsert_scanner_health(
     if status is not None:
         status = str(status).upper()
     allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED'}
-    if status is not None and status not in allowed_statuses:
+    if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
         logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
         status = 'IDLE'
 
