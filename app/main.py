@@ -1225,8 +1225,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         except Exception:
             pass
     
-    # Mark as running
-    upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
+    # Mark as queued (will change to RUNNING once lock is acquired)
+    upsert_scanner_health(scanner_key, status="QUEUED", error_msg="⏳ Manual trigger in progress... (Waiting for lock)")
     
     # Run in background thread so the API returns immediately
     def _run():
@@ -1234,6 +1234,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
             with scanner_execution_lock:
                 logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
+                upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 stats = fn() or {}
                 time.sleep(15)
             now_str = datetime.now(IST).isoformat()

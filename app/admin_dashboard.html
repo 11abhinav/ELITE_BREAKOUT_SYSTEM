@@ -386,6 +386,12 @@
       background: linear-gradient(to right, rgba(99,102,241,0.05), var(--card));
       animation: runPulse 2s infinite;
     }
+    
+    .scanner-card.status-queued {
+      border-left: 3px solid var(--amber);
+      background: linear-gradient(to right, rgba(245,158,11,0.05), var(--card));
+      animation: runPulse 3s infinite;
+    }
 
     .scanner-card.status-down {
       border-left: 3px solid var(--warn);
@@ -435,6 +441,7 @@
 
     .badge-ok   { background: rgba(5,150,105,.1); color: var(--win); border: 1px solid rgba(5,150,105,.2); }
     .badge-running { background: rgba(99,102,241,.1); color: var(--brand); border: 1px solid rgba(99,102,241,.2); }
+    .badge-queued { background: rgba(245,158,11,.1); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
     .badge-down { background: rgba(220,38,38,.1); color: var(--warn); border: 1px solid rgba(220,38,38,.2); }
     .badge-idle { background: var(--card3); color: var(--muted); border: 1px solid var(--border); }
 
@@ -2254,8 +2261,9 @@
           // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
           const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
           const isDown = isCriticalError;
-          const isIdle = !data.last_success && data.status !== 'RUNNING';
+          const isIdle = !data.last_success && data.status !== 'RUNNING' && data.status !== 'QUEUED';
           const isRunning = data.status === 'RUNNING';
+          const isQueued = data.status === 'QUEUED';
           const isOk = data.status === 'OK';
           
           let statusClass = 'status-ok';
@@ -2270,6 +2278,10 @@
              statusClass = 'status-running';
              badgeClass = 'badge-running';
              badgeText = '● RUNNING';
+          } else if (isQueued) {
+             statusClass = 'status-queued';
+             badgeClass = 'badge-queued';
+             badgeText = '● IN QUEUE';
           } else if (isOk) {
              statusClass = 'status-ok';
              badgeClass = 'badge-ok';
@@ -2356,7 +2368,7 @@
         </div>`;
           let alertSub = data.today_alerts > 0 ? 'hover to preview · click to expand' : 'no new alerts today';
           
-          if (isRunning && data.error) {
+          if ((isRunning || isQueued) && data.error) {
               alertSub = `<span style="color:var(--brand); font-weight:600;">${data.error}</span>`;
           }
           let dismissBtn = "";
