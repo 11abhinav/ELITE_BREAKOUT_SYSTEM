@@ -618,7 +618,7 @@ def _compute_multi_tf(
         nearest_resistance_score = best_resistance["score"]
         res_label = f"{best_resistance['type']} (Score: {nearest_resistance_score})"
         
-        move_pct = (target_1 - entry) / entry * 100
+        move_pct = (target_1 - entry) / entry * 100 if entry > 0 else 0.0
         if move_pct < min_reward_pot:
             return {
                 "engine_version": "SL_ENGINE_V6",
@@ -842,7 +842,8 @@ def _compute_eod(
 
     target_3 = None
     adx_v = _safe(adx)
-    macd_bull = macd_hist is not None and _safe(abs(float(macd_hist))) is not None and float(macd_hist) > 0
+    safe_macd = _safe(macd_hist)
+    macd_bull = safe_macd is not None and safe_macd > 0
     above_t2 = target_2 if target_2 else target_1
     if macd_bull and zone in ("neutral", "bullish", "oversold") and (adx_v is None or adx_v > 25):
         t3_cand = round(_cap_target(entry + 5.0 * risk, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
@@ -1011,7 +1012,8 @@ def _compute_reversal(
 
     target_3 = None
     above_t2 = target_2 if target_2 else target_1
-    macd_bull = macd_hist is not None and _safe(abs(float(macd_hist))) is not None and float(macd_hist) > 0
+    safe_macd = _safe(macd_hist)
+    macd_bull = safe_macd is not None and safe_macd > 0
     adx_v = _safe(adx)
     if macd_bull and r2_v and r2_v > above_t2 and (adx_v is None or adx_v > 20):
         target_3 = round(_cap_target(r2_v, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)

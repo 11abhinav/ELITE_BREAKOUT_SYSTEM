@@ -1171,7 +1171,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 if realtime_metrics and not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
                     from database import update_position_real_time_prices
                     update_position_real_time_prices({s: {"price": p, "score": port_map.get(s, {}).get("Hold_Score")} for s, p in realtime_metrics.items()})
-            except Exception: pass
+            except Exception as _rt_e: logger.exception(f"Error updating real-time prices: {_rt_e}")
         # Final Dashboard Export
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
@@ -1186,7 +1186,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
                     today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df)
                 )
-            except Exception: pass
+            except Exception as _sh_e: logger.exception(f"Error updating scanner health: {_sh_e}")
 
     except Exception as e:
         logger.exception("❌ CRITICAL ERROR in Wealth Engine")
@@ -1198,4 +1198,4 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 upsert_scanner_health("Wealth Engine", "DOWN", error_msg=str(e))
                 insert_notification("admin", f"❌ Wealth Engine CRASHED (DOWN)", f"Error: {str(e)[:200]}")
                 send_push_to_all("❌ Wealth Engine DOWN", f"Crash: {str(e)[:100]}")
-            except Exception: pass
+            except Exception as _fb_e: logger.exception(f"Fallback reporting failed: {_fb_e}")

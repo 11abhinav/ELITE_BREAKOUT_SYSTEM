@@ -30,11 +30,6 @@
 
 import logging
 import time
-import requests
-import os
-from data_fetch_status import mark_success, mark_failure
-
-from config import BOT_TOKEN, CHAT_ID
 
 logger = logging.getLogger(__name__)
 
