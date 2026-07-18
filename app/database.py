@@ -1352,10 +1352,13 @@ def save_alert_if_new(
     # [VERSION: DB_ALERT_JSON_NAN_FIX] Sanitize NaN, Inf, and NA values to prevent PostgreSQL JSON syntax errors
     def sanitize(obj):
         import math
+        from enum import Enum
         if isinstance(obj, dict):
             return {k: sanitize(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
             return [sanitize(x) for x in obj]
+        elif isinstance(obj, Enum):
+            return obj.value
         elif isinstance(obj, float):
             if math.isnan(obj) or math.isinf(obj):
                 return None
