@@ -518,9 +518,14 @@ def _start_wrapper(force: bool = False):
                     rejection_counts["missing_atr"] += 1
                     continue
 
-                if (candle_close - prior_high) > EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5) * atr20:
-                    rejection_counts["extended_breakout"] += 1
-                    continue
+                # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
+                technical_penalties = {}
+                atr_extension = (candle_close - prior_high) / atr20
+                max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
+                if atr_extension > max_ext:
+                    pen_mult = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_PENALTY_MULT", 10)
+                    max_pen = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_MAX_PENALTY", 20)
+                    technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
                 
                 # ATR Expansion
                 if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2):
@@ -638,6 +643,9 @@ def _start_wrapper(force: bool = False):
                 )
 
                 if score > 0:
+                    for pen_name, pen_val in technical_penalties.items():
+                        score -= pen_val
+                        
                     # [FINDING-8] Apply OBV divergence penalty (soft, not hard reject)
                     score = max(0, score + obv_penalty)
                     try:

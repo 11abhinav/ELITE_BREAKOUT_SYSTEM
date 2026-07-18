@@ -57,6 +57,7 @@ def calculate_risk_adjusted_sizing(cmp: float, atr_pct: float, momentum_score: i
     except Exception:
         atr_adj = 0.8
 
+    position_capped = (base_pct * atr_adj) >= 0.2
     final_pct = max(0.0, min(0.2, base_pct * atr_adj))
 
     # Allocate category
@@ -75,5 +76,6 @@ def calculate_risk_adjusted_sizing(cmp: float, atr_pct: float, momentum_score: i
         "Position_Pct": round(final_pct, 4),
         "Position_Amount": position_amount,
         "Alloc_Category": cat,
+        "position_capped": position_capped
     }
 

@@ -1214,8 +1214,26 @@ Because the National Stock Exchange (NSE) employs a strict Cloudflare Web Applic
 - For example, if the `block_deal_detector.py` fetches the historical block-deals CSV, it must sleep for 2.5 seconds before querying the snapshot bulk-deals CSV.
 
 ### 34.3 Hard-Failure Alerting
-- If an NSE endpoint fails, the scanners attempt a fixed exponential backoff retry loop (typically `MAX_RETRIES = 3`).
 - **No Swallowed Errors:** If the retry loop is exhausted and the data remains un-fetchable, the fetcher will fire an explicit, high-priority **Telegram/Push notification** directly to the admin (e.g., `⚠️ NSE API ERROR: Bhavcopy fetch failed`). This ensures that the execution engine never degrades silently in the background without explicit admin awareness.
+
+---
+
+## 35. Institutional Business Logic Refinements (v1.0)
+
+To resolve False Negatives without compromising institutional risk models, the execution engine was updated with three core algorithmic adjustments.
+
+### 35.1 Tight Stop Acceptance & Analytics
+- The Structural Stop logic in `sl_target_helper.py` no longer forcefully rejects stops tighter than the `MIN_STOP_PCT`. Instead, it accepts the strongest structural anchor and flags it as a `TIGHT_STRUCT_`.
+- Analytics metadata (`is_tight_stop`, `tight_stop_pct`, `min_stop_pct`) is actively exposed in the returned dictionary and explicitly logged for future Bayesian assessment of ultra-tight stop performance.
+
+### 35.2 Dynamic Gap-and-Go Penalty
+- The EOD Scanner no longer hard-rejects breakouts that close excessively far above the prior high (extended breakouts).
+- Instead, it assesses a dynamic score deduction within a `technical_penalties` framework: `penalty = min(GAP_AND_GO_MAX_PENALTY, (atr_extension - MAX_EXTENDED_BREAKOUT_ATR_MULT) * GAP_AND_GO_PENALTY_MULT)`.
+- This ensures that exceptional setups with massive fundamental/volume tailwinds can still clear the final threshold, while strictly punishing sub-par "chasers".
+
+### 35.3 Block Deal Bonus Baseline & Tracking
+- The Wealth Engine strictly mandates a minimum baseline (`Base FM_Score >= 50`) before allocating the +15 point Institutional Block Deal bonus. This prevents failing companies from clearing buy-gates solely off a single large order flow event.
+- For complete downstream transparency, the Wealth payload now retains `base_fm_score` and `inst_bonus_applied` alongside the final score. Additionally, the Risk Engine sets `position_capped = True` if tight volatility unexpectedly maxes out the allocation limit.
 
 </textarea>
 

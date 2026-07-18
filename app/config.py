@@ -101,6 +101,8 @@ EOD_ADVANCED_CONFIG = {
     
     # ── Sustainability & Breakout Conviction ──
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
+    "GAP_AND_GO_PENALTY_MULT": 10,
+    "GAP_AND_GO_MAX_PENALTY": 20,
     "MIN_ATR_EXPANSION_RATIO": 0.9,  # [FIX P1] Relaxed from 1.2 — 1.2 rejected steady uptrend breakouts
     "MIN_OBV_SLOPE": 0.0,
     

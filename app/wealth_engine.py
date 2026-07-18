@@ -529,7 +529,16 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
         logging.getLogger(__name__).warning(f"Error building institutional bonus map in Wealth: {e}")
         bonus_map = {sym: 0.0 for sym in unique_symbols}
         
-    wealth_df["FM_Score"] = (wealth_df["FM_Score"] + wealth_df["Stock"].map(bonus_map).fillna(0.0)).clip(upper=100.0)
+    # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Block Deal Bonus Logic 
+    base_score = wealth_df["FM_Score"]
+    bonuses = wealth_df["Stock"].map(bonus_map).fillna(0.0)
+    applied_bonus = bonuses.where(base_score >= 50, 0.0)
+    final_score = base_score + applied_bonus
+    wealth_df["FM_Score"] = final_score.clip(upper=100.0)
+    
+    wealth_df["base_fm_score"] = base_score
+    wealth_df["inst_bonus_applied"] = applied_bonus
+    
     wealth_df["Valuation_Score"] = scores_df["RVS"]
     wealth_df["Consistency_Score"] = scores_df["BQS"]
     wealth_df["Reliability"] = scores_df["Reliability"]

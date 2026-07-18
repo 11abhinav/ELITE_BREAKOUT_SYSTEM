@@ -354,7 +354,11 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         base_mult = 0.75
         vol_label = "NORM_VOL"
         
-    for support_data in ranked_supports:
+    # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Tight Stop Rejection Fix
+    is_tight_stop = False
+    
+    if ranked_supports:
+        support_data = ranked_supports[0]
         best_score = support_data["score"]
         if best_score > 60:
             final_mult = base_mult * 0.8
@@ -370,14 +374,14 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         raw_sl = support_data["anchor_price"] - buf
         sl_pct = (entry - raw_sl) / entry * 100 if entry > 0 else 0
         
-        # Check MIN_STOP_PCT
-        if sl_pct >= min_stop_pct:
-            best_support = support_data
-            best_buf = buf
-            best_vol_label = vol_label
-            best_qual_label = qual_label
-            best_final_mult = final_mult
-            break
+        best_support = support_data
+        best_buf = buf
+        best_vol_label = vol_label
+        best_qual_label = qual_label
+        best_final_mult = final_mult
+        
+        if sl_pct < min_stop_pct:
+            is_tight_stop = True
             
     if not best_support:
         # Explicitly reject if no structural stop meets MIN_STOP_PCT
@@ -417,6 +421,12 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
     best_names = "_".join(list(dict.fromkeys([m["type"] for m in best_cluster_members]))).upper().replace(" ", "_")
     
     method_str = f"{best_names} (Score: {best_score}) @ {best_anchor:.2f} — Buffer {best_buf:.2f} ({best_final_mult:.2f}x ATR)"
+    if is_tight_stop:
+        method_str = "TIGHT_STRUCT_" + method_str
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"TIGHT STRUCTURE | Entry: {entry:.2f} | Structure: {best_anchor:.2f} | Stop %: {sl_pct:.2f} | Accepted: YES | Reason: TIGHT_STRUCTURE")
+
     
     return {
         "is_valid": True,
@@ -430,7 +440,10 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         "member_count": best_support["member_count"],
         "cluster_members": best_cluster_members,
         "buffer_value": round(best_buf, 2),
-        "buffer_method": f"{best_vol_label}_{best_qual_label}"
+        "buffer_method": f"{best_vol_label}_{best_qual_label}",
+        "is_tight_stop": is_tight_stop,
+        "tight_stop_pct": round(sl_pct, 2) if is_tight_stop else None,
+        "min_stop_pct": min_stop_pct
     }
 
 def _compute_disaster_stop(primary_sl: float, entry: float, eff_atr: float, lower_supports: list) -> float:
