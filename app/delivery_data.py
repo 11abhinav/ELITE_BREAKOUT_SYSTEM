@@ -94,9 +94,10 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
             # First, hit the base domain to establish the session cookie
             try:
                 session.get("https://www.nseindia.com/", headers=headers, timeout=FETCH_TIMEOUT)
-                time.sleep(1) # Small delay to mimic human behavior
+                time.sleep(2.5) # Delay to mimic human behavior and avoid WAF ban
             except Exception as e:
                 logger.debug(f"Initial NSE cookie fetch failed: {e}")
+                time.sleep(2.5)
                 
             response = session.get(url, headers=headers, timeout=FETCH_TIMEOUT)
             if response.status_code == 404:
@@ -108,6 +109,7 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
             if response.status_code == 200:
                 raw_csv = response.text
                 if len(raw_csv) < 1000:
+                    time.sleep(2.5)
                     continue
                 df = pd.read_csv(io.StringIO(raw_csv))
                 df.columns = [c.strip().upper() for c in df.columns]

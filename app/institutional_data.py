@@ -24,9 +24,16 @@ INSTITUTIONAL_KEYWORDS = [
 RETAIL_KEYWORDS = ["HUF", "INDIVIDUAL"]
 
 def _get_robust_session():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Referer": "https://www.nseindia.com/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    }
+    
     try:
         from curl_cffi import requests as cffi_requests
         session = cffi_requests.Session(impersonate="chrome110")
+        session.headers.update(headers)
         return session
     except ImportError:
         session = requests.Session()
@@ -40,13 +47,8 @@ def _get_robust_session():
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-        "Referer": "https://www.nseindia.com/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    })
-    return session
+        session.headers.update(headers)
+        return session
 
 def _is_institutional(client_name: str) -> bool:
     if not isinstance(client_name, str):
@@ -76,35 +78,46 @@ def get_institutional_buys() -> dict[str, list[str]]:
     buys = {}
     
     def process_url(url, deal_type):
-        try:
-            r = session.get(url, timeout=15)
-            if r.status_code == 200:
-                text = r.text.strip()
-                if not text or "NO RECORDS" in text or len(text.splitlines()) < 2:
-                    return
-                
-                df = pd.read_csv(io.StringIO(text))
-                df.columns = [c.strip().upper() for c in df.columns]
-                
-                if "SYMBOL" not in df.columns or "BUY/SELL" not in df.columns or "CLIENT NAME" not in df.columns:
-                    return
-                
-                # Filter for buys
-                df_buy = df[df["BUY/SELL"].astype(str).str.upper().isin(["BUY", "B"])]
-                
-                for _, row in df_buy.iterrows():
-                    symbol = str(row["SYMBOL"]).strip()
-                    client = str(row["CLIENT NAME"]).strip()
+        for attempt in range(3):
+            try:
+                r = session.get(url, timeout=15)
+                if r.status_code == 200:
+                    text = r.text.strip()
+                    if not text or "NO RECORDS" in text or len(text.splitlines()) < 2:
+                        return
                     
-                    if _is_institutional(client):
-                        if symbol not in buys:
-                            buys[symbol] = []
-                        buys[symbol].append(f"[{deal_type}] {client}")
+                    df = pd.read_csv(io.StringIO(text))
+                    df.columns = [c.strip().upper() for c in df.columns]
+                    
+                    if "SYMBOL" not in df.columns or "BUY/SELL" not in df.columns or "CLIENT NAME" not in df.columns:
+                        return
+                    
+                    # Filter for buys
+                    df_buy = df[df["BUY/SELL"].astype(str).str.upper().isin(["BUY", "B"])]
+                    
+                    for _, row in df_buy.iterrows():
+                        symbol = str(row["SYMBOL"]).strip()
+                        client = str(row["CLIENT NAME"]).strip()
                         
-        except Exception as e:
-            logger.warning(f"Failed to fetch {deal_type} deals: {e}")
+                        if _is_institutional(client):
+                            if symbol not in buys:
+                                buys[symbol] = []
+                            buys[symbol].append(f"[{deal_type}] {client}")
+                    break # Success, break retry loop
+                else:
+                    if attempt < 2: time.sleep(2.5)
+            except Exception as e:
+                logger.warning(f"Failed to fetch {deal_type} deals (Attempt {attempt+1}): {e}")
+                if attempt < 2: time.sleep(2.5)
 
+    try:
+        # Hit main page once for cookies
+        session.get("https://www.nseindia.com", timeout=10)
+    except: pass
+    time.sleep(2.5)
+    
     process_url(BULK_URL, "BULK")
+    time.sleep(2.5)
     process_url(BLOCK_URL, "BLOCK")
     
     logger.info(f"🏦 Found institutional buys in {len(buys)} stocks from bulk/block deals.")

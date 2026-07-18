@@ -2010,6 +2010,8 @@ def api_notices(symbol):
             s = requests.Session()
         # Ping homepage to establish cookies
         s.get('https://www.nseindia.com', headers=headers, timeout=5)
+        import time
+        time.sleep(2.5)
         # Fetch the actual data
         r = s.get(url, headers=headers, timeout=5)
         
@@ -2101,6 +2103,8 @@ def fetch_and_analyze_concall(symbol):
             import requests
             s = requests.Session()
         s.get('https://www.nseindia.com', headers=headers, timeout=5)
+        import time
+        time.sleep(2.5)
         r = s.get(url, headers=headers, timeout=5)
         
         if r.status_code != 200:

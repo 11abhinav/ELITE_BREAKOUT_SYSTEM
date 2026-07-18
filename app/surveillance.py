@@ -68,6 +68,7 @@ def get_live_blacklist() -> set[str]:
             for attempt in range(max_retries):
                 try:
                     session.get("https://www.nseindia.com", headers=headers, timeout=5)
+                    time.sleep(2.5) # Buffer before API hit
                     
                     # Fetch ASM (Additional Surveillance Measure)
                     asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=5)
@@ -79,6 +80,8 @@ def get_live_blacklist() -> set[str]:
                                     if "symbol" in item:
                                         blacklist.add(item["symbol"].strip().upper())
                                         
+                    time.sleep(2.5) # Buffer between ASM and GSM
+
                     # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
                     gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=5)
                     if gsm_res.status_code == 200:

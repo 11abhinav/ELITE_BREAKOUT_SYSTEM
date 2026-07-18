@@ -221,11 +221,14 @@ def get_nse_bulk_block_deals() -> list:
     session.headers.update(headers)
     
     # Hit main page to get cookies
-    try:
-        session.get("https://www.nseindia.com", timeout=10)
-    except Exception:
-        pass
-        
+    for attempt in range(3):
+        try:
+            session.get("https://www.nseindia.com", timeout=10)
+            break
+        except Exception:
+            if attempt == 2: pass
+            time.sleep(2)
+            
     urls = [
         "https://www.nseindia.com/api/historical/block-deals",
         "https://www.nseindia.com/api/snapshot-capital-market-sme-bulk-deals"
@@ -233,17 +236,27 @@ def get_nse_bulk_block_deals() -> list:
     
     all_deals = []
     for url in urls:
-        try:
-            resp = session.get(url, timeout=10)
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    if "data" in data:
-                        all_deals.extend(data["data"])
-                except json.JSONDecodeError:
-                    logger.debug(f"NSE returned non-JSON for {url} (Likely anti-scraping block).")
-        except Exception as e:
-            logger.debug(f"Failed to fetch {url}: {e}")
+        time.sleep(2.5) # Prevent WAF ban between requests
+        
+        for attempt in range(3):
+            try:
+                resp = session.get(url, timeout=15)
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        if "data" in data:
+                            all_deals.extend(data["data"])
+                        break # Success, break retry loop
+                    except json.JSONDecodeError:
+                        logger.debug(f"NSE returned non-JSON for {url} (Likely anti-scraping block).")
+                        if attempt == 2: break
+                
+                # If we get here, it wasn't a 200 or wasn't JSON
+                time.sleep(2.5)
+            except Exception as e:
+                logger.debug(f"Failed to fetch {url} on attempt {attempt+1}: {e}")
+                if attempt < 2:
+                    time.sleep(2.5)
             
     return all_deals
 
