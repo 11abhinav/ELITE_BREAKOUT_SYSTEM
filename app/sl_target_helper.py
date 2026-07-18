@@ -999,8 +999,23 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if _safe(kwargs.get("sma200")): cands.append(TargetCandidate(kwargs.get("sma200"), TargetSource.SMA200, "any", "REVERSAL", "NORMAL", {}))
     if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
     
-    # Filter only above entry
-    cands = [c for c in cands if c.price > entry]
+    # Filter only above entry and enforce MIN_NATURAL_RR
+    from config import MIN_NATURAL_RR
+    min_rr = MIN_NATURAL_RR.get("REVERSAL", 2.0)
+    risk = abs(entry - sl_data["raw_sl"])
+    
+    valid_cands = []
+    for c in cands:
+        if c.price > entry:
+            rr = (c.price - entry) / risk if risk > 0 else 0
+            if rr >= min_rr:
+                valid_cands.append(c)
+                
+    if not valid_cands:
+        fallback_target = entry + (risk * min_rr) if risk > 0 else entry + (eff_atr * 3.0)
+        valid_cands.append(TargetCandidate(fallback_target, TargetSource.ATR_PROJ, "any", "REVERSAL", "NORMAL", {}))
+        
+    cands = valid_cands
     
     clusters = ClusterEngine.cluster(cands, entry, eff_atr)
     RoundNumberEngine.detect_and_boost(clusters)
