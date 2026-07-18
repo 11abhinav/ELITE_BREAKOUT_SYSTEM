@@ -248,18 +248,20 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
             # between the first and last candle. If days_diff is smaller, we are missing historical data.
             if days_diff < (req * 0.65):
                 # Check if we already hit the beginning of history (IPO/recent listing)
-                earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
-                if os.path.exists(earliest_path):
-                    try:
-                        with open(earliest_path, "r") as f:
-                            earliest_dates = json.load(f)
-                            if sym and earliest_dates.get(sym):
-                                first_dt = first_ts.date().isoformat() if hasattr(first_ts, 'date') else None
-                                if first_dt == earliest_dates[sym]:
-                                    # We have hit the absolute beginning of history for this symbol
-                                    return True
-                    except Exception:
-                        pass
+                # [VERSION: CACHE_POISON_FIX] Ignore earliest_dates if we have fewer than 10 bars to prevent 1-bar starvation
+                if len(cached_df) >= 10:
+                    earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
+                    if os.path.exists(earliest_path):
+                        try:
+                            with open(earliest_path, "r") as f:
+                                earliest_dates = json.load(f)
+                                if sym and earliest_dates.get(sym):
+                                    first_dt = first_ts.date().isoformat() if hasattr(first_ts, 'date') else None
+                                    if first_dt == earliest_dates[sym]:
+                                        # We have hit the absolute beginning of history for this symbol
+                                        return True
+                        except Exception:
+                            pass
                 return False
             
         return True
@@ -450,7 +452,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             all_data[sym] = new_df
                             
                         # If this was a FULL fetch for a long historical period, record the earliest available date
-                        if group_key == "FULL" and not new_df.empty and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
+                        # [VERSION: CACHE_POISON_FIX] Require at least 10 bars to prevent a failed 1-bar fallback from poisoning the IPO date
+                        if group_key == "FULL" and not new_df.empty and len(new_df) >= 10 and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
                             try:
                                 t_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
                                 earliest_ts = pd.to_datetime(new_df[t_col].iloc[0]) if t_col else pd.to_datetime(new_df.index[0])

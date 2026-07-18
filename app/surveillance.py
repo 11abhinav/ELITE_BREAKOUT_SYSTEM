@@ -84,7 +84,11 @@ def get_live_blacklist() -> set[str]:
             max_retries = 2
             for attempt in range(max_retries):
                 try:
-                    import nsepython
+                    try:
+                        import nsepython
+                    except ImportError:
+                        logger.warning("⚠️ nsepython module not found. Please add to requirements.txt! Falling back to cache.")
+                        raise Exception("No module named 'nsepython'")
                     
                     asm_res = nsepython.nsefetch("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):

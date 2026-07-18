@@ -21,3 +21,4 @@ pyotp>=2.9.0
 pyyaml>=6.0.0
 pywebpush>=1.14.0
 pycryptodome>=3.23.0
+nsepython==2.97
