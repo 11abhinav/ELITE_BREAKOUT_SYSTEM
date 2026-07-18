@@ -36,7 +36,7 @@ def _get_robust_session():
     try:
         from curl_cffi import requests as cffi_requests
         # curl_cffi handles retries internally in recent versions, or we can just let the outer loop handle it
-        session = cffi_requests.Session(impersonate="chrome110")
+        session = cffi_requests.Session(impersonate="chrome120")
         return session
     except ImportError:
         session = requests.Session()

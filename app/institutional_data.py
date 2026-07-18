@@ -32,7 +32,7 @@ def _get_robust_session():
     
     try:
         from curl_cffi import requests as cffi_requests
-        session = cffi_requests.Session(impersonate="chrome110")
+        session = cffi_requests.Session(impersonate="chrome120")
         session.headers.update(headers)
         return session
     except ImportError:

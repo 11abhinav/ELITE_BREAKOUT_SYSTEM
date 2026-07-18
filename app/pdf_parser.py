@@ -21,12 +21,12 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
     try:
         try:
             from curl_cffi import requests as cffi_requests
-            s = cffi_requests.Session(impersonate="chrome110")
+            s = cffi_requests.Session(impersonate="chrome120")
         except ImportError:
             s = requests.Session()
         
         # Hit main page to get cookies
-        s.get('https://www.nseindia.com', headers=headers, timeout=5)
+        s.get('https://www.nseindia.com', headers=headers, timeout=15)
         
         # Buffer to prevent WAF blocks
         import time

@@ -59,7 +59,7 @@ def get_live_blacklist() -> set[str]:
             # Establish session first to get cookies
             try:
                 from curl_cffi import requests as cffi_requests
-                session = cffi_requests.Session(impersonate="chrome110")
+                session = cffi_requests.Session(impersonate="chrome120")
             except ImportError:
                 session = requests.Session()
                 

@@ -2023,7 +2023,7 @@ def api_notices(symbol):
     try:
         try:
             from curl_cffi import requests as cffi_requests
-            s = cffi_requests.Session(impersonate="chrome110")
+            s = cffi_requests.Session(impersonate="chrome120")
         except ImportError:
             import requests
             s = requests.Session()
@@ -2117,7 +2117,7 @@ def fetch_and_analyze_concall(symbol):
     try:
         try:
             from curl_cffi import requests as cffi_requests
-            s = cffi_requests.Session(impersonate="chrome110")
+            s = cffi_requests.Session(impersonate="chrome120")
         except ImportError:
             import requests
             s = requests.Session()
