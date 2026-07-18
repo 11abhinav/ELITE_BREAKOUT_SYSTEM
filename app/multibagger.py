@@ -112,14 +112,20 @@ class ScreenerResult:
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
-def get_nse_session() -> requests.Session:
-    """Returns a requests.Session configured with connection pool and retries."""
-    session = requests.Session()
-    adapter = HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=3)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    session.headers.update(HTTP_HEADERS)
-    return session
+def get_nse_session():
+    """Returns a curl_cffi Session to bypass NSE WAF, with fallback to requests."""
+    try:
+        from curl_cffi import requests as cffi_requests
+        session = cffi_requests.Session(impersonate="chrome")
+        session.headers.update(HTTP_HEADERS)
+        return session
+    except ImportError:
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=3)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        session.headers.update(HTTP_HEADERS)
+        return session
 
 def safe_float(val, default=0.0):
     try:
@@ -175,8 +181,20 @@ def fetch_constituents() -> list:
     for name, url in CONSTITUENT_URLS.items():
         try:
             logger.info(f"📥 Downloading {name} constituents...")
-            response = session.get(url, timeout=15)
-            if response.status_code == 200:
+            
+            # Manual retry loop for curl_cffi compatibility
+            response = None
+            for attempt in range(3):
+                try:
+                    response = session.get(url, timeout=15)
+                    if response.status_code == 200:
+                        break
+                except Exception as e:
+                    if attempt == 2:
+                        raise
+                    time.sleep(2)
+            
+            if response and response.status_code == 200:
                 df = pd.read_csv(io.StringIO(response.text))
                 if "Symbol" in df.columns:
                     for sym in df["Symbol"].dropna().unique():
@@ -185,9 +203,12 @@ def fetch_constituents() -> list:
                             symbols.add(clean_sym)
                     logger.info(f"✅ Loaded {len(df)} constituents for {name}.")
             else:
-                logger.warning(f"⚠️ Failed to fetch {name}: HTTP {response.status_code}")
+                logger.warning(f"⚠️ Failed to fetch {name}: HTTP {response.status_code if response else 'Unknown'}")
         except Exception as e:
             logger.warning(f"⚠️ Error fetching {name}: {e}")
+        
+        # Anti-Rate Limit Sleep to prevent NSE WAF blocks
+        time.sleep(2.5)
             
     # [VERSION: SYMBOL_FIX_v1.0] Normalize symbols for yfinance querying.
     # NSE constituents use '&' in symbol names (M&M, J&KBANK, GVT&D, M&MFIN).
