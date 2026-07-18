@@ -898,6 +898,16 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     t1 = targets.get("t1", entry)
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    
+    from config import MIN_NATURAL_RR
+    min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
+    if natural_rr_val < min_rr:
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
+            "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
+        }
+        
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
@@ -957,6 +967,16 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     t1 = targets.get("t1", entry)
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    
+    from config import MIN_NATURAL_RR
+    min_rr = MIN_NATURAL_RR.get("EOD", 2.5)
+    if natural_rr_val < min_rr:
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
+            "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
+        }
+
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")

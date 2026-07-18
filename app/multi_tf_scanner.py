@@ -701,11 +701,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             final_sl = sl_result["stop_loss"]
                             calc_target = sl_result["target_1"]
 
-                            # [MTF_RR_KEY_FIX_v1.0] BUG-9 FIX: sl_result uses 'natural_rr' not 'rr_ratio'.
-                            # The old check always got 0.0 (the default) because 'rr_ratio' never existed in
-                            # the result dict, suppressing ALL valid intraday alerts incorrectly.
-                            if sl_result.get("natural_rr", sl_result.get("rr_ratio", 0.0)) < 1.5:
-                                logger.info(f"🚫 {symbol} alert SUPPRESSED: low R:R ratio {sl_result.get('natural_rr', sl_result.get('rr_ratio'))}")
+                            if sl_result.get("is_rejected"):
+                                rejected["low_rr"] += 1
+                                from database import save_rejected_alert
+                                if not is_test_mode:
+                                    save_rejected_alert(
+                                        symbol=symbol,
+                                        scanner="MULTI_TF",
+                                        rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
+                                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.1"),
+                                        context={"category": cat, "score": 0, "sl_result": sl_result}
+                                    )
+                                logger.info(f"🚫 {symbol} alert SUPPRESSED: {sl_result.get('rejection_reason')}")
                                 continue
 
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))
