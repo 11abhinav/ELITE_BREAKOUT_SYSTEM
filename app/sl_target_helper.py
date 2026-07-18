@@ -174,7 +174,7 @@ class ClusterEngine:
         cluster_min = sorted_cands[0].price
         
         for cand in sorted_cands[1:]:
-            if cand.price - cluster_min <= window:
+            if cand.price - cluster_min <= window + 1e-6:
                 current_cluster_cands.append(cand)
             else:
                 clusters.append(current_cluster_cands)
@@ -342,15 +342,15 @@ class ConflictResolver:
     def resolve(clusters: List[ClusteredTarget], scanner: str, entry: float, macro_regime: str) -> List[ClusteredTarget]:
         policy = TARGET_CONFLICT_POLICY.get(scanner, "CONFIDENCE")
         if policy == "NEAREST":
-            return sorted(clusters, key=lambda c: c.consensus_price)
+            return sorted(clusters, key=lambda c: (c.consensus_price, -c.score, c.cluster_id))
         elif policy == "CONFIDENCE":
-            return sorted(clusters, key=lambda c: c.score, reverse=True)
+            return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
         elif policy == "REGIME":
             if macro_regime in ("BULL", "TRENDING"):
-                return sorted(clusters, key=lambda c: c.consensus_price, reverse=True) # Prefer higher
+                return sorted(clusters, key=lambda c: (c.consensus_price, c.score, -c.cluster_id), reverse=True) # Prefer higher
             else:
-                return sorted(clusters, key=lambda c: c.score, reverse=True)
-        return clusters
+                return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
+        return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
 
 class ExitPolicy:
     @staticmethod
@@ -900,7 +900,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
-        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
         "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
         "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
@@ -950,7 +950,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
-        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
         "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
         "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
@@ -995,7 +995,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": t2, "target_3": t3,
-        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
         "sl_method": sl_data["sl_method"], "t_method": f"MeanReversion [T1]",
         "sl_result": {"target_candidate_pool": [vars(c) for c in cands]}
     }

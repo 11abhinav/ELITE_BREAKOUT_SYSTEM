@@ -1,0 +1,72 @@
+{
+    "diagnostics": {
+        "engine_version": "2.0",
+        "market_regime": "Bull",
+        "scanner": "REVERSAL",
+        "support_source": "Pivot",
+        "target_cluster_values": {
+            "atr_proj": 104.5,
+            "consensus_target": 100.83,
+            "fib": 98.38,
+            "measured_move": 103.0,
+            "r1": 102.0,
+            "swing_high": 99.0,
+            "vwap": 98.0
+        },
+        "target_source": "Hybrid Consensus",
+        "volatility_mode": "LOW"
+    },
+    "engine_version": "2.0",
+    "management": {
+        "time_stop": "12-15 trading days",
+        "trailing": "Pivot Low"
+    },
+    "risk": {
+        "expected_value": 1.18,
+        "kelly_fraction": 0.3,
+        "position_size_pct": 19.05,
+        "risk_pct": 5.25,
+        "rr": 2.5,
+        "stop_loss": 94.75
+    },
+    "scanner": "REVERSAL",
+    "support": {
+        "breakdown": {
+            "age": 10,
+            "proximity": 5,
+            "touches": 10,
+            "volume": 15
+        },
+        "confidence": 40,
+        "price": 92.0
+    },
+    "targets": {
+        "t1": {
+            "confidence": "HIGH",
+            "exit": "25%",
+            "price": 113.12
+        },
+        "t2": {
+            "confidence": "MEDIUM",
+            "exit": "35%",
+            "price": 121.0
+        },
+        "t3": {
+            "confidence": "LOW",
+            "exit": "40%",
+            "price": 128.88
+        }
+    },
+    "trade_quality": 76,
+    "trade_quality_breakdown": {
+        "market": 10,
+        "momentum": 14,
+        "rs": 10,
+        "support": 6,
+        "trend": 21,
+        "volume": 15
+    },
+    "warnings": [
+        "Support confidence below 50"
+    ]
+}
