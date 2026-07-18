@@ -63,15 +63,16 @@ def get_live_blacklist() -> set[str]:
             except ImportError:
                 session = requests.Session()
                 
-            # Try fetching with retries (reduced timeout from 15s to 5s to avoid blocking scanner threads)
+            # Try fetching with retries (increased timeout to 15s to bypass heavy NSE throttling)
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    session.get("https://www.nseindia.com", headers=headers, timeout=5)
+                    # [VERSION: NSE_TIMEOUT_FIX_v1.1] Increased timeout for surveillance fetch to 15s
+                    session.get("https://www.nseindia.com", headers=headers, timeout=15)
                     time.sleep(2.5) # Buffer before API hit
                     
                     # Fetch ASM (Additional Surveillance Measure)
-                    asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=5)
+                    asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=15)
                     if asm_res.status_code == 200:
                         data = asm_res.json()
                         for key in ["longterm", "shortterm"]:
@@ -83,7 +84,7 @@ def get_live_blacklist() -> set[str]:
                     time.sleep(2.5) # Buffer between ASM and GSM
 
                     # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
-                    gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=5)
+                    gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=15)
                     if gsm_res.status_code == 200:
                         data = gsm_res.json()
                         if isinstance(data, list):
@@ -111,9 +112,20 @@ def get_live_blacklist() -> set[str]:
                     
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        logger.debug(f"NSE surveillance fetch attempt {attempt+1} failed: {e}. Retrying in 2s...")
-                        time.sleep(2)
+                        backoff = (2 ** attempt) * 5  # 5s, 10s
+                        logger.warning(f"⚠️ NSE surveillance fetch attempt {attempt+1} failed: {e}. Retrying in {backoff}s...")
+                        time.sleep(backoff)
                     else:
+                        logger.error(f"Failed to fetch NSE surveillance lists after {max_retries} attempts: {e}")
+                        try:
+                            from database import insert_notification
+                            insert_notification(
+                                notif_type="error",
+                                title="🚨 NSE API Timeout (Surveillance)",
+                                message=f"Failed to fetch live ASM/GSM lists from nseindia.com. Rate limiting or connectivity issue. Error: {str(e)[:200]}"
+                            )
+                        except Exception:
+                            pass
                         raise # Re-raise on final failure to hit outer exception handler
             
         except Exception as e:

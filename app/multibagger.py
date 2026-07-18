@@ -182,17 +182,34 @@ def fetch_constituents() -> list:
         try:
             logger.info(f"📥 Downloading {name} constituents...")
             
-            # Manual retry loop for curl_cffi compatibility
+            # Manual retry loop for curl_cffi compatibility with exponential backoff
             response = None
-            for attempt in range(3):
+            max_retries = 3
+            for attempt in range(max_retries):
                 try:
-                    response = session.get(url, timeout=15)
+                    # [VERSION: NSE_TIMEOUT_FIX_v1.0] Increase timeout to 30s for archives.nseindia.com
+                    response = session.get(url, timeout=30)
                     if response.status_code == 200:
                         break
                 except Exception as e:
-                    if attempt == 2:
+                    if attempt == max_retries - 1:
+                        # Final attempt failed
+                        err_msg = f"Failed to download {name} constituents after {max_retries} attempts: {e}"
+                        logger.error(err_msg)
+                        try:
+                            from database import insert_notification
+                            insert_notification(
+                                notif_type="error",
+                                title=f"🚨 NSE API Timeout ({name})",
+                                message=f"Failed to fetch {url}. The NSE server is throttling or down. Error: {str(e)[:200]}"
+                            )
+                        except Exception:
+                            pass
                         raise
-                    time.sleep(2)
+                    
+                    backoff = (2 ** attempt) * 5  # 5s, 10s
+                    logger.warning(f"⚠️ NSE API error for {name} (attempt {attempt+1}): {e}. Retrying in {backoff}s...")
+                    time.sleep(backoff)
             
             if response and response.status_code == 200:
                 df = pd.read_csv(io.StringIO(response.text))
@@ -204,6 +221,15 @@ def fetch_constituents() -> list:
                     logger.info(f"✅ Loaded {len(df)} constituents for {name}.")
             else:
                 logger.warning(f"⚠️ Failed to fetch {name}: HTTP {response.status_code if response else 'Unknown'}")
+                try:
+                    from database import insert_notification
+                    insert_notification(
+                        notif_type="error",
+                        title=f"🚨 NSE API Failed ({name})",
+                        message=f"HTTP Error {response.status_code if response else 'Unknown'} for {url}"
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"⚠️ Error fetching {name}: {e}")
         

@@ -1825,6 +1825,7 @@ def api_scanner_status():
         # Sort by updated_at ascending (oldest first)
         queued_scanners.sort(key=lambda x: x[1])
         
+        # [VERSION: QUEUE_UI_DYNAMIC_SLIDER_v1.0]
         # Override the status string returned to the UI with a sliding dynamic number
         for i, (sc, _) in enumerate(queued_scanners):
             result[sc]["status"] = f"QUEUED-{i + 1}"
