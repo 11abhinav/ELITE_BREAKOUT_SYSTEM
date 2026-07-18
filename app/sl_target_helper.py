@@ -1012,8 +1012,11 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
                 valid_cands.append(c)
                 
     if not valid_cands:
-        fallback_target = entry + (risk * min_rr) if risk > 0 else entry + (eff_atr * 3.0)
-        valid_cands.append(TargetCandidate(fallback_target, TargetSource.ATR_PROJ, "any", "REVERSAL", "NORMAL", {}))
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
+            "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x)",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
         
     cands = valid_cands
     
