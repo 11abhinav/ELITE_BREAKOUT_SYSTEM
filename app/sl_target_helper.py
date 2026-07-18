@@ -57,11 +57,308 @@ from config import ADAPTIVE_TARGET_CAPS, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, T
 # ── Per-mode configuration ────────────────────────────────────────────────────
 _MODE_CONFIG = {
     #           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
-    "EOD":      (2.00,    0.75,       0.0075,     3.0),
-
-    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+    "EOD":      (2.00,    0.80,       0.0075,     3.0),   # Balanced
+    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),   # Aggressive
+    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),   # Wide
 }
 _DEFAULT_CONFIG = (1.50, 0.50, 0.0050, 3.0)
+
+
+# ── Target Engine v7 Classes ──────────────────────────────────────────────────
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict
+from abc import ABC, abstractmethod
+from config import (
+    TARGET_SOURCE_WEIGHTS, SOURCE_PRIORITY, TARGET_CONFLICT_POLICY,
+    EXIT_PROFILES, SCANNER_EXIT_PROFILE, FIB_EXTENSIONS, FIB_RETRACEMENTS,
+    ABCD_BC_RETRACE_MIN, ABCD_BC_RETRACE_MAX, FIB_200_GATE,
+    ROUND_NUMBER_BOOST, ROUND_NUMBER_PCT, TARGET_CLUSTER_WINDOW_ATR_FRAC,
+    TARGET_CLUSTER_WINDOW_PCT, FIB_200_WEIGHTS
+)
+
+class TargetSource(Enum):
+    RESISTANCE    = "RESISTANCE"
+    EQUAL_HIGH    = "EQUAL_HIGH"
+    PREV_DAY_HIGH = "PREV_DAY_HIGH"
+    HIGH_20D      = "HIGH_20D"
+    HIGH_52W      = "HIGH_52W"
+    ABCD          = "ABCD"
+    FIB_127       = "FIB_127"
+    FIB_162       = "FIB_162"
+    FIB_200       = "FIB_200"
+    BB_MID        = "BB_MID"
+    SMA50         = "SMA50"
+    SMA200        = "SMA200"
+    RETRACE_382   = "RETRACE_382"
+    RETRACE_50    = "RETRACE_50"
+    RETRACE_618   = "RETRACE_618"
+    SWING_HIGH_RAW = "SWING_HIGH_RAW"
+    ATR_PROJ      = "ATR_PROJ"
+    R1            = "R1"
+    R2            = "R2"
+    ROUND_NUM     = "ROUND_NUM"
+
+@dataclass
+class TargetCandidate:
+    price:         float
+    source:        TargetSource
+    timeframe:     str
+    scanner:       str
+    strength:      str
+    anchor_points: dict
+    generated_from: str = ""
+    cluster_id:    Optional[int] = None
+    score:         int = 0
+    selection_state: str = "REJECTED"
+    is_round_number: bool = False
+
+@dataclass
+class ClusteredTarget:
+    cluster_id: int
+    consensus_price: float
+    score: int
+    candidates: List[TargetCandidate]
+    is_round_number: bool = False
+    
+class TargetScorer:
+    @staticmethod
+    def score(candidate: TargetCandidate, macro_regime: str) -> int:
+        source_name = candidate.source.name
+        if source_name == "FIB_200":
+            return FIB_200_WEIGHTS.get(macro_regime, 5)
+        return TARGET_SOURCE_WEIGHTS.get(source_name, 0)
+
+class RoundNumberEngine:
+    @staticmethod
+    def _get_tick(price: float) -> float:
+        if price < 50: return 2.0
+        if price < 100: return 5.0
+        if price < 200: return 10.0
+        if price < 500: return 25.0
+        if price < 1000: return 50.0
+        if price < 2000: return 100.0
+        if price < 5000: return 250.0
+        return 1000.0
+
+    @staticmethod
+    def detect_and_boost(clusters: List[ClusteredTarget]) -> None:
+        for c in clusters:
+            tick = RoundNumberEngine._get_tick(c.consensus_price)
+            nearest = round(c.consensus_price / tick) * tick
+            pct_diff = abs(c.consensus_price - nearest) / c.consensus_price
+            if pct_diff <= ROUND_NUMBER_PCT:
+                c.is_round_number = True
+                c.score += ROUND_NUMBER_BOOST
+                c.candidates.append(TargetCandidate(
+                    price=nearest, source=TargetSource.ROUND_NUM,
+                    timeframe="any", scanner="any", strength="NORMAL",
+                    anchor_points={}, generated_from="RoundNumberEngine",
+                    cluster_id=c.cluster_id, score=0, is_round_number=True
+                ))
+
+class ClusterEngine:
+    @staticmethod
+    def _consensus_price(candidates: List[TargetCandidate]) -> float:
+        ranked = sorted(candidates, key=lambda c: SOURCE_PRIORITY.get(c.source.name, 99))
+        return ranked[0].price
+
+    @staticmethod
+    def cluster(candidates: List[TargetCandidate], entry: float, eff_atr: float) -> List[ClusteredTarget]:
+        if not candidates: return []
+        window = max(TARGET_CLUSTER_WINDOW_ATR_FRAC * eff_atr, TARGET_CLUSTER_WINDOW_PCT * entry)
+        sorted_cands = sorted(candidates, key=lambda c: c.price)
+        
+        clusters = []
+        current_cluster_cands = [sorted_cands[0]]
+        cluster_min = sorted_cands[0].price
+        
+        for cand in sorted_cands[1:]:
+            if cand.price - cluster_min <= window:
+                current_cluster_cands.append(cand)
+            else:
+                clusters.append(current_cluster_cands)
+                current_cluster_cands = [cand]
+                cluster_min = cand.price
+        clusters.append(current_cluster_cands)
+        
+        result = []
+        for i, c_cands in enumerate(clusters):
+            for c in c_cands:
+                c.cluster_id = i
+            c_price = ClusterEngine._consensus_price(c_cands)
+            c_score = sum(c.score for c in c_cands)
+            result.append(ClusteredTarget(
+                cluster_id=i, consensus_price=c_price, score=c_score, candidates=c_cands
+            ))
+        return result
+
+class LiquidityEngine:
+    @staticmethod
+    def detect_equal_highs(ticker: pd.DataFrame, entry: float) -> Optional[float]:
+        if ticker is None or ticker.empty: return None
+        recent = ticker.tail(60)
+        highs = recent["High"].values
+        for i in range(len(highs)):
+            for j in range(i+1, len(highs)):
+                if highs[i] > entry and highs[j] > entry:
+                    if abs(highs[i] - highs[j]) / highs[i] < 0.005:
+                        return float((highs[i] + highs[j]) / 2)
+        return None
+
+class ABCDDetector:
+    BC_RETRACE_MIN = 0.382
+    BC_RETRACE_MAX = 0.786
+
+    @staticmethod
+    def detect(ticker: pd.DataFrame, entry: float) -> Optional[float]:
+        if ticker is None or ticker.empty or "SWING_LOW" not in ticker.columns or "SWING_HIGH" not in ticker.columns:
+            return None
+        pivot_lows  = ticker["SWING_LOW"].dropna()
+        pivot_highs = ticker["SWING_HIGH"].dropna()
+
+        if len(pivot_lows) < 2 or len(pivot_highs) < 1:
+            return None
+
+        for c_idx, C in reversed(list(pivot_lows.items())):
+            b_candidates = pivot_highs[pivot_highs.index < c_idx]
+            if b_candidates.empty: continue
+            b_idx = b_candidates.index[-1]
+            B = b_candidates.iloc[-1]
+            if B <= C: continue
+
+            a_candidates = pivot_lows[pivot_lows.index < b_idx]
+            if a_candidates.empty: continue
+            A = a_candidates.iloc[-1]
+            if A >= B: continue
+
+            AB = B - A
+            BC = B - C
+            BC_ratio = BC / AB if AB > 0 else 0
+
+            if not (ABCDDetector.BC_RETRACE_MIN <= BC_ratio <= ABCDDetector.BC_RETRACE_MAX):
+                continue
+
+            D_projection = C + AB
+            if D_projection > entry:
+                return round(float(D_projection), 2)
+        return None
+
+class CandidateGenerator:
+    def generate_breakout_candidates(
+        self, entry: float, eff_atr: float, atr_pct: float, adx: float, volume_ratio: float,
+        vwap: float, macro_regime: str, scanner: str,
+        swing_low: float, swing_high: float, swing_low_raw: float, swing_high_raw: float,
+        r1: float, r2: float, bb_upper: float, prior_20d_high: float, high_52w: float, prev_day_high: float,
+        ticker: pd.DataFrame
+    ) -> List[TargetCandidate]:
+        candidates = []
+        
+        # Resistance
+        from sl_target_helper import _pick_resistance, _safe
+        res, label = _pick_resistance(entry, swing_high, r1, bb_upper, swing_high_raw, r2)
+        if res:
+            candidates.append(TargetCandidate(price=res, source=TargetSource.RESISTANCE, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={"label": label}))
+            
+        if _safe(prev_day_high) and prev_day_high > entry:
+            candidates.append(TargetCandidate(price=prev_day_high, source=TargetSource.PREV_DAY_HIGH, timeframe="1d", scanner=scanner, strength="NORMAL", anchor_points={}))
+
+        if _safe(prior_20d_high) and prior_20d_high > entry:
+            candidates.append(TargetCandidate(price=prior_20d_high, source=TargetSource.HIGH_20D, timeframe="1d", scanner=scanner, strength="NORMAL", anchor_points={}))
+
+        if _safe(high_52w) and high_52w > entry:
+            candidates.append(TargetCandidate(price=high_52w, source=TargetSource.HIGH_52W, timeframe="1d", scanner=scanner, strength="STRONG", anchor_points={}))
+
+        eq_high = LiquidityEngine.detect_equal_highs(ticker, entry)
+        if eq_high:
+            candidates.append(TargetCandidate(price=eq_high, source=TargetSource.EQUAL_HIGH, timeframe="any", scanner=scanner, strength="STRONG", anchor_points={}))
+
+        leg = None
+        if _safe(swing_high_raw) and _safe(swing_low_raw):
+            leg = swing_high_raw - swing_low_raw
+
+        if leg and leg > 0:
+            candidates.append(TargetCandidate(price=entry + leg * 1.272, source=TargetSource.FIB_127, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={"leg": leg}))
+            candidates.append(TargetCandidate(price=entry + leg * 1.618, source=TargetSource.FIB_162, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={"leg": leg}))
+
+            fib200_allowed = (
+                _safe(adx) and adx > FIB_200_GATE["min_adx"]
+                and _safe(volume_ratio) and volume_ratio > FIB_200_GATE["min_vol_ratio"]
+                and _safe(vwap) and entry > vwap
+                and macro_regime in ("TRENDING", "BULL")
+            )
+            if fib200_allowed:
+                candidates.append(TargetCandidate(price=entry + leg * 2.0, source=TargetSource.FIB_200, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={"leg": leg}))
+
+        abcd_price = ABCDDetector.detect(ticker, entry)
+        if abcd_price:
+            candidates.append(TargetCandidate(price=abcd_price, source=TargetSource.ABCD, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={}))
+
+        candidates.append(TargetCandidate(price=entry + 3 * eff_atr, source=TargetSource.ATR_PROJ, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={}))
+
+        for c in candidates:
+            c.score = TargetScorer.score(c, macro_regime)
+
+        return candidates
+
+class TargetStrategy(ABC):
+    def pre_filter(self, candidates: List[TargetCandidate], context: dict) -> List[TargetCandidate]:
+        return candidates
+
+    @abstractmethod
+    def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
+        pass
+
+    def post_filter(self, result: dict, context: dict) -> dict:
+        return result
+
+class TrendExtensionStrategy(TargetStrategy):
+    def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
+        if not clusters: return {}
+        # MULTI_TF uses CONFIDENCE policy
+        ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
+        t1 = ranked[0]
+        t2 = ranked[1] if len(ranked) > 1 else t1
+        t3 = ranked[2] if len(ranked) > 2 else t2
+        return {"t1": t1.consensus_price, "t2": t2.consensus_price, "t3": t3.consensus_price, "t1_cluster": t1, "t2_cluster": t2, "t3_cluster": t3}
+
+class ClusterConsensusStrategy(TargetStrategy):
+    def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
+        if not clusters: return {}
+        # EOD uses REGIME policy - for simplicity we rank by score + distance
+        ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
+        t1 = ranked[0]
+        t2 = ranked[1] if len(ranked) > 1 else t1
+        t3 = ranked[2] if len(ranked) > 2 else t2
+        return {"t1": t1.consensus_price, "t2": t2.consensus_price, "t3": t3.consensus_price, "t1_cluster": t1, "t2_cluster": t2, "t3_cluster": t3}
+
+class MeanReversionStrategy(TargetStrategy):
+    def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
+        # Reversal simply walks the stack
+        return {} # Will be custom implemented in _compute_reversal
+
+class ConflictResolver:
+    @staticmethod
+    def resolve(clusters: List[ClusteredTarget], scanner: str, entry: float, macro_regime: str) -> List[ClusteredTarget]:
+        policy = TARGET_CONFLICT_POLICY.get(scanner, "CONFIDENCE")
+        if policy == "NEAREST":
+            return sorted(clusters, key=lambda c: c.consensus_price)
+        elif policy == "CONFIDENCE":
+            return sorted(clusters, key=lambda c: c.score, reverse=True)
+        elif policy == "REGIME":
+            if macro_regime in ("BULL", "TRENDING"):
+                return sorted(clusters, key=lambda c: c.consensus_price, reverse=True) # Prefer higher
+            else:
+                return sorted(clusters, key=lambda c: c.score, reverse=True)
+        return clusters
+
+class ExitPolicy:
+    @staticmethod
+    def get_profile(scanner: str) -> dict:
+        profile_name = SCANNER_EXIT_PROFILE.get(scanner, "BALANCED")
+        return EXIT_PROFILES.get(profile_name, EXIT_PROFILES["BALANCED"])
+
+
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -543,36 +840,13 @@ def _rsi_zone(rsi: Optional[float]) -> str:
 # EOD — Daily Breakout (swing trade, hold days to weeks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _compute_multi_tf(
-    entry: float,
-    eff_atr: float,
-    atr_pct: float,
-    adx: float,
-    rsi: float,
-    macd_hist: float,
-    swing_low: float,
-    swing_high: float,
-    s1: float,
-    s2: float,
-    r1: float,
-    r2: float,
-    swing_low_raw: float,
-    swing_high_raw: float,
-    swing_low_15m: float = None,
-    swing_high_15m: float = None,
-    swing_low_30m: float = None,
-    swing_high_30m: float = None,
-    swing_low_1h: float = None,
-    swing_high_1h: float = None,
-    **kwargs
-) -> dict:
-    from config import MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, TARGET_QUALITY_THRESHOLD
 
+def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
     supports = [
         (swing_low, "5m Swing Low", 20),
-        (swing_low_15m, "15m Swing Low", 25),
-        (swing_low_30m, "30m Swing Low", 30),
-        (swing_low_1h, "1H Swing Low", 35),
+        (kwargs.get("swing_low_15m"), "15m Swing Low", 25),
+        (kwargs.get("swing_low_30m"), "30m Swing Low", 30),
+        (kwargs.get("swing_low_1h"), "1H Swing Low", 35),
         (s1, "S1", 20),
         (s2, "S2", 15),
         (swing_low_raw, "Rolling Swing Low", 20),
@@ -581,503 +855,151 @@ def _compute_multi_tf(
         (kwargs.get("sma50"), "SMA50", 15),
         (kwargs.get("sma200"), "SMA200", 30)
     ]
-
     sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": "MULTI_TF"})
-    
-    # Standardized Rejection check for SL
     if not sl_data.get("is_valid", True):
         return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
-            "gate": "MIN_STOP_PCT",
-            "actual": sl_data.get("details", {}).get("best_stop_pct", 0.0),
-            "required": sl_data.get("details", {}).get("required_stop_pct", 0.0),
-            "context": sl_data.get("details", {}),
-            "stop_loss": sl_data["raw_sl"],
-            "structural_failure_stop": sl_data["raw_sl"],
-            "target_1": entry,
-            "natural_rr": 0.0,
-            "reward_potential_pct": 0.0,
-            "target_quality": 0.0,
-            "quality_breakdown": {},
-            "sl_method": sl_data["sl_method"],
-            "target_method": "REJECTED"
+            "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
+            "gate": "MIN_STOP_PCT", "actual": sl_data.get("details", {}).get("best_stop_pct", 0.0),
+            "required": sl_data.get("details", {}).get("required_stop_pct", 0.0), "context": sl_data.get("details", {}),
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
 
-    stop_loss = sl_data["raw_sl"]
-    sl_method = sl_data["sl_method"]
-    structural_failure_stop = _compute_disaster_stop(stop_loss, entry, eff_atr, [s[0] for s in supports])
-    risk = entry - stop_loss
-
-    min_rr = MIN_NATURAL_RR.get("MULTI_TF", 2.0)
-    min_tq = TARGET_QUALITY_THRESHOLD.get("MULTI_TF", 65)
-    min_reward_pot = MIN_REWARD_POTENTIAL.get("MULTI_TF", 1.8)
-
-    resistances = [
-        (swing_high, "5m Swing High", 20),
-        (swing_high_15m, "15m Swing High", 25),
-        (swing_high_30m, "30m Swing High", 30),
-        (swing_high_1h, "1H Swing High", 35),
-        (r1, "R1", 15),
-        (r2, "R2", 20),
-        (swing_high_raw, "Rolling Swing High", 20)
-    ]
-    
-    best_resistance = ResistanceSelector.get_nearest_valid_resistance(entry, resistances)
-    
-    if best_resistance:
-        target_1 = best_resistance["price"]
-        nearest_resistance_score = best_resistance["score"]
-        res_label = f"{best_resistance['type']} (Score: {nearest_resistance_score})"
-        
-        move_pct = (target_1 - entry) / entry * 100 if entry > 0 else 0.0
-        if move_pct < min_reward_pot:
-            return {
-                "engine_version": "SL_ENGINE_V6",
-                "is_rejected": True,
-                "rejection_reason": "LOW_REWARD_POTENTIAL",
-                "gate": "MIN_REWARD_POTENTIAL",
-                "actual": round(move_pct, 2),
-                "required": min_reward_pot,
-                "context": {
-                    "nearest_resistance_score": nearest_resistance_score,
-                    "type": best_resistance["type"]
-                },
-                "stop_loss": stop_loss,
-                "structural_failure_stop": structural_failure_stop,
-                "target_1": target_1,
-                "natural_rr": round((target_1 - entry)/risk, 2) if risk > 0 else 0.0,
-                "reward_potential_pct": round(move_pct, 2),
-                "target_quality": 0.0,
-                "quality_breakdown": {},
-                "sl_method": sl_method,
-                "target_method": res_label
-            }
-    else:
-        # NO VALID RESISTANCE
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": "NO_VALID_STRUCTURAL_RESISTANCE",
-            "gate": "MIN_REWARD_POTENTIAL",
-            "actual": 0.0,
-            "required": min_reward_pot,
-            "context": {
-                "resistances_found": len(resistances)
-            },
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": entry,
-            "natural_rr": 0.0,
-            "reward_potential_pct": 0.0,
-            "target_quality": 0.0,
-            "quality_breakdown": {},
-            "sl_method": sl_method,
-            "target_method": "REJECTED"
-        }
-
-    reward = target_1 - entry
-    natural_rr = round(reward / risk, 2) if risk > 0 else 0.0
-    reward_potential_pct = (reward / entry) * 100 if entry > 0 else 0.0
-
-    # [MULTI_TF_TQ_FIX_v1.0] BUG-2 FIX: _compute_target_quality was called with completely wrong kwargs
-    # (entry=, adx=, atr_pct=, target_1=, support_score=) — none exist in its signature.
-    # Correct signature: (natural_rr, rsi, adx, macd_hist, volume_ratio, swing_high, r1, r2, bb_upper)
-    # Fixed to pass correct positional args with _safe() guards.
-    tq, bd = _compute_target_quality(
-        natural_rr, _safe(rsi), _safe(adx), _safe(macd_hist), None,
-        _safe(swing_high), _safe(r1), _safe(r2), kwargs.get("bb_upper")
+    macro_regime = kwargs.get("macro_regime", "NEUTRAL")
+    gen = CandidateGenerator()
+    candidates = gen.generate_breakout_candidates(
+        entry=entry, eff_atr=eff_atr, atr_pct=atr_pct, adx=adx, volume_ratio=kwargs.get("volume_ratio", 1.0),
+        vwap=kwargs.get("vwap"), macro_regime=macro_regime, scanner="MULTI_TF",
+        swing_low=swing_low, swing_high=swing_high, swing_low_raw=swing_low_raw, swing_high_raw=swing_high_raw,
+        r1=r1, r2=r2, bb_upper=kwargs.get("bb_upper"), prior_20d_high=kwargs.get("prior_20d_high"),
+        high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
-
-    if natural_rr < min_rr:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": "LOW_NATURAL_RR",
-            "gate": "MIN_NATURAL_RR",
-            "actual": natural_rr,
-            "required": min_rr,
-            "context": {},
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": target_1,
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "target_quality": tq,
-            "quality_breakdown": bd,
-            "sl_method": sl_method,
-            "target_method": res_label
-        }
-
-    if tq < min_tq:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": "LOW_TARGET_QUALITY",
-            "gate": "MIN_TARGET_QUALITY",
-            "actual": tq,
-            "required": min_tq,
-            "context": bd,
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": target_1,
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "target_quality": tq,
-            "quality_breakdown": bd,
-            "sl_method": sl_method,
-            "target_method": res_label
-        }
-
-    return {
-        "engine_version": "SL_ENGINE_V6",
-        "stop_loss": stop_loss,
-        "structural_failure_stop": structural_failure_stop,
-        "target_1": target_1,
-        "target_2": round(_cap_target(target_1 + (1.5 * eff_atr), entry, eff_atr, "15m", "NEUTRAL", _safe(atr_pct)), 2),
-        "target_3": round(_cap_target(target_1 + (3.0 * eff_atr), entry, eff_atr, "15m", "NEUTRAL", _safe(atr_pct)), 2),
-        "natural_rr": natural_rr,
-        "reward_potential_pct": reward_potential_pct,
-        "sl_method": sl_method,
-        "target_method": res_label,
-        "target_quality": tq,
-        "quality_breakdown": bd,
-        "is_rejected": False,
-        "rejection_reason": None,
-        "buffer_method": sl_data.get("buffer_method", "N/A"),
-        "anchor_score": sl_data.get("anchor_score", 0),
-        "anchor_confidence": sl_data.get("anchor_confidence", 0),
-        "cluster_width": sl_data.get("cluster_width", 0),
-        "member_count": sl_data.get("member_count", 0),
-        "cluster_members": sl_data.get("cluster_members", [])
-    }
-
-def _compute_eod(
-    entry: float, eff_atr: float, adx, rsi, macd_hist, atr_pct,
-    swing_low, swing_high, bb_upper, bb_lower,
-    s1, s2, r1, r2, swing_low_raw, swing_high_raw,
-    swing_low_cluster: Optional[float] = None,
-    macro_regime: str = "NEUTRAL",
-    volume_ratio: Optional[float] = None,
-) -> dict:
-    """
-    v6.0 EOD breakout logic:
-    • Natural RR & Reward Potential gates applied early.
-    • Explainable quality score returned.
-    """
-    from config import MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, TARGET_QUALITY_THRESHOLD
     
-    atr_base, sl_atr_buf, sl_pct_buf, max_sl_atr = _MODE_CONFIG["EOD"]
-    min_rr = MIN_NATURAL_RR["EOD"]
-    min_rp = MIN_REWARD_POTENTIAL["EOD"]
-    min_tq = TARGET_QUALITY_THRESHOLD["EOD"]
+    strategy = TrendExtensionStrategy()
+    candidates = strategy.pre_filter(candidates, {"vwap": kwargs.get("vwap")})
     
-    scaled_mult = _atr_volatility_scale(_safe(atr_pct), atr_base)
-
-    supports = [
-        (_safe(swing_low_cluster), "Swing Low Cluster", 1),
-        (_safe(swing_low), "Swing Low", 1),
-        (_safe(swing_low_raw), "Rolling Swing Low", 1),
-        (_safe(s1), "S1 (Discovery)", 1)
-    ]
-    sl_data = _compute_structural_stop(entry, eff_atr, _safe(atr_pct), supports, {"mode": "EOD"})
-    stop_loss = round(sl_data["raw_sl"], 2)
-    sl_method = sl_data["sl_method"]
-    risk = max(entry - stop_loss, entry * 0.005)
+    clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters = ConflictResolver.resolve(clusters, "MULTI_TF", entry, macro_regime)
     
-    structural_failure_stop = _compute_disaster_stop(stop_loss, entry, eff_atr, [s[0] for s in supports])
-
-    resistance, res_label = _pick_resistance(entry, _safe(swing_high), _safe(r1), _safe(bb_upper), _safe(swing_high_raw), _safe(r2))
-
-    t1_raw = resistance if resistance is not None else (entry + min_rr * risk)
+    targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
     
-    # 1. Natural RR Gate
-    natural_rr = round((t1_raw - entry) / risk, 2) if risk > 0 else 0
-    if natural_rr < min_rr:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_NATURAL_RR] Natural RR {natural_rr} < {min_rr}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-        
-    # 2. Reward Potential Gate
-    reward_potential_pct = round(((t1_raw - entry) / entry) * 100, 2) if entry > 0 else 0
-    if reward_potential_pct < min_rp:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_REWARD_POTENTIAL] Reward Potential {reward_potential_pct}% < {min_rp}%",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-
-    # Passed gates. Compute Targets.
-    target_1 = round(_cap_target(t1_raw, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-    
-    zone = _rsi_zone(rsi)
-    target_2 = None
-    if zone != "overbought":
-        r2_v = _safe(r2)
-        if r2_v and r2_v > target_1:
-            target_2 = round(_cap_target(r2_v, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
+    pool = []
+    for c in candidates:
+        c_dict = vars(c).copy()
+        c_dict["source"] = c.source.name
+        if targets and targets.get("t1_cluster") and c.cluster_id == targets["t1_cluster"].cluster_id:
+            c_dict["selection_state"] = "WINNING"
+        elif targets and ( (targets.get("t2_cluster") and c.cluster_id == targets["t2_cluster"].cluster_id) or (targets.get("t3_cluster") and c.cluster_id == targets["t3_cluster"].cluster_id) ):
+            c_dict["selection_state"] = "SELECTED"
         else:
-            target_2 = round(_cap_target(entry + 3.5 * risk, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
+            c_dict["selection_state"] = "REJECTED"
+        pool.append(c_dict)
 
-    target_3 = None
-    adx_v = _safe(adx)
-    safe_macd = _safe(macd_hist)
-    macd_bull = safe_macd is not None and safe_macd > 0
-    above_t2 = target_2 if target_2 else target_1
-    if macd_bull and zone in ("neutral", "bullish", "oversold") and (adx_v is None or adx_v > 25):
-        t3_cand = round(_cap_target(entry + 5.0 * risk, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-        if t3_cand > above_t2:
-            target_3 = t3_cand
-
-    # Quality Score
-    tq, bd = _compute_target_quality(
-        natural_rr, _safe(rsi), _safe(adx), _safe(macd_hist), _safe(volume_ratio),
-        _safe(swing_high), _safe(r1), _safe(r2), _safe(bb_upper)
-    )
-    
-    if tq < min_tq:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_TARGET_QUALITY] Target Quality {tq} < {min_tq}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": target_1,
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "target_quality": tq,
-            "quality_breakdown": bd,
-            "sl_method": sl_method,
-            "target_method": res_label if resistance else "ATR Expansion",
-            "anchor_price": sl_data["anchor_price"],
-            "anchor_type": sl_data["anchor_type"],
-            "buffer_value": sl_data["buffer_value"],
-            "buffer_method": sl_data["buffer_method"],
-            "anchor_score": sl_data["anchor_score"],
-            "anchor_confidence": sl_data["anchor_confidence"],
-            "cluster_width": sl_data["cluster_width"],
-            "member_count": sl_data["member_count"],
-            "cluster_members": sl_data["cluster_members"]
-        }
-
+    t1 = targets.get("t1", entry)
+    t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     return {
-        "engine_version": "SL_ENGINE_V6",
-        "stop_loss": stop_loss,
-        "structural_failure_stop": structural_failure_stop,
-        "target_1": target_1,
-        "target_2": target_2,
-        "target_3": target_3,
-        "natural_rr": natural_rr,
-        "reward_potential_pct": reward_potential_pct,
-        "sl_method": sl_method,
-        "target_method": res_label if resistance else "ATR Expansion",
-        "target_quality": tq,
-        "quality_breakdown": bd,
-        "is_rejected": False,
-        "rejection_reason": None
+        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
+        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
+        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
+        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# INTRADAY — 15m Early Momentum Scalp (same-day trade)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _compute_reversal(
-    entry: float, eff_atr: float, adx, rsi, macd_hist, atr_pct,
-    swing_low, swing_high, bb_upper, bb_lower,
-    s1, s2, r1, r2, swing_low_raw, swing_high_raw,
-    ema20: Optional[float] = None,
-    bb_mid: Optional[float] = None,
-    sma50: Optional[float] = None,
-    swing_low_cluster: Optional[float] = None,
-    macro_regime: str = "NEUTRAL",
-    volume_ratio: Optional[float] = None,
-) -> dict:
-    """
-    REVERSAL / Mean-Reversion logic (v6.0 upgrade):
-    • SL   — Below recent oversold swing low
-    • Targets — Mean reversion (BB_MID / SMA50) instead of overhead resistance
-    • Natural RR & Reward Potential gates applied early.
-    """
-    from config import MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, TARGET_QUALITY_THRESHOLD
-
-    atr_base, sl_atr_buf, sl_pct_buf, max_sl_atr = _MODE_CONFIG["REVERSAL"]
-    min_rr = MIN_NATURAL_RR["REVERSAL"]
-    min_rp = MIN_REWARD_POTENTIAL["REVERSAL"]
-    min_tq = TARGET_QUALITY_THRESHOLD["REVERSAL"]
-
-    support, sup_label = _pick_support(
-        entry, _safe(swing_low), _safe(s1), _safe(swing_low_raw), _safe(s2),
-        swing_low_cluster=swing_low_cluster
-    )
-
-    if support is not None:
-        raw_sl, sl_method = _sl_from_support(entry, support, eff_atr, sl_atr_buf, sl_pct_buf, max_sl_atr, sup_label)
-    else:
-        raw_sl    = entry - max(sl_atr_buf * eff_atr, sl_pct_buf * entry)
-        sl_method = f"ATR/Pct buffer (no prior swing low found)"
-
-    stop_loss = round(raw_sl, 2)
-    risk      = max(entry - stop_loss, entry * 0.008)
-
-    structural_failure_stop = _compute_structural_failure_stop(
-        stop_loss, eff_atr, 
-        [_safe(swing_low_cluster), _safe(swing_low), _safe(swing_low_raw), _safe(s1)]
-    )
-
-    bbmid_v = _safe(bb_mid)
-    sma50_v = _safe(sma50)
-    r1_v    = _safe(r1)
-    r2_v    = _safe(r2)
-
-    t1_raw = None
-    res_label = ""
-
-    if bbmid_v and bbmid_v > entry:
-        t1_raw = bbmid_v
-        res_label = "BB Mid (Mean Reversion)"
-    elif sma50_v and sma50_v > entry:
-        t1_raw = sma50_v
-        res_label = "SMA50 (Mean Reversion)"
-    elif r1_v and r1_v > entry:
-        t1_raw = r1_v
-        res_label = "R1 (Resistance)"
-    else:
-        t1_raw = entry + min_rr * risk
-        res_label = "ATR Expansion"
-
-    # 1. Natural RR Gate
-    natural_rr = round((t1_raw - entry) / risk, 2) if risk > 0 else 0
-    if natural_rr < min_rr:
+def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
+    supports = [
+        (swing_low, "True Swing Low", 40), (s1, "S1 Pivot", 20), (s2, "S2 Pivot", 15),
+        (swing_low_raw, "Rolling Low", 20), (kwargs.get("sma50"), "SMA50", 15), (kwargs.get("sma200"), "SMA200", 30)
+    ]
+    sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": "EOD"})
+    if not sl_data.get("is_valid", True):
         return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_NATURAL_RR] Natural RR {natural_rr} < {min_rr}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "sl_method": sl_method,
-            "target_method": res_label
-        }
-        
-    # 2. Reward Potential Gate
-    reward_potential_pct = round(((t1_raw - entry) / entry) * 100, 2) if entry > 0 else 0
-    if reward_potential_pct < min_rp:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_REWARD_POTENTIAL] Reward Potential {reward_potential_pct}% < {min_rp}%",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": round(t1_raw, 2),
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "sl_method": sl_method,
-            "target_method": res_label
+            "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
 
-    target_1 = round(_cap_target(t1_raw, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-
-    target_2 = None
-    if sma50_v and sma50_v > target_1:
-        target_2 = round(_cap_target(sma50_v, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-    elif r1_v and r1_v > target_1:
-        target_2 = round(_cap_target(r1_v, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-    else:
-        t2_cand = round(entry + 3.5 * risk, 2)
-        if t2_cand > target_1:
-            target_2 = t2_cand
-
-    target_3 = None
-    above_t2 = target_2 if target_2 else target_1
-    safe_macd = _safe(macd_hist)
-    macd_bull = safe_macd is not None and safe_macd > 0
-    adx_v = _safe(adx)
-    if macd_bull and r2_v and r2_v > above_t2 and (adx_v is None or adx_v > 20):
-        target_3 = round(_cap_target(r2_v, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-    elif macd_bull and (adx_v is None or adx_v > 20):
-        t3_cand = round(_cap_target(entry + 5.0 * risk, entry, eff_atr, "1d", macro_regime, _safe(atr_pct)), 2)
-        if t3_cand > above_t2:
-            target_3 = t3_cand
-
-    # Quality Score
-    tq, bd = _compute_target_quality(
-        natural_rr, _safe(rsi), _safe(adx), _safe(macd_hist), _safe(volume_ratio),
-        _safe(swing_high), _safe(r1), _safe(r2), _safe(bb_upper)
+    macro_regime = kwargs.get("macro_regime", "NEUTRAL")
+    gen = CandidateGenerator()
+    candidates = gen.generate_breakout_candidates(
+        entry=entry, eff_atr=eff_atr, atr_pct=atr_pct, adx=adx, volume_ratio=kwargs.get("volume_ratio", 1.0),
+        vwap=kwargs.get("vwap"), macro_regime=macro_regime, scanner="EOD",
+        swing_low=swing_low, swing_high=swing_high, swing_low_raw=swing_low_raw, swing_high_raw=swing_high_raw,
+        r1=r1, r2=r2, bb_upper=kwargs.get("bb_upper"), prior_20d_high=kwargs.get("prior_20d_high"),
+        high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
     
-    if tq < min_tq:
-        return {
-            "engine_version": "SL_ENGINE_V6",
-            "is_rejected": True,
-            "rejection_reason": f"[GATE_TARGET_QUALITY] Target Quality {tq} < {min_tq}",
-            "stop_loss": stop_loss,
-            "structural_failure_stop": structural_failure_stop,
-            "target_1": target_1,
-            "natural_rr": natural_rr,
-            "reward_potential_pct": reward_potential_pct,
-            "target_quality": tq,
-            "quality_breakdown": bd,
-            "sl_method": sl_method,
-            "target_method": res_label
-        }
+    strategy = ClusterConsensusStrategy()
+    clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters = ConflictResolver.resolve(clusters, "EOD", entry, macro_regime)
+    targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
+    
+    pool = []
+    for c in candidates:
+        c_dict = vars(c).copy()
+        c_dict["source"] = c.source.name
+        if targets and targets.get("t1_cluster") and c.cluster_id == targets["t1_cluster"].cluster_id:
+            c_dict["selection_state"] = "WINNING"
+        elif targets and ( (targets.get("t2_cluster") and c.cluster_id == targets["t2_cluster"].cluster_id) or (targets.get("t3_cluster") and c.cluster_id == targets["t3_cluster"].cluster_id) ):
+            c_dict["selection_state"] = "SELECTED"
+        else:
+            c_dict["selection_state"] = "REJECTED"
+        pool.append(c_dict)
 
+    t1 = targets.get("t1", entry)
+    t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     return {
-        "engine_version": "SL_ENGINE_V6",
-        "stop_loss": stop_loss,
-        "structural_failure_stop": structural_failure_stop,
-        "target_1": target_1,
-        "target_2": target_2,
-        "target_3": target_3,
-        "natural_rr": natural_rr,
-        "reward_potential_pct": reward_potential_pct,
-        "sl_method": sl_method,
-        "target_method": res_label,
-        "target_quality": tq,
-        "quality_breakdown": bd,
-        "is_rejected": False,
-        "rejection_reason": None
+        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
+        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
+        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
+        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
 
+def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
+    supports = [
+        (swing_low, "True Swing Low", 40), (s1, "S1 Pivot", 20), (s2, "S2 Pivot", 15),
+        (swing_low_raw, "Rolling Low", 20)
+    ]
+    sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": "REVERSAL"})
+    if not sl_data.get("is_valid", True):
+        return {
+            "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Public API — single entry point
-# ─────────────────────────────────────────────────────────────────────────────
+    # Mean reversion stack
+    cands = []
+    prior_high = swing_high_raw if _safe(swing_high_raw) else entry + 5 * eff_atr
+    decline = prior_high - entry if prior_high > entry else 0
+
+    if _safe(kwargs.get("bb_mid")): cands.append(TargetCandidate(kwargs.get("bb_mid"), TargetSource.BB_MID, "any", "REVERSAL", "NORMAL", {}))
+    if _safe(kwargs.get("sma50")): cands.append(TargetCandidate(kwargs.get("sma50"), TargetSource.SMA50, "any", "REVERSAL", "NORMAL", {}))
+    if decline > 0:
+        cands.append(TargetCandidate(entry + decline*0.382, TargetSource.RETRACE_382, "any", "REVERSAL", "NORMAL", {}))
+        cands.append(TargetCandidate(entry + decline*0.500, TargetSource.RETRACE_50, "any", "REVERSAL", "NORMAL", {}))
+        cands.append(TargetCandidate(entry + decline*0.618, TargetSource.RETRACE_618, "any", "REVERSAL", "NORMAL", {}))
+    if _safe(kwargs.get("sma200")): cands.append(TargetCandidate(kwargs.get("sma200"), TargetSource.SMA200, "any", "REVERSAL", "NORMAL", {}))
+    if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
+    
+    # Filter only above entry
+    cands = [c for c in cands if c.price > entry]
+    
+    clusters = ClusterEngine.cluster(cands, entry, eff_atr)
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"))
+    
+    t1 = clusters[0].consensus_price if clusters else entry + 2*eff_atr
+    t2 = clusters[1].consensus_price if len(clusters) > 1 else None
+    t3 = clusters[2].consensus_price if len(clusters) > 2 else None
+    
+    return {
+        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
+        "target_1": t1, "target_2": t2, "target_3": t3,
+        "rr_ratio": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "sl_method": sl_data["sl_method"], "t_method": f"MeanReversion [T1]",
+        "sl_result": {"target_candidate_pool": [vars(c) for c in cands]}
+    }
+
 
 def _legacy_compute_sl_and_target(
     entry_price:    float,
@@ -1113,6 +1035,7 @@ def _legacy_compute_sl_and_target(
     # Backward-compat alias (old callers used timeframe=)
     timeframe:      Optional[str]   = None,
     ticker:         Optional[pd.DataFrame] = None,
+    **kwargs_extra
 ) -> dict:
     """
     Mode-dispatching SL/Target engine.
@@ -1166,7 +1089,9 @@ def _legacy_compute_sl_and_target(
         s1=s1, s2=s2, r1=r1, r2=r2,
         swing_low_raw=swing_low_raw, swing_high_raw=swing_high_raw,
         swing_low_cluster=swing_low_cluster,
+        ticker=ticker,
     )
+    kwargs.update(kwargs_extra)
 
     if effective_mode == "EOD":
         return _compute_eod(**kwargs)

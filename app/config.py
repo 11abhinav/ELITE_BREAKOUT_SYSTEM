@@ -343,3 +343,97 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 1.0
     }
 }
+
+# ── Target Engine v7 — FINAL FROZEN ──────────────────────────────────────────
+
+# For Enum typing, though Enum is defined in sl_target_helper.
+# We will use string representations here to avoid circular imports, 
+# or just redefine them if we need them, but it's better to keep strings in config 
+# and map them to enums in the helper.
+# Actually, the spec says "TARGET_SOURCE_WEIGHTS = { TargetSource.EQUAL_HIGH: 10 ... }"
+# To do this cleanly without circular import, we can define the enum here or in a separate file.
+# The spec puts the Enum in sl_target_helper.py. So we'll use strings in config and the engine will map/handle.
+# Let's use the string names matching the enum keys.
+
+TARGET_SOURCE_WEIGHTS = {
+    "EQUAL_HIGH":     10,
+    "RESISTANCE":     10,
+    "HIGH_20D":        9,
+    "PREV_DAY_HIGH":   9,
+    "HIGH_52W":        8,
+    "ABCD":            9,
+    "RETRACE_50":      8,
+    "RETRACE_618":     7,
+    "RETRACE_382":     6,
+    "FIB_127":         7,
+    "FIB_162":         6,
+    "SMA200":          8,
+    "BB_MID":          7,
+    "SMA50":           6,
+    "FIB_200":         5,
+    "ATR_PROJ":        4,
+    "R1":              5,
+    "R2":              4,
+    "ROUND_NUM":       0,
+}
+
+FIB_200_WEIGHTS = {"BULL": 7, "TRENDING": 7, "NEUTRAL": 5, "BEAR": 2}
+
+SOURCE_PRIORITY = {
+    "EQUAL_HIGH":     1,
+    "RESISTANCE":     2,
+    "HIGH_20D":       3,
+    "PREV_DAY_HIGH":  4,
+    "HIGH_52W":       5,
+    "ABCD":           6,
+    "RETRACE_618":    7,
+    "RETRACE_50":     8,
+    "RETRACE_382":    9,
+    "FIB_127":        10,
+    "FIB_162":        11,
+    "SMA200":         12,
+    "SMA50":          13,
+    "BB_MID":         14,
+    "FIB_200":        15,
+    "ATR_PROJ":       16,
+    "R1":             17,
+    "R2":             18,
+    "ROUND_NUM":      99,
+}
+
+TARGET_CONFLICT_POLICY = {
+    "EOD":      "REGIME",
+    "MULTI_TF": "CONFIDENCE",
+    "REVERSAL": "NEAREST",
+}
+
+EXIT_PROFILES = {
+    "CONSERVATIVE": {"t1": 25, "t2": 50, "t3": 25},
+    "BALANCED":     {"t1": 30, "t2": 40, "t3": 30},
+    "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
+}
+
+SCANNER_EXIT_PROFILE = {
+    "EOD":      "BALANCED",
+    "MULTI_TF": "AGGRESSIVE",
+    "REVERSAL": "CONSERVATIVE",
+}
+
+FIB_EXTENSIONS   = [1.272, 1.618, 2.0]
+FIB_RETRACEMENTS = [0.382, 0.500, 0.618]
+ABCD_BC_RETRACE_MIN = 0.382
+ABCD_BC_RETRACE_MAX = 0.786
+FIB_200_GATE     = {"min_adx": 30, "min_vol_ratio": 2.0, "require_above_vwap": True}
+
+ROUND_NUMBER_BOOST      = 8
+ROUND_NUMBER_PCT        = 0.005
+TARGET_CLUSTER_WINDOW_ATR_FRAC = 0.5
+TARGET_CLUSTER_WINDOW_PCT      = 0.0075
+
+#           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
+_MODE_CONFIG = {
+    "EOD":      (2.00,    0.80,       0.0075,     3.0),
+    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
+    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+}
+

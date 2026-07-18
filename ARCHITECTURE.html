@@ -1235,6 +1235,26 @@ To resolve False Negatives without compromising institutional risk models, the e
 - The Wealth Engine strictly mandates a minimum baseline (`Base FM_Score >= 50`) before allocating the +15 point Institutional Block Deal bonus. This prevents failing companies from clearing buy-gates solely off a single large order flow event.
 - For complete downstream transparency, the Wealth payload now retains `base_fm_score` and `inst_bonus_applied` alongside the final score. Additionally, the Risk Engine sets `position_capped = True` if tight volatility unexpectedly maxes out the allocation limit.
 
+---
+
+## 36. SL/Target Engine v7 (Institutional Restructuring)
+
+### 36.1 7-Layer Pipeline Architecture
+To solve the false-positive target clustering and eliminate non-market synthetic levels (e.g. weighted averages), the `sl_target_helper.py` was completely refactored into a strict 7-layer pipeline:
+1. **Candidate Generator**: Lazy-evaluation of specific candidate targets (Resistance, Highs, Fibonacci 127/162/200, ABCD). Candidates are only generated if preconditions (like ADX > 30 and VWAP confirmation for FIB_200) are met.
+2. **Target Scorer**: Assigns institutional confidence weights based on current market regime and pattern strength, completely decoupled from candidate price generation.
+3. **Cluster Engine**: Groups candidates within a `0.5 ATR` or `0.75%` window and establishes a consensus price driven by structural priority (e.g., `EQUAL_HIGH > RESISTANCE > FIB`).
+4. **Round Number Engine**: Scans clusters, and if a consensus price is within `0.5%` of a major tick level (e.g. 50, 100, 500, 1000), it artificially pulls the target to the round number and awards an `+8` confidence boost.
+5. **Conflict Resolver**: Selects the optimal clusters based on scanner policy (`REGIME` for EOD, `CONFIDENCE` for Multi-TF, and `NEAREST` for Reversal).
+6. **Strategy Selector**: Routes the resolved clusters into exit tiers (T1/T2/T3) based on scanner-specific playbooks (e.g., Trend Extension for Multi-TF vs. Mean Reversion for Reversals).
+7. **Exit Policy**: Applies the final exit sizing weights (e.g., Aggressive: 20/30/50).
+
+### 36.2 Proper ABCD Alternating Pivot Validation
+The `ABCDDetector` no longer uses naive local rolling highs/lows. It iterates backwards through strictly alternating `SWING_LOW` and `SWING_HIGH` pivots provided by `technical_indicators.py`. A valid ABCD pattern requires the `BC_ratio` (retracement) to fall strictly between `38.2%` and `78.6%`. Only then is the `CD = AB` projection generated.
+
+### 36.3 Post-Trade Analytics Transparency
+The entire generated candidate pool (including all rejected targets, their generation source, cluster assignments, and final selection state) is passed to the Performance Tracker via the `sl_result` JSONB field. This creates a fully queryable post-trade diagnostic trail, allowing quantitative review of exactly why a specific target was chosen over another.
+
 </textarea>
 
 

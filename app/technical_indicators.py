@@ -180,6 +180,7 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
 
     if timeframe == "1d":
         df["HIGH_20D"]  = df["High"].rolling(window=20,  min_periods=15).max()
+        df["PREV_DAY_HIGH"] = df["High"].shift(1)
         df["PRIOR_20D_HIGH"] = df["HIGH_20D"].shift(1)
         df["HIGH_50D"]  = df["High"].rolling(window=50,  min_periods=40).max()
         df["HIGH_100D"] = df["High"].rolling(window=100, min_periods=80).max()

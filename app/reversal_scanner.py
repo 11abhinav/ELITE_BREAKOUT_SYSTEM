@@ -734,6 +734,7 @@ def _run_scan(force: bool = False):
                 # Mean-reversion specific targets
                 ema20=latest.get("EMA20"),
                 sma50=latest.get("SMA50"),
+                sma200=latest.get("SMA200"),
                 ticker=ticker,
             )
             
