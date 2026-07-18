@@ -20,6 +20,7 @@ Returned value: dict mapping ticker -> pandas.DataFrame of OHLCV for the request
 import time
 import threading
 from collections import deque
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple
 import random

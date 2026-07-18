@@ -755,8 +755,6 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
                                 # Queue as QUALIFIED candidate — OpportunityManager
                                 # handles freshness, ranking, allocation, and persistence
-                                # at the end of the sweep via process().
-                                context = context if "context" in locals() and context is not None else {}
                                 opportunity_manager.add({
 
                                     "symbol": symbol,
