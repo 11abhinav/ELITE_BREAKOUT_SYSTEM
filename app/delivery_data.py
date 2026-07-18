@@ -130,4 +130,9 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 logger.exception('Failed to report nse_bhavcopy exception')
         if attempt < MAX_RETRIES:
             time.sleep(2 ** attempt)
+        else:
+            try:
+                from push_service import send_push_to_all
+                send_push_to_all("⚠️ NSE API ERROR", f"Bhavcopy fetch failed for {date_str}")
+            except Exception: pass
     return {}

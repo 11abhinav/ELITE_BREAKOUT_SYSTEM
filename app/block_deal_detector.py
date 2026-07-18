@@ -257,6 +257,11 @@ def get_nse_bulk_block_deals() -> list:
                 logger.debug(f"Failed to fetch {url} on attempt {attempt+1}: {e}")
                 if attempt < 2:
                     time.sleep(2.5)
+                else:
+                    try:
+                        from push_service import send_push_to_all
+                        send_push_to_all("⚠️ NSE API ERROR", f"Block deal fetch failed for {url}: {str(e)[:100]}")
+                    except Exception: pass
             
     return all_deals
 

@@ -118,6 +118,11 @@ def get_live_blacklist() -> set[str]:
             
         except Exception as e:
             logger.warning(f"Failed to fetch live NSE surveillance lists: {e}. Falling back to cache.")
+            try:
+                from push_service import send_push_to_all
+                send_push_to_all("⚠️ NSE API ERROR", f"Surveillance fetch failed: {str(e)[:100]}")
+            except Exception: pass
+            
             # On failure, check if we have in-memory or on-disk cache
             if _blacklist_cache is not None:
                 logger.warning("Using stale in-memory surveillance cache due to fetch failure.")

@@ -108,7 +108,13 @@ def get_institutional_buys() -> dict[str, list[str]]:
                     if attempt < 2: time.sleep(2.5)
             except Exception as e:
                 logger.warning(f"Failed to fetch {deal_type} deals (Attempt {attempt+1}): {e}")
-                if attempt < 2: time.sleep(2.5)
+                if attempt < 2: 
+                    time.sleep(2.5)
+                else:
+                    try:
+                        from push_service import send_push_to_all
+                        send_push_to_all("⚠️ NSE API ERROR", f"Institutional {deal_type} deals fetch failed: {str(e)[:100]}")
+                    except Exception: pass
 
     try:
         # Hit main page once for cookies

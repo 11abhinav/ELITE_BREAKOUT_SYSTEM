@@ -1199,7 +1199,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     symbols = fetch_constituents()
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
-        return {}
+        raise RuntimeError("Failed to fetch NSE constituent stocks. NSE API might be blocking the IP or rate-limiting.")
         
     if debug_limit:
         logger.info(f"🧪 [DEBUG MODE] Limiting scan universe to {debug_limit} symbols.")
@@ -1209,7 +1209,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     price_data_map = batch_download_market_data(symbols)
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
-        return {}
+        raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
