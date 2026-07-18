@@ -65,6 +65,14 @@ def get_live_blacklist() -> set[str]:
             logger.warning(f"Failed to load fresh local surveillance cache: {e}")
 
         # 3. Fetch Live NSE ASM/GSM (Surveillance measures) if cache is old or missing
+        try:
+            from config import DISABLE_NSE_SURVEILLANCE_FETCH
+            if DISABLE_NSE_SURVEILLANCE_FETCH:
+                logger.warning("NSE Surveillance fetch is disabled via config. Using existing cache or empty set.")
+                return _blacklist_cache or blacklist
+        except ImportError:
+            pass
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -80,7 +88,7 @@ def get_live_blacklist() -> set[str]:
             except ImportError:
                 session = requests.Session()
                 
-            max_retries = 3
+            max_retries = 1
             for attempt in range(max_retries):
                 try:
                     # Reduced timeout to 8s (if NSE doesn't respond fast, they are tarpitting us)

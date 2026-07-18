@@ -43,6 +43,12 @@ WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
 DB_PATH = os.path.join(DATA_DIR, "alerts.db")
 
 # =====================================================================================
+# API / FETCH CONFIGURATION
+# =====================================================================================
+
+DISABLE_NSE_SURVEILLANCE_FETCH = False  # Set to True in validation environments to avoid WAF/tarpit timeouts
+
+# =====================================================================================
 # SCORE THRESHOLDS & AI
 # =====================================================================================
 
