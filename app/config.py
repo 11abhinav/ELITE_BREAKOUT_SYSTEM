@@ -57,7 +57,7 @@ SCORE_THRESHOLDS = {
 # =====================================================================================
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
-ACTIVE_ALGO_VERSION = "SL_ENGINE_V6.4"  # Updated: MarketRegime + StrategyPolicy + TradeRankingEngine + PortfolioEngine + OpportunityManager
+ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.0"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration
 
 
 MULTI_TF_CONFIG = {

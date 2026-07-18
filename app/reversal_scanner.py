@@ -745,8 +745,8 @@ def _run_scan(force: bool = False):
                     save_rejected_alert(
                         symbol=symbol,
                         scanner="REVERSAL",
-                        rejection_reason=sl_result.get("rejection_reason", "V6 Engine Reject"),
-                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V6"),
+                        rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
+                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
                         context={"category": category, "score": 0, "sl_result": sl_result}
                     )
                 continue
