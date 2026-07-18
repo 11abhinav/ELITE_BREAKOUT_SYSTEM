@@ -45,15 +45,32 @@ def get_live_blacklist() -> set[str]:
             except Exception as e:
                 logger.exception(f"Failed to load promoter blacklist")
     
-        # 2. Fetch Live NSE ASM/GSM (Surveillance measures)
+        # 2. Check local JSON backup first (if under 12 hours old, use it and skip API hit)
+        json_path = os.path.join(os.path.dirname(WATCHLIST_PATH), "surveillance_blacklist.json")
+        try:
+            import json
+            if os.path.exists(json_path):
+                file_age = time.time() - os.path.getmtime(json_path)
+                if file_age < 12 * 3600: # 12 hours
+                    with open(json_path, "r") as f:
+                        cached_list = json.load(f)
+                    if cached_list:
+                        for sym in cached_list:
+                            blacklist.add(str(sym).strip().upper())
+                        logger.info(f"🛡️ Loaded {len(cached_list)} surveillance symbols from fresh local cache (age: {file_age/3600:.1f}h).")
+                        _blacklist_cache = blacklist
+                        _blacklist_ts = time.monotonic()
+                        return _blacklist_cache
+        except Exception as e:
+            logger.warning(f"Failed to load fresh local surveillance cache: {e}")
+
+        # 3. Fetch Live NSE ASM/GSM (Surveillance measures) if cache is old or missing
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://www.nseindia.com"
         }
-        
-        json_path = os.path.join(os.path.dirname(WATCHLIST_PATH), "surveillance_blacklist.json")
         
         try:
             # Establish session first to get cookies
@@ -63,16 +80,14 @@ def get_live_blacklist() -> set[str]:
             except ImportError:
                 session = requests.Session()
                 
-            # Try fetching with retries (increased timeout to 15s to bypass heavy NSE throttling)
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    # [VERSION: NSE_TIMEOUT_FIX_v1.1] Increased timeout for surveillance fetch to 15s
-                    session.get("https://www.nseindia.com", headers=headers, timeout=15)
-                    time.sleep(2.5) # Buffer before API hit
+                    # Reduced timeout to 8s (if NSE doesn't respond fast, they are tarpitting us)
+                    session.get("https://www.nseindia.com", headers=headers, timeout=8)
+                    time.sleep(1.0)
                     
-                    # Fetch ASM (Additional Surveillance Measure)
-                    asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=15)
+                    asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=8)
                     if asm_res.status_code == 200:
                         data = asm_res.json()
                         for key in ["longterm", "shortterm"]:
@@ -81,14 +96,12 @@ def get_live_blacklist() -> set[str]:
                                     if "symbol" in item:
                                         blacklist.add(item["symbol"].strip().upper())
                                         
-                    time.sleep(2.5) # Buffer between ASM and GSM
+                    time.sleep(1.0)
 
-                    # Fetch GSM (Graded Surveillance Measure - usually shells / bankruptcy)
-                    gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=15)
+                    gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=8)
                     if gsm_res.status_code == 200:
                         data = gsm_res.json()
                         if isinstance(data, list):
-                            # Sometimes it's a list, sometimes a dict. Handle safely.
                             for item in data:
                                 if isinstance(item, dict) and "symbol" in item:
                                     blacklist.add(item["symbol"].strip().upper())
@@ -99,7 +112,6 @@ def get_live_blacklist() -> set[str]:
                                     
                     logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
                     
-                    # Save to local JSON backup
                     try:
                         import json
                         with open(json_path, "w") as f:
@@ -108,36 +120,21 @@ def get_live_blacklist() -> set[str]:
                     except Exception as cache_err:
                         logger.warning(f"Failed to write surveillance JSON backup: {cache_err}")
                         
-                    break # Success, exit retry loop
+                    break
                     
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        backoff = (2 ** attempt) * 5  # 5s, 10s
-                        logger.warning(f"⚠️ NSE surveillance fetch attempt {attempt+1} failed: {e}. Retrying in {backoff}s...")
+                        backoff = 2
+                        logger.warning(f"⚠️ NSE surveillance fetch attempt {attempt+1} failed: {str(e)[:150]}. Retrying in {backoff}s...")
                         time.sleep(backoff)
                     else:
-                        logger.error(f"Failed to fetch NSE surveillance lists after {max_retries} attempts: {e}")
-                        try:
-                            from database import insert_notification
-                            insert_notification(
-                                notif_type="error",
-                                title="🚨 NSE API Timeout (Surveillance)",
-                                message=f"Failed to fetch live ASM/GSM lists from nseindia.com. Rate limiting or connectivity issue. Error: {str(e)[:200]}"
-                            )
-                        except Exception:
-                            pass
-                        raise # Re-raise on final failure to hit outer exception handler
+                        logger.warning(f"Failed to fetch live NSE surveillance lists after {max_retries} attempts. NSE might be rate-limiting.")
+                        raise 
             
         except Exception as e:
-            logger.warning(f"Failed to fetch live NSE surveillance lists: {e}. Falling back to cache.")
-            try:
-                from push_service import send_push_to_all
-                send_push_to_all("⚠️ NSE API ERROR", f"Surveillance fetch failed: {str(e)[:100]}")
-            except Exception: pass
+            logger.warning(f"Falling back to stale cache due to NSE fetch failure: {str(e)[:100]}")
             
-            # On failure, check if we have in-memory or on-disk cache
             if _blacklist_cache is not None:
-                logger.warning("Using stale in-memory surveillance cache due to fetch failure.")
                 return _blacklist_cache
                 
             if os.path.exists(json_path):
@@ -146,11 +143,9 @@ def get_live_blacklist() -> set[str]:
                     with open(json_path, "r") as f:
                         cached_list = json.load(f)
                     if cached_list:
-                        # Merge with whatever promoters were already successfully loaded
                         for sym in cached_list:
                             blacklist.add(str(sym).strip().upper())
-                        logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from local JSON backup due to fetch failure.")
-                        # Keep a copy in memory so we don't reload from disk every time
+                        logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from local JSON backup (stale).")
                         _blacklist_cache = blacklist
                         _blacklist_ts = time.monotonic()
                         return _blacklist_cache
