@@ -104,9 +104,9 @@ def _start_wrapper(force: bool = False):
     
     start_time = datetime.now(IST)
 
-    # Check if we are outside the valid EOD window (18:30 - 23:59:59)
+    # Check if we are outside the valid EOD window (21:00 - 23:59:59)
     now_time = ist_now.time()
-    scan_start = datetime.strptime("18:30", "%H:%M").time()
+    scan_start = datetime.strptime("21:00", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     
     if force:
@@ -114,7 +114,7 @@ def _start_wrapper(force: bool = False):
     else:
         is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
     if is_test_mode:
-        logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
+        logger.info("🧪 [TEST MODE] Outside scheduled window (21:00-23:59). Alerts will NOT be saved to DB.")
 
     try:
         try:
@@ -245,11 +245,9 @@ def _start_wrapper(force: bool = False):
         cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES["EOD"])
 
         # FIX: NSE bhavcopy for today may not be published until ~19:00–19:30 IST.
-        # If today's file returned empty, fall back to the most recent available trading day.
+        # Main scheduler (app/main.py) now guarantees today's delivery_map is populated before triggering.
         if not delivery_map:
-            logger.warning("⚠️ Today's bhavcopy not yet available — falling back to previous trading day delivery data.")
-            from delivery_data import fetch_previous_day_delivery
-            delivery_map = fetch_previous_day_delivery()
+            logger.warning("⚠️ Today's bhavcopy not yet available but main.py triggered us. Proceeding without delivery data.")
 
         try:
             rotation_result = get_sector_scores()

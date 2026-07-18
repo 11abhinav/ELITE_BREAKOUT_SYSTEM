@@ -80,11 +80,12 @@ def _clear_down(name: str):
     except Exception:
         pass
 
+# [VERSION: SCHEDULER_REFINEMENT_v1.0]
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
     "multi_tf": (dt_time(10, 17), dt_time(15, 30)),
-    "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
-    "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
+    "eod":      (dt_time(21, 0), dt_time(23, 59, 59)),
+    "reversal": (dt_time(21, 0), dt_time(23, 59, 59)),
 }
 
 
@@ -131,6 +132,30 @@ def wait_for_window(name: str):
             logger.info(f"[{name}] ✅ Window open | {now.strftime('%H:%M:%S')} | Launching scanner")
             return
         time.sleep(60)
+
+def wait_for_bhavcopy_or_fallback(name: str):
+    """Block until today's Bhavcopy is available, or fallback if it's past 11 PM."""
+    from delivery_data import fetch_delivery_data
+    while True:
+        now = datetime.now(IST)
+        if now.weekday() >= 5:
+            return  # Weekend, no bhavcopy published
+            
+        try:
+            # fetch_delivery_data handles caching and retries internally
+            delivery_map = fetch_delivery_data(now.date())
+            if delivery_map:
+                logger.info(f"[{name}] ✅ Today's Bhavcopy is available!")
+                return
+        except Exception as e:
+            logger.warning(f"[{name}] Failed to fetch bhavcopy: {e}")
+            
+        if now.hour >= 23:
+            logger.warning(f"[{name}] ⚠️ It's {now.strftime('%H:%M')} and today's Bhavcopy is still missing. Using fallback (yesterday).")
+            return
+            
+        logger.info(f"[{name}] ⏳ Today's Bhavcopy not yet available. Waiting 5 mins...")
+        time.sleep(300)
 
 
 # =====================================================================================
@@ -362,6 +387,7 @@ def run_eod_scanner():
     while True:
         block_until_watchlist_ready()
         wait_for_window("eod")
+        wait_for_bhavcopy_or_fallback("EOD")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
         
@@ -382,7 +408,7 @@ def run_eod_scanner():
                                 already_ran = True
                                 break
                             else:
-                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 18:30 (manual trigger). Will execute scheduled run.")
+                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 21:00 (manual trigger). Will execute scheduled run.")
                         except Exception as e:
                             logger.warning(f"Could not parse last_success: {e}")
                             already_ran = True
@@ -448,7 +474,7 @@ def run_eod_scanner():
                     "EOD",
                     status="DOWN",
                     error_msg=f"Stopped at midnight after {retry_count} failed attempts",
-                    scheduled_for="18:30 IST"
+                    scheduled_for="21:00 IST"
                 )
                 retry_count = 0
                 continue
@@ -468,7 +494,7 @@ def run_eod_scanner():
                 status="DOWN",
                 error_msg=str(exc)[:500],
                 retry_count=retry_count,
-                scheduled_for="18:30 IST"
+                scheduled_for="21:00 IST"
             )
             
             # Notify admin on first failure only (avoid spam on retries)
@@ -509,6 +535,7 @@ def run_reversal_scanner():
     while True:
         block_until_watchlist_ready()
         wait_for_window("reversal")
+        wait_for_bhavcopy_or_fallback("REVERSAL")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
         
@@ -595,7 +622,7 @@ def run_reversal_scanner():
                     "REVERSAL",
                     status="DOWN",
                     error_msg=f"Stopped at midnight after {retry_count} failed attempts",
-                    scheduled_for="18:30 IST"
+                    scheduled_for="21:00 IST"
                 )
                 retry_count = 0
                 continue
@@ -615,7 +642,7 @@ def run_reversal_scanner():
                 status="DOWN",
                 error_msg=str(exc)[:500],
                 retry_count=retry_count,
-                scheduled_for="18:30 IST"
+                scheduled_for="21:00 IST"
             )
             
             # Notify admin on first failure only
@@ -669,7 +696,7 @@ def run_system_scheduler():
     
     Timing:
     - 1:00 AM: Daily Builder (fresh watchlist)
-    - 1:05 AM: Wealth Engine (initial setup with fresh watchlist)
+    - 2:00 AM: Wealth Engine (initial setup with fresh watchlist)
     - 8:30 AM: Verify file readiness
     - Market hours (9:15 AM - 3:30 PM): Wealth Engine hourly at :05 to generate new buy signals
     """
@@ -748,9 +775,9 @@ def run_system_scheduler():
             return False
 
     def safe_run_wealth_scan_initial():
-        """Run Wealth Engine at 1:05 AM with fresh watchlist."""
+        """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         try:
-            logger.info("🕒 SCHEDULER | [1:05 AM] Triggering Wealth Engine (initial setup)")
+            logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
             run_wealth_scan()
             
             # Mark success
@@ -759,7 +786,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="01:05 IST"
+                scheduled_for="02:00 IST"
             )
             logger.info("✅ Wealth Engine (initial) completed successfully")
             return True
@@ -772,7 +799,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="01:05 IST"
+                scheduled_for="02:00 IST"
             )
             return False
 
@@ -891,11 +918,11 @@ def run_system_scheduler():
             # Refresh now in case daily builder blocked for a long time
             now = datetime.now(IST)
             
-            # 1:30 AM - Wealth Engine (initial)
-            if now.hour == 1 and now.minute >= 30 and not wealth_initial_ran:
+            # 2:00 AM - Wealth Engine (initial)
+            if now.hour == 2 and now.minute >= 0 and not wealth_initial_ran:
                 wealth_initial_ran = True
                 safe_run_wealth_scan_initial()
-            elif now.hour != 1:
+            elif now.hour != 2:
                 wealth_initial_ran = False
             
             now = datetime.now(IST)

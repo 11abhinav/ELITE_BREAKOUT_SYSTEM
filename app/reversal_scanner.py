@@ -263,9 +263,9 @@ def _run_scan(force: bool = False):
     logger.info(f"🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀")
     logger.info("=" * 80 + "\n")
 
-    # Check if we are outside the valid REVERSAL window (18:30 - 23:59:59)
+    # Check if we are outside the valid REVERSAL window (21:00 - 23:59:59)
     now_time = ist_now.time()
-    scheduled_start = datetime.strptime("18:30", "%H:%M").time()
+    scheduled_start = datetime.strptime("21:00", "%H:%M").time()
     scheduled_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     import database
     if force:
@@ -273,10 +273,13 @@ def _run_scan(force: bool = False):
     else:
         is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scheduled_start <= now_time <= scheduled_end)
     if is_test_mode:
-        logger.info("🧪 [TEST MODE] Outside scheduled window (18:30-23:59). Alerts will NOT be saved to DB.")
+        logger.info("🧪 [TEST MODE] Outside scheduled window (21:00-23:59). Alerts will NOT be saved to DB.")
 
     try:
-        prev_delivery_map = fetch_previous_day_delivery()
+        from delivery_data import fetch_delivery_data
+        from market_utils import IST
+        from datetime import datetime
+        prev_delivery_map = fetch_delivery_data(datetime.now(IST).date())
     except Exception as e:
         logger.warning(f"⚠️ Failed to fetch delivery data: {e}. Reverting to empty map (no delivery bonus).")
         prev_delivery_map = {}
@@ -1094,7 +1097,7 @@ def start(force: bool = False) -> int:
 
 def _start_wrapper(force: bool = False) -> int:
     """
-    Single-shot scan. Called once by main.py at the 18:30 window.
+    Single-shot scan. Called once by main.py at the 21:00 window.
     Returns the number of alerts generated (0 = no setups found).
     Raises on failure so main.py can send a Telegram crash alert.
 
