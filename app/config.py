@@ -220,6 +220,20 @@ MIN_NATURAL_RR = {
     "REVERSAL": 2.0,
 }
 
+MAX_REASONABLE_RR = {
+    "MULTI_TF": 6.0,
+    "EOD": 8.0,
+    "REVERSAL": 4.0,
+}
+
+MIN_TARGET_CONFIDENCE = 40
+TARGET_CONFIDENCE_BASELINE = {
+    "version": "2026_Q3",
+    "percentile": 95,
+    "sample_size": 18000,
+    "value": 85
+}
+
 MIN_REWARD_POTENTIAL = {
     "MULTI_TF": 1.8,
     "EOD": 4.0,

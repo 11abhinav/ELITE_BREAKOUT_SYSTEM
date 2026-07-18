@@ -921,7 +921,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
-        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
+        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src, "explanation": explanation}
     }
 
 def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
@@ -990,7 +990,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
-        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
+        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src, "explanation": explanation}
     }
 
 def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
@@ -1044,10 +1044,12 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     RoundNumberEngine.detect_and_boost(clusters)
     clusters = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"))
     
-    t1 = clusters[0].consensus_price if clusters else entry + 2*eff_atr
+    t1_cluster = clusters[0] if clusters else None
+    t1 = t1_cluster.consensus_price if t1_cluster else entry + 2*eff_atr
     t2 = clusters[1].consensus_price if len(clusters) > 1 else None
     t3 = clusters[2].consensus_price if len(clusters) > 2 else None
     
+    explanation = t1_cluster.analysis.explanation if t1_cluster and t1_cluster.analysis else {}
     natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1062,7 +1064,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"MeanReversion [T1]",
-        "sl_result": {"target_candidate_pool": [vars(c) for c in cands]}
+        "sl_result": {"target_candidate_pool": [{**vars(c), "source": c.source.name} for c in cands], "explanation": explanation}
     }
 
 
