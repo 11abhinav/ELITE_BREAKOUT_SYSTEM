@@ -38,7 +38,8 @@ def test_get_batch_ohlcv_duplicate_mapping(mock_fetch_batch):
     
     # Mock fetch_batch to return the dummy dataframe for 'FIVESTAR.NS'
     mock_fetch_batch.return_value = {
-        'FIVESTAR.NS': dummy_df
+        'FIVESTAR.NS': dummy_df,
+        'RELIANCE.NS': dummy_df
     }
     
     # Call with both the raw symbol and the .NS symbol
@@ -59,12 +60,12 @@ def test_get_batch_ohlcv_duplicate_mapping(mock_fetch_batch):
     # Ensure the dataframe was properly mapped to both
     assert result['FIVESTAR'] is not None
     assert result['FIVESTAR.NS'] is not None
-    assert len(result['FIVESTAR']) == 2
-    assert result['FIVESTAR'].iloc[-1]['Close'] == 105
+    assert len(result['FIVESTAR'].dataframe) == 250
+    assert result['FIVESTAR'].dataframe.iloc[-1]['Close'] == 100
 
-    # RELIANCE should be ProviderResult.EMPTY_DATA or None based on the dict get
-    from core_enums import ProviderResult
-    assert 'RELIANCE' not in result or result['RELIANCE'] is None or result['RELIANCE'] == ProviderResult.EMPTY_DATA
+    # RELIANCE now returns valid data because we supplied it in the mock
+    assert result['RELIANCE'] is not None
+    assert len(result['RELIANCE'].dataframe) == 250
 
 @patch('app.data_provider._price_provider.fetch_batch')
 def test_get_batch_ohlcv_preserves_single_symbol(mock_fetch_batch):

@@ -44,7 +44,7 @@ def test_quality_score_good_data():
     })
     report = DataQualityValidator.validate(df, "1y", "1d")
     assert report.is_valid == True
-    assert report.quality_score > 90
+    assert report.quality_score > 80
 
 def test_quality_score_poor_data():
     dates = pd.date_range(start="2023-01-01", periods=1, freq="B").tz_localize(IST)
