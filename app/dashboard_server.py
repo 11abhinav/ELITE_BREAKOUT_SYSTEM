@@ -1814,6 +1814,21 @@ def api_scanner_status():
                         for t in today_trades
                     ],
                 }
+                
+        # Dynamic sliding queue number calculation
+        queued_scanners = []
+        for sc, data in result.items():
+            if data["status"] and data["status"].startswith("QUEUED"):
+                # Clean up legacy QUEUED-X tags to just raw QUEUED sorting
+                queued_scanners.append((sc, data["updated_at"]))
+        
+        # Sort by updated_at ascending (oldest first)
+        queued_scanners.sort(key=lambda x: x[1])
+        
+        # Override the status string returned to the UI with a sliding dynamic number
+        for i, (sc, _) in enumerate(queued_scanners):
+            result[sc]["status"] = f"QUEUED-{i + 1}"
+            
         return jsonify(serialize_datetimes(result))
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
