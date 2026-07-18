@@ -397,6 +397,8 @@ def run_eod_scanner():
         
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
+            from database import upsert_scanner_health
+            upsert_scanner_health("EOD", status="QUEUED", error_msg="Waiting for global execution lock...")
             import eod_scanner
             with scanner_execution_lock:
                 total = eod_scanner.start()   # returns int
@@ -542,6 +544,8 @@ def run_reversal_scanner():
         
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
+            from database import upsert_scanner_health
+            upsert_scanner_health("REVERSAL", status="QUEUED", error_msg="Waiting for global execution lock...")
             import reversal_scanner
             with scanner_execution_lock:
                 total = reversal_scanner.start()   # returns int
@@ -1046,6 +1050,8 @@ def run_multibagger_scanner():
             # Daily at 7:00 PM IST
             if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
                 logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
+                from database import upsert_scanner_health
+                upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
                 import multibagger
                 with scanner_execution_lock:
                     stats = multibagger.start() or {}
