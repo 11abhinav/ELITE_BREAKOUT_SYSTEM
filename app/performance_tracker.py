@@ -142,7 +142,8 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
             raw_dict = fetch_watchlist_data(df_request, interval=interval, period=period_str, requester="performance_tracker")
             hist = raw_dict.get(symbol)
 
-        if hist is None or hist.empty:
+        from core_enums import ProviderResult
+        if hist is None or isinstance(hist, ProviderResult) or hist.empty:
             return None
 
         if not {"High", "Low", "Close"}.issubset(hist.columns):

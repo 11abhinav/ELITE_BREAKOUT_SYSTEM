@@ -921,16 +921,25 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 status = "DEGRADED"
                 error_msg = f"DB Save Failures: {total_save_failures} drops"
             
+            # Map overall outcome
+            outcome = "SUCCESS"
+            if total_expected_a > 0 and total_fetched_a < total_expected_a * 0.70:
+                outcome = "PARTIAL"
+            if total_fetched_a == 0 and total_fetched_b == 0:
+                outcome = "FAILED"
+
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
                     from database import upsert_scanner_health
                     upsert_scanner_health(
                         scanner_name="MULTI_TF",
-                        status=status,
-                        last_success=datetime.now(IST).isoformat(),
+                        status=status if outcome != "FAILED" else "DEGRADED",
+                        last_success=datetime.now(IST).isoformat() if outcome != "FAILED" else None,
                         total_count=metrics_a.get("total", 0),
                         error_msg=error_msg,
-                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                        outcome=outcome,
+                        duration_seconds=elapsed_time
                     )
                 except Exception:
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")

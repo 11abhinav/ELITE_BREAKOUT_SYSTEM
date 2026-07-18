@@ -26,6 +26,7 @@ import random
 import logging
 
 import yfinance as yf
+from core_enums import ProviderResult
 
 try:
     import pandas as pd
@@ -177,7 +178,7 @@ class PriceProvider:
                     if attempts >= self.max_retries:
                         self.cooldown_until = time.time() + self.cooldown_seconds
                         logger.error("Tripping circuit breaker due to repeated rate limits")
-                        raise
+                        return {t: ProviderResult.RATE_LIMIT for t in tickers}
                     # otherwise backoff and retry
                 # general backoff before retrying
                 if attempts < self.max_retries:
@@ -189,32 +190,49 @@ class PriceProvider:
                     time.sleep(sleep_for)
                     continue
         if last_exc is not None:
-            # retries exhausted -- propagate to caller so fetch_batch can return stale values
-            raise last_exc
+            # retries exhausted -- propagate as network error
+            msg = str(last_exc).lower()
+            res = ProviderResult.RATE_LIMIT if ('429' in msg or 'too many' in msg or 'rate limit' in msg) else ProviderResult.NETWORK_ERROR
+            return {t: res for t in tickers}
 
         result = {}
+        errors_dict = getattr(yf.shared, '_ERRORS', {}) if hasattr(yf, 'shared') else {}
+        
         # yfinance returns different shapes depending on number of tickers
         if isinstance(df, dict) or (pd is not None and isinstance(df, pd.DataFrame) and isinstance(df.columns, pd.MultiIndex)):
             # multi-ticker result
             try:
                 for t in tickers:
                     if isinstance(df, dict):
-                        result[t] = df.get(t)
+                        f = df.get(t)
                     else:
                         # extract columns for ticker (tickers are in level 0)
                         if t in df.columns.get_level_values(0):
-                            result[t] = df[t].dropna(how='all')
+                            f = df[t].dropna(how='all')
                         else:
-                            result[t] = None
+                            f = None
+                            
+                    if f is None or f.empty:
+                        err_msg = str(errors_dict.get(t, '')).lower()
+                        if 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
+                            result[t] = ProviderResult.NOT_FOUND
+                        else:
+                            result[t] = ProviderResult.EMPTY_DATA
+                    else:
+                        result[t] = f
             except Exception:
                 # best-effort fallback
                 for t in tickers:
-                    result[t] = None
+                    result[t] = ProviderResult.EMPTY_DATA
         else:
             # single ticker DataFrame
-            if isinstance(df, type(None)):
+            if isinstance(df, type(None)) or (hasattr(df, 'empty') and df.empty):
                 for t in tickers:
-                    result[t] = None
+                    err_msg = str(errors_dict.get(t, '')).lower()
+                    if 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
+                        result[t] = ProviderResult.NOT_FOUND
+                    else:
+                        result[t] = ProviderResult.EMPTY_DATA
             else:
                 # assume all tickers map to same frame (rare)
                 result[tickers[0]] = df
@@ -318,7 +336,7 @@ class PriceProvider:
                 if val is not None and is_stale:
                     stale_map[t] = val
 
-        # If circuit open, return stale values where available and None for the rest
+        # If circuit open, return stale values where available and RATE_LIMIT for the rest
         if circuit_open:
             for t in resolved_tickers:
                 if outputs.get(t) is None:
@@ -331,7 +349,7 @@ class PriceProvider:
                             pass
                         outputs[t] = stale_val
                     else:
-                        outputs[t] = None
+                        outputs[t] = ProviderResult.RATE_LIMIT
         else:
             # Batch missing symbols and download
             batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
@@ -346,8 +364,8 @@ class PriceProvider:
                                 res = fut.result()
                                 # cache per-symbol and merge
                                 for t, frame in res.items():
-                                    # if frame is None and we had a stale fallback, preserve stale
-                                    if frame is None:
+                                    # if frame is ProviderResult and we had a stale fallback, preserve stale
+                                    if isinstance(frame, ProviderResult):
                                         if t in stale_map:
                                             stale_val = stale_map[t]
                                             try:
@@ -357,9 +375,9 @@ class PriceProvider:
                                                 pass
                                             outputs[t] = stale_val
                                         else:
-                                            outputs[t] = None
-                                        # Cache None to prevent infinite polling spam
-                                        self._cache_set((t, period, interval, start, end), None)
+                                            outputs[t] = frame
+                                        # Cache the result to prevent infinite polling spam
+                                        self._cache_set((t, period, interval, start, end), frame)
                                     else:
                                         self._cache_set((t, period, interval, start, end), frame)
                                         outputs[t] = frame
@@ -376,55 +394,68 @@ class PriceProvider:
                                             pass
                                         outputs[t] = stale_val
                                     else:
-                                        outputs[t] = None
-                                    # Cache None to prevent infinite polling spam
-                                    self._cache_set((t, period, interval, start, end), None)
+                                        outputs[t] = ProviderResult.NETWORK_ERROR
+                                    # Cache to prevent infinite polling spam
+                                    self._cache_set((t, period, interval, start, end), ProviderResult.NETWORK_ERROR)
                 except concurrent.futures.TimeoutError:
                     logger.error("❌ Timeout during batch download in price_provider. Aborting remaining batches to prevent deadlock.")
 
-        # ensure all resolved tickers present in outputs (None if missing)
+        # ensure all resolved tickers present in outputs
         for t in resolved_tickers:
-            outputs.setdefault(t, None)
+            outputs.setdefault(t, ProviderResult.EMPTY_DATA)
 
         # Batch-level .BO Fallback & Poisoned Mapping Fix
         missing_ns_to_bo = {}
         poisoned_bo_symbols = []
         for t, val in outputs.items():
-            is_stale_df = hasattr(val, 'attrs') and val.attrs.get('is_stale', False)
-            is_missing_df = val is None or (hasattr(val, 'empty') and val.empty)
-            if is_missing_df or is_stale_df:
-                if t.endswith(".NS"):
-                    bo_sym = t[:-3] + ".BO"
-                    missing_ns_to_bo[bo_sym] = t
-                elif t.endswith(".BO"):
-                    poisoned_bo_symbols.append(t)
+            if isinstance(val, ProviderResult):
+                if val in (ProviderResult.NOT_FOUND, ProviderResult.EMPTY_DATA):
+                    if t.endswith(".NS"):
+                        bo_sym = t[:-3] + ".BO"
+                        missing_ns_to_bo[bo_sym] = t
+                    elif t.endswith(".BO"):
+                        poisoned_bo_symbols.append(t)
+            else:
+                is_stale_df = hasattr(val, 'attrs') and val.attrs.get('is_stale', False)
+                is_missing_df = val is None or (hasattr(val, 'empty') and val.empty)
+                if is_missing_df or is_stale_df:
+                    if t.endswith(".NS"):
+                        bo_sym = t[:-3] + ".BO"
+                        missing_ns_to_bo[bo_sym] = t
+                    elif t.endswith(".BO"):
+                        poisoned_bo_symbols.append(t)
 
         # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback (BSE -> NSE)
         if poisoned_bo_symbols and not circuit_open:
-            logger.info(f"🗑️ price_provider: Invalidating {len(poisoned_bo_symbols)} poisoned BSE mappings and retrying via NSE...")
+            logger.info(f"🗑️ price_provider: Handling {len(poisoned_bo_symbols)} poisoned BSE mappings and retrying via NSE...")
             try:
-                from bse_mapping_utils import invalidate_bse_mapping
+                from bse_mapping_utils import mark_bse_invalid
                 ns_symbols = []
                 for bo_sym in poisoned_bo_symbols:
                     ns_sym = bo_sym[:-3] + ".NS"
                     ns_symbols.append(ns_sym)
                     
-                    # Invalidate in DB for each mapped original ticker
-                    orig_list = resolved_to_orig.get(bo_sym, [bo_sym])
-                    for orig in orig_list:
-                        clean_orig = orig[:-3] if orig.endswith(".NS") or orig.endswith(".BO") else orig
-                        invalidate_bse_mapping(clean_orig)
+                    # Invalidate in DB for each mapped original ticker IF it was a true NOT_FOUND
+                    if isinstance(outputs.get(bo_sym), ProviderResult) and outputs.get(bo_sym) == ProviderResult.NOT_FOUND:
+                        orig_list = resolved_to_orig.get(bo_sym, [bo_sym])
+                        for orig in orig_list:
+                            clean_orig = orig[:-3] if orig.endswith(".NS") or orig.endswith(".BO") else orig
+                            mark_bse_invalid(clean_orig)
                         
                 ns_res = self._download_batch(ns_symbols, period, interval, start, end)
                 if ns_res:
                     for ns_sym, frame in ns_res.items():
-                        if frame is not None and not frame.empty:
-                            bo_sym = ns_sym[:-3] + ".BO"
+                        bo_sym = ns_sym[:-3] + ".BO"
+                        if isinstance(frame, ProviderResult):
+                            outputs[bo_sym] = frame
+                            self._cache_set((ns_sym, period, interval, start, end), frame)
+                        elif frame is not None and not frame.empty:
                             logger.info(f"✅ price_provider: Recovered {bo_sym} via {ns_sym}")
                             self._cache_set((ns_sym, period, interval, start, end), frame)
                             outputs[bo_sym] = frame
                         else:
-                            self._cache_set((ns_sym, period, interval, start, end), None)
+                            self._cache_set((ns_sym, period, interval, start, end), ProviderResult.EMPTY_DATA)
+                            outputs[bo_sym] = ProviderResult.EMPTY_DATA
             except Exception as e:
                 logger.warning(f"Failed during Reverse Fallback: {e}")
 
@@ -437,9 +468,11 @@ class PriceProvider:
                 if bo_res:
                     from bse_mapping_utils import save_bse_mapping
                     for bo_sym, frame in bo_res.items():
-                        if frame is not None and not frame.empty:
-                            orig_ns = missing_ns_to_bo[bo_sym]
-                            
+                        orig_ns = missing_ns_to_bo[bo_sym]
+                        if isinstance(frame, ProviderResult):
+                            outputs[orig_ns] = frame
+                            self._cache_set((bo_sym, period, interval, start, end), frame)
+                        elif frame is not None and not frame.empty:
                             orig_list = resolved_to_orig.get(orig_ns, [orig_ns])
                             for orig in orig_list:
                                 clean_orig = orig[:-3] if orig.endswith(".NS") or orig.endswith(".BO") else orig
@@ -451,7 +484,8 @@ class PriceProvider:
                             outputs[orig_ns] = frame
                         else:
                             # Cache the missed fallback so we don't hammer yfinance
-                            self._cache_set((bo_sym, period, interval, start, end), None)
+                            self._cache_set((bo_sym, period, interval, start, end), ProviderResult.EMPTY_DATA)
+                            outputs[orig_ns] = ProviderResult.EMPTY_DATA
             except Exception as e:
                 logger.warning(f"Failed during .BO batch fallback: {e}")
 
@@ -464,7 +498,7 @@ class PriceProvider:
 
         # ensure all originally requested tickers are present in the final output
         for t in tickers:
-            final_outputs.setdefault(t, None)
+            final_outputs.setdefault(t, ProviderResult.EMPTY_DATA)
 
         return final_outputs
 

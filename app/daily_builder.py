@@ -909,8 +909,10 @@ def _main_wrapper(force_rebuild: bool = False):
     except Exception:
         logger.warning("⚠️ Could not mark Daily Builder as RUNNING")
 
+    start_time = datetime.now(IST)
     try:
         _main_impl(force_rebuild=force_rebuild)
+        duration_sec = (datetime.now(IST) - start_time).total_seconds()
         
         try:
             from zoneinfo import ZoneInfo
@@ -922,13 +924,18 @@ def _main_wrapper(force_rebuild: bool = False):
             except Exception:
                 tot = None
                 proc = None
+            
+            outcome = "SUCCESS" if proc and proc > 0 else "FAILED"
+            
             upsert_scanner_health(
-                "DAILY_BUILDER", "OK",
+                "DAILY_BUILDER", "OK" if outcome != "FAILED" else "DEGRADED",
                 last_success=datetime.now(_ist).isoformat(),
                 error_msg=None,
                 processed_count=proc,
                 total_count=tot,
-                scheduled_for="01:00 IST"
+                scheduled_for="01:00 IST",
+                duration_seconds=duration_sec,
+                outcome=outcome
             )
             logger.info("✅ Daily Builder health heartbeat updated successfully.")
             
@@ -943,9 +950,10 @@ def _main_wrapper(force_rebuild: bool = False):
         except Exception as e:
             logger.warning(f"⚠️ Could not update Daily Builder success heartbeat: {e}")
     except Exception as exc:
+        duration_sec = (datetime.now(IST) - start_time).total_seconds()
         logger.exception("❌ CRITICAL ERROR in daily builder")
         try:
-            upsert_scanner_health("DAILY_BUILDER", "DOWN", error_msg=str(exc)[:500])
+            upsert_scanner_health("DAILY_BUILDER", "DOWN", error_msg=str(exc)[:500], outcome="FAILED", duration_seconds=duration_sec)
             from database import upsert_build_manifest, insert_notification
             from push_service import send_push_to_all
             upsert_build_manifest(

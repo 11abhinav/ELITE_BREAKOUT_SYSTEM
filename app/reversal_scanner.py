@@ -38,8 +38,10 @@ from config import (
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_previous_day_delivery
 from trade_ranking_engine import TradeRankingEngine
-from macro_utils import MarketRegimeEngine, get_nifty_20d_return, get_macro_regime
+from macro_utils import MarketRegimeEngine, get_macro_regime, get_nifty_20d_return
 from strategy_policy import StrategyPolicyEngine
+from core_enums import ProviderResult
+from core_models import ScanFailure
 
 
 logger = logging.getLogger(__name__)
@@ -307,6 +309,14 @@ def _run_scan(force: bool = False):
                 pass
         return 0
 
+    # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
+    import hashlib
+    import uuid
+    _wl_stocks = sorted(watchlist["Stock"].tolist())
+    _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
+    scan_id = str(uuid.uuid4())
+    logger.info(f"📋 [REVERSAL] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash} | scan_id={scan_id}")
+
     # Pulling 1y data to ensure we catch the 52W High correctly
     all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
 
@@ -366,6 +376,17 @@ def _run_scan(force: bool = False):
         "thin_spread": 0,
         "low_rr": 0
     }
+    
+    provider_stats_counts = {
+        "SUCCESS": 0,
+        "NOT_FOUND": 0,
+        "RATE_LIMIT": 0,
+        "NETWORK_ERROR": 0,
+        "TIMEOUT": 0,
+        "EMPTY_DATA": 0
+    }
+    scan_failures = []
+    
     today_str = ist_now.strftime("%Y-%m-%d")
 
     # ── MAKE EXPORT IDEMPOTENT ──
@@ -410,12 +431,30 @@ def _run_scan(force: bool = False):
                 logger.info(f"[REVERSAL] {symbol} skipped: failed reversal cooldown active")
                 continue
 
-            if symbol not in all_ticker_data or all_ticker_data[symbol] is None or all_ticker_data[symbol].empty:
+            if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
+                logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
+                rejected["no_data"] += 1
+                provider_stats_counts["EMPTY_DATA"] += 1
+                scan_failures.append(ScanFailure(symbol, "REVERSAL", "unknown", "missing data", scan_id=scan_id))
+                continue
+                
+            if isinstance(all_ticker_data[symbol], ProviderResult):
+                res = all_ticker_data[symbol]
+                provider_stats_counts[res.name] += 1
+                if res != ProviderResult.SUCCESS:
+                    rejected["no_data"] += 1
+                    scan_failures.append(ScanFailure(symbol, "REVERSAL", "unknown", f"Provider error: {res.name}", scan_id=scan_id))
+                    continue
+            else:
+                provider_stats_counts["SUCCESS"] += 1
+
+            ticker = all_ticker_data[symbol].copy()
+            
+            if ticker.empty:
                 logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
                 rejected["no_data"] += 1
                 continue
-
-            ticker = all_ticker_data[symbol].copy()
+                
             if getattr(ticker, 'attrs', {}).get('is_stale'):
                 logger.warning(f"[REVERSAL] {symbol} rejected: stale historical data")
                 rejected["stale_data"] += 1
@@ -803,6 +842,23 @@ def _run_scan(force: bool = False):
                 "MIN_CANDLE_RANGE_PCT": MIN_CANDLE_RANGE_PCT,
             }
 
+            # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every stock that passes ALL filters
+            _last_bar_date = "unknown"
+            try:
+                if isinstance(ticker.index, pd.DatetimeIndex):
+                    _last_bar_date = str(ticker.index[-1])[:10]
+                elif "Date" in ticker.columns:
+                    _last_bar_date = str(ticker["Date"].iloc[-1])[:10]
+            except Exception:
+                pass
+            logger.info(
+                f"✅ [REVERSAL] PASSED ALL FILTERS: {symbol} | "
+                f"score={reversal_score} | drop={drop_pct:.1f}% | vol_ratio={vol_ratio:.2f} | "
+                f"rsi={current_rsi:.1f} | above_sma50={above_sma50} | above_sma200={above_sma200} | "
+                f"entry=₹{close_price:.2f} | sl=₹{suggested_stop} | t1=₹{sl_result.get('target_1')} | "
+                f"last_bar={_last_bar_date} | category={category}"
+            )
+
             shortlisted_alerts.append({
                 "symbol": symbol,
                 "dedup_key": dedup_key,
@@ -953,13 +1009,45 @@ def _run_scan(force: bool = False):
                 status = "DEGRADED"
                 error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
 
+            elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+            
+            # Insert scan failures via batch
+            if scan_failures and not is_test_mode:
+                try:
+                    from database import get_connection
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            from psycopg2.extras import execute_values
+                            execute_values(
+                                cur,
+                                """
+                                INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
+                                VALUES %s
+                                """,
+                                [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
+                            )
+                        conn.commit()
+                except Exception as e:
+                    logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
+
+            # Map overall outcome
+            outcome = "SUCCESS"
+            if total_symbols > 0 and fetched_count < (total_symbols * 0.70):
+                outcome = "PARTIAL"
+            if fetched_count == 0:
+                outcome = "FAILED"
+
             upsert_scanner_health(
                 scanner_name="REVERSAL",
-                status=status,
-                last_success=ist_now.isoformat(),
+                status=status if outcome != "FAILED" else "DEGRADED",
+                last_success=ist_now.isoformat() if outcome != "FAILED" else None,
                 today_alerts=total_alerts,
+                processed_count=total_alerts,
                 total_count=total_symbols,
-                error_msg=error_msg
+                error_msg=error_msg,
+                outcome=outcome,
+                provider_stats=provider_stats_counts,
+                duration_seconds=elapsed_time
             )
             
             try:
@@ -989,8 +1077,8 @@ def _run_scan(force: bool = False):
             except Exception:
                 pass
             
-    elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
-    logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time:.2f}s | Found {total_alerts} bottoming stocks.")
+    elapsed_time_final = (datetime.now(IST) - scan_start).total_seconds()
+    logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time_final:.2f}s | Found {total_alerts} bottoming stocks.")
     return total_alerts
 
 from lock_utils import ProcessLock

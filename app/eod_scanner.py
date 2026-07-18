@@ -24,6 +24,8 @@ from database import (
     upsert_scanner_health, insert_notification,
     get_recent_alerts_for_scanner, verify_alerts_saved_today
 )
+from core_enums import ProviderResult
+from core_models import ScanFailure
 from delivery_data import fetch_delivery_data
 from price_cache import fetch_watchlist_data
 from sl_target_helper import compute_sl_and_target
@@ -150,9 +152,11 @@ def _start_wrapper(force: bool = False):
 
         # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
         import hashlib
+        import uuid
         _wl_stocks = sorted(watchlist["Stock"].tolist())
         _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
-        logger.info(f"📋 [EOD] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
+        scan_id = str(uuid.uuid4())
+        logger.info(f"📋 [EOD] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash} | scan_id={scan_id}")
 
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
@@ -255,6 +259,16 @@ def _start_wrapper(force: bool = False):
         total_alerts       = 0
         alerts_by_category = {}
 
+        provider_stats_counts = {
+            "SUCCESS": 0,
+            "NOT_FOUND": 0,
+            "RATE_LIMIT": 0,
+            "NETWORK_ERROR": 0,
+            "TIMEOUT": 0,
+            "EMPTY_DATA": 0
+        }
+        scan_failures = []
+
         rejection_counts = {k: 0 for k in [
             "no_data", "missing_col", "insufficient_bars", "indicator_fail", "weak_signals",
             "weak_body", "bearish_candle", "weak_close_pos", "upper_wick", "low_volume",
@@ -305,7 +319,19 @@ def _start_wrapper(force: bool = False):
 
                 if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
                     rejection_counts["no_data"] += 1
+                    provider_stats_counts["EMPTY_DATA"] += 1
+                    scan_failures.append(ScanFailure(symbol, "EOD", "unknown", "missing data", scan_id=scan_id))
                     continue
+
+                if isinstance(all_ticker_data[symbol], ProviderResult):
+                    res = all_ticker_data[symbol]
+                    provider_stats_counts[res.name] += 1
+                    if res != ProviderResult.SUCCESS:
+                        rejection_counts["no_data"] += 1
+                        scan_failures.append(ScanFailure(symbol, "EOD", "unknown", f"Provider error: {res.name}", scan_id=scan_id))
+                        continue
+                else:
+                    provider_stats_counts["SUCCESS"] += 1
 
                 ticker = all_ticker_data[symbol].copy()
 
@@ -857,6 +883,34 @@ def _start_wrapper(force: bool = False):
             status = "DEGRADED"
             error_msg = f"Partial Fetch: {len(all_ticker_data)}/{len(watchlist)} symbols"
 
+        duration_sec = (datetime.now(IST) - start_time).total_seconds()
+        
+        # Insert scan failures via batch
+        if scan_failures and not is_test_mode:
+            try:
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        from psycopg2.extras import execute_values
+                        execute_values(
+                            cur,
+                            """
+                            INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
+                            VALUES %s
+                            """,
+                            [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
+                        )
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
+
+        # Map overall outcome
+        outcome = "SUCCESS"
+        if len(all_ticker_data) < len(watchlist) * 0.70:
+            outcome = "PARTIAL"
+        if len(all_ticker_data) == 0:
+            outcome = "FAILED"
+
         if not is_test_mode:
             try:
                 upsert_scanner_health(
@@ -864,14 +918,18 @@ def _start_wrapper(force: bool = False):
                     status=status,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total_alerts,
+                    processed_count=total_alerts,
                     total_count=len(watchlist),
-                    error_msg=error_msg
+                    error_msg=error_msg,
+                    outcome=outcome,
+                    provider_stats=provider_stats_counts,
+                    duration_seconds=duration_sec
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for EOD")
-            if status == "OK":
+            if status == "OK" or status == "DEGRADED":
                 try:
-                    insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+                    insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks. Outcome: {outcome}")
                     from push_service import send_push_to_all
                     send_push_to_all("🚀 EOD Scanner OK", f"Found {total_alerts} new breakout alerts.", bypass_throttle=True)
                 except Exception:

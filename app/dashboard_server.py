@@ -1792,6 +1792,9 @@ def api_scanner_status():
                     "processed_count": processed_count if sc in ["Pledge Worker", "AI Worker"] else row.get("processed_count"),
                     "total_count":   total_count if sc in ["Pledge Worker", "AI Worker"] else row.get("total_count"),
                     "scheduled_for": row.get("scheduled_for"),
+                    "outcome":       row.get("outcome"),
+                    "provider_stats": row.get("provider_stats"),
+                    "duration_seconds": row.get("duration_seconds"),
                     "today_trades":  [
                         {
                             "symbol":       t["symbol"],

@@ -9,6 +9,7 @@ from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record
 
 from price_provider import PriceProvider
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
+from core_enums import ProviderResult
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class DataFetcher(ABC):
         pass
 
     @abstractmethod
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
-        """Fetch OHLCV data for multiple symbols simultaneously."""
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict:
+        """Fetch OHLCV data for multiple symbols simultaneously. Returns dict of symbol to DataFrame or ProviderResult."""
         pass
 
     @abstractmethod
@@ -132,17 +133,16 @@ class YFinanceFetcher(DataFetcher):
                 return None
             except Exception as e:
                 msg = str(e).lower()
-                if 'too many requests' in msg or 'rate limit' in msg or 'yf' in msg and 'rate' in msg:
-                    record_rate_limit(context=f"DataFetcher._get_ohlcv_raw | {ns_sym}")
-                    delay = get_backoff_delay(attempt)
-                    logger.warning(f"⚠️ Single fetch rate-limited for {ns_sym} (Attempt {attempt+1}/{retries}). Backing off {delay:.1f}s")
-                    time.sleep(delay)
-                else:
-                    logger.warning(f"⚠️ Single fetch failed for {ns_sym} (Attempt {attempt+1}/{retries}): {e}")
-                    wait = (2 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(wait)
+                is_rate = ('too many requests' in msg) or ('rate limit' in msg) or ('429' in msg)
+                logger.warning(f"Error fetching OHLCV for {ns_sym} (attempt {attempt+1}/{retries}): {e}")
+                
+                if is_rate and attempt == retries - 1:
+                    return ProviderResult.RATE_LIMIT
+                    
+                import random
+                time.sleep(random.uniform(1.0, 3.0))
         logger.error(f"❌ Exhausted retries fetching {ns_sym}")
-        return None
+        return ProviderResult.NETWORK_ERROR
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         ns_sym = self._normalize_symbol(symbol)
@@ -150,11 +150,11 @@ class YFinanceFetcher(DataFetcher):
         df = self._get_ohlcv_raw(ns_sym, interval, period, retries, range_from, range_to)
         
         # If NSE query failed, retry once using the BSE (.BO) equivalent!
-        if (df is None or df.empty) and ns_sym.endswith(".NS"):
+        if (isinstance(df, ProviderResult) and df in (ProviderResult.NOT_FOUND, ProviderResult.EMPTY_DATA)) or (df is None or (hasattr(df, 'empty') and df.empty)) and ns_sym.endswith(".NS"):
             bse_sym = ns_sym[:-3] + ".BO"
             logger.info(f"🔄 NSE fetch failed or returned empty for {symbol}. Retrying with BSE symbol {bse_sym}...")
             df = self._get_ohlcv_raw(bse_sym, interval, period, retries, range_from, range_to)
-            if df is not None and not df.empty:
+            if not isinstance(df, ProviderResult) and df is not None and not df.empty:
                 try:
                     from bse_mapping_utils import save_bse_mapping
                     save_bse_mapping(symbol, bse_sym)
@@ -162,15 +162,15 @@ class YFinanceFetcher(DataFetcher):
                     logger.warning(f"Failed to save BSE mapping inside get_ohlcv: {e}")
             
         # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback for poisoned BSE mappings
-        if (df is None or df.empty) and ns_sym.endswith(".BO"):
+        if (isinstance(df, ProviderResult) and df in (ProviderResult.NOT_FOUND, ProviderResult.EMPTY_DATA)) or (df is None or (hasattr(df, 'empty') and df.empty)) and ns_sym.endswith(".BO"):
             try:
-                from bse_mapping_utils import load_bse_mappings, invalidate_bse_mapping
+                from bse_mapping_utils import load_bse_mappings, mark_bse_invalid
                 mappings = load_bse_mappings()
                 orig_clean = symbol.strip().upper()
                 if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
                     logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE...")
                     clean_orig = orig_clean[:-3] if orig_clean.endswith(".NS") or orig_clean.endswith(".BO") else orig_clean
-                    invalidate_bse_mapping(clean_orig)
+                    mark_bse_invalid(clean_orig)
                     recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
                     df = self._get_ohlcv_raw(recovery_sym, interval, period, retries, range_from, range_to)
             except Exception as e:
@@ -237,18 +237,18 @@ class YFinanceFetcher(DataFetcher):
         fetched = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
         
         all_data = {}
-        # NOTE: Price Provider (price_provider.py) handles BSE fallback, poisoned mapping
-        # recovery, and rate limiting centrally. Symbols missing from `fetched` below are
-        # those that failed after all retries in price_provider — they are set to None here
-        # so callers can handle them gracefully.
-        
         for ns_sym, orig_syms in normalized_map.items():
             df = fetched.get(ns_sym)
-            if df is not None and not df.empty:
+            if isinstance(df, ProviderResult):
+                for orig_sym in orig_syms:
+                    all_data[orig_sym] = df
+            elif df is not None and not df.empty:
                 df_clean = self._clean_df(df)
                 for orig_sym in orig_syms:
                     all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
-
+            else:
+                for orig_sym in orig_syms:
+                    all_data[orig_sym] = ProviderResult.EMPTY_DATA
 
         for s in symbols:
             all_data.setdefault(s, None)
@@ -371,16 +371,7 @@ class AutoSwitchingFetcher(DataFetcher):
                     )
                     send_telegram_message(msg)
                     
-                    try:
-                        from database import insert_notification
-                        insert_notification(
-                            notif_type="error",
-                            title="Fyers Auth Failed",
-                            message="Token expired. System fell back to Yahoo. Click here to <a href='/fyers/login' style='text-decoration:underline'>Authorize</a>.",
-                            symbol="SYSTEM"
-                        )
-                    except Exception as e:
-                        logger.exception(f"Failed to insert dashboard notification")
+                    logger.warning("Fyers Auth Failed: Token expired. System fell back to Yahoo.")
                         
                     with open(ping_file, "w") as f:
                         f.write(today_str)
@@ -397,12 +388,7 @@ class AutoSwitchingFetcher(DataFetcher):
                     return df
                 logger.warning(f"Fyers fetch returned empty/failed for {symbol}. Falling back to YFinance.")
             except Exception as e:
-                logger.error(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
-                try:
-                    from database import insert_notification
-                    insert_notification("error", f"Fyers Fetch Failed ({symbol})", f"Error: {e}. Falling back to Yahoo Finance.", symbol)
-                except Exception:
-                    pass
+                logger.warning(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
         return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
@@ -412,11 +398,7 @@ class AutoSwitchingFetcher(DataFetcher):
                 missing_symbols = [s for s in symbols if results.get(s) is None or results[s].empty]
                 if missing_symbols:
                     if len(missing_symbols) == len(symbols):
-                        try:
-                            from database import insert_notification
-                            insert_notification("error", "Fyers Batch API Silent Failure", f"Fyers returned empty data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.", "SYSTEM")
-                        except Exception:
-                            pass
+                        logger.warning(f"Fyers Batch API Silent Failure: Fyers returned empty data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.")
                     logger.warning(f"Fyers batch fetch returned empty/missing data for {len(missing_symbols)} symbols. Querying YFinance for these.")
                     yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
                     for s in missing_symbols:
@@ -426,12 +408,7 @@ class AutoSwitchingFetcher(DataFetcher):
                     results.setdefault(s, None)
                 return results
             except Exception as e:
-                logger.error(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
-                try:
-                    from database import insert_notification
-                    insert_notification("error", "Fyers Batch Fetch Exception", f"Error: {e}. Falling back to Yahoo Finance.", "SYSTEM")
-                except Exception:
-                    pass
+                logger.warning(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
         
         yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
         for s in symbols:
@@ -445,12 +422,7 @@ class AutoSwitchingFetcher(DataFetcher):
                 if quote:
                     return quote
             except Exception as e:
-                logger.error(f"Fyers quote fetch exception for {symbol}: {e}. Falling back to YFinance.")
-                try:
-                    from database import insert_notification
-                    insert_notification("error", f"Fyers Quote Failed ({symbol})", f"Error: {e}. Falling back to Yahoo Finance.", symbol)
-                except Exception:
-                    pass
+                logger.warning(f"Fyers quote fetch exception for {symbol}: {e}. Falling back to YFinance.")
         return self.yfinance_fetcher.get_quote(symbol)
 
 

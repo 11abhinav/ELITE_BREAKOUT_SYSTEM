@@ -12,10 +12,10 @@ import re
 from typing import Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from data_fetch_status import mark_success, mark_failure
 from database import upsert_fetch_error
 from data_provider import get_fetcher
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
+from core_enums import ProviderResult
 import json
 import os
 
@@ -360,7 +360,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     new_df = batch_results.get(sym)
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
-                    if new_df is not None and not new_df.empty:
+                    if isinstance(new_df, ProviderResult):
+                        # Treat ProviderResult as missing/failure for this symbol
+                        if cached_df is not None and not cached_df.empty:
+                            cached_df.attrs['is_stale'] = True
+                            all_data[sym] = cached_df
+                        else:
+                            all_data[sym] = new_df
+                    elif new_df is not None and not new_df.empty:
                         # [VERSION: TIMEZONE_FIX_v1.0] True timezone normalization at ingestion boundary
                         time_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
                         if time_col:
@@ -454,10 +461,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 
-    # Record missing symbols but DON'T reject the entire fetch
     for sym in symbols:
         df = all_data.get(sym)
-        if df is None or getattr(df, 'attrs', {}).get('is_stale', False):
+        if df is None or getattr(df, 'attrs', {}).get('is_stale', False) or isinstance(df, ProviderResult):
             try:
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:

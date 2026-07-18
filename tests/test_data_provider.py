@@ -60,11 +60,10 @@ def test_get_batch_ohlcv_duplicate_mapping(mock_fetch_batch):
     assert result['FIVESTAR.NS'] is not None
     assert len(result['FIVESTAR']) == 2
     assert result['FIVESTAR'].iloc[-1]['Close'] == 105
-    
-    # RELIANCE should be None or not present since the mock didn't return it,
-    # but the method should set it to None gracefully based on the dict get
-    # Actually fetch_batch doesn't return RELIANCE.NS, so fetched.get returns None
-    assert 'RELIANCE' not in result or result['RELIANCE'] is None
+
+    # RELIANCE should be ProviderResult.EMPTY_DATA or None based on the dict get
+    from core_enums import ProviderResult
+    assert 'RELIANCE' not in result or result['RELIANCE'] is None or result['RELIANCE'] == ProviderResult.EMPTY_DATA
 
 @patch('app.data_provider._price_provider.fetch_batch')
 def test_get_batch_ohlcv_preserves_single_symbol(mock_fetch_batch):

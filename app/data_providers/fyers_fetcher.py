@@ -293,24 +293,8 @@ class FyersFetcher(DataFetcher):
         client = fyers_auth.get_fyers_client()
         if not client:
             logger.error("Fyers API client is uninitialized. Generate a token via /fyers/login.")
-            
-            # Send notification to UI that auth truly failed
-            global _last_auth_notif_time
-            now = time.time()
-            if now - _last_auth_notif_time > 3600:
-                _last_auth_notif_time = now
-                try:
-                    import database
-                    database.insert_notification(
-                        notif_type='system',
-                        title='⚠️ Fyers Authentication Required',
-                        message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
-                        symbol='SYSTEM'
-                    )
-                except Exception:
-                    pass
-                    
-            return None
+            from core_exceptions import ProviderError
+            raise ProviderError("Fyers Authentication Required")
 
         data = {
             "symbol": ns_symbol,
@@ -629,20 +613,9 @@ class FyersFetcher(DataFetcher):
                     _fyers_circuit_breaker.record_failure()
 
             if "Could not authenticate the user" in error_str:
-                global _last_auth_notif_time
-                now = time.time()
-                if now - _last_auth_notif_time > 3600:
-                    _last_auth_notif_time = now
-                    try:
-                        import database
-                        database.insert_notification(
-                            notif_type='system',
-                            title='⚠️ Fyers Authentication Required',
-                            message='Your Fyers API session expired or is missing. <a href="/fyers/login" style="color:#00e5a0; text-decoration:underline; font-weight:bold;">Click here to Re-authenticate</a>',
-                            symbol='SYSTEM'
-                        )
-                    except Exception:
-                        pass
+                logger.error("Fyers API authentication expired or invalid.")
+                from core_exceptions import ProviderError
+                raise ProviderError("Fyers Authentication Required")
 
             logger.exception(f"Failed to fetch quote for symbol {symbol}")
             try:

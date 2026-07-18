@@ -495,7 +495,8 @@ def _batch_download_closes(tickers: list[str]) -> dict[str, Optional[pd.Series]]
         unique_results: dict[str, Optional[pd.Series]] = {}
         for t in unique_tickers:
             df = raw_dict.get(t)
-            if df is not None and not df.empty:
+            from core_enums import ProviderResult
+            if df is not None and not isinstance(df, ProviderResult) and not df.empty:
                 series = _parse_close_series(df, t)
                 unique_results[t] = series
             else:

@@ -2467,6 +2467,14 @@
               <div class="scanner-stat-label">Retries</div>
               <div class="scanner-stat-value" style="font-size:12px; color:orange">${data.retry_count}</div>
             </div>` : ''}
+            ${data.duration_seconds != null ? `<div class="scanner-stat-item">
+              <div class="scanner-stat-label">Duration</div>
+              <div class="scanner-stat-value" style="font-size:12px; color:var(--muted)">${data.duration_seconds.toFixed(1)}s</div>
+            </div>` : ''}
+            ${data.provider_stats ? Object.keys(data.provider_stats).length > 0 ? `<div class="scanner-stat-item" title="${Object.entries(data.provider_stats).map(([k,v]) => k+': '+v).join('\\n')}">
+              <div class="scanner-stat-label">API Stats</div>
+              <div class="scanner-stat-value" style="font-size:12px; color:var(--muted)">Hover</div>
+            </div>` : '' : ''}
           </div>
           ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;

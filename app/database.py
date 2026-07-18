@@ -451,6 +451,24 @@ def init_db():
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS scheduled_for TEXT DEFAULT NULL")
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS processed_count INTEGER DEFAULT NULL")
                 cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS total_count INTEGER DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS outcome TEXT DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS provider_stats JSONB DEFAULT NULL")
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS duration_seconds REAL DEFAULT 0.0")
+
+                # ── Scan failures table for batch reporting ────────────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS scan_failures (
+                        id SERIAL PRIMARY KEY,
+                        scan_id TEXT NOT NULL,
+                        scanner_name TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        provider TEXT,
+                        failure_reason TEXT,
+                        failed_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_scan_id_idx ON scan_failures (scan_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_failed_at_idx ON scan_failures (failed_at)")
 
 
                 # ── System state table for dashboard metrics / state caching ───────
@@ -468,9 +486,17 @@ def init_db():
                         original_sym TEXT NOT NULL,
                         mapped_sym TEXT,
                         is_invalid BOOLEAN DEFAULT FALSE,
+                        mapping_state TEXT DEFAULT 'ACTIVE',
+                        failure_count INTEGER DEFAULT 0,
+                        retry_after TEXT DEFAULT NULL,
+                        last_verified TEXT DEFAULT NULL,
                         PRIMARY KEY (mapping_type, original_sym)
                     )
                 """)
+                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS mapping_state TEXT DEFAULT 'ACTIVE'")
+                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS retry_after TEXT DEFAULT NULL")
+                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS last_verified TEXT DEFAULT NULL")
 
                 # ── AI Concall Cache table ─────────────────────────────────────────
                 cur.execute("""
@@ -1845,6 +1871,9 @@ def upsert_scanner_health(
     scheduled_for: str = None,    # When this scanner is scheduled to run (e.g., "01:00 IST")
     processed_count: int = None,  # Number of stocks processed/shortlisted/alerts
     total_count: int = None,      # Total number of stocks scanned in universe/watchlist
+    outcome: str = None,          # "SUCCESS", "PARTIAL", "FAILED"
+    provider_stats: dict = None,  # JSON dict of provider outcome counts
+    duration_seconds: float = None, # Time taken for the scan
 ) -> None:
     """
     Insert or update a scanner's health record in the scanner_health table.
@@ -1920,6 +1949,16 @@ def upsert_scanner_health(
                 if total_count is not None:
                     set_clauses.append("total_count = %s")
                     params.append(total_count)
+                if outcome is not None:
+                    set_clauses.append("outcome = %s")
+                    params.append(outcome)
+                if provider_stats is not None:
+                    import json
+                    set_clauses.append("provider_stats = %s")
+                    params.append(json.dumps(provider_stats))
+                if duration_seconds is not None:
+                    set_clauses.append("duration_seconds = %s")
+                    params.append(duration_seconds)
                 
                 set_clauses.append("updated_at = %s")
                 params.append(now_str)
@@ -1938,6 +1977,16 @@ def upsert_scanner_health(
                 if total_count is not None:
                     insert_cols.append("total_count")
                     insert_vals.append(total_count)
+                if outcome is not None:
+                    insert_cols.append("outcome")
+                    insert_vals.append(outcome)
+                if provider_stats is not None:
+                    import json
+                    insert_cols.append("provider_stats")
+                    insert_vals.append(json.dumps(provider_stats))
+                if duration_seconds is not None:
+                    insert_cols.append("duration_seconds")
+                    insert_vals.append(duration_seconds)
                 
                 insert_placeholders = ", ".join(["%s"] * len(insert_cols))
                 insert_cols_str = ", ".join(insert_cols)
@@ -1966,7 +2015,7 @@ def get_all_scanner_health() -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count
+                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count, outcome, provider_stats, duration_seconds
                     FROM scanner_health
                     ORDER BY scanner_name
                 """)

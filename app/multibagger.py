@@ -275,7 +275,8 @@ def batch_download_market_data(symbols: list) -> dict:
     
     results = {}
     for sym, ticker_df in batch_res.items():
-        if ticker_df is None or ticker_df.empty:
+        from core_enums import ProviderResult
+        if ticker_df is None or isinstance(ticker_df, ProviderResult):
             continue
         try:
             ticker_df = ticker_df.dropna(subset=["Close"])
