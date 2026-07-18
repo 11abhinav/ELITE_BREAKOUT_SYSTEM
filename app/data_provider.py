@@ -398,6 +398,11 @@ class AutoSwitchingFetcher(DataFetcher):
                 logger.warning(f"Fyers fetch returned empty/failed for {symbol}. Falling back to YFinance.")
             except Exception as e:
                 logger.error(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
+                try:
+                    from database import insert_notification
+                    insert_notification("error", f"Fyers Fetch Failed ({symbol})", f"Error: {e}. Falling back to Yahoo Finance.", symbol)
+                except Exception:
+                    pass
         return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
@@ -406,6 +411,12 @@ class AutoSwitchingFetcher(DataFetcher):
                 results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
                 missing_symbols = [s for s in symbols if results.get(s) is None or results[s].empty]
                 if missing_symbols:
+                    if len(missing_symbols) == len(symbols):
+                        try:
+                            from database import insert_notification
+                            insert_notification("error", "Fyers Batch API Silent Failure", f"Fyers returned empty data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.", "SYSTEM")
+                        except Exception:
+                            pass
                     logger.warning(f"Fyers batch fetch returned empty/missing data for {len(missing_symbols)} symbols. Querying YFinance for these.")
                     yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
                     for s in missing_symbols:
@@ -416,6 +427,11 @@ class AutoSwitchingFetcher(DataFetcher):
                 return results
             except Exception as e:
                 logger.error(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
+                try:
+                    from database import insert_notification
+                    insert_notification("error", "Fyers Batch Fetch Exception", f"Error: {e}. Falling back to Yahoo Finance.", "SYSTEM")
+                except Exception:
+                    pass
         
         yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
         for s in symbols:
@@ -430,6 +446,11 @@ class AutoSwitchingFetcher(DataFetcher):
                     return quote
             except Exception as e:
                 logger.error(f"Fyers quote fetch exception for {symbol}: {e}. Falling back to YFinance.")
+                try:
+                    from database import insert_notification
+                    insert_notification("error", f"Fyers Quote Failed ({symbol})", f"Error: {e}. Falling back to Yahoo Finance.", symbol)
+                except Exception:
+                    pass
         return self.yfinance_fetcher.get_quote(symbol)
 
 
