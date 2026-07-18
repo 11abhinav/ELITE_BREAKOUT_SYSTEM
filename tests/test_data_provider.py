@@ -33,7 +33,8 @@ def test_get_batch_ohlcv_duplicate_mapping(mock_fetch_batch):
     fetcher = YFinanceFetcher()
     
     # Create a dummy dataframe
-    dummy_df = pd.DataFrame({'Close': [100, 105], 'Open': [99, 100]})
+    dummy_df = pd.DataFrame({'Open': [100]*250, 'High': [100]*250, 'Low': [100]*250, 'Close': [100]*250, 'Volume': [100]*250})
+    dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
     
     # Mock fetch_batch to return the dummy dataframe for 'FIVESTAR.NS'
     mock_fetch_batch.return_value = {
@@ -72,7 +73,7 @@ def test_get_batch_ohlcv_preserves_single_symbol(mock_fetch_batch):
     """
     fetcher = YFinanceFetcher()
     dummy_df = pd.DataFrame({'Open': [100]*250, 'High': [100]*250, 'Low': [100]*250, 'Close': [100]*250, 'Volume': [100]*250})
-        dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
+    dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
     mock_fetch_batch.return_value = {'HDFCBANK.NS': dummy_df}
     
     result = fetcher.get_batch_ohlcv(['HDFCBANK'], interval='1d', period='1d')
@@ -105,7 +106,7 @@ def test_bse_persistent_mapping_fallback(mocker):
     # First call (NSE query) returns empty/None
     # Second call (BSE fallback query) returns data
     dummy_df = pd.DataFrame({'Open': [100]*250, 'High': [100]*250, 'Low': [100]*250, 'Close': [100]*250, 'Volume': [100]*250})
-        dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
+    dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
     mocker.patch.object(fetcher, "_get_ohlcv_raw", side_effect=[None, dummy_df])
     
     df = fetcher.get_ohlcv("YASHHV", "1d", "1y")

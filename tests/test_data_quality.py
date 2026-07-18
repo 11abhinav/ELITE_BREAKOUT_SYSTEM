@@ -33,7 +33,7 @@ def test_type_validation():
     assert report.types_valid == False
 
 def test_quality_score_good_data():
-    dates = pd.date_range(start="2023-01-01", periods=250, freq="B").tz_localize(IST)
+    dates = pd.date_range(end=pd.Timestamp.now(), periods=250, freq="B").tz_localize(IST)
     df = pd.DataFrame({
         "Date": dates,
         "Open": np.random.uniform(100, 200, 250),
