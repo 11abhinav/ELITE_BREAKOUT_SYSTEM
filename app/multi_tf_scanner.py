@@ -738,7 +738,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     "technical_score": final_score,
                                     "volume_ratio": vol_ratio,
                                     "delivery_pct": 0.0,
-                                    "rr_ratio": sl_result.get("rr_ratio", 0.0) if sl_result else 0.0,
+                                    "rr_ratio": sl_result.get("natural_rr", sl_result.get("rr_ratio", 0.0)) if sl_result else 0.0,
                                     "market_context": regime_ctx,
                                     "entry_price": close,
                                     "stop_loss": final_sl,
