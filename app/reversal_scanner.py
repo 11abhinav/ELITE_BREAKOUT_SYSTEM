@@ -291,7 +291,6 @@ def _run_scan(force: bool = False):
 
     try:
         from delivery_data import fetch_delivery_data
-        from market_utils import IST
         prev_delivery_map = fetch_delivery_data(datetime.now(IST).date())
     except Exception as e:
         logger.warning(f"⚠️ Failed to fetch delivery data: {e}. Reverting to empty map (no delivery bonus).")
