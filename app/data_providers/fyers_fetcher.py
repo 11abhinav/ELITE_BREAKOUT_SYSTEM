@@ -338,9 +338,9 @@ class FyersFetcher(DataFetcher):
                 if not candles:
                     # Return empty DataFrame with expected layout
                     if interval == "1d":
-                        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+                        return MarketData(None, "Fyers", None, False, False, "No data available in response")
                     else:
-                        return pd.DataFrame(columns=["Datetime", "Open", "High", "Low", "Close", "Volume"])
+                        return MarketData(None, "Fyers", None, False, False, "No data available in response")
                 
                 df = pd.DataFrame(candles, columns=["Timestamp", "Open", "High", "Low", "Close", "Volume"])
                 
@@ -372,7 +372,10 @@ class FyersFetcher(DataFetcher):
                     except Exception:
                         pass
                     
-                return df
+                report = DataQualityValidator.validate(df, period, interval, range_from, range_to)
+                if not report.is_valid:
+                    return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
+                return MarketData(df, "Fyers", report, False, False, None)
                 
             except Exception as e:
                 error_str = str(e)
@@ -461,7 +464,7 @@ class FyersFetcher(DataFetcher):
             pass
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
 
         # Check if Fyers circuit breaker is open (too many failures)

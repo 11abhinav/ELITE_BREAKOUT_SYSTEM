@@ -81,42 +81,30 @@ def get_live_blacklist() -> set[str]:
         }
         
         try:
-            # Establish session first to get cookies
-            try:
-                from curl_cffi import requests as cffi_requests
-                session = cffi_requests.Session(impersonate="chrome120")
-            except ImportError:
-                session = requests.Session()
-                
-            max_retries = 1
+            max_retries = 2
             for attempt in range(max_retries):
                 try:
-                    # Reduced timeout to 8s (if NSE doesn't respond fast, they are tarpitting us)
-                    session.get("https://www.nseindia.com", headers=headers, timeout=8)
-                    time.sleep(1.0)
+                    import nsepython
                     
-                    asm_res = session.get("https://www.nseindia.com/api/reportASM", headers=headers, timeout=8)
-                    if asm_res.status_code == 200:
-                        data = asm_res.json()
+                    asm_res = nsepython.nsefetch("https://www.nseindia.com/api/reportASM")
+                    if isinstance(asm_res, dict):
                         for key in ["longterm", "shortterm"]:
-                            if key in data and "data" in data[key]:
-                                for item in data[key]["data"]:
+                            if key in asm_res and "data" in asm_res[key]:
+                                for item in asm_res[key]["data"]:
                                     if "symbol" in item:
                                         blacklist.add(item["symbol"].strip().upper())
                                         
                     time.sleep(1.0)
 
-                    gsm_res = session.get("https://www.nseindia.com/api/reportGSM", headers=headers, timeout=8)
-                    if gsm_res.status_code == 200:
-                        data = gsm_res.json()
-                        if isinstance(data, list):
-                            for item in data:
-                                if isinstance(item, dict) and "symbol" in item:
-                                    blacklist.add(item["symbol"].strip().upper())
-                        elif isinstance(data, dict) and "data" in data:
-                            for item in data["data"]:
-                                if "symbol" in item:
-                                    blacklist.add(item["symbol"].strip().upper())
+                    gsm_res = nsepython.nsefetch("https://www.nseindia.com/api/reportGSM")
+                    if isinstance(gsm_res, dict) and "data" in gsm_res:
+                        for item in gsm_res["data"]:
+                            if "symbol" in item:
+                                blacklist.add(item["symbol"].strip().upper())
+                    elif isinstance(gsm_res, list):
+                        for item in gsm_res:
+                            if isinstance(item, dict) and "symbol" in item:
+                                blacklist.add(item["symbol"].strip().upper())
                                     
                     logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
                     
