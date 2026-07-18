@@ -1185,6 +1185,21 @@ The execution engine maintains rigorous boundaries between active monitoring and
 ### 32.2 KPI Scrubbing (Historical Cleanup)
 - In the event of a state misalignment (where a rejected trade incorrectly morphed into a `LOSS`), the `fix_rejected_status.py` cleanup script serves as a hard override. It retroactively scans for trades with `is_rejected = TRUE` and forcibly nullifies false PnL values while locking the state back to `REJECTED`.
 
+---
+
+## 33. Scanner Locking & Queue Architecture
+
+To prevent rate-limit starvation and cross-thread data races, all primary execution pipelines are serialized using explicit threading or process locks.
+
+### 33.1 The Global Execution Lock (`scanner_execution_lock`)
+- **Shared Locking:** The system utilizes a global `threading.Lock` (`scanner_execution_lock` in `main.py`) which acts as a serialized gateway for EOD, Reversal, Multibagger, and all associated Admin Manual Triggers.
+- **The `QUEUED` State:** Whenever a scanner is invoked (either via its background schedule or a manual admin trigger), it first updates its status in the database to `QUEUED` with an explicit message (`Waiting for global execution lock...`). 
+- **Transition to `RUNNING`:** The scanner execution thread is then blocked from proceeding until the lock is freed. Only *after* the lock is successfully acquired will the database transition the state to `RUNNING`. This ensures the Admin Dashboard accurately reflects real-time lock-starvation without falsely implying a scanner is actively making API calls when it is actually blocked.
+
+### 33.2 Independent Process Locks (`_scan_lock`)
+- The **Multi-TF Scanner** and **AI Worker Daemon** operate using independent process/file-based locks (`ProcessLock` from `lock_utils.py` or internal module locks). 
+- **Isolation:** Because these background loops run on heavily staggered and independent timelines (Multi-TF every 5 minutes, AI Worker continuously overnight), they do not share the primary `scanner_execution_lock`. This prevents a long-running Multi-TF loop from indefinitely halting the critical EOD end-of-day execution sweep.
+
 </textarea>
 
 
