@@ -71,7 +71,8 @@ def test_get_batch_ohlcv_preserves_single_symbol(mock_fetch_batch):
     Test that calling with a single symbol correctly maps back to the original symbol.
     """
     fetcher = YFinanceFetcher()
-    dummy_df = pd.DataFrame({'Close': [100]})
+    dummy_df = pd.DataFrame({'Open': [100]*250, 'High': [100]*250, 'Low': [100]*250, 'Close': [100]*250, 'Volume': [100]*250})
+        dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
     mock_fetch_batch.return_value = {'HDFCBANK.NS': dummy_df}
     
     result = fetcher.get_batch_ohlcv(['HDFCBANK'], interval='1d', period='1d')
@@ -103,14 +104,15 @@ def test_bse_persistent_mapping_fallback(mocker):
     # Mock _get_ohlcv_raw:
     # First call (NSE query) returns empty/None
     # Second call (BSE fallback query) returns data
-    dummy_df = pd.DataFrame({'Close': [500]})
+    dummy_df = pd.DataFrame({'Open': [100]*250, 'High': [100]*250, 'Low': [100]*250, 'Close': [100]*250, 'Volume': [100]*250})
+        dummy_df.index = pd.date_range(end=pd.Timestamp.now(), periods=250)
     mocker.patch.object(fetcher, "_get_ohlcv_raw", side_effect=[None, dummy_df])
     
     df = fetcher.get_ohlcv("YASHHV", "1d", "1y")
     
     # Should successfully return the BSE df
     assert df is not None
-    assert df.iloc[0]['Close'] == 500
+    assert df.dataframe.iloc[0]['Close'] == 100
     
     # Verify that the mapping is saved to our temp file
     mappings = load_bse_mappings()

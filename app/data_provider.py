@@ -10,6 +10,7 @@ from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record
 from price_provider import PriceProvider
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
 from core_enums import ProviderResult
+from data_quality import DataQualityValidator, MarketData
 
 logger = logging.getLogger(__name__)
 
@@ -147,44 +148,56 @@ class YFinanceFetcher(DataFetcher):
         logger.error(f"❌ Exhausted retries fetching {ns_sym}")
         return ProviderResult.NETWORK_ERROR
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
-        # [VERSION: NULL_POINTER_FIX_v1.0]
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
         if not symbol:
-            return None
+            return MarketData(None, "UNKNOWN", None, False, False, "No symbol")
         ns_sym = self._normalize_symbol(symbol)
         if not ns_sym:
-            return None
+            return MarketData(None, "UNKNOWN", None, False, False, "Normalization failed")
+            
         logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         df = self._get_ohlcv_raw(ns_sym, interval, period, retries, range_from, range_to)
         
-        # If NSE query failed, retry once using the BSE (.BO) equivalent!
-        if (isinstance(df, ProviderResult) and df in (ProviderResult.NOT_FOUND, ProviderResult.EMPTY_DATA)) or (df is None or (hasattr(df, 'empty') and df.empty)) and ns_sym.endswith(".NS"):
-            bse_sym = ns_sym[:-3] + ".BO"
-            logger.info(f"🔄 NSE fetch failed or returned empty for {symbol}. Retrying with BSE symbol {bse_sym}...")
-            df = self._get_ohlcv_raw(bse_sym, interval, period, retries, range_from, range_to)
-            if not isinstance(df, ProviderResult) and df is not None and not df.empty:
-                try:
-                    from bse_mapping_utils import save_bse_mapping
-                    save_bse_mapping(symbol, bse_sym)
-                except Exception as e:
-                    logger.warning(f"Failed to save BSE mapping inside get_ohlcv: {e}")
-            
-        # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback for poisoned BSE mappings
-        if (isinstance(df, ProviderResult) and df in (ProviderResult.NOT_FOUND, ProviderResult.EMPTY_DATA)) or (df is None or (hasattr(df, 'empty') and df.empty)) and ns_sym.endswith(".BO"):
-            try:
-                from bse_mapping_utils import load_bse_mappings, mark_bse_invalid
-                mappings = load_bse_mappings()
-                orig_clean = symbol.strip().upper()
-                if orig_clean in mappings or (orig_clean.endswith(".NS") and orig_clean[:-3] in mappings):
-                    logger.info(f"🗑️ Invalidating poisoned BSE mapping for {symbol} and retrying via NSE...")
-                    clean_orig = orig_clean[:-3] if orig_clean.endswith(".NS") or orig_clean.endswith(".BO") else orig_clean
-                    mark_bse_invalid(clean_orig)
-                    recovery_sym = (orig_clean[:-3] + ".NS") if (orig_clean.endswith(".NS") or orig_clean.endswith(".BO")) else (orig_clean + ".NS")
-                    df = self._get_ohlcv_raw(recovery_sym, interval, period, retries, range_from, range_to)
-            except Exception as e:
-                logger.warning(f"Failed during poisoned mapping recovery in get_ohlcv: {e}")
+        used_fallback = False
+        source = "NSE" if not ns_sym.endswith(".BO") else "BSE"
+        report = None
+        
+        should_fallback = False
+        if isinstance(df, ProviderResult) or df is None or getattr(df, 'empty', True):
+            should_fallback = True
+        else:
+            report = DataQualityValidator.validate(df, period, interval, range_from, range_to)
+            if not report.is_valid:
+                logger.warning(f"NSE Data Quality Rejected for {symbol} (Score: {report.quality_score})")
+                should_fallback = True
 
-        return df
+        if should_fallback and ns_sym.endswith(".NS"):
+            bse_sym = ns_sym[:-3] + ".BO"
+            logger.info(f"🔄 NSE fetch failed or poor quality for {symbol}. Retrying with BSE symbol {bse_sym}...")
+            bse_df = self._get_ohlcv_raw(bse_sym, interval, period, retries, range_from, range_to)
+            used_fallback = True
+            
+            if not isinstance(bse_df, ProviderResult) and bse_df is not None and not getattr(bse_df, 'empty', True):
+                bse_report = DataQualityValidator.validate(bse_df, period, interval, range_from, range_to)
+                if bse_report.is_valid:
+                    df = bse_df
+                    report = bse_report
+                    source = "BSE"
+                    try:
+                        from bse_mapping_utils import save_bse_mapping
+                        save_bse_mapping(symbol, bse_sym)
+                    except Exception:
+                        pass
+                else:
+                    logger.warning(f"BSE Fallback Quality Rejected for {symbol} (Score: {bse_report.quality_score})")
+            
+        if isinstance(df, ProviderResult):
+            return MarketData(None, source, None, False, used_fallback, error=df.name)
+            
+        if report is None:
+            report = DataQualityValidator.validate(df, period, interval, range_from, range_to)
+            
+        return MarketData(df if report.is_valid else None, source, report, False, used_fallback, None if report.is_valid else "Quality Check Failed")
 
     # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to perform the raw batch download
     def _fetch_batch_raw(self, ns_symbols: list[str], period: str, interval: str, range_from: str = None, range_to: str = None) -> dict:
@@ -232,44 +245,79 @@ class YFinanceFetcher(DataFetcher):
             pass
         return df
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         prefix = f"[{caller}] " if caller else ""
         logger.info(f"{prefix}📥 Fetching batch OHLCV for {len(symbols)} symbols ({interval}, {period}) via YFinance...")
         
         normalized_map = {}
         for s in symbols:
-            # [VERSION: NULL_POINTER_FIX_v1.0]
-            if not s:
-                continue
+            if not s: continue
             ns_sym = self._normalize_symbol(s)
-            if not ns_sym:
-                continue
-            normalized_map.setdefault(ns_sym, []).append(s)
+            if not ns_sym: continue
+            if ns_sym not in normalized_map:
+                normalized_map[ns_sym] = []
+            normalized_map[ns_sym].append(s)
             
         ns_symbols = list(normalized_map.keys())
-        if not ns_symbols:
-            return {}
-        fetched = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
+        results = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
         
-        all_data = {}
-        for ns_sym, orig_syms in normalized_map.items():
-            df = fetched.get(ns_sym)
-            if isinstance(df, ProviderResult):
-                for orig_sym in orig_syms:
-                    all_data[orig_sym] = df
-            elif df is not None and not df.empty:
-                df_clean = self._clean_df(df)
-                for orig_sym in orig_syms:
-                    all_data[orig_sym] = df_clean.copy() if len(orig_syms) > 1 else df_clean
+        reports = {}
+        missing_symbols = []
+        for ns_sym in ns_symbols:
+            df = results.get(ns_sym)
+            if isinstance(df, ProviderResult) or df is None or getattr(df, 'empty', True):
+                missing_symbols.append(ns_sym)
             else:
-                for orig_sym in orig_syms:
-                    all_data[orig_sym] = ProviderResult.EMPTY_DATA
-
+                report = DataQualityValidator.validate(df, period, interval, range_from, range_to)
+                if not report.is_valid:
+                    missing_symbols.append(ns_sym)
+                else:
+                    reports[ns_sym] = report
+                
+        if missing_symbols:
+            bse_fetch_list = []
+            bse_to_ns_map = {}
+            for ns_sym in missing_symbols:
+                if ns_sym.endswith(".NS"):
+                    bse_sym = ns_sym[:-3] + ".BO"
+                    bse_fetch_list.append(bse_sym)
+                    bse_to_ns_map[bse_sym] = ns_sym
+                    
+            if bse_fetch_list:
+                logger.info(f"🔄 {len(bse_fetch_list)} NSE symbols failed/poor quality. Attempting bulk BSE fallback...")
+                bse_results = self._fetch_batch_raw(bse_fetch_list, period, interval, range_from, range_to)
+                for bse_sym, df in bse_results.items():
+                    ns_sym = bse_to_ns_map[bse_sym]
+                    if not isinstance(df, ProviderResult) and df is not None and not getattr(df, 'empty', True):
+                        bse_report = DataQualityValidator.validate(df, period, interval, range_from, range_to)
+                        if bse_report.is_valid:
+                            results[ns_sym] = df
+                            reports[ns_sym] = bse_report
+                            try:
+                                from bse_mapping_utils import save_bse_mapping
+                                for orig in normalized_map.get(ns_sym, []):
+                                    save_bse_mapping(orig, bse_sym)
+                            except Exception:
+                                pass
+                            
+        final_results = {}
+        for ns_sym, df in results.items():
+            used_fallback = ns_sym in missing_symbols
+            source = "BSE" if used_fallback else "NSE"
+            report = reports.get(ns_sym)
+            for orig_sym in normalized_map.get(ns_sym, []):
+                if isinstance(df, ProviderResult):
+                    final_results[orig_sym] = MarketData(None, source, None, False, used_fallback, error=df.name)
+                elif report is not None and report.is_valid:
+                    final_results[orig_sym] = MarketData(df, source, report, False, used_fallback, None)
+                else:
+                    final_results[orig_sym] = MarketData(None, source, report, False, used_fallback, "Quality Rejected")
+                
         for s in symbols:
-            all_data.setdefault(s, None)
-
-        return all_data
-
+            if s not in final_results:
+                final_results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
+            
+        return final_results
     def get_quote(self, symbol: str) -> dict:
         ns_sym = self._normalize_symbol(symbol)
         logger.info(f"📥 Fetching quote for {symbol} via YFinance...")
@@ -395,39 +443,41 @@ class AutoSwitchingFetcher(DataFetcher):
         except Exception:
             return False
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
         if self._should_use_fyers():
             try:
-                df = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
-                if df is not None and not df.empty:
-                    return df
-                logger.warning(f"Fyers fetch returned empty/failed for {symbol}. Falling back to YFinance.")
+                md = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
+                if md.dataframe is not None and md.quality_report is not None and md.quality_report.is_valid:
+                    return md
+                logger.warning(f"Fyers fetch returned poor quality for {symbol} (Score: {md.quality_report.quality_score if md.quality_report else 0}). Falling back to YFinance.")
             except Exception as e:
                 logger.warning(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
         return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, pd.DataFrame]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         if self._should_use_fyers():
             try:
                 results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
-                missing_symbols = [s for s in symbols if results.get(s) is None or results[s].empty]
+                missing_symbols = [s for s in symbols if not results.get(s) or results[s].dataframe is None or not results[s].quality_report or not results[s].quality_report.is_valid]
                 if missing_symbols:
                     if len(missing_symbols) == len(symbols):
-                        logger.warning(f"Fyers Batch API Silent Failure: Fyers returned empty data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.")
-                    logger.warning(f"Fyers batch fetch returned empty/missing data for {len(missing_symbols)} symbols. Querying YFinance for these.")
+                        logger.warning(f"Fyers Batch API Silent Failure: Fyers returned poor data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.")
+                    logger.warning(f"Fyers batch fetch returned poor quality data for {len(missing_symbols)} symbols. Querying YFinance for these.")
                     yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
                     for s in missing_symbols:
                         if s in yf_results:
                             results[s] = yf_results[s]
                 for s in symbols:
-                    results.setdefault(s, None)
+                    if s not in results:
+                        results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
                 return results
             except Exception as e:
                 logger.warning(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
         
         yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
         for s in symbols:
-            yf_fallback_results.setdefault(s, None)
+            if s not in yf_fallback_results:
+                yf_fallback_results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
         return yf_fallback_results
 
     def get_quote(self, symbol: str) -> dict:

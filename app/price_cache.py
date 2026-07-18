@@ -16,6 +16,8 @@ from database import upsert_fetch_error
 from data_provider import get_fetcher
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
 from core_enums import ProviderResult
+from data_quality import DataQualityValidator, MarketData
+from config import SOURCE_RELIABILITY, MAX_HISTORY_SHRINK
 import json
 import os
 
@@ -357,17 +359,45 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             
             if batch_results:
                 for sym in batch:
-                    new_df = batch_results.get(sym)
+                    md = batch_results.get(sym)
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
-                    if isinstance(new_df, ProviderResult):
-                        # Treat ProviderResult as missing/failure for this symbol
+                    if md is None or md.dataframe is None:
                         if cached_df is not None and not cached_df.empty:
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                         else:
-                            all_data[sym] = new_df
-                    elif new_df is not None and not new_df.empty:
+                            all_data[sym] = None
+                        continue
+                        
+                    new_df = md.dataframe
+                    new_report = md.quality_report
+                    remote_source = md.source
+                    
+                    # Cache Decision Engine
+                    if cached_df is not None and not cached_df.empty:
+                        cache_report = DataQualityValidator.validate(cached_df, period, interval, range_from, range_to)
+                        
+                        remote_score = (new_report.quality_score if new_report else 0) * SOURCE_RELIABILITY.get(remote_source, 1.0)
+                        cache_score = cache_report.quality_score * SOURCE_RELIABILITY.get("Cache", 0.95)
+                        
+                        logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f}")
+                        
+                        if remote_score >= cache_score or (not new_report and remote_score == cache_score):
+                            # Accept and Merge
+                            policy = "APPEND_TO_CACHE" if range_from else "REPLACE_CACHE"
+                            
+                            if policy == "REPLACE_CACHE" and new_report and cache_report:
+                                if new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK):
+                                    logger.warning(f"Historical regression detected for {sym}. Previous rows={cache_report.row_count}, Incoming={new_report.row_count}")
+                        else:
+                            # Reject Remote Data
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym}")
+                            cached_df.attrs['is_stale'] = True
+                            all_data[sym] = cached_df
+                            continue
+                            
+                    if new_df is not None and not new_df.empty:
                         # [VERSION: TIMEZONE_FIX_v1.0] True timezone normalization at ingestion boundary
                         time_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
                         if time_col:

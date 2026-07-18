@@ -14,6 +14,8 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from data_provider import DataFetcher
+from data_quality import DataQualityValidator, MarketData
+
 import fyers_auth
 import config
 
@@ -215,15 +217,15 @@ class FyersFetcher(DataFetcher):
         # Ensure we never produce a span > 365 days for daily resolution callers
         return start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
         """Fetch OHLCV data for a single symbol from Fyers."""
         # [VERSION: NULL_POINTER_FIX_v1.0]
         if not symbol:
-            return None
+            return MarketData(None, "UNKNOWN", None, False, False, "No symbol")
             
         # Check if Fyers circuit breaker is open (too many failures)
         if not _fyers_circuit_breaker.is_available():
-            return None
+            return MarketData(None, "Fyers", None, False, False, "Circuit Breaker Open")
         
         ns_symbol = self._normalize_symbol(symbol)
         
@@ -517,15 +519,14 @@ class FyersFetcher(DataFetcher):
                     except Exception as e:
                         logger.exception(f"Error fetching batch OHLCV for {ns_sym}")
                         for orig_sym in normalized_map[ns_sym]:
-                            results[orig_sym] = None
+                            results[orig_sym] = MarketData(None, "Fyers", None, False, False, "Exception")
             except concurrent.futures.TimeoutError:
                 logger.error(f"Fyers batch fetch timed out after {calc_timeout}s. Cancelling remaining fetches.")
-                # We can't actually cancel the threads cleanly in python 3.8 easily without cancel(), 
-                # but the executor shutdown(wait=False) or leaving context handles it.
                 pass
                         
         for s in symbols:
-            results.setdefault(s, None)
+            if s not in results:
+                results[s] = MarketData(None, "Fyers", None, False, False, "Missing")
                         
         return results
 

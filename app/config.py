@@ -142,6 +142,28 @@ ALERT_COOLDOWN_MINUTES = {
     "REVERSAL": 5760   # 96 hours
 }
 
+# ── Data Quality Framework (V8.0) ──
+QUALITY_VALIDATOR_VERSION = "V8.0"
+
+QUALITY_SCORE_WEIGHTS = {
+    "row_completeness": 40,
+    "missing": 20,
+    "price_sanity": 20,
+    "continuity": 10,
+    "freshness": 10,
+}
+
+# Maximum percentage of row loss accepted before logging a regression warning
+MAX_HISTORY_SHRINK = 0.30
+
+# Source reliability multipliers (0.0 to 1.0). Used for fallback evaluation.
+SOURCE_RELIABILITY = {
+    "NSE": 1.0,
+    "Fyers": 1.0,
+    "Cache": 0.95,
+    "BSE": 0.70
+}
+
 
 # [FINDING-F FIX] Lowered ADX from 25 to 18. ADX 25+ indicates a trend that has
 # already moved significantly. ADX 18-24 captures the accumulation/developing phase
