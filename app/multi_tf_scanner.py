@@ -100,6 +100,12 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         logger.warning("No watchlist found.")
         return {"fetched": 0, "total": 0, "stale": 0}
 
+    # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
+    import hashlib
+    _wl_stocks = sorted(watchlist["Stock"].tolist())
+    _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
+    logger.info(f"📋 [MULTI_TF] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
+
     # 2. Fetch 1H data
     ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
     
@@ -756,6 +762,21 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     )
                                     mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
                                 lower_funnel["triggered"] += 1
+                                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                                _last_bar_date = "unknown"
+                                try:
+                                    if isinstance(df.index, pd.DatetimeIndex):
+                                        _last_bar_date = str(df.index[-1])[:16]
+                                    elif "Datetime" in df.columns:
+                                        _last_bar_date = str(df["Datetime"].iloc[-1])[:16]
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    f"✅ [MULTI_TF] PASSED ALL FILTERS: {symbol} | "
+                                    f"trigger={trigger_type} | vol_ratio={vol_ratio:.2f} | "
+                                    f"entry=₹{close:.2f} | sl=₹{final_sl:.2f} | t1=₹{sl_result.get('target_1')} | "
+                                    f"last_bar={_last_bar_date} | category={cat}"
+                                )
                                 logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")
                             else:
                                 logger.info(f"🚫 {symbol} alert SUPPRESSED: {reason}")

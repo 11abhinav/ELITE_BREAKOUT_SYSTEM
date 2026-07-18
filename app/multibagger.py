@@ -1226,6 +1226,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
         raise RuntimeError("Failed to fetch NSE constituent stocks. NSE API might be blocking the IP or rate-limiting.")
+
+    # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
+    import hashlib
+    _wl_stocks = sorted(symbols)
+    _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
+    logger.info(f"📋 [MULTIBAGGER] Watchlist fingerprint: {len(symbols)} stocks | hash={_wl_hash}")
         
     if debug_limit:
         logger.info(f"🧪 [DEBUG MODE] Limiting scan universe to {debug_limit} symbols.")
@@ -1640,6 +1646,20 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                         "pipeline_tier": c_tier
                     }
                 }
+                
+                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                _last_bar_date = "unknown"
+                try:
+                    _price_data = price_data_map.get(sym)
+                    if _price_data and hasattr(_price_data, 'timestamp'):
+                        _last_bar_date = str(_price_data.timestamp)[:10]
+                except Exception:
+                    pass
+                logger.info(
+                    f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
+                    f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
+                    f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
+                )
                 
                 # We use save_alert_if_new to insert into the main alerts table!
                 from zoneinfo import ZoneInfo

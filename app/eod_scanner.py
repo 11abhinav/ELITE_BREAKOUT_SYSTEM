@@ -148,6 +148,12 @@ def _start_wrapper(force: bool = False):
         # [VERSION: EOD_PATCH_v1.0] [BUG FIX 5] Compute today_str once here and reuse it throughout to avoid duplication
         today_str = ist_now.strftime("%Y-%m-%d")
 
+        # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
+        import hashlib
+        _wl_stocks = sorted(watchlist["Stock"].tolist())
+        _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
+        logger.info(f"📋 [EOD] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
+
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
 
@@ -786,6 +792,22 @@ def _start_wrapper(force: bool = False):
                     "shares_bought":     shares
                 })
                 total_alerts += 1
+
+                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every stock that passes ALL filters
+                _last_bar_date = "unknown"
+                try:
+                    if isinstance(ticker.index, pd.DatetimeIndex):
+                        _last_bar_date = str(ticker.index[-1])[:10]
+                    elif "Date" in ticker.columns:
+                        _last_bar_date = str(ticker["Date"].iloc[-1])[:10]
+                except Exception:
+                    pass
+                logger.info(
+                    f"✅ [EOD] PASSED ALL FILTERS: {symbol} | "
+                    f"score={score} | vol_ratio={volume_ratio:.2f} | rsi={rsi_val:.1f} | "
+                    f"entry=₹{candle_close:.2f} | sl=₹{suggested_stop} | t1=₹{target_price} | "
+                    f"last_bar={_last_bar_date} | category={category}"
+                )
 
             # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
             except Exception as e:

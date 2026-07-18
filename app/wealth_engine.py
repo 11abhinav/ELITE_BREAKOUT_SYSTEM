@@ -822,6 +822,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         df = pd.read_parquet(WATCHLIST_PATH)
         df = df.drop_duplicates(subset=["Stock"]).reset_index(drop=True)
         candidate_symbols = set(df["Stock"].astype(str).tolist()) if "Stock" in df.columns else set()
+        
+        # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
+        import hashlib
+        _wl_stocks = sorted(list(candidate_symbols))
+        _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
+        logger.info(f"📋 [WEALTH ENGINE] Watchlist fingerprint: {len(candidate_symbols)} stocks | hash={_wl_hash}")
 
         # ── PREP LAYER 3 (Orphan Open Positions) ──
         portfolio_dict = {}
@@ -1043,6 +1049,19 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 if symbol and cmp and not DONT_SAVE_WEALTH:
+                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                    _last_bar_date = "unknown"
+                    if "fallback_timestamp" in row and row["fallback_timestamp"]:
+                        _last_bar_date = str(row["fallback_timestamp"])[:10]
+                    elif not row.get("used_fallback_data", False):
+                        _last_bar_date = "live/cache"
+                        
+                    logger.info(
+                        f"✅ [WEALTH ENGINE] PASSED ALL FILTERS: {symbol} | "
+                        f"fm_score={row.get('FM_Score', 0):.1f} | mom={row.get('momentum_score', 0)} | "
+                        f"bucket={row.get('Portfolio_Bucket', 'Unknown')} | entry=₹{cmp:.2f} | last_bar={_last_bar_date}"
+                    )
+                    
                     if is_test_mode:
                         logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {symbol}")
                         inserted = True
