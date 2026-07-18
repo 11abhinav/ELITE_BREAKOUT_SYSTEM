@@ -1200,6 +1200,23 @@ To prevent rate-limit starvation and cross-thread data races, all primary execut
 - The **Multi-TF Scanner** and **AI Worker Daemon** operate using independent process/file-based locks (`ProcessLock` from `lock_utils.py` or internal module locks). 
 - **Isolation:** Because these background loops run on heavily staggered and independent timelines (Multi-TF every 5 minutes, AI Worker continuously overnight), they do not share the primary `scanner_execution_lock`. This prevents a long-running Multi-TF loop from indefinitely halting the critical EOD end-of-day execution sweep.
 
+## 34. NSE API Fetching, Rate Limiting & Admin Notifications
+
+Because the National Stock Exchange (NSE) employs a strict Cloudflare Web Application Firewall (WAF) to prevent aggressive automated scraping, all API requests targeted at `nseindia.com` must adhere to rigorous fetching protocols.
+
+### 34.1 The WAF Bypass Protocol
+- **Impersonation:** Standard `requests.Session` connections are immediately blocked with HTTP 403. The system explicitly requires `curl_cffi` using the `impersonate="chrome110"` flag to successfully mimic a valid browser fingerprint.
+- **Header Injection:** Valid `User-Agent` and `Referer: https://www.nseindia.com/` headers must be attached to the active `curl_cffi` session.
+- **Cookie Establishment:** Before fetching JSON payloads, PDFs, or CSV data, the session must execute a dry-run `GET` request to the NSE root homepage (`https://www.nseindia.com/`) to establish valid Cloudflare bypass cookies.
+
+### 34.2 Rate Limiting and Spaced Requests
+- To prevent IP bans from Cloudflare rate limits, explicit `time.sleep(2.5)` buffers are injected between sequential NSE endpoint queries.
+- For example, if the `block_deal_detector.py` fetches the historical block-deals CSV, it must sleep for 2.5 seconds before querying the snapshot bulk-deals CSV.
+
+### 34.3 Hard-Failure Alerting
+- If an NSE endpoint fails, the scanners attempt a fixed exponential backoff retry loop (typically `MAX_RETRIES = 3`).
+- **No Swallowed Errors:** If the retry loop is exhausted and the data remains un-fetchable, the fetcher will fire an explicit, high-priority **Telegram/Push notification** directly to the admin (e.g., `⚠️ NSE API ERROR: Bhavcopy fetch failed`). This ensures that the execution engine never degrades silently in the background without explicit admin awareness.
+
 </textarea>
 
 
