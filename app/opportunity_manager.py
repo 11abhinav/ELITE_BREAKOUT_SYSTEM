@@ -224,6 +224,8 @@ class OpportunityManager:
                         rsi=c.get("rsi", 0.0),
                         volume_ratio=c.get("volume_ratio", 0.0),
                         model_version=ACTIVE_ALGO_VERSION,
+                        structural_failure_stop=c.get("structural_failure_stop"),
+                        target_quality_score=c.get("target_quality_score"),
                         context={
                             **(c.get("context") or {}),
                             "portfolio_funded": True,

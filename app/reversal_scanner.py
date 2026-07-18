@@ -129,6 +129,8 @@ def _score_reversal(
         delivery_pct: Optional[float] = None,
         close_price: Optional[float] = None,
         symbol: Optional[str] = None,
+        promoter_pledge_pct: Optional[float] = None,
+        weights: Optional[dict] = None,
 ) -> int:
     """Score a reversal setup from 0-100 based on quality dimensions (v6 weights)."""
     score = 0
@@ -237,6 +239,18 @@ def _score_reversal(
             logger.warning(f"Error checking institutional footprints in Reversal: {e}")
             inst_bonus = 0
 
+    # ── Bayesian Pledge Penalty ──
+    pledge_penalty = 0
+    if promoter_pledge_pct is not None and weights and "PLEDGE_PENALTY" in weights:
+        max_penalty = float(weights["PLEDGE_PENALTY"])
+        if promoter_pledge_pct > 10.0:
+            scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
+            pledge_penalty = int(max_penalty * scale)
+            if pledge_penalty < 0:
+                score += pledge_penalty
+                if symbol:
+                    logger.warning(f"  {pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+
     return min(score + inst_bonus, 100)
 
 
@@ -292,6 +306,20 @@ def _run_scan(force: bool = False):
     except Exception:
         regime_ctx = {"trend": "NEUTRAL", "biases": {}}
 
+    try:
+        from database import get_latest_weights
+        regime_str = regime_ctx.get("trend", "NEUTRAL")
+        latest_db_weights = get_latest_weights(regime_str)
+        if latest_db_weights:
+            bayesian_weights = latest_db_weights.get("weights")
+            bayesian_version = latest_db_weights.get("version", "v1")
+        else:
+            bayesian_weights = None
+            bayesian_version = "v1"
+    except Exception:
+        bayesian_weights = None
+        bayesian_version = "v1"
+
 
     try:
         watchlist = get_watchlist()
@@ -322,6 +350,16 @@ def _run_scan(force: bool = False):
 
     # Pulling 1y data to ensure we catch the 52W High correctly
     all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
+
+    # Fetch pledge map to pass to scoring engine
+    try:
+        from database import get_pledge_map
+        symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+        pledge_map = get_pledge_map(symbols)
+        logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
+    except Exception as e:
+        logger.exception("Failed to fetch pledge map")
+        pledge_map = {}
 
     fetched_count = len(all_ticker_data) if all_ticker_data else 0
     if fetched_count < len(watchlist) * 0.70:
@@ -784,6 +822,8 @@ def _run_scan(force: bool = False):
                 delivery_pct=delivery_pct,
                 close_price=close_price,       # [VERSION: REVERSAL_MACD_NORM_v1.0]
                 symbol=symbol,
+                promoter_pledge_pct=pledge_map.get(symbol),
+                weights=bayesian_weights,
             )
 
             if reversal_score < MIN_REVERSAL_SCORE:
@@ -982,8 +1022,8 @@ def _run_scan(force: bool = False):
                     target_price=alert["target_price"],
                     context=alert["context"],
                     model_version=ACTIVE_ALGO_VERSION,
-                    bayesian_regime=_bayesian_regime,
-                    bayesian_weights=None,
+                    bayesian_regime=regime_ctx.get("trend", "NEUTRAL"),
+                    bayesian_weights=bayesian_weights,
                     structural_failure_stop=alert.get("structural_failure_stop"),
                     target_quality_score=alert.get("target_quality_score")
                 )

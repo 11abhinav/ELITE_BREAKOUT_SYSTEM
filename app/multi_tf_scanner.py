@@ -272,6 +272,21 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
         logger.info("No active setups to track.")
         return {"fetched": 0, "total": 0, "stale": 0}
 
+    # Fetch pledge map to pass to scoring engine
+    try:
+        from database import get_pledge_map, get_latest_weights
+        symbols = list(set(i["symbol"] for i in active_items))
+        pledge_map = get_pledge_map(symbols)
+        logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
+        
+        regime_str = regime_ctx.get("trend", "NEUTRAL") if regime_ctx else "NEUTRAL"
+        latest_db_weights = get_latest_weights(regime_str)
+        bayesian_weights = latest_db_weights.get("weights") if latest_db_weights else None
+    except Exception as e:
+        logger.exception("Failed to fetch pledge map or weights")
+        pledge_map = {}
+        bayesian_weights = None
+
     # Bucket symbols by required timeframe to minimize downloads
     # SETUP_ARMED and ENTRY_READY also need 30m data for the 3% decay safety check
     needs_30m = list(set(
@@ -717,6 +732,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             else:
                                 base_score = int(80 + (vol_ratio * 5))
                                 base_score = max(0, min(100, base_score))
+                                
+                                # ── Bayesian Pledge Penalty ──
+                                promoter_pledge_pct = pledge_map.get(symbol)
+                                if promoter_pledge_pct is not None and bayesian_weights and "PLEDGE_PENALTY" in bayesian_weights:
+                                    max_penalty = float(bayesian_weights["PLEDGE_PENALTY"])
+                                    if promoter_pledge_pct > 10.0:
+                                        scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
+                                        pledge_penalty = int(max_penalty * scale)
+                                        if pledge_penalty < 0:
+                                            base_score += pledge_penalty
+                                            logger.warning(f"  {pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+                                            base_score = max(0, base_score)
+                                
                                 try:
                                     from block_deal_detector import compute_inst_bonus
                                     inst_bonus = compute_inst_bonus(symbol, base_score)
@@ -745,6 +773,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     "target_1": sl_result.get("target_1"),
                                     "target_2": sl_result.get("target_2"),
                                     "target_3": sl_result.get("target_3"),
+                                    "structural_failure_stop": sl_result.get("structural_failure_stop"),
+                                    "target_quality_score": sl_result.get("target_quality"),
                                     "signals": f"MULTI_TF Ladder (1h→30m→15m→5m) | {trigger_type}",
                                     "rsi": _safe_float(latest.get("RSI", 0)),
                                     "context": ctx,

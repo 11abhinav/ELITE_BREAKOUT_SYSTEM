@@ -749,29 +749,22 @@ def calculate_score(
     timeframe="15m",
     atr_val=None,
     delivery_pct=None,
+    promoter_pledge_pct=None,
     min_vol=50_000,
     nifty_ret=5.0,
-    regime_ctx=None
+    regime_ctx=None,
+    bayesian_weights=None,
+    bayesian_version="v1"
 ):
     """
     Returns an integer score from 0 to 100 (plus bonuses, capped at 100).
     Returns (0, "v1") if any hard disqualifier fires.
     """
 
-    import pandas as pd
-    from database import get_latest_weights
-    
-    # Bayesian Dynamic Weighting Support
-    model_version = "v1"
-    weights = None
+    # Bayesian Dynamic Weighting Support (Passed from Context)
+    model_version = bayesian_version
+    weights = bayesian_weights
     regime_str = regime_ctx["trend"] if regime_ctx and "trend" in regime_ctx else "NEUTRAL"
-    try:
-        latest_db_weights = get_latest_weights(regime_str)
-        if latest_db_weights:
-            model_version = latest_db_weights.get("version", "v1")
-            weights = latest_db_weights.get("weights")
-    except Exception as e:
-        logger.exception(f"Failed to fetch DB weights")
 
     score = 0
     tag   = f"[{symbol}] " if symbol else ""
@@ -994,6 +987,17 @@ def calculate_score(
             logger.debug(f"  Score after regime breakout bias: {score} ({'+' if breakout_bias > 0 else ''}{breakout_bias})")
         # if mean_rev_bias != 0: # Uncomment if handling reversal scanner separately
 
+    # ── STEP 8: BAYESIAN PLEDGE PENALTY ───────────────────────────────────────────────
+    if promoter_pledge_pct is not None and weights and "PLEDGE_PENALTY" in weights:
+        max_penalty = float(weights["PLEDGE_PENALTY"]) # Expected to be negative, e.g. -8.0
+        if promoter_pledge_pct > 10.0:
+            # Scale penalty from 10% to 50% (capped at max_penalty)
+            scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
+            pledge_penalty = int(max_penalty * scale)
+            if pledge_penalty < 0:
+                score += pledge_penalty
+                logger.warning(f"  {pledge_penalty} {tag}Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+                
     # Cap at configured max or 100
     final_score = int(score)
     if final_score > max_score_cap:

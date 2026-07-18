@@ -35,12 +35,15 @@ class DataFetcher(ABC):
 
 class YFinanceFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
+        # [VERSION: NULL_POINTER_FIX_v1.0]
+        if not symbol:
+            return ""
         # [VERSION: DATA_PROV_SYMBOL_FIX_v1.2] Support persistent BSE symbol mappings to avoid redundant NSE failures
         try:
             from bse_mapping_utils import load_bse_mappings
             mappings = load_bse_mappings()
-            upper_sym = symbol.strip().upper()
-            if upper_sym in mappings:
+            upper_sym = str(symbol).strip().upper()
+            if upper_sym in mappings and mappings[upper_sym]:
                 return mappings[upper_sym]
             if upper_sym.endswith(".NS") and upper_sym[:-3] in mappings:
                 return mappings[upper_sym[:-3]]
@@ -145,7 +148,12 @@ class YFinanceFetcher(DataFetcher):
         return ProviderResult.NETWORK_ERROR
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
+        # [VERSION: NULL_POINTER_FIX_v1.0]
+        if not symbol:
+            return None
         ns_sym = self._normalize_symbol(symbol)
+        if not ns_sym:
+            return None
         logger.debug(f"📥 Fetching OHLCV for {symbol} ({interval}, {period}) via YFinance...")
         df = self._get_ohlcv_raw(ns_sym, interval, period, retries, range_from, range_to)
         
@@ -230,10 +238,17 @@ class YFinanceFetcher(DataFetcher):
         
         normalized_map = {}
         for s in symbols:
+            # [VERSION: NULL_POINTER_FIX_v1.0]
+            if not s:
+                continue
             ns_sym = self._normalize_symbol(s)
+            if not ns_sym:
+                continue
             normalized_map.setdefault(ns_sym, []).append(s)
             
         ns_symbols = list(normalized_map.keys())
+        if not ns_symbols:
+            return {}
         fetched = self._fetch_batch_raw(ns_symbols, period, interval, range_from, range_to)
         
         all_data = {}

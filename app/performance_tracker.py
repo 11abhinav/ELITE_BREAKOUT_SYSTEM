@@ -323,6 +323,34 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["execution_state"] = execution_state
             continue
             
+        # 1.5 Evaluate Structural Failure Stop (Closing Basis Early Exit)
+        if structural_failure_stop and close_p <= structural_failure_stop:
+            exit_p = close_p
+            pnl_rs_event = rem_shares * (exit_p - t["entry_price"])
+            event = {"type": "STRUCT_FAIL", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
+            
+            final_status = "WIN" if "PARTIAL" in status else "LOSS"
+            execution_state = "STRUCT_FAIL"
+            
+            hist_list.append(event)
+            total_pnl_rs = sum(e["pnl"] for e in hist_list)
+            cap = t.get("capital_allocated") or 0.0
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            
+            if "STRUCT_FAIL" not in db_events:
+                update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
+                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STRUCTURAL_FAIL", execution_state=execution_state)
+            
+            t["status"] = final_status
+            t["remaining_shares"] = 0
+            t["exit_history"] = json.dumps(hist_list)
+            t["pnl_pct"] = total_pnl_pct
+            t["pnl_rs"] = total_pnl_rs
+            t["stopped_out"] = True
+            t["closed_at"] = ts_str
+            t["execution_state"] = execution_state
+            continue
+
         status = t["status"]
         # 2. Evaluate T1
         if status == "OPEN" and high >= t1:

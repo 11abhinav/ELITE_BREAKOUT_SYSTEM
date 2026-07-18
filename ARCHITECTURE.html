@@ -1255,6 +1255,45 @@ The `ABCDDetector` no longer uses naive local rolling highs/lows. It iterates ba
 ### 36.3 Post-Trade Analytics Transparency
 The entire generated candidate pool (including all rejected targets, their generation source, cluster assignments, and final selection state) is passed to the Performance Tracker via the `sl_result` JSONB field. This creates a fully queryable post-trade diagnostic trail, allowing quantitative review of exactly why a specific target was chosen over another.
 
+---
+
+## 37. System-Wide Integration Audit & Edge-Case Resolutions (v7 Final)
+
+Following the deployment of the V7 Engine, a full-stack integration audit was conducted to resolve critical logic gaps arising from system intersections (e.g. orchestration state, tracker state, and data staleness).
+
+### 37.1 Market Holiday Duplication Protection
+**The Problem**: The `main.py` scheduler paused execution natively on weekends, but not public holidays. During a holiday, `bhavcopy_downloader` failed to fetch data and fell back to the previous trading day's data. Since the daily EOD scanner had an `ALERT_COOLDOWN_MINUTES` of 390 minutes (6.5 hours), a Friday alert would re-trigger identically on a Monday holiday (72 hours later) because the data was technically valid under the 4-day long-weekend staleness rules.
+**The Solution**: The `ALERT_COOLDOWN_MINUTES` for both `EOD` and `REVERSAL` was extended to `5760` minutes (96 hours) in `config.py`. This ensures that even if a public holiday forces the scanner to evaluate stale data, it cannot re-issue the exact same breakout alert within a 4-day window.
+
+### 37.2 Structural Failure Early-Exit (Performance Tracker)
+**The Problem**: The V7 engine introduced `structural_failure_stop` as a tight early-exit level for setups that cleanly fail (preventing them from bleeding down to the wider protective stop loss). However, this level was only being captured in the database, and never evaluated by the `performance_tracker.py` forward-tick state machine.
+**The Solution**: Injected a `STRUCTURAL_FAIL` evaluation block into the tracker loop immediately following the primary intraday stop loss (`SL_HIT`) check. 
+- **Wick vs Close Validation**: The tracker explicitly processes `structural_failure_stop` on a *closing basis* (`close_p <= structural_failure_stop`), honoring the engine's design that structural levels require a confirmed close to be invalidated.
+- Conversely, the protective `stop_loss` remains a hard intraday stop evaluated against the tick's `Low`.
+
+### 37.3 Parallel Dispatch Orchestration
+To optimize wall-clock time, the orchestrator now executes `eod_scanner` and `reversal_scanner` as parallel thread dispatches immediately upon Bhavcopy readiness, rather than sequentially. Because the database engine uses SQLite WAL and explicit thread locks, the scanners can evaluate completely independent strategies concurrently without data races.
+
+### 37.4 Orphaned Structural Target Pipeline (sl_target_helper.py)
+**The Problem**: The V7 engine function `_compute_structural_failure_stop` was an orphaned function. It was defined but never actually invoked inside the core V7 execution pathways (`_compute_eod`, `_compute_reversal`, `_compute_multi_tf`). This meant that `structural_failure_stop` universally returned `None`, completely disabling the early-exit tracker feature.
+**The Solution**: Explicitly invoked the function within all three pipeline engines, resolving the required trailing inputs (e.g., `eff_atr` and `supports`), and injected the resolved price into the final output dictionary.
+
+### 37.5 Multi-TF Scanner Database Mapping Parity
+**The Problem**: During the initial V7 integration, the `eod_scanner` and `reversal_scanner` were correctly updated to capture the newly introduced `structural_failure_stop` and `target_quality_score` fields for database insertion. However, the `multi_tf_scanner` was bypassed, meaning intraday setups permanently lost this data.
+### 37.6 Orphaned Target Quality Pipeline
+**The Problem**: Similar to the structural failure stop logic, the V7 engine's explainable target quality score (`_compute_target_quality`) was implemented but remained uncalled inside the core execution branches (`_compute_multi_tf`, `_compute_eod`, `_compute_reversal`). Consequently, the trade ranking engine was operating blindly, as all scanners yielded a null score for target quality.
+**The Solution**: Appended the target quality computations to all three primary execution pathways inside `sl_target_helper.py`, passing the required trailing variables (RSI, ADX, MACD, Volume) and inserting the derived `tq_score` into the master output payloads.
+
+### 37.7 Opportunity Manager Database Payload Gap
+**The Problem**: The `multi_tf_scanner` operates on a delayed DB injection strategy via the `OpportunityManager`. While the scanner itself queued the new V7 DB fields (`structural_failure_stop` and `target_quality_score`) into memory, `opportunity_manager.py` was not extracting them during its iterative sweep over the memory-mapped candidates when invoking the DB layer (`save_alert_if_new`).
+**The Solution**: Patched the `OpportunityManager` to dynamically pull and append both DB parameters into the final `save_alert_if_new` commit step for `FUNDED` status alerts.
+### 37.8 Combined System Flow: Pledge Data Gap (Scoring Engine)
+**The Problem**: The `pledge_worker.py` correctly fetches and caches promoter pledge percentages into the `promoter_pledge_cache` table. The `multibagger.py` and `gate_engine.py` correctly use this data to disqualify stocks with >50% pledge. Additionally, the `bayesian_updater.py` explicitly defines a `PLEDGE_PENALTY` in `DEFAULT_WEIGHTS` for scoring. However, the `scoring_engine.py` (which powers the EOD, Multi-TF, and Reversal scanners) never queries the pledge cache or applies this penalty. Consequently, heavily pledged stocks can still achieve a >82 breakout score.
+**The Implication**: The Institutional footprint validation is partially blind to pledge risk in the technical scanners, completely bypassing the intended Bayesian penalty.
+
+### 37.9 Algorithm Version Bump
+**The Problem**: With the multiple patches applied during the V7 Final audit, historical trades generated by the original V7.0 logic were conceptually mixed with those generated under the patched engine.
+**The Solution**: The `ACTIVE_ALGO_VERSION` in `config.py` was officially bumped to `SL_ENGINE_V7.1` to enforce strict lineage boundaries for all forward-generated alerts.
 </textarea>
 
 

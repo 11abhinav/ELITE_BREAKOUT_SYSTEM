@@ -160,6 +160,16 @@ def _start_wrapper(force: bool = False):
 
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
+        
+        # Fetch pledge map to pass to scoring engine
+        try:
+            from database import get_pledge_map
+            symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+            pledge_map = get_pledge_map(symbols)
+            logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
+        except Exception as e:
+            logger.exception("Failed to fetch pledge map")
+            pledge_map = {}
 
         # [VERSION: EOD_PATCH_v1.1] [BUG FIX 7 REGRESSION FIX] Explicit shutdown(wait=False) to prevent 'with' block from hanging
         pool = ThreadPoolExecutor(max_workers=2)
@@ -292,6 +302,20 @@ def _start_wrapper(force: bool = False):
         except Exception:
             logger.warning("⚠️ Could not build regime_ctx from MarketRegimeEngine — using neutral fallback")
             regime_ctx = {"trend": market_regime, "biases": {}}
+            
+        try:
+            from database import get_latest_weights
+            regime_str = regime_ctx.get("trend", "NEUTRAL")
+            latest_db_weights = get_latest_weights(regime_str)
+            if latest_db_weights:
+                bayesian_weights = latest_db_weights.get("weights")
+                bayesian_version = latest_db_weights.get("version", "v1")
+            else:
+                bayesian_weights = None
+                bayesian_version = "v1"
+        except Exception:
+            bayesian_weights = None
+            bayesian_version = "v1"
 
         # [BUG-1 FIX v1.5] Compute threshold BEFORE regime check to avoid NameError
         BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
@@ -636,8 +660,11 @@ def _start_wrapper(force: bool = False):
                     timeframe="1d",
                     atr_val=atr_val_eod,
                     delivery_pct=delivery_pct,
+                    promoter_pledge_pct=pledge_map.get(symbol),
                     nifty_ret=nifty_ret_20d,
-                    regime_ctx=regime_ctx
+                    regime_ctx=regime_ctx,
+                    bayesian_weights=bayesian_weights,
+                    bayesian_version=bayesian_version
                 )
 
                 if score > 0:

@@ -2272,6 +2272,25 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                     "last_updated": None
                 }
 
+def get_pledge_map(symbols: list[str]) -> dict[str, float]:
+    """Bulk fetch pledge percentages for a list of symbols to prevent N+1 queries in scanners."""
+    if not symbols:
+        return {}
+    init_db()
+    pledge_map = {}
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                placeholders = ','.join(['%s'] * len(symbols))
+                cur.execute(f"SELECT symbol, pledge_pct FROM promoter_pledge_cache WHERE symbol IN ({placeholders})", tuple(symbols))
+                for row in cur.fetchall():
+                    val = row[1]
+                    if val is not None and float(val) >= 0:
+                        pledge_map[row[0]] = float(val)
+            except Exception as e:
+                logger.exception("Error getting pledge map")
+    return pledge_map
+
 def has_valid_concall_cache(symbol: str) -> bool:
     """
     Returns True if a valid (non-error) concall analysis exists for the symbol.
@@ -2402,7 +2421,15 @@ def get_latest_weights(regime: str) -> dict:
                 """, (regime,))
                 row = cur.fetchone()
                 if row:
-                    return {"version": row[0], "weights": row[1]}
+                    import json
+                    w_data = row[1]
+                    if isinstance(w_data, str):
+                        try:
+                            w_data = json.loads(w_data)
+                        except Exception:
+                            logger.error(f"Failed to parse JSON for regime {regime}")
+                            w_data = {}
+                    return {"version": row[0], "weights": w_data}
                 return None
             except Exception:
                 logger.exception(f"❌ get_latest_weights failed for regime={regime}")

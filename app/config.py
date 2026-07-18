@@ -57,7 +57,7 @@ SCORE_THRESHOLDS = {
 # =====================================================================================
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
-ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.0"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration
+ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
 
 
 MULTI_TF_CONFIG = {
@@ -132,8 +132,8 @@ REVERSAL_CONFIG = {
 }
 
 ALERT_COOLDOWN_MINUTES = {
-    "EOD": 390,
-    "REVERSAL": 240
+    "EOD": 5760,       # 96 hours (Prevents duplicate alert generation on market holidays via fallback data)
+    "REVERSAL": 5760   # 96 hours
 }
 
 

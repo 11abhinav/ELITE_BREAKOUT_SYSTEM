@@ -100,10 +100,11 @@ class FyersFetcher(DataFetcher):
         """Translates standard symbols (e.g. RELIANCE, FIVESTAR.NS, ^NSEI) to Fyers specific formats.
         Also trims whitespace and normalizes casing to avoid "Invalid input" caused by trailing spaces or stray newlines.
         """
+        # [VERSION: NULL_POINTER_FIX_v1.0] Guard against missing symbols from upstream
         if not symbol:
             return ""
         # Trim invisible characters first
-        symbol = symbol.strip()
+        symbol = str(symbol).strip()
         sym = symbol.upper()
         
         # If already formatted with exchange prefix, return as is (prevents double-normalization)
@@ -151,7 +152,7 @@ class FyersFetcher(DataFetcher):
         try:
             from data_providers.fyers_mapping_utils import load_fyers_mappings
             mappings = load_fyers_mappings()
-            if sym in mappings:
+            if sym in mappings and mappings[sym]:
                 return mappings[sym]
         except Exception:
             pass
@@ -216,7 +217,10 @@ class FyersFetcher(DataFetcher):
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         """Fetch OHLCV data for a single symbol from Fyers."""
-        
+        # [VERSION: NULL_POINTER_FIX_v1.0]
+        if not symbol:
+            return None
+            
         # Check if Fyers circuit breaker is open (too many failures)
         if not _fyers_circuit_breaker.is_available():
             return None
@@ -471,8 +475,13 @@ class FyersFetcher(DataFetcher):
             
         normalized_map = {}
         for s in symbols:
-            orig = s.strip() if isinstance(s, str) else s
+            # [VERSION: NULL_POINTER_FIX_v1.0] Prevent None leaks from batch dataframe extraction
+            if not s:
+                continue
+            orig = s.strip() if isinstance(s, str) else str(s)
             ns_sym = self._normalize_symbol(orig)
+            if not ns_sym:
+                continue
             if ns_sym not in normalized_map:
                 normalized_map[ns_sym] = []
             normalized_map[ns_sym].append(orig)

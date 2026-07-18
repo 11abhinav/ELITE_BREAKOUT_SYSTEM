@@ -897,10 +897,19 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
 
     t1 = targets.get("t1", entry)
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
+    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    tq_score, _ = _compute_target_quality(
+        natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
+        kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
+    )
+    s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
+    
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
-        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "structural_failure_stop": s_f_s,
+        "target_quality": tq_score,
+        "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
         "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
@@ -947,10 +956,19 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
 
     t1 = targets.get("t1", entry)
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
+    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    tq_score, _ = _compute_target_quality(
+        natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
+        kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
+    )
+    s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
+    
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
-        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "structural_failure_stop": s_f_s,
+        "target_quality": tq_score,
+        "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
         "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src}
     }
@@ -992,10 +1010,19 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     t2 = clusters[1].consensus_price if len(clusters) > 1 else None
     t3 = clusters[2].consensus_price if len(clusters) > 2 else None
     
+    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    tq_score, _ = _compute_target_quality(
+        natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
+        kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
+    )
+    s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
+    
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": t2, "target_3": t3,
-        "natural_rr": round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0,
+        "structural_failure_stop": s_f_s,
+        "target_quality": tq_score,
+        "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"MeanReversion [T1]",
         "sl_result": {"target_candidate_pool": [vars(c) for c in cands]}
     }
