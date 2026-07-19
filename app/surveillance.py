@@ -45,24 +45,27 @@ def get_live_blacklist() -> set[str]:
             except Exception as e:
                 logger.exception(f"Failed to load promoter blacklist")
     
-        # 2. Check local JSON backup first (if under 12 hours old, use it and skip API hit)
-        json_path = os.path.join(os.path.dirname(WATCHLIST_PATH), "surveillance_blacklist.json")
+        # 2. Check Postgres backup first (if under 12 hours old, use it and skip API hit)
         try:
+            from database import get_system_state
             import json
-            if os.path.exists(json_path):
-                file_age = time.time() - os.path.getmtime(json_path)
+            db_payload = get_system_state("surveillance_blacklist")
+            if db_payload:
+                cache_data = json.loads(db_payload)
+                saved_time = cache_data.get("timestamp", 0)
+                cached_list = cache_data.get("symbols", [])
+                
+                file_age = time.time() - saved_time
                 if file_age < 12 * 3600: # 12 hours
-                    with open(json_path, "r") as f:
-                        cached_list = json.load(f)
                     if cached_list:
                         for sym in cached_list:
                             blacklist.add(str(sym).strip().upper())
-                        logger.info(f"🛡️ Loaded {len(cached_list)} surveillance symbols from fresh local cache (age: {file_age/3600:.1f}h).")
+                        logger.info(f"🛡️ Loaded {len(cached_list)} surveillance symbols from fresh Postgres cache (age: {file_age/3600:.1f}h).")
                         _blacklist_cache = blacklist
                         _blacklist_ts = time.monotonic()
                         return _blacklist_cache
         except Exception as e:
-            logger.warning(f"Failed to load fresh local surveillance cache: {e}")
+            logger.warning(f"Failed to load fresh Postgres surveillance cache: {e}")
 
         # 3. Fetch Live NSE ASM/GSM (Surveillance measures) if cache is old or missing
         try:
@@ -113,12 +116,16 @@ def get_live_blacklist() -> set[str]:
                     logger.info(f"🛡️ Refreshed NSE Surveillance List. Total Blacklisted: {len(blacklist)}")
                     
                     try:
+                        from database import save_system_state
                         import json
-                        with open(json_path, "w") as f:
-                            json.dump(list(blacklist), f)
-                        logger.info("💾 Saved refreshed NSE surveillance list to local JSON backup.")
+                        payload = {
+                            "timestamp": time.time(),
+                            "symbols": list(blacklist)
+                        }
+                        save_system_state("surveillance_blacklist", json.dumps(payload))
+                        logger.info("💾 Saved refreshed NSE surveillance list to Postgres backup.")
                     except Exception as cache_err:
-                        logger.warning(f"Failed to write surveillance JSON backup: {cache_err}")
+                        logger.warning(f"Failed to write surveillance Postgres backup: {cache_err}")
                         
                     break
                     
@@ -137,20 +144,22 @@ def get_live_blacklist() -> set[str]:
             if _blacklist_cache is not None:
                 return _blacklist_cache
                 
-            if os.path.exists(json_path):
-                try:
-                    import json
-                    with open(json_path, "r") as f:
-                        cached_list = json.load(f)
+            try:
+                from database import get_system_state
+                import json
+                db_payload = get_system_state("surveillance_blacklist")
+                if db_payload:
+                    cache_data = json.loads(db_payload)
+                    cached_list = cache_data.get("symbols", [])
                     if cached_list:
                         for sym in cached_list:
                             blacklist.add(str(sym).strip().upper())
-                        logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from local JSON backup (stale).")
+                        logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from Postgres system_state (stale).")
                         _blacklist_cache = blacklist
                         _blacklist_ts = time.monotonic()
                         return _blacklist_cache
-                except Exception as cache_err:
-                    logger.warning(f"Failed to read surveillance JSON backup: {cache_err}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to read surveillance Postgres backup: {cache_err}")
                 
         # Update cache
         _blacklist_cache = blacklist
