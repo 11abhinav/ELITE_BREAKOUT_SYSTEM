@@ -1499,6 +1499,34 @@ Any new external API should satisfy a standard checklist before integration:
 ### Phase 13 – Architectural Governance & Freeze (Completed Phase 0)
 The data validation framework is considered **feature-frozen**. No new architectural concepts or framework layers may be introduced. Future work must only consist of implementing new dataset validators conforming to this architecture, fixing defects, or expanding test coverage.
 
+#### Frozen Architectural Core
+The following APIs and classes are considered architectural platform code and **must not be changed casually**:
+- `ValidationEngine`
+- `BaseValidator`
+- `BaseScoreCalculator`
+- `ValidationContext`
+- `ValidationMetrics`
+- `ValidationResult`
+- `DataQualityReport`
+- `ValidationRegistry`
+- `ValidationCode` / `ValidationFailure` / `DatasetType`
+
+*Changing any of these components requires an explicit architecture review.*
+
+#### Flexible Business Rules
+The freeze applies to the framework structure, not the domain logic. The following should continue to evolve dynamically as production experience is gained:
+- Dataset-specific validation thresholds (e.g., Price validation heuristics).
+- Business rules (e.g., Bhavcopy logic, Corporate action rules).
+- Quality score weights.
+
+#### Architecture Freeze Rule
+The core validation framework may only be modified if one of the following is explicitly proven:
+1. A production defect demonstrates that the framework cannot correctly validate or protect data.
+2. A new dataset cannot be implemented within the existing framework without modifying core interfaces.
+3. A verification test proves that an architectural invariant is violated.
+
+Otherwise, all changes belong in the dataset-specific validators, contracts, or scoring logic—not in the framework.
+
 **Strict Governance Rule for External APIs:**
 A new external data source cannot be merged into the codebase unless:
 1. It has an explicit `DatasetType` mapped in the `ValidationRegistry`.
