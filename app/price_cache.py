@@ -16,7 +16,7 @@ from database import upsert_fetch_error
 from data_provider import get_fetcher
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
 from core_enums import ProviderResult
-from data_quality import DataQualityValidator, MarketData
+from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData
 from config import SOURCE_RELIABILITY, MAX_HISTORY_SHRINK
 import json
 import os
@@ -378,7 +378,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     # Cache Decision Engine
                     if cached_df is not None and not cached_df.empty:
-                        cache_report = DataQualityValidator.validate(cached_df, period, interval, range_from, range_to)
+                        engine = ValidationEngine(PriceValidator(), PriceScoreCalculator(period, interval, range_from, range_to))
+                        cache_report = engine.validate(cached_df)
                         
                         remote_score = (new_report.quality_score if new_report else 0) * SOURCE_RELIABILITY.get(remote_source, 1.0)
                         cache_score = cache_report.quality_score * SOURCE_RELIABILITY.get("Cache", 0.95)
