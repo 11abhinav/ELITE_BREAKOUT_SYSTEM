@@ -131,9 +131,16 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 df.columns = [c.strip().upper() for c in df.columns]
                 
                 # Validate columns
-                required_cols = {"SYMBOL", "SERIES", "DELIV_PER"}
+                required_cols = {"SYMBOL", "SERIES", "DATE1", "DELIV_PER"}
                 if not required_cols.issubset(set(df.columns)):
                     logger.warning(f"⚠️ Bhavcopy structure invalid. Columns found: {df.columns.tolist()}")
+                    return {}
+                
+                # 0. Internal Date Integrity Check
+                expected_date_str = trading_date.strftime("%d-%b-%Y") # e.g., 17-Jul-2026
+                actual_date = str(df["DATE1"].iloc[0]).strip()
+                if actual_date != expected_date_str:
+                    logger.warning(f"⚠️ Bhavcopy rejected: File contents are for {actual_date}, but we expected {expected_date_str} (NSE publishing error)")
                     return {}
                 
                 # Filter strictly to Equities
