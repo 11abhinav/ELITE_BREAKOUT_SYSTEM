@@ -9,12 +9,9 @@ import json
 from config import ACTIVE_ALGO_VERSION
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
-    import app.yf_bootstrap
+    import yf_bootstrap
 except Exception:
-    try:
-        import yf_bootstrap
-    except Exception:
-        pass
+    pass
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 IST = ZoneInfo("Asia/Kolkata")

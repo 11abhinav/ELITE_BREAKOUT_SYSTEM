@@ -4,12 +4,9 @@ import logging
 import pandas as pd
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
-    import app.yf_bootstrap
+    import yf_bootstrap
 except Exception:
-    try:
-        import yf_bootstrap
-    except Exception:
-        pass
+    pass
 import yfinance as yf
 from datetime import datetime, date
 from zoneinfo import ZoneInfo

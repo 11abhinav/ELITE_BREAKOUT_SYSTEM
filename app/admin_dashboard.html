@@ -3975,6 +3975,16 @@ async function fetchSystemLogs() {
 
 let SYSTEM_LOGS_CACHE = [];
 
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function renderSystemLogs(logs) {
   SYSTEM_LOGS_CACHE = logs;
   const container = document.getElementById('systemLogsContainer');
@@ -3995,18 +4005,20 @@ function renderSystemLogs(logs) {
   let html = '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">';
   logs.forEach((log, index) => {
     const levelColor = log.level === 'CRITICAL' ? 'var(--warn)' : 'var(--amber)';
+    const safeMessage = escapeHTML(log.message);
+    const safeTraceback = escapeHTML(log.traceback);
     
     html += `
         <div class="card" style = "padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;" >
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
           <div>
-            <span class="badge" style="background:${levelColor}; color:#fff;">${log.level}</span>
-            <span style="font-weight:600; margin-left:8px; font-size:14px; font-family:var(--font-mono); color:var(--accent);">${log.module}</span>
+            <span class="badge" style="background:${levelColor}; color:#fff;">${escapeHTML(log.level)}</span>
+            <span style="font-weight:600; margin-left:8px; font-size:14px; font-family:var(--font-mono); color:var(--accent);">${escapeHTML(log.module)}</span>
           </div>
           <div style="display:flex; align-items:center; gap:12px;">
             <div style="text-align:right; line-height:1.2;">
-              <div style="font-size:11px; color:var(--muted);">Last: ${log.last_seen}</div>
-              <div style="font-size:10px; color:var(--muted); opacity:0.7;">First: ${log.first_seen}</div>
+              <div style="font-size:11px; color:var(--muted);">Last: ${escapeHTML(log.last_seen)}</div>
+              <div style="font-size:10px; color:var(--muted); opacity:0.7;">First: ${escapeHTML(log.first_seen)}</div>
             </div>
             <div style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; color:var(--text);">
               ${log.occurrences}x
@@ -4014,8 +4026,8 @@ function renderSystemLogs(logs) {
             <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${index})">Acknowledge</button>
           </div>
         </div>
-        <div style="font-size:13px; color:var(--text); margin-bottom:8px; white-space:pre-wrap;">${log.message}</div>
-        ${ log.traceback ? `<details><summary style="cursor:pointer; font-size:12px; color:var(--muted); font-weight:600;">Show Traceback</summary><pre style="background:var(--bg); padding:12px; border-radius:6px; font-size:11px; overflow-x:auto; margin-top:8px; color:#f87171;">${log.traceback}</pre></details>` : '' }
+        <div style="font-size:13px; color:var(--text); margin-bottom:8px; white-space:pre-wrap;">${safeMessage}</div>
+        ${ log.traceback ? `<details><summary style="cursor:pointer; font-size:12px; color:var(--muted); font-weight:600;">Show Traceback</summary><pre style="background:var(--bg); padding:12px; border-radius:6px; font-size:11px; overflow-x:auto; margin-top:8px; color:#f87171;">${safeTraceback}</pre></details>` : '' }
       </div >
         `;
   });
