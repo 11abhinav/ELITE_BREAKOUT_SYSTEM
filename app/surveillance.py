@@ -87,13 +87,25 @@ def get_live_blacklist() -> set[str]:
             max_retries = 2
             for attempt in range(max_retries):
                 try:
-                    try:
-                        import nsepython
-                    except ImportError:
-                        logger.warning("⚠️ nsepython module not found. Please add to requirements.txt! Falling back to cache.")
-                        raise Exception("No module named 'nsepython'")
+                    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                    api_key = get_scraper_api_key()
                     
-                    asm_res = nsepython.nsefetch("https://www.nseindia.com/api/reportASM")
+                    def fetch_nse_json(url: str):
+                        if api_key:
+                            payload = {'api_key': api_key, 'url': url, 'render': 'false', 'country_code': 'in'}
+                            resp = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
+                            if resp.status_code in [403, 429]:
+                                mark_key_exhausted_today(api_key)
+                                raise Exception(f"ScraperAPI rate-limited ({resp.status_code})")
+                            if resp.status_code == 200:
+                                return resp.json()
+                            raise Exception(f"Failed to fetch {url} via ScraperAPI, status: {resp.status_code}")
+                        else:
+                            # Fallback to nsepython
+                            import nsepython
+                            return nsepython.nsefetch(url)
+
+                    asm_res = fetch_nse_json("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):
                         for key in ["longterm", "shortterm"]:
                             if key in asm_res and "data" in asm_res[key]:
@@ -103,7 +115,7 @@ def get_live_blacklist() -> set[str]:
                                         
                     time.sleep(1.0)
 
-                    gsm_res = nsepython.nsefetch("https://www.nseindia.com/api/reportGSM")
+                    gsm_res = fetch_nse_json("https://www.nseindia.com/api/reportGSM")
                     if isinstance(gsm_res, dict) and "data" in gsm_res:
                         for item in gsm_res["data"]:
                             if "symbol" in item:
