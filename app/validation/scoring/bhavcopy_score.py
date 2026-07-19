@@ -1,5 +1,6 @@
 from .base import BaseScoreCalculator
 from ..result import ValidationResult
+from ..context import ValidationContext
 
 class BhavcopyScoreCalculator(BaseScoreCalculator):
     """
@@ -7,7 +8,7 @@ class BhavcopyScoreCalculator(BaseScoreCalculator):
     Bhavcopy data from the exchange is typically very high fidelity.
     Penalties are applied for missing data or minor inconsistencies.
     """
-    def calculate(self, result: ValidationResult) -> float:
+    def calculate(self, result: ValidationResult, context: ValidationContext = None) -> float:
         score = 100.0
 
         if not result.is_valid:
