@@ -113,10 +113,14 @@ class V8DeliveryValidator:
             self._log_reject("SYMBOL_COUNT_OUT_OF_BOUNDS", Expected="1800-4000", Actual=num_symbols)
             return None
             
-        missing_deliv_pct = df["DELIV_PER"].isna().mean()
-        if missing_deliv_pct > 0.15:
-            self._log_reject("TOO_MUCH_MISSING_DATA", Missing_Pct=f"{missing_deliv_pct:.1%}")
-            return None
+        # Validate missing data per-series according to business rules
+        eq_mask = df["SERIES"] == "EQ"
+        if eq_mask.any():
+            eq_missing_pct = df.loc[eq_mask, "DELIV_PER"].isna().mean()
+            # EQ series should rarely have missing delivery data
+            if eq_missing_pct > 0.05:
+                self._log_reject("TOO_MUCH_MISSING_DATA_EQ", Missing_Pct=f"{eq_missing_pct:.1%}")
+                return None
             
         # Stage 6: Historical Comparison
         with _delivery_cache_lock:
@@ -131,8 +135,8 @@ class V8DeliveryValidator:
         _processed_sha256.add(file_hash)
         logger.info(f"✅ V8 Pipeline: Bhavcopy Validated | Date: {self.expected_date_str} | Symbols: {num_symbols}")
         
-        # Trade-to-Trade (BE/BZ) series often have NaN delivery %. Fill with 100% or 0% as appropriate.
-        df["DELIV_PER"] = df["DELIV_PER"].fillna(0.0)
+        # Preserve NaN values for missing data rather than coercing to 0.0.
+        # Downstream consumers must handle NaNs correctly.
         
         return dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
 
