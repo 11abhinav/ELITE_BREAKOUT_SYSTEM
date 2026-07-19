@@ -205,64 +205,32 @@ def get_fii_buyers(symbol: str) -> list:
     return get_inst_footprints(symbol).get("fii", [])
 
 def get_nse_bulk_block_deals() -> list:
-    """Fetches block/bulk deals from NSE."""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-    }
+    """Fetches block/bulk deals from NSE via the nsearchives mirror."""
+    import pandas as pd
+    import io
     
-    try:
-        from curl_cffi import requests as cffi_requests
-        session = cffi_requests.Session(impersonate="chrome120")
-    except ImportError:
-        session = requests.Session()
-    session.headers.update(headers)
-    
-    # Hit main page to get cookies
-    for attempt in range(3):
-        try:
-            session.get("https://www.nseindia.com", timeout=10)
-            break
-        except Exception:
-            if attempt == 2: pass
-            time.sleep(2)
-            
     urls = [
-        "https://www.nseindia.com/api/historical/block-deals",
-        "https://www.nseindia.com/api/snapshot-capital-market-sme-bulk-deals"
+        "https://nsearchives.nseindia.com/content/equities/bulk.csv",
+        "https://nsearchives.nseindia.com/content/equities/block.csv"
     ]
     
     all_deals = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    
     for url in urls:
-        time.sleep(2.5) # Prevent WAF ban between requests
-        
-        for attempt in range(3):
-            try:
-                resp = session.get(url, timeout=15)
-                if resp.status_code == 200:
-                    try:
-                        data = resp.json()
-                        if "data" in data:
-                            all_deals.extend(data["data"])
-                        break # Success, break retry loop
-                    except json.JSONDecodeError:
-                        logger.debug(f"NSE returned non-JSON for {url} (Likely anti-scraping block).")
-                        if attempt == 2: break
-                
-                # If we get here, it wasn't a 200 or wasn't JSON
-                time.sleep(2.5)
-            except Exception as e:
-                logger.debug(f"Failed to fetch {url} on attempt {attempt+1}: {e}")
-                if attempt < 2:
-                    time.sleep(2.5)
-                else:
-                    try:
-                        from push_service import send_push_to_all
-                        send_push_to_all("⚠️ NSE API ERROR", f"Block deal fetch failed for {url}: {str(e)[:100]}")
-                    except Exception: pass
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                df = pd.read_csv(io.StringIO(resp.text))
+                for _, row in df.iterrows():
+                    all_deals.append({
+                        'clientName': row.get('Client Name', ''),
+                        'symbol': row.get('Symbol', ''),
+                        'buyOrSell': row.get('Buy/Sell', ''),
+                        'remarks': row.get('Remarks', '')
+                    })
+        except Exception as e:
+            logger.debug(f"Failed to fetch {url}: {e}")
             
     return all_deals
 
