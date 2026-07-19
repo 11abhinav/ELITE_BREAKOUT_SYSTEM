@@ -636,9 +636,13 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
             finally:
                 yf_release()
                 
-            if (fin is None or fin.empty) and ticker_name.endswith(".NS"):
+            mc = info.get("marketCap") if info else None
+            if mc is None and fast_info:
+                mc = fast_info.get("marketCap")
+                
+            if (fin is None or fin.empty or not mc) and ticker_name.endswith(".NS"):
                 bse_sym = ticker_name[:-3] + ".BO"
-                logger.info(f"🔄 Multibagger: fundamentals empty for {ticker_name}, retrying with {bse_sym}...")
+                logger.info(f"🔄 Multibagger: financials/marketCap missing for {ticker_name}, retrying with {bse_sym}...")
                 yf_acquire(context=f"Multibagger Scanner | {symbol}")
                 try:
                     ticker = yf.Ticker(bse_sym)
@@ -1366,9 +1370,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     market_regime = "BEAR"
     try:
         from data_provider import get_fetcher
-        nifty_df = get_fetcher().get_ohlcv("^NSEI", period="1y", interval="1d")
-        if not nifty_df.empty and len(nifty_df) >= 200:
+        nifty_md = get_fetcher().get_ohlcv("^NSEI", period="1y", interval="1d")
+        if nifty_md:
             import pandas as pd
+            nifty_df = nifty_md.dataframe if hasattr(nifty_md, "dataframe") else nifty_md
+        else:
+            import pandas as pd
+            nifty_df = pd.DataFrame()
+            
+        if not nifty_df.empty and len(nifty_df) >= 200:
             close_col = nifty_df["Close"]
             if isinstance(close_col, pd.DataFrame):
                 close_col = close_col.iloc[:, 0]

@@ -18,6 +18,39 @@ class FetchFailureType(Enum):
     SERVER_ERROR = "SERVER_ERROR"
     EMPTY_RESPONSE = "EMPTY_RESPONSE"
     UNKNOWN_ERROR = "UNKNOWN_ERROR"
+    PROVIDER_INCOMPLETE_RESPONSE = "PROVIDER_INCOMPLETE_RESPONSE"
+    INVALID_BSE_FALLBACK = "INVALID_BSE_FALLBACK"
+    NOT_ATTEMPTED = "NOT_ATTEMPTED"
+
+from dataclasses import dataclass
+
+@dataclass
+class ProviderResult:
+    provider: str
+    status: FetchFailureType
+
+class DeadSymbolDecision(Enum):
+    ALIVE = "ALIVE"
+    RETRY = "RETRY"
+    DEAD = "DEAD"
+    UNKNOWN = "UNKNOWN"
+
+def classify_symbol(results: list[ProviderResult]) -> DeadSymbolDecision:
+    explicit_invalid_providers = {
+        p.provider for p in results if p.status == FetchFailureType.INVALID_SYMBOL
+    }
+    
+    if len(explicit_invalid_providers) >= 2:
+        return DeadSymbolDecision.DEAD
+        
+    if any(p.status == FetchFailureType.SUCCESS for p in results):
+        return DeadSymbolDecision.ALIVE
+        
+    attempted = [p for p in results if p.status != FetchFailureType.NOT_ATTEMPTED]
+    if len(attempted) > 0:
+        return DeadSymbolDecision.RETRY
+        
+    return DeadSymbolDecision.UNKNOWN
 
 _dead_symbols_cache = {}
 _DEAD_TTL = 3600 * 24  # 24 hours
@@ -107,22 +140,27 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             original_sym = reverse_map.get(f_sym)
                             if not original_sym: continue
                             
-                            if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                            if item.get("s") == "error":
+                                if item.get("v", {}).get("code") == -300:
+                                    symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.INVALID_SYMBOL
+                                else:
+                                    symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.PROVIDER_INCOMPLETE_RESPONSE
+                            elif item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
                                 lp = item["v"]["lp"]
                                 if lp and lp > 0:
                                     prices[original_sym] = float(lp)
-                                    symbol_status[original_sym]["Fyers"] = FetchFailureType.SUCCESS
+                                    symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.SUCCESS
                                     if original_sym in missing:
                                         missing.remove(original_sym)
                                 else:
-                                    symbol_status[original_sym]["Fyers"] = FetchFailureType.EMPTY_RESPONSE
+                                    symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.PROVIDER_INCOMPLETE_RESPONSE
                             else:
-                                symbol_status[original_sym]["Fyers"] = FetchFailureType.EMPTY_RESPONSE
+                                symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.PROVIDER_INCOMPLETE_RESPONSE
                         
                         for f_sym in fyers_symbols:
                             original_sym = reverse_map.get(f_sym)
-                            if original_sym and "Fyers" not in symbol_status[original_sym]:
-                                symbol_status[original_sym]["Fyers"] = FetchFailureType.EMPTY_RESPONSE
+                            if original_sym and symbol_status[original_sym]["Fyers NSE"] == FetchFailureType.NOT_ATTEMPTED:
+                                symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.PROVIDER_INCOMPLETE_RESPONSE
                         
                         missing_chunk = [s for s in chunk if s in missing]
                         if len(missing_chunk) > 0:
@@ -144,81 +182,17 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 pass
                             for f_sym in fyers_symbols:
                                 original_sym = reverse_map.get(f_sym)
-                                if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.AUTHENTICATION_ERROR
+                                if original_sym: symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.AUTHENTICATION_ERROR
                         else:
                             logger.error(f"❌ Fyers API returned error payload for batch {i//chunk_size}: {response}")
                             for f_sym in fyers_symbols:
                                 original_sym = reverse_map.get(f_sym)
-                                if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.UNKNOWN_ERROR
+                                if original_sym: symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.UNKNOWN_ERROR
                 except Exception as e:
                     logger.error(f"⚠️ Fyers quote fetch failed for batch {i//chunk_size}: {e}")
                     for f_sym in fyers_symbols:
                         original_sym = reverse_map.get(f_sym)
-                        if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.NETWORK_ERROR
-                    
-                # ── Dynamic Fyers -BE Fallback for missing symbols ──────────
-                missing_fyers = [s for s in chunk if s in missing]
-                be_symbols = []
-                be_reverse_map = {}
-                
-                for m_sym in missing_fyers:
-                    f_sym = fyers_fetcher._normalize_symbol(m_sym)
-                    if f_sym and f_sym.endswith("-EQ"):
-                        be_sym = f_sym.replace("-EQ", "-BE")
-                        be_symbols.append(be_sym)
-                        be_reverse_map[be_sym] = m_sym
-                        
-                if be_symbols:
-                    try:
-                        missing_count_before_be = len(missing)
-                        response_be = fyers.quotes({"symbols": ",".join(be_symbols)})
-                        if response_be and isinstance(response_be, dict) and response_be.get("s") == "ok":
-                            for item in response_be.get("d", []):
-                                be_sym = item.get("n", "")
-                                original_sym = be_reverse_map.get(be_sym)
-                                if not original_sym: continue
-                                
-                                if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                    lp = item["v"]["lp"]
-                                    if lp and lp > 0:
-                                        prices[original_sym] = float(lp)
-                                        symbol_status[original_sym]["Fyers"] = FetchFailureType.SUCCESS
-                                        if original_sym in missing:
-                                            missing.remove(original_sym)
-                                        try:
-                                            from data_providers.fyers_mapping_utils import save_fyers_mapping
-                                            orig_clean = original_sym.strip().upper()
-                                            if orig_clean.endswith(".NS"): orig_clean = orig_clean[:-3]
-                                            save_fyers_mapping(orig_clean, be_sym)
-                                        except Exception: pass
-                                        
-                            missing_chunk = [s for s in chunk if s in missing]
-                            if len(missing_chunk) > 0:
-                                logger.warning(f"⚠️ Fyers quote (-BE fallback) returned 'ok' but missing data/prices for {missing_chunk}. Raw Fyers response: {response_be}")
-                        else:
-                            is_auth_error = False
-                            if isinstance(response_be, dict):
-                                err_msg = str(response_be.get("message", "")).lower()
-                                if response_be.get("code") == -15 or "valid token" in err_msg:
-                                    is_auth_error = True
-                                    
-                            if is_auth_error:
-                                logger.error("⚠️ Fyers authentication failed during -BE fallback.")
-                                try:
-                                    import fyers_auth
-                                    fyers_auth.clear_token()
-                                except Exception:
-                                    pass
-                                for f_sym in be_symbols:
-                                    original_sym = be_reverse_map.get(f_sym)
-                                    if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.AUTHENTICATION_ERROR
-                            else:
-                                logger.error(f"❌ Fyers API returned error payload for -BE fallback: {response_be}")
-                                for f_sym in be_symbols:
-                                    original_sym = be_reverse_map.get(f_sym)
-                                    if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.UNKNOWN_ERROR
-                    except Exception as e:
-                        logger.error(f"⚠️ Fyers -BE fallback failed: {e}")
+                        if original_sym: symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.NETWORK_ERROR
                     
     except ImportError:
         logger.warning("⚠️ fyers_auth not found, falling back strictly to yfinance.")
