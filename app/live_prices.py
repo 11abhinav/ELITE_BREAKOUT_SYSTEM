@@ -131,6 +131,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 
                         if is_auth_error:
                             logger.error("⚠️ Fyers authentication failed. All Fyers requests are expected to fail until the token is refreshed.")
+                            try:
+                                import fyers_auth
+                                fyers_auth.clear_token()
+                            except Exception:
+                                pass
                             for f_sym in fyers_symbols:
                                 original_sym = reverse_map.get(f_sym)
                                 if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.AUTHENTICATION_ERROR
@@ -188,6 +193,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                     
                             if is_auth_error:
                                 logger.error("⚠️ Fyers authentication failed during -BE fallback.")
+                                try:
+                                    import fyers_auth
+                                    fyers_auth.clear_token()
+                                except Exception:
+                                    pass
                                 for f_sym in be_symbols:
                                     original_sym = be_reverse_map.get(f_sym)
                                     if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.AUTHENTICATION_ERROR
