@@ -32,7 +32,7 @@ MAX_RETRIES = 3
 
 _delivery_cache = None
 _delivery_cache_date = None
-_delivery_cache_lock = threading.Lock()
+_delivery_cache_lock = threading.RLock()
 _processed_sha256 = set()
 
 class V8DeliveryValidator:
