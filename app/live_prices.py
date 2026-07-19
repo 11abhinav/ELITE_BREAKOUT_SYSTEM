@@ -282,9 +282,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 prices[yf_reverse_map[chunk[0]]] = val
                                 symbol_status[yf_reverse_map[chunk[0]]]["YF_NS"] = FetchFailureType.SUCCESS
                             else:
-                                logger.debug(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df)}, Columns = {list(df.columns)}, Download error = 'Close <= 0'")
+                                logger.info(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df)}, Columns = {list(df.columns)}, Download error = 'Close <= 0'")
                         else:
-                            logger.debug(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df) if not df.empty else 0}, Columns = {list(df.columns) if not df.empty else []}, Download error = 'Empty DataFrame'")
+                            logger.info(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df) if not df.empty else 0}, Columns = {list(df.columns) if not df.empty else []}, Download error = 'Empty DataFrame'")
                     else:
                         if not hasattr(df.columns, 'levels'):
                             logger.warning(f"⚠️ yf.download returned flat (non-MultiIndex) columns for multi-ticker batch {i//chunk_size}.")
@@ -297,11 +297,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                             prices[yf_reverse_map[y_sym]] = val
                                             symbol_status[yf_reverse_map[y_sym]]["YF_NS"] = FetchFailureType.SUCCESS
                                         else:
-                                            logger.debug(f"Yahoo NS: Ticker = {y_sym}, Rows = {len(df[y_sym])}, Columns = {list(df[y_sym].columns)}, Download error = 'Close <= 0'")
+                                            logger.info(f"Yahoo NS: Ticker = {y_sym}, Rows = {len(df[y_sym])}, Columns = {list(df[y_sym].columns)}, Download error = 'Close <= 0'")
                                     else:
-                                        logger.debug(f"Yahoo NS: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
+                                        logger.info(f"Yahoo NS: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
                                 except Exception as parse_e:
-                                    logger.debug(f"Yahoo NS: Ticker = {y_sym}, Parse Error = {parse_e}")
+                                    logger.info(f"Yahoo NS: Ticker = {y_sym}, Parse Error = {parse_e}")
                                     pass
                                     
                 for y_sym in chunk:
@@ -364,9 +364,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                         save_bse_mapping(orig_sym, bse_fallback_symbols[0])
                                     except Exception: pass
                                 else:
-                                    logger.debug(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse)}, Columns = {list(df_bse.columns)}, Download error = 'Close <= 0'")
+                                    logger.info(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse)}, Columns = {list(df_bse.columns)}, Download error = 'Close <= 0'")
                             else:
-                                logger.debug(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse) if not df_bse.empty else 0}, Columns = {list(df_bse.columns) if not df_bse.empty else []}, Download error = 'Empty DataFrame'")
+                                logger.info(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse) if not df_bse.empty else 0}, Columns = {list(df_bse.columns) if not df_bse.empty else []}, Download error = 'Empty DataFrame'")
                         else:
                             if hasattr(df_bse.columns, 'levels'):
                                 for y_sym in bse_fallback_symbols:
@@ -382,11 +382,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                                     save_bse_mapping(orig_sym, y_sym)
                                                 except Exception: pass
                                             else:
-                                                logger.debug(f"Yahoo BO: Ticker = {y_sym}, Rows = {len(df_bse[y_sym])}, Columns = {list(df_bse[y_sym].columns)}, Download error = 'Close <= 0'")
+                                                logger.info(f"Yahoo BO: Ticker = {y_sym}, Rows = {len(df_bse[y_sym])}, Columns = {list(df_bse[y_sym].columns)}, Download error = 'Close <= 0'")
                                         else:
-                                            logger.debug(f"Yahoo BO: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
+                                            logger.info(f"Yahoo BO: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
                                     except Exception as parse_e:
-                                        logger.debug(f"Yahoo BO: Ticker = {y_sym}, Parse Error = {parse_e}")
+                                        logger.info(f"Yahoo BO: Ticker = {y_sym}, Parse Error = {parse_e}")
                                         pass
                                     
                     for y_sym in bse_fallback_symbols:
