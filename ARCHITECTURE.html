@@ -1361,6 +1361,21 @@ To optimize wall-clock time, the orchestrator now executes `eod_scanner` and `re
 ### 38.5 Ephemeral Surveillance Cache Persistence (ASM/GSM Leak Fix)
 - **Old Behavior**: The `surveillance.py` module saved the fetched NSE ASM/GSM surveillance list exclusively to the local disk (`surveillance_blacklist.json`). On Railway (or any ephemeral container platform), this file was permanently wiped upon every code deployment or container restart. If the live NSE API subsequently blocked the fetch attempt (via Akamai rate-limiting), the system would fall back to an empty cache, completely failing to filter out toxic ASM/GSM stocks and erroneously leaking them into the watchlist.
 - **New Behavior**: The surveillance caching mechanism has been fully wired into the PostgreSQL `system_state` table. Fetched lists are instantly committed to the database (`save_system_state`), and the fallback logic natively restores from the database (`get_system_state`) instead of the local ephemeral file system. The surveillance guard (261+ stocks) is now guaranteed to survive all server restarts and deployments.
+
+## 39. V8 Data Pipeline Architecture Audit Findings (Pre-Refactor)
+
+An extensive 13-phase architectural audit was performed on the V8 data ingestion and validation framework (`data_quality.py`, `price_cache.py`, `data_provider.py`, `price_provider.py`). The audit identified three major areas of architectural drift and vulnerability that require remediation:
+
+### 39.1 Cache Shrink Protection Failure
+- **Finding**: The cache engine (`price_cache.py`) attempts to protect against data truncation by checking if `new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK)`. However, when this condition is met, the system only issues a `logger.warning` and proceeds to overwrite the healthy cache with the truncated dataset anyway.
+- **Vulnerability**: A bad API response that passes basic validation but returns 5 days of data instead of 5 years will permanently wipe out the historical cache for that symbol.
+
+### 39.2 Hardcoded Dataset Inflexibility
+- **Finding**: The `DataQualityValidator` was intended to be a universal framework but evolved into a rigid Price-Only validator. It hardcodes `REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]`.
+- **Vulnerability**: It is currently impossible to route non-OHLCV datasets (like Fundamentals, Bhavcopy, or Corporate Actions) through the standard validation pipeline. The system lacks a generic `BaseValidator` interface.
+
+### 39.3 Provider Fallback Bleed
+- **Finding**: NSE to BSE ticker fallback logic is heavily duplicated. Both the low-level adapter (`price_provider.py`) and the high-level fetcher (`data_provider.py`) attempt to handle missing `.NS` symbols by swapping to `.BO`, leading to tangled responsibilities and redundant database mapping updates.
 </textarea>
 
 
