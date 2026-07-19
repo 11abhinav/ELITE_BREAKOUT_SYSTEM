@@ -385,15 +385,24 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         
                         logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f}")
                         
-                        if remote_score >= cache_score or (not new_report and remote_score == cache_score):
+                        # 1. Check for historical shrinkage (Critical Validation Failure)
+                        shrinkage_failed = False
+                        if not range_from and new_report and cache_report:
+                            if new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK):
+                                logger.warning(f"Historical regression detected for {sym}. Previous rows={cache_report.row_count}, Incoming={new_report.row_count}. REJECTING remote data to protect cache.")
+                                shrinkage_failed = True
+
+                        if shrinkage_failed:
+                            # Reject Remote Data (Shrinkage)
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=HISTORICAL_SHRINK | Symbol={sym}")
+                            cached_df.attrs['is_stale'] = True
+                            all_data[sym] = cached_df
+                            continue
+                        elif remote_score >= cache_score or (not new_report and remote_score == cache_score):
                             # Accept and Merge
-                            policy = "APPEND_TO_CACHE" if range_from else "REPLACE_CACHE"
-                            
-                            if policy == "REPLACE_CACHE" and new_report and cache_report:
-                                if new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK):
-                                    logger.warning(f"Historical regression detected for {sym}. Previous rows={cache_report.row_count}, Incoming={new_report.row_count}")
+                            pass
                         else:
-                            # Reject Remote Data
+                            # Reject Remote Data (Lower Quality)
                             logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym}")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
