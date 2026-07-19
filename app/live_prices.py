@@ -27,26 +27,36 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             for i in range(0, len(symbols), chunk_size):
                 chunk = symbols[i:i + chunk_size]
                 
-                # [VERSION: LIVE_PRICES_BSE_FIX_v1.1] Route BSE-only, numeric, or cached BSE fallback tickers to BSE
                 try:
                     from bse_mapping_utils import load_bse_mappings
                     mappings = load_bse_mappings()
                 except Exception:
                     mappings = {}
 
+                from data_providers.fyers_fetcher import FyersFetcher
+                try:
+                    from data_providers.fyers_mapping_utils import is_fyers_invalid
+                except Exception:
+                    is_fyers_invalid = lambda s: False
+
+                fyers_fetcher = FyersFetcher()
                 fyers_symbols = []
                 reverse_map = {}
+                
                 for sym in chunk:
-                    clean_upper = sym.strip().upper()
-                    is_bse = (
-                        clean_upper in mappings or
-                        (clean_upper.endswith(".NS") and clean_upper[:-3] in mappings) or
-                        sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
-                    )
-                    clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
-                    f_sym = f"BSE:{clean}-EQ" if is_bse else f"NSE:{clean}-EQ"
-                    fyers_symbols.append(f_sym)
-                    reverse_map[f_sym] = sym
+                    orig_clean = sym.strip().upper()
+                    if orig_clean.endswith(".NS"): orig_clean = orig_clean[:-3]
+                    
+                    if is_fyers_invalid(orig_clean):
+                        continue
+                        
+                    f_sym = fyers_fetcher._normalize_symbol(sym)
+                    if f_sym:
+                        fyers_symbols.append(f_sym)
+                        reverse_map[f_sym] = sym
+                
+                if not fyers_symbols:
+                    continue
                 
                 try:
                     response = fyers.quotes({"symbols": ",".join(fyers_symbols)})
@@ -71,7 +81,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
 
     # ── 2. Attempt Fallback Fetch (Yahoo Finance fast_info) ───────────────────────────
     if missing:
-        logger.info(f"🔄 Fyers fallback triggered. Fetching {len(missing)} symbols via yfinance batch download...")
+        logger.info(f"🔄 Fyers fallback triggered. Fetching {len(missing)} symbols via yfinance batch download for {missing}...")
         try:
             from bse_mapping_utils import load_bse_mappings
             mappings = load_bse_mappings()
@@ -128,15 +138,67 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                     # [BUG-5 FIX] Guard against flat columns when all tickers fail
                     if not hasattr(df.columns, 'levels'):
                         logger.warning(f"⚠️ yf.download returned flat (non-MultiIndex) columns for multi-ticker batch {i//chunk_size}. All symbols may have failed.")
-                        continue
-                    for y_sym in chunk:
-                        try:
-                            if y_sym in df.columns.levels[0]:
-                                val = float(df[y_sym]["Close"].iloc[-1])
-                                if val > 0:
-                                    prices[yf_reverse_map[y_sym]] = val
-                        except Exception as inner_e:
-                            logger.warning(f"Failed to parse yf batch price for {y_sym}: {inner_e}")
+                    else:
+                        for y_sym in chunk:
+                            try:
+                                if y_sym in df.columns.levels[0]:
+                                    val = float(df[y_sym]["Close"].iloc[-1])
+                                    if val > 0:
+                                        prices[yf_reverse_map[y_sym]] = val
+                            except Exception as inner_e:
+                                logger.warning(f"Failed to parse yf batch price for {y_sym}: {inner_e}")
+                                
+            # ── Dynamic BSE Fallback for missing symbols ──────────────────────────
+            still_missing = [s for s in missing if s not in prices]
+            bse_fallback_symbols = []
+            bse_reverse_map = {}
+            for sym in still_missing:
+                clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
+                bse_sym = f"{clean}.BO"
+                bse_fallback_symbols.append(bse_sym)
+                bse_reverse_map[bse_sym] = sym
+                
+            if bse_fallback_symbols:
+                logger.info(f"🔄 YFinance BSE fallback triggered for {len(bse_fallback_symbols)} unreturned symbols...")
+                try:
+                    from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
+                    try:
+                        yf_acquire(context="LivePrices.yfinance_fallback_BSE")
+                        df_bse = yf.download(" ".join(bse_fallback_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
+                    except Exception as dl_err:
+                        msg = str(dl_err).lower()
+                        if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                            record_rate_limit(context="LivePrices.yfinance_fallback_BSE")
+                        df_bse = pd.DataFrame()
+                    finally:
+                        yf_release()
+                        
+                    if len(bse_fallback_symbols) == 1:
+                        if not df_bse.empty and "Close" in df_bse.columns:
+                            val = float(df_bse["Close"].iloc[-1])
+                            if val > 0:
+                                orig_sym = bse_reverse_map[bse_fallback_symbols[0]]
+                                prices[orig_sym] = val
+                                try:
+                                    from bse_mapping_utils import save_bse_mapping
+                                    save_bse_mapping(orig_sym, bse_fallback_symbols[0])
+                                except Exception: pass
+                    else:
+                        if hasattr(df_bse.columns, 'levels'):
+                            for y_sym in bse_fallback_symbols:
+                                try:
+                                    if y_sym in df_bse.columns.levels[0]:
+                                        val = float(df_bse[y_sym]["Close"].iloc[-1])
+                                        if val > 0:
+                                            orig_sym = bse_reverse_map[y_sym]
+                                            prices[orig_sym] = val
+                                            try:
+                                                from bse_mapping_utils import save_bse_mapping
+                                                save_bse_mapping(orig_sym, y_sym)
+                                            except Exception: pass
+                                except Exception: pass
+                except Exception as e:
+                    logger.warning(f"BSE fallback block failed: {e}")
                             
         except Exception as e:
             logger.exception(f"⚠️ YFinance batch fallback failed: {e}")
