@@ -54,6 +54,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
     
     with _delivery_cache_lock:
         if _delivery_cache is not None and _delivery_cache_date == today:
+            logger.info(f"⚡ [CACHE HIT] Returning {len(_delivery_cache)} symbols from memory (already fetched today).")
             return _delivery_cache
 
         for days_back in range(1, 5):
