@@ -10,8 +10,8 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-BULK_URL = "https://archives.nseindia.com/content/equities/bulk.csv"
-BLOCK_URL = "https://archives.nseindia.com/content/equities/block.csv"
+BULK_URL = "https://nsearchives.nseindia.com/content/equities/bulk.csv"
+BLOCK_URL = "https://nsearchives.nseindia.com/content/equities/block.csv"
 
 # Keywords that indicate institutional/fund buying
 INSTITUTIONAL_KEYWORDS = [
