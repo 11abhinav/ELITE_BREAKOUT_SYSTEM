@@ -1378,6 +1378,137 @@ The `price_cache.py` ingestion loop explicitly compares incoming data against th
 - `CacheScore = QualityScore × SOURCE_RELIABILITY["Cache"]`
 
 If the remote data is inferior, the system executes a **KEEP_CACHE** policy, preserving the local `.parquet` data and marking it as `is_stale`. This guarantees years of accumulated historical data are strictly immunized against sudden API failures or regressions (tracked via the `MAX_HISTORY_SHRINK` threshold).
+
+## 41. Elite Data Validation Framework (V1)
+
+### 41.1 Core Principle
+
+The parser converts bytes/JSON/CSV into a DataFrame or domain object. The validator determines whether it is trustworthy.
+
+```mermaid
+flowchart TD
+    A[External Source] --> B[Adapter / Parser]
+    B --> C[Validation Engine]
+    C --> D[MarketData Validated]
+    D --> E[Cache / Consumers]
+```
+
+### Phase 1 – Inventory Every External Data Source
+Create a complete inventory before writing validators. Nothing enters the system until it's classified.
+
+| Dataset | Source | Format | Frequency | Criticality |
+|---|---|---|---|---|
+| Historical OHLC | Yahoo/Fyers | DataFrame | Daily/Intraday | Critical |
+| Bhavcopy | NSE | CSV | Daily | Critical |
+| Delivery Data | NSE | CSV | Daily | Critical |
+| Index Constituents | NSE | CSV/JSON | Monthly | High |
+| Corporate Actions | NSE/BSE | CSV/API | Daily | High |
+| Fundamentals | Screener/API | JSON | Daily | High |
+| Live Quotes | Fyers | JSON | Seconds | Critical |
+| Market Breadth | NSE | JSON | Intraday | Medium |
+| Holidays | NSE | CSV | Yearly | Low |
+| Symbol Master | NSE | CSV | Weekly | Critical |
+
+### Phase 2 – Dataset Contract
+Every dataset should have a formal contract which becomes the specification.
+**Example: Bhavcopy Contract**
+- **Required Columns:** SYMBOL, SERIES, OPEN, HIGH, LOW, CLOSE, TTL_TRD_QNTY
+- **Optional Columns:** DELIV_QTY, DELIV_PER
+- **Primary Key:** (SYMBOL)
+- **Business Rules:** HIGH >= LOW, OPEN > 0, CLOSE > 0
+- **Historical Rules:** Date monotonic, No duplicate symbols
+
+### Phase 3 – Validator Layers
+Every validator follows the same pipeline. Only the dataset-specific rules differ.
+
+```mermaid
+flowchart TD
+    A[Schema Validation] --> B[Type Validation]
+    B --> C[Business Rules]
+    C --> D[Historical Validation]
+    D --> E[Dataset-specific Validation]
+    E --> F[Metrics]
+    F --> G[Quality Score]
+```
+
+### Phase 4 – Dataset-Specific Validators
+Each validator owns only its dataset inside the `validators/` directory:
+- `price_validator.py`
+- `bhavcopy_validator.py`
+- `delivery_validator.py`
+- `fundamentals_validator.py`
+- `corporate_actions_validator.py`
+- `live_quote_validator.py`
+- `constituents_validator.py`
+- `holidays_validator.py`
+- `symbol_master_validator.py`
+
+### Phase 5 – Dataset-Specific Business Rules
+Every dataset has different rules:
+- **Price**: High >= Low, Open > 0, Volume >= 0
+- **Bhavcopy**: Series ∈ {EQ, BE, SM...}, DELIV_PER optional, Duplicate SYMBOL not allowed
+- **Fundamentals**: ROE between -100 and 1000, Debt >= 0, Market Cap > 0
+- **Live Quotes**: Bid <= Ask, LTP within Circuit, Timestamp recent, Volume monotonic
+- **Corporate Actions**: Valid Action Type, Future effective dates, Unique event ID
+
+### Phase 6 – Validation Severity
+Not every issue should have the same impact:
+- **Critical (Reject immediately):** Missing required columns, wrong data types, negative prices, corrupt timestamps.
+- **Warning (Accept with reduced quality):** Missing optional fields, minor stale data, low coverage.
+- **Info (Log only):** New optional column added, unused metadata.
+
+### Phase 7 – Historical Validation
+This is where most systems fail. Every dataset should compare against previous versions:
+- **Price**: History shrink, duplicate timestamps, rollback, split anomalies.
+- **Bhavcopy**: Symbol count drops, missing sectors, unexpected series changes.
+- **Fundamentals**: Market cap collapse, ROE jump, missing companies.
+- **Constituents**: Unexpected additions/removals, Weight total ≈100%.
+
+### Phase 8 – Data Provenance
+Every validated dataset should carry metadata for debugging:
+`Source`, `Provider`, `Validator`, `Validator Version`, `Timestamp`, `Checksum`, `Quality Score`, `Validation Time`
+
+### Phase 9 – Cache Protection
+Generalize the cache protection decision engine. Every dataset can reuse this logic:
+**KEEP_CACHE** Reasons:
+- `HISTORY_SHRINK`
+- `SCHEMA_REGRESSION`
+- `QUALITY_REGRESSION`
+- `TIMESTAMP_ROLLBACK`
+- `DUPLICATE_EXPLOSION`
+
+### Phase 10 – Golden Validation Tests
+For every validator, maintain static fixtures:
+`valid_dataset.csv`, `missing_column.csv`, `duplicate_rows.csv`, `negative_prices.csv`, `future_timestamp.csv`, `history_shrink.csv`, `unknown_optional_column.csv`
+
+### Phase 11 – Validation Dashboard
+Track validation quality over time to spot upstream issues before they affect trading:
+- Provider Success Rate, Validation Failures, Quality Score Trend, Historical Rejections, Cache Protections Triggered, Schema Changes, Unknown Columns, Dataset Coverage.
+
+### Phase 12 – Onboarding Checklist for New APIs
+Any new external API should satisfy a standard checklist before integration:
+1. **Source Assessment:** Reliability, update frequency, rate limits, authentication.
+2. **Parser:** Convert raw response to canonical format.
+3. **Dataset Contract:** Define required/optional fields, types, business rules, keys.
+4. **Validator:** Implement schema, business, historical, and dataset-specific validation.
+5. **Score Calculator:** Define quality metrics if applicable.
+6. **Cache Strategy:** Decide KEEP_CACHE, APPEND, REPLACE, or NO_CACHE.
+7. **Golden Test Suite:** Include valid, corrupt, partial, stale, edge-cases.
+8. **Monitoring:** Emit structured validation logs and quality metrics.
+
+### End-State Architecture
+The long-term goal is simple: the trading system no longer depends on the behavior of Yahoo, NSE, Fyers, or any other provider—it depends on internal validation contracts. If a provider changes its schema or returns partial data, the issue is detected and contained at the boundary.
+
+```mermaid
+flowchart TD
+    A[Any External API] --> B[Adapter / Parser]
+    B --> C[Dataset Contract]
+    C --> D[Validation Engine]
+    D --> E[Score Calculator]
+    E --> F[Cache Decision Engine]
+    F --> G[Validated Domain Object]
+    G --> H[Application]
+```
 </textarea>
 
 
