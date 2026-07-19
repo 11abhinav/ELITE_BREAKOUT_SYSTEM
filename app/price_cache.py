@@ -385,16 +385,15 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         
                         logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f}")
                         
-                        # 1. Check for historical shrinkage (Critical Validation Failure)
-                        shrinkage_failed = False
+                        # 1. Critical Cache Validation
+                        reject_reason = None
                         if not range_from and new_report and cache_report:
                             if new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK):
-                                logger.warning(f"Historical regression detected for {sym}. Previous rows={cache_report.row_count}, Incoming={new_report.row_count}. REJECTING remote data to protect cache.")
-                                shrinkage_failed = True
+                                reject_reason = "HISTORICAL_SHRINK"
 
-                        if shrinkage_failed:
-                            # Reject Remote Data (Shrinkage)
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=HISTORICAL_SHRINK | Symbol={sym}")
+                        if reject_reason:
+                            logger.warning(f"Critical Cache Validation Failed for {sym}: {reject_reason}. REJECTING remote data to protect cache.")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cache_report.row_count} | IncomingRows={new_report.row_count} | Threshold={MAX_HISTORY_SHRINK*100}%")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
