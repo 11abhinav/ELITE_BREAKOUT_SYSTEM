@@ -148,6 +148,21 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 try:
                     df = pd.read_csv(io.StringIO(raw_data))
                     df.columns = [c.strip().upper() for c in df.columns]
+                    
+                    # NSE introduced a new Bhavcopy schema format. Map it back to standard legacy headers.
+                    rename_map = {
+                        "DATE1": "TIMESTAMP",
+                        "PREV_CLOSE": "PREVCLOSE",
+                        "OPEN_PRICE": "OPEN",
+                        "HIGH_PRICE": "HIGH",
+                        "LOW_PRICE": "LOW",
+                        "LAST_PRICE": "LAST",
+                        "CLOSE_PRICE": "CLOSE",
+                        "TTL_TRD_QNTY": "TOTTRDQTY",
+                        "TURNOVER_LACS": "TOTTRDVAL",
+                        "NO_OF_TRADES": "TOTALTRADES"
+                    }
+                    df.rename(columns=rename_map, inplace=True)
                 except Exception as e:
                     logger.warning(f"⚠️ Parse Error: {e}")
                     return {}

@@ -24,13 +24,13 @@ class BhavcopyValidator(BaseValidator):
         return "1.0"
 
     def required_columns(self) -> List[str]:
-        # Based on standard NSE Bhavcopy headers
+        # Based on standard NSE Bhavcopy headers. ISIN is no longer provided in the new format.
         return ["SYMBOL", "SERIES", "OPEN", "HIGH", "LOW", "CLOSE", 
                 "LAST", "PREVCLOSE", "TOTTRDQTY", "TOTTRDVAL", "TIMESTAMP", 
-                "TOTALTRADES", "ISIN"]
+                "TOTALTRADES"]
 
     def optional_columns(self) -> List[str]:
-        return ["Unnamed: 13"] # NSE sometimes includes a trailing comma leading to an unnamed column
+        return ["Unnamed: 13", "ISIN"]
 
     def validate(self, df: pd.DataFrame, context: ValidationContext) -> ValidationResult:
         result = ValidationResult()
@@ -158,9 +158,11 @@ class BhavcopyValidator(BaseValidator):
                 ))
                  return
                  
-            # Check for duplicate ISINs
-            if "ISIN" in df.columns:
-                dup_isins = df.duplicated(subset=["ISIN", "TIMESTAMP"]).sum()
+            # Check for duplicate ISINs (Only if valid ISINs exist)
+            if "ISIN" in df.columns and not df["ISIN"].isna().all() and (df["ISIN"] != "UNKNOWN_ISIN").all():
+                # Filter out UNKNOWN_ISIN or NaNs before checking for duplicates
+                valid_isins = df[df["ISIN"].notna() & (df["ISIN"] != "UNKNOWN_ISIN")]
+                dup_isins = valid_isins.duplicated(subset=["ISIN", "TIMESTAMP"]).sum()
                 if dup_isins > 0:
                     result.historical_failures.append(ValidationFailure(
                         code=FailureCode.HIS003,
