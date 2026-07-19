@@ -14,7 +14,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from data_provider import DataFetcher
-from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData, ValidationContext
+from validation import ValidationEngine, MarketData, ValidationContext, registry as val_registry, DatasetType
 
 import fyers_auth
 import config
@@ -372,7 +372,8 @@ class FyersFetcher(DataFetcher):
                     except Exception:
                         pass
                     
-                engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                 ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                 report = engine.validate(df, ctx)
                 if not report.is_valid:

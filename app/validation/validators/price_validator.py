@@ -3,6 +3,7 @@ from typing import List
 from ..base import BaseValidator
 from ..result import ValidationResult
 from ..context import ValidationContext
+from ..codes import ValidationFailure, FailureCode, Severity
 
 class PriceValidator(BaseValidator):
     """
@@ -40,17 +41,29 @@ class PriceValidator(BaseValidator):
     def _validate_schema(self, df: pd.DataFrame, result: ValidationResult) -> None:
         missing_cols = [c for c in self.required_columns() if c not in df.columns]
         if missing_cols:
-            result.schema_failures.append(f"Missing required columns: {missing_cols}")
+            result.schema_failures.append(ValidationFailure(
+                code=FailureCode.SCH001,
+                severity=Severity.CRITICAL,
+                message=f"Missing required columns: {missing_cols}"
+            ))
             return
 
         # Type Validation
         try:
             for col in self.required_columns():
                 if not pd.api.types.is_numeric_dtype(df[col]):
-                    result.schema_failures.append(f"Column '{col}' is not numeric")
+                    result.schema_failures.append(ValidationFailure(
+                        code=FailureCode.SCH002,
+                        severity=Severity.CRITICAL,
+                        message=f"Column '{col}' is not numeric"
+                    ))
                     return
         except Exception as e:
-            result.schema_failures.append(f"Type validation crashed: {str(e)}")
+            result.schema_failures.append(ValidationFailure(
+                code=FailureCode.SCH002,
+                severity=Severity.CRITICAL,
+                message=f"Type validation crashed: {str(e)}"
+            ))
             return
 
     def _validate_business(self, df: pd.DataFrame, result: ValidationResult) -> None:
@@ -75,11 +88,19 @@ class PriceValidator(BaseValidator):
             
             # Optional: fail business if more than 50% prices are completely corrupted
             if invalid_count > len(df) * 0.5 and len(df) > 0:
-                result.business_failures.append(f"Severe price corruption: {invalid_count}/{len(df)} rows contain impossible OHLCV data")
+                result.business_failures.append(ValidationFailure(
+                    code=FailureCode.BUS002,
+                    severity=Severity.CRITICAL,
+                    message=f"Severe price corruption: {invalid_count}/{len(df)} rows contain impossible OHLCV data"
+                ))
                 return
 
         except Exception as e:
-            result.business_failures.append(f"Business logic validation crashed: {str(e)}")
+            result.business_failures.append(ValidationFailure(
+                code=FailureCode.BUS001,
+                severity=Severity.CRITICAL,
+                message=f"Business logic validation crashed: {str(e)}"
+            ))
             return
 
     def _validate_historical(self, df: pd.DataFrame, context: ValidationContext, result: ValidationResult) -> None:
@@ -111,9 +132,17 @@ class PriceValidator(BaseValidator):
             
             # Historical Shrink detection is handled by cache engine currently
             if duplicate_rows > len(df) * 0.5 and len(df) > 0:
-                result.historical_failures.append("Massive duplicate explosion detected")
+                result.historical_failures.append(ValidationFailure(
+                    code=FailureCode.HIS003,
+                    severity=Severity.CRITICAL,
+                    message="Massive duplicate explosion detected"
+                ))
                 return
                 
         except Exception as e:
-            result.historical_failures.append(f"Historical validation crashed: {str(e)}")
+            result.historical_failures.append(ValidationFailure(
+                code=FailureCode.HIS001,
+                severity=Severity.CRITICAL,
+                message=f"Historical validation crashed: {str(e)}"
+            ))
             return

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple
+from .codes import ValidationFailure, Severity
 
 @dataclass
 class ValidationMetrics:
@@ -17,9 +18,9 @@ class ValidationResult:
     Intermediate state holding the raw output of a validator's execution.
     This is passed to the ScoreCalculator before the final report is generated.
     """
-    schema_failures: List[str] = field(default_factory=list)
-    business_failures: List[str] = field(default_factory=list)
-    historical_failures: List[str] = field(default_factory=list)
+    schema_failures: List[ValidationFailure] = field(default_factory=list)
+    business_failures: List[ValidationFailure] = field(default_factory=list)
+    historical_failures: List[ValidationFailure] = field(default_factory=list)
     
     # Granular details for scoring and diagnostics
     warnings: List[str] = field(default_factory=list)
@@ -32,5 +33,5 @@ class ValidationResult:
         
     @property
     def critical_failures(self) -> Tuple[str, ...]:
-        """Flattened list of all critical failures."""
-        return tuple(self.schema_failures + self.business_failures + self.historical_failures)
+        """Flattened list of all critical failures as formatted strings."""
+        return tuple(str(f) for f in self.schema_failures + self.business_failures + self.historical_failures)

@@ -16,7 +16,7 @@ from database import upsert_fetch_error
 from data_provider import get_fetcher
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
 from core_enums import ProviderResult
-from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData, ValidationContext
+from validation import ValidationEngine, MarketData, ValidationContext, registry as val_registry, DatasetType
 from config import SOURCE_RELIABILITY, MAX_HISTORY_SHRINK
 import json
 import os
@@ -378,7 +378,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     # Cache Decision Engine
                     if cached_df is not None and not cached_df.empty:
-                        engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                        pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                        engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                         ctx = ValidationContext(cache_df=None, provider="Cache", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                         cache_report = engine.validate(cached_df, ctx)
                         

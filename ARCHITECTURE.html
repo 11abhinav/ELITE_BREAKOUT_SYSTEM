@@ -1496,6 +1496,17 @@ Any new external API should satisfy a standard checklist before integration:
 7. **Golden Test Suite:** Include valid, corrupt, partial, stale, edge-cases.
 8. **Monitoring:** Emit structured validation logs and quality metrics.
 
+### Phase 13 – Architectural Governance & Freeze (Completed Phase 0)
+The data validation framework is considered **feature-frozen**. No new architectural concepts or framework layers may be introduced. Future work must only consist of implementing new dataset validators conforming to this architecture, fixing defects, or expanding test coverage.
+
+**Strict Governance Rule for External APIs:**
+A new external data source cannot be merged into the codebase unless:
+1. It has an explicit `DatasetType` mapped in the `ValidationRegistry`.
+2. It has a documented, complete contract (`contract_template.md`).
+3. It has a registered `BaseValidator` instance.
+4. It has a registered `BaseScoreCalculator` (if applicable).
+5. It passes the standard validation test suite (`test_registry.py` will automatically fail if the dataset is not properly registered).
+
 ### End-State Architecture
 The long-term goal is simple: the trading system no longer depends on the behavior of Yahoo, NSE, Fyers, or any other provider—it depends on internal validation contracts. If a provider changes its schema or returns partial data, the issue is detected and contained at the boundary.
 

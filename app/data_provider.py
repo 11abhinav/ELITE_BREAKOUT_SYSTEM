@@ -10,7 +10,7 @@ from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record
 from price_provider import PriceProvider
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS
 from core_enums import ProviderResult
-from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData, ValidationContext
+from validation import ValidationEngine, MarketData, ValidationContext, registry as val_registry, DatasetType
 logger = logging.getLogger(__name__)
 
 # Module-level shared provider to ensure cache is reused across fetcher instances
@@ -165,7 +165,8 @@ class YFinanceFetcher(DataFetcher):
         if isinstance(df, ProviderResult) or df is None or getattr(df, 'empty', True):
             should_fallback = True
         else:
-            engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+            pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+            engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
             ctx = ValidationContext(provider="NSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
             report = engine.validate(df, ctx)
             if not report.is_valid:
@@ -179,7 +180,8 @@ class YFinanceFetcher(DataFetcher):
             used_fallback = True
             
             if not isinstance(bse_df, ProviderResult) and bse_df is not None and not getattr(bse_df, 'empty', True):
-                engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                 ctx = ValidationContext(provider="BSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                 bse_report = engine.validate(bse_df, ctx)
                 if bse_report.is_valid:
@@ -198,7 +200,8 @@ class YFinanceFetcher(DataFetcher):
             return MarketData(None, source, None, False, used_fallback, error=df.name)
             
         if report is None:
-            engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+            pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+            engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
             ctx = ValidationContext(provider=source, period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
             report = engine.validate(df, ctx)
             
@@ -273,7 +276,8 @@ class YFinanceFetcher(DataFetcher):
             if isinstance(df, ProviderResult) or df is None or getattr(df, 'empty', True):
                 missing_symbols.append(ns_sym)
             else:
-                engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                 ctx = ValidationContext(provider="NSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                 report = engine.validate(df, ctx)
                 if not report.is_valid:
@@ -296,7 +300,8 @@ class YFinanceFetcher(DataFetcher):
                 for bse_sym, df in bse_results.items():
                     ns_sym = bse_to_ns_map[bse_sym]
                     if not isinstance(df, ProviderResult) and df is not None and not getattr(df, 'empty', True):
-                        engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                        pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                        engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                         ctx = ValidationContext(provider="BSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                         bse_report = engine.validate(df, ctx)
                         if bse_report.is_valid:

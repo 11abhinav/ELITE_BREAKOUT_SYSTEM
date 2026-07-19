@@ -6,6 +6,8 @@ from .base import BaseValidator
 from .scoring.base import BaseScoreCalculator
 from .validators.price_validator import PriceValidator
 from .scoring.price_score import PriceScoreCalculator
+from .registry import registry, ValidationRegistry, DatasetType
+from .codes import ValidationFailure, Severity, FailureCode
 
 __all__ = [
     "ValidationEngine",
@@ -17,5 +19,11 @@ __all__ = [
     "BaseValidator",
     "BaseScoreCalculator",
     "PriceValidator",
-    "PriceScoreCalculator"
+    "PriceScoreCalculator",
+    "ValidationRegistry",
+    "DatasetType",
+    "registry",
+    "ValidationFailure",
+    "Severity",
+    "FailureCode"
 ]

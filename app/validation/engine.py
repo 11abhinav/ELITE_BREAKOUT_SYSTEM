@@ -6,6 +6,7 @@ from .scoring.base import BaseScoreCalculator
 from .result import ValidationResult
 from .report import DataQualityReport
 from .context import ValidationContext
+from .codes import ValidationFailure, FailureCode, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,11 @@ class ValidationEngine:
             
         if df is None or df.empty:
             result = ValidationResult()
-            result.schema_failures.append("Dataframe is None or empty.")
+            result.schema_failures.append(ValidationFailure(
+                code=FailureCode.QLT001,
+                severity=Severity.CRITICAL,
+                message="Dataframe is None or empty."
+            ))
             return self._build_report(result, 0)
 
         # 1. Critical Validation Phase
@@ -39,7 +44,11 @@ class ValidationEngine:
         except Exception as e:
             logger.exception(f"[{self.validator.name}] Unhandled exception during validation")
             result = ValidationResult()
-            result.schema_failures.append(f"Unhandled exception: {str(e)}")
+            result.schema_failures.append(ValidationFailure(
+                code=FailureCode.BUS001,
+                severity=Severity.CRITICAL,
+                message=f"Unhandled exception: {str(e)}"
+            ))
             return self._build_report(result, 0)
 
         # 2. Scoring Phase (Only if Critical Validation Passed)
