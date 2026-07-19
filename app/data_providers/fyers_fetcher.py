@@ -14,7 +14,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from data_provider import DataFetcher
-from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData
+from validation import ValidationEngine, PriceValidator, PriceScoreCalculator, MarketData, ValidationContext
 
 import fyers_auth
 import config
@@ -372,8 +372,9 @@ class FyersFetcher(DataFetcher):
                     except Exception:
                         pass
                     
-                engine = ValidationEngine(PriceValidator(), PriceScoreCalculator(period, interval, range_from, range_to))
-                report = engine.validate(df)
+                engine = ValidationEngine(PriceValidator(), PriceScoreCalculator())
+                ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
+                report = engine.validate(df, ctx)
                 if not report.is_valid:
                     return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
                 return MarketData(df, "Fyers", report, False, False, None)

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-import pandas as pd
 from ..result import ValidationResult
+from ..context import ValidationContext
 
 class BaseScoreCalculator(ABC):
     """
@@ -9,9 +9,9 @@ class BaseScoreCalculator(ABC):
     """
 
     @abstractmethod
-    def calculate(self, df: pd.DataFrame, result: ValidationResult) -> int:
+    def calculate(self, result: ValidationResult, context: ValidationContext) -> int:
         """
-        Calculates a quality score (0-100) based on warnings, missing cells, staleness, etc.
+        Calculates a quality score (0-100) based on validated metrics.
         Returns the final computed score.
         """
         pass

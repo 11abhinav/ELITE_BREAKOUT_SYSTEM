@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 from typing import List, Optional
 from .result import ValidationResult
+from .context import ValidationContext
 
 class BaseValidator(ABC):
     """
@@ -18,7 +19,7 @@ class BaseValidator(ABC):
     @property
     @abstractmethod
     def version(self) -> str:
-        """Version of the validator ruleset (e.g. '1.0')"""
+        """Version of the validator ruleset (e.g. '2.1')"""
         pass
 
     @abstractmethod
@@ -32,25 +33,9 @@ class BaseValidator(ABC):
         pass
 
     @abstractmethod
-    def validate_schema(self, df: pd.DataFrame, result: ValidationResult) -> None:
+    def validate(self, df: pd.DataFrame, context: ValidationContext) -> ValidationResult:
         """
-        Validates column presence and data types.
-        Populates result.schema_pass and result.critical_failures.
-        """
-        pass
-
-    @abstractmethod
-    def validate_business(self, df: pd.DataFrame, result: ValidationResult) -> None:
-        """
-        Validates business logic invariants (e.g. High >= Low, Close >= 0).
-        Populates result.business_pass and result.critical_failures.
-        """
-        pass
-
-    @abstractmethod
-    def validate_historical(self, df: pd.DataFrame, cache_df: Optional[pd.DataFrame], result: ValidationResult) -> None:
-        """
-        Validates continuity against an existing historical cache.
-        Populates result.historical_pass and result.critical_failures.
+        Orchestrates internal validation sequences (Schema -> Business -> Historical)
+        and returns a complete ValidationResult.
         """
         pass
