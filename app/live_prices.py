@@ -89,6 +89,41 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                 except Exception as e:
                     logger.warning(f"⚠️ Fyers quote fetch failed for batch {i//chunk_size}: {e}")
                     
+                # ── Dynamic Fyers -BE Fallback for missing symbols ──────────
+                missing_fyers = [s for s in chunk if s in missing]
+                be_symbols = []
+                be_reverse_map = {}
+                
+                for m_sym in missing_fyers:
+                    f_sym = fyers_fetcher._normalize_symbol(m_sym)
+                    if f_sym and f_sym.endswith("-EQ"):
+                        be_sym = f_sym.replace("-EQ", "-BE")
+                        be_symbols.append(be_sym)
+                        be_reverse_map[be_sym] = m_sym
+                        
+                if be_symbols:
+                    try:
+                        response_be = fyers.quotes({"symbols": ",".join(be_symbols)})
+                        if response_be and isinstance(response_be, dict) and response_be.get("s") == "ok":
+                            for item in response_be.get("d", []):
+                                if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                                    be_sym = item.get("n", "")
+                                    original_sym = be_reverse_map.get(be_sym)
+                                    lp = item["v"]["lp"]
+                                    if original_sym and lp and lp > 0:
+                                        prices[original_sym] = float(lp)
+                                        if original_sym in missing:
+                                            missing.remove(original_sym)
+                                        # Persist -BE mapping
+                                        try:
+                                            from data_providers.fyers_mapping_utils import save_fyers_mapping
+                                            orig_clean = original_sym.strip().upper()
+                                            if orig_clean.endswith(".NS"): orig_clean = orig_clean[:-3]
+                                            save_fyers_mapping(orig_clean, be_sym)
+                                        except Exception: pass
+                    except Exception as e:
+                        logger.warning(f"⚠️ Fyers -BE fallback failed: {e}")
+                    
     except ImportError:
         logger.warning("⚠️ fyers_auth not found, falling back strictly to yfinance.")
     except Exception as e:
