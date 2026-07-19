@@ -6,14 +6,14 @@ from .base import BaseValidator
 from .scoring.base import BaseScoreCalculator
 from .validators.price_validator import PriceValidator
 from .scoring.price_score import PriceScoreCalculator
-from app.validation.validators.bhavcopy_validator import BhavcopyValidator
-from app.validation.scoring.bhavcopy_score import BhavcopyScoreCalculator
-from app.validation.validators.delivery_validator import DeliveryValidator
-from app.validation.scoring.delivery_score import DeliveryScoreCalculator
-from app.validation.validators.symbol_master_validator import SymbolMasterValidator
-from app.validation.scoring.symbol_master_score import SymbolMasterScoreCalculator
-from app.validation.validators.corporate_actions_validator import CorporateActionsValidator
-from app.validation.scoring.corporate_actions_score import CorporateActionsScoreCalculator
+from .validators.bhavcopy_validator import BhavcopyValidator
+from .scoring.bhavcopy_score import BhavcopyScoreCalculator
+from .validators.delivery_validator import DeliveryValidator
+from .scoring.delivery_score import DeliveryScoreCalculator
+from .validators.symbol_master_validator import SymbolMasterValidator
+from .scoring.symbol_master_score import SymbolMasterScoreCalculator
+from .validators.corporate_actions_validator import CorporateActionsValidator
+from .scoring.corporate_actions_score import CorporateActionsScoreCalculator
 
 class DatasetType(Enum):
     """Enumeration of all supported external data types in the system."""
