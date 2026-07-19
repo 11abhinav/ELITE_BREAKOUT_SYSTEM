@@ -87,6 +87,7 @@ class V8DeliveryValidator:
             self._log_reject("DATE_MISMATCH", Expected=self.expected_date_str, Actual=actual_date)
             return None
             
+        df["SERIES"] = df["SERIES"].astype(str).str.strip()
         df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
         
         if (df["DELIV_PER"] < 0).any() or (df["DELIV_PER"] > 100).any():
