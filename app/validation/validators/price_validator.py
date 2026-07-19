@@ -121,7 +121,8 @@ class PriceValidator(BaseValidator):
             freshness_days = 999
             now_dt = datetime.now(IST)
             if not time_series.empty:
-                last_dt = pd.to_datetime(time_series.iloc[-1])
+                last_val = time_series[-1] if isinstance(time_series, pd.Index) else time_series.iloc[-1]
+                last_dt = pd.to_datetime(last_val)
                 if not pd.isna(last_dt):
                     if last_dt.tzinfo is None:
                         last_dt = last_dt.tz_localize(IST)
