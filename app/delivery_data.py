@@ -3,14 +3,13 @@
 #
 # WHAT THIS FILE DOES:
 #   Fetches NSE end-of-day delivery volume data from the NSE bhavcopy archive.
-#   Uses curl_cffi and a cookie warmup to bypass Akamai WAF.
+#   Uses ScraperAPI (via pledge_scraper infrastructure) to permanently bypass Akamai WAF.
 # =====================================================================================
 
 import logging
 import requests
 import pandas as pd
 import time
-import random
 import io
 import threading
 from datetime import date, timedelta
@@ -25,35 +24,24 @@ BHAVCOPY_URL = (
     "sec_bhavdata_full_{date_str}.csv"
 )
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-]
-
-FETCH_TIMEOUT = 30
+# ScraperAPI adds significant latency since it proxies through residential IPs.
+FETCH_TIMEOUT = 60
 MAX_RETRIES = 3
 
 def _get_robust_session():
-    try:
-        from curl_cffi import requests as cffi_requests
-        # [TESTING: Upgraded impersonate from chrome120 to chrome124 to test WAF block]
-        session = cffi_requests.Session(impersonate="chrome124")
-        logger.info("🔧 _get_robust_session: Using curl_cffi with chrome124 impersonation")
-        return session
-    except ImportError:
-        logger.warning("⚠️ curl_cffi not installed. Falling back to standard requests.")
-        session = requests.Session()
-        retry = Retry(
-            total=3,
-            read=3,
-            connect=3,
-            backoff_factor=1.0,
-            status_forcelist=(500, 502, 503, 504),
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
+    # curl_cffi and impersonation are no longer needed since ScraperAPI handles TLS spoofing natively.
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        read=3,
+        connect=3,
+        backoff_factor=1.0,
+        status_forcelist=(500, 502, 503, 504),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 _delivery_cache = None
 _delivery_cache_date = None
@@ -73,7 +61,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             while candidate.weekday() >= 5:
                 candidate -= timedelta(days=1)
                 
-            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data for date: {candidate}")
+            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data via ScraperAPI for date: {candidate}")
             result = fetch_delivery_data(candidate)
             if result:
                 logger.info(f"📦 Previous-day delivery loaded | Date={candidate}")
@@ -81,8 +69,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
                 _delivery_cache_date = today
                 return result
         
-        # FINAL FALLBACK: If all fetches fail (e.g., NSE is completely down), 
-        # return the stale cache if we have one, rather than failing the whole build.
+        # FINAL FALLBACK: If all fetches fail, return the stale cache if we have one.
         if _delivery_cache is not None:
             logger.warning("⚠️ NSE Delivery fetch failed for all recent days. Using stale cache as final fallback.")
             return _delivery_cache
@@ -90,43 +77,51 @@ def fetch_previous_day_delivery() -> dict[str, float]:
     return {}
 
 def fetch_delivery_data(trading_date: date) -> dict[str, float]:
+    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+    
     date_str = trading_date.strftime("%d%m%Y")
-    url      = BHAVCOPY_URL.format(date_str=date_str)
+    target_url = BHAVCOPY_URL.format(date_str=date_str)
     session  = _get_robust_session()
 
     for attempt in range(1, MAX_RETRIES + 1):
-        headers = {
-            "User-Agent": random.choice(USER_AGENTS),
-            "Referer": "https://www.nseindia.com/",
+        api_key = get_scraper_api_key()
+        if not api_key:
+            logger.error("❌ No valid SCRAPERAPI_KEY found. Aborting Bhavcopy fetch.")
+            return {}
+
+        payload = {
+            'api_key': api_key,
+            'url': target_url,
+            'render': 'false', # CSVs don't need JS rendering
+            'country_code': 'in' # Prioritize Indian IPs for NSE (Optional, but recommended)
         }
+
         try:
-            logger.info(f"🔄 [Attempt {attempt}] Starting fetch for {date_str}...")
+            logger.info(f"🔄 [Attempt {attempt}] Requesting Bhavcopy CSV via ScraperAPI: {target_url}")
             
-            # First, hit the base domain to establish the session cookie
-            try:
-                logger.info(f"   -> 🍪 Hitting https://www.nseindia.com/ for cookie warmup...")
-                warmup_resp = session.get("https://www.nseindia.com/", headers=headers, timeout=FETCH_TIMEOUT)
-                logger.info(f"   -> 🍪 Warmup response status: {warmup_resp.status_code}")
-                time.sleep(2.5) # Delay to mimic human behavior and avoid WAF ban
-            except Exception as e:
-                logger.warning(f"   -> ⚠️ Initial NSE cookie fetch failed: {e}")
-                time.sleep(2.5)
-                
-            logger.info(f"   -> 📥 Requesting Bhavcopy CSV: {url}")
-            response = session.get(url, headers=headers, timeout=FETCH_TIMEOUT)
+            # Request through ScraperAPI rather than hitting NSE directly
+            response = session.get('https://api.scraperapi.com/', params=payload, timeout=FETCH_TIMEOUT)
+            
             logger.info(f"   -> 📥 CSV Response status: {response.status_code}")
             
+            if response.status_code in [403, 429]:
+                logger.warning(f"⚠️ ScraperAPI key {api_key[:5]}... exhausted or rate limited (HTTP {response.status_code}).")
+                mark_key_exhausted_today(api_key)
+                time.sleep(2)
+                continue
+            
+            # ScraperAPI returns the target's status code. So if NSE returns 404, ScraperAPI returns 404.
             if response.status_code == 404:
-                logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet (or is Akamai fake 404).")
+                logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet for {date_str}.")
                 try:
                     mark_failure('nse_bhavcopy', '404')
-                except Exception:
-                    logger.exception('Failed to report nse_bhavcopy 404')
-                return {} # 404 means the file doesn't exist yet (or holiday)
+                except Exception: pass
+                return {}
                 
             if response.status_code == 200:
                 raw_data = response.text
                 if len(raw_data) < 1000:
+                    logger.warning("⚠️ Received suspiciously small response. Retrying...")
                     time.sleep(1)
                     continue
                 
@@ -145,8 +140,6 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 
                 df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
                 df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
-                
-                # --- V8 Data Quality Guards ---
                 
                 num_symbols = len(df)
                 
@@ -185,18 +178,18 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 return dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
                 
         except Exception as e:
-            logger.warning(f"⚠️ Bhavcopy attempt {attempt} failed for {date_str}: {e}")
+            logger.warning(f"⚠️ Bhavcopy attempt {attempt} failed via ScraperAPI for {date_str}: {e}")
             try:
-                mark_failure('nse_bhavcopy', e)
+                mark_failure('nse_bhavcopy', str(e))
             except Exception:
                 pass
                 
         if attempt < MAX_RETRIES:
-            time.sleep(1.5)
+            time.sleep(2)
         else:
             try:
                 from push_service import send_push_to_all
-                send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str}")
+                send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via ScraperAPI")
             except Exception: pass
             
     return {}
