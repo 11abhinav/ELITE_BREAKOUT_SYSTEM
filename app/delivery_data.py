@@ -134,6 +134,11 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                     logger.warning("⚠️ Received suspiciously small response. Retrying...")
                     time.sleep(1)
                     continue
+                    
+                if "<html" in raw_data.lower() or "<body" in raw_data.lower() or "<!doctype" in raw_data.lower():
+                    logger.warning("⚠️ ScraperAPI returned an HTML block page instead of CSV. Retrying...")
+                    time.sleep(2)
+                    continue
                 
                 file_hash = _compute_sha256(raw_data)
                 if file_hash in _processed_sha256:

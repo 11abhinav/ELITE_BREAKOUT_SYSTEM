@@ -31,7 +31,7 @@ class PostgresValidationHistoryRecorder(ValidationHistoryRecorder):
             score = validated_dataset.score
             status = validated_dataset.status.name
             
-            failures_json = json.dumps([f.message for f in report.critical_failures]) if report.critical_failures else None
+            failures_json = json.dumps(list(report.critical_failures)) if report.critical_failures else None
             warnings_json = json.dumps(report.warnings) if report.warnings else None
             
             with get_connection() as conn:
@@ -96,7 +96,7 @@ class PostgresValidationHistoryRecorder(ValidationHistoryRecorder):
             for r in failed_results:
                 if r.result and r.result.critical_failures:
                     for f in r.result.critical_failures:
-                        all_failures.add(f.message)
+                        all_failures.add(f)
             failures_list = list(all_failures)[:10]
             failures_json = json.dumps(failures_list) if failures_list else None
             

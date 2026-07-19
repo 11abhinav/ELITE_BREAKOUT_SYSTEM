@@ -86,6 +86,11 @@ def get_institutional_buys() -> dict[str, list[str]]:
                     text = r.text.strip()
                     if not text or "NO RECORDS" in text or len(text.splitlines()) < 2:
                         return
+                        
+                    if "<html" in text.lower() or "<body" in text.lower() or "<!doctype" in text.lower():
+                        logger.warning(f"⚠️ NSE returned an HTML block page instead of {deal_type} CSV (Attempt {attempt+1})")
+                        if attempt < 2: time.sleep(2.5)
+                        continue
                     
                     df = pd.read_csv(io.StringIO(text))
                     df.columns = [c.strip().upper() for c in df.columns]
