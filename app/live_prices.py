@@ -205,7 +205,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             for i in range(0, len(yf_symbols), chunk_size):
                 chunk = yf_symbols[i:i+chunk_size]
                 
-                if hasattr(yf.shared, '_ERRORS'):
+                if hasattr(yf, 'shared') and hasattr(yf.shared, '_ERRORS'):
                     yf.shared._ERRORS.clear()
                     
                 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
@@ -225,7 +225,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                 finally:
                     yf_release()
                 
-                if hasattr(yf.shared, '_ERRORS'):
+                if hasattr(yf, 'shared') and hasattr(yf.shared, '_ERRORS'):
                     for yf_err_sym, err_msg in yf.shared._ERRORS.items():
                         orig = yf_reverse_map.get(yf_err_sym)
                         if orig: symbol_status[orig]["YF_NS"] = _parse_yf_error(err_msg)
@@ -275,7 +275,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                 logger.info(f"🔄 YFinance BSE fallback triggered for {len(bse_fallback_symbols)} unreturned symbols...")
                 try:
                     from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
-                    if hasattr(yf.shared, '_ERRORS'):
+                    if hasattr(yf, 'shared') and hasattr(yf.shared, '_ERRORS'):
                         yf.shared._ERRORS.clear()
                         
                     is_rate_limit = False
@@ -293,7 +293,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                     finally:
                         yf_release()
                         
-                    if hasattr(yf.shared, '_ERRORS'):
+                    if hasattr(yf, 'shared') and hasattr(yf.shared, '_ERRORS'):
                         for yf_err_sym, err_msg in yf.shared._ERRORS.items():
                             orig = bse_reverse_map.get(yf_err_sym)
                             if orig: symbol_status[orig]["YF_BO"] = _parse_yf_error(err_msg)
