@@ -150,10 +150,15 @@ class DataQualityValidator:
             now_dt = datetime.now(IST)
         
         # Price Sanity
+        # [VERSION: SYSTEM_REVIEW] Added strict <= 0 checks for all OHLC and < 0 for Volume to prevent downstream zero-division errors
         invalid_prices = ((df["High"] < df["Low"]) | 
                          (df["Close"] > df["High"]) | 
                          (df["Close"] < df["Low"]) | 
-                         (df["Open"] < 0)).sum()
+                         (df["Open"] <= 0) | 
+                         (df["High"] <= 0) | 
+                         (df["Low"] <= 0) | 
+                         (df["Close"] <= 0) |
+                         (df.get("Volume", 0) < 0)).sum()
 
         score = cls._compute_score(row_count, expected_rows, missing_pct, duplicate_rows, monotonic, invalid_prices, freshness_days, now_dt)
         
