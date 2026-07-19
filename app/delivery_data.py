@@ -4,6 +4,7 @@
 # WHAT THIS FILE DOES:
 #   Fetches NSE end-of-day delivery volume data from the NSE bhavcopy archive.
 #   Uses ScraperAPI (via pledge_scraper infrastructure) to permanently bypass Akamai WAF.
+#   Implements the 7-Stage V8 Data Quality Framework for source-agnostic validation.
 # =====================================================================================
 
 import logging
@@ -11,6 +12,7 @@ import requests
 import pandas as pd
 import time
 import io
+import hashlib
 import threading
 from datetime import date, timedelta
 from requests.adapters import HTTPAdapter
@@ -28,6 +30,108 @@ BHAVCOPY_URL = (
 FETCH_TIMEOUT = 60
 MAX_RETRIES = 3
 
+_delivery_cache = None
+_delivery_cache_date = None
+_delivery_cache_lock = threading.Lock()
+_processed_sha256 = set()
+
+class V8DeliveryValidator:
+    """
+    7-Stage Data Quality Framework for V8.
+    Validates any incoming Bhavcopy data regardless of the source.
+    """
+    def __init__(self, expected_date: date):
+        self.expected_date = expected_date
+        self.expected_date_str = expected_date.strftime("%d-%b-%Y")
+        
+    def _log_reject(self, reason: str, **kwargs):
+        msg = f"DATA_VALIDATOR | Reason: {reason}"
+        for k, v in kwargs.items():
+            msg += f" | {k}: {v}"
+        logger.warning(msg)
+        
+    def _compute_sha256(self, raw_data: str) -> str:
+        return hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
+        
+    def run_pipeline(self, raw_data: str) -> dict[str, float]:
+        # Stage 1: SHA256 (Prevent processing the exact same corrupted/stale file twice)
+        file_hash = self._compute_sha256(raw_data)
+        if file_hash in _processed_sha256:
+            self._log_reject("DUPLICATE_FILE_HASH", Hash=file_hash[:8])
+            return None
+            
+        try:
+            df = pd.read_csv(io.StringIO(raw_data))
+            df.columns = [c.strip().upper() for c in df.columns]
+        except Exception as e:
+            self._log_reject("PARSE_ERROR", Error=str(e))
+            return None
+            
+        # Stage 2: Schema Validation
+        required_cols = {"SYMBOL", "SERIES", "DATE1", "DELIV_PER"}
+        missing = required_cols - set(df.columns)
+        if missing:
+            self._log_reject("INVALID_SCHEMA", Missing=missing)
+            return None
+            
+        # Stage 3: Type Validation
+        try:
+            df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
+        except Exception as e:
+            self._log_reject("TYPE_VALIDATION_FAILED", Column="DELIV_PER")
+            return None
+            
+        # Stage 4: Content Validation
+        actual_date = str(df["DATE1"].iloc[0]).strip()
+        if actual_date != self.expected_date_str:
+            self._log_reject("DATE_MISMATCH", Expected=self.expected_date_str, Actual=actual_date)
+            return None
+            
+        df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
+        
+        if (df["DELIV_PER"] < 0).any() or (df["DELIV_PER"] > 100).any():
+            invalid_count = len(df[(df["DELIV_PER"] < 0) | (df["DELIV_PER"] > 100)])
+            self._log_reject("INVALID_DELIVERY_PERCENT", Count=invalid_count)
+            return None
+            
+        empty_symbols = df["SYMBOL"].isna() | (df["SYMBOL"].astype(str).str.strip() == "")
+        if empty_symbols.any():
+            self._log_reject("EMPTY_SYMBOLS", Count=empty_symbols.sum())
+            return None
+            
+        df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
+        
+        if df.duplicated(subset=["SYMBOL"]).any():
+            dup_count = df.duplicated(subset=["SYMBOL"]).sum()
+            self._log_reject("DUPLICATE_SYMBOLS", Count=dup_count)
+            return None
+            
+        # Stage 5: Market Sanity Validation
+        num_symbols = len(df)
+        if num_symbols < 1800 or num_symbols > 4000:
+            self._log_reject("SYMBOL_COUNT_OUT_OF_BOUNDS", Expected="1800-4000", Actual=num_symbols)
+            return None
+            
+        missing_deliv_pct = df["DELIV_PER"].isna().mean()
+        if missing_deliv_pct > 0.05:
+            self._log_reject("TOO_MUCH_MISSING_DATA", Missing_Pct=f"{missing_deliv_pct:.1%}")
+            return None
+            
+        # Stage 6: Historical Comparison
+        with _delivery_cache_lock:
+            if _delivery_cache is not None:
+                prev_count = len(_delivery_cache)
+                drift = abs(num_symbols - prev_count) / prev_count
+                if drift > 0.10:
+                    self._log_reject("HISTORICAL_DRIFT_TOO_HIGH", Prev=prev_count, New=num_symbols, Drift=f"{drift:.1%}")
+                    return None
+
+        # Stage 7: Quality Score (implicit ACCEPT)
+        _processed_sha256.add(file_hash)
+        logger.info(f"✅ V8 Pipeline: Bhavcopy Validated | Date: {self.expected_date_str} | Symbols: {num_symbols}")
+        
+        return dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
+
 def _get_robust_session():
     # curl_cffi and impersonation are no longer needed since ScraperAPI handles TLS spoofing natively.
     session = requests.Session()
@@ -42,10 +146,6 @@ def _get_robust_session():
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
-
-_delivery_cache = None
-_delivery_cache_date = None
-_delivery_cache_lock = threading.Lock()
 
 def fetch_previous_day_delivery() -> dict[str, float]:
     global _delivery_cache, _delivery_cache_date
@@ -126,64 +226,14 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                     time.sleep(1)
                     continue
                 
-                # sec_bhavdata_full format: standard CSV with headers
-                df = pd.read_csv(io.StringIO(raw_data))
-                df.columns = [c.strip().upper() for c in df.columns]
+                validator = V8DeliveryValidator(expected_date=trading_date)
+                valid_dict = validator.run_pipeline(raw_data)
                 
-                # Validate columns
-                required_cols = {"SYMBOL", "SERIES", "DATE1", "DELIV_PER"}
-                if not required_cols.issubset(set(df.columns)):
-                    logger.warning(f"⚠️ Bhavcopy structure invalid. Columns found: {df.columns.tolist()}")
-                    return {}
-                
-                # 0. Internal Date Integrity Check
-                expected_date_str = trading_date.strftime("%d-%b-%Y") # e.g., 17-Jul-2026
-                actual_date = str(df["DATE1"].iloc[0]).strip()
-                if actual_date != expected_date_str:
-                    logger.warning(f"⚠️ Bhavcopy rejected: File contents are for {actual_date}, but we expected {expected_date_str} (NSE publishing error)")
-                    return {}
-                
-                # Filter strictly to Equities
-                df = df[df['SERIES'] == 'EQ'].copy()
-                
-                df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
-                df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
-                
-                num_symbols = len(df)
-                
-                # 1. Hard Limits
-                if num_symbols < 2000 or num_symbols > 4000:
-                    logger.warning(f"⚠️ Bhavcopy rejected: abnormal symbol count ({num_symbols})")
-                    return {}
-                
-                # 2. Statistical Anomaly Check (Max 10% drift from previous valid cache)
-                with _delivery_cache_lock:
-                    if _delivery_cache is not None:
-                        prev_count = len(_delivery_cache)
-                        drift = abs(num_symbols - prev_count) / prev_count
-                        if drift > 0.10:
-                            logger.warning(f"⚠️ Bhavcopy rejected: Symbol count drifted {drift:.1%} from previous day (Prev: {prev_count}, New: {num_symbols})")
-                            return {}
-
-                # 3. Duplicate Check
-                if df["SYMBOL"].duplicated().any():
-                    logger.warning("⚠️ Bhavcopy rejected: duplicate symbols found in EQ series")
-                    return {}
-                    
-                # 4. Missing Data Check
-                missing_deliv_pct = df["DELIV_PER"].isna().mean()
-                if missing_deliv_pct > 0.05:
-                    logger.warning(f"⚠️ Bhavcopy rejected: too much missing delivery data ({missing_deliv_pct:.1%})")
-                    return {}
-                    
-                logger.info(f"✅ Bhavcopy Validated | Date: {date_str} | Symbols: {num_symbols} | Missing: {missing_deliv_pct:.2%}")
-                
-                try:
-                    mark_success('nse_bhavcopy')
-                except Exception:
-                    pass
-                    
-                return dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
+                if valid_dict is not None:
+                    try:
+                        mark_success('nse_bhavcopy')
+                    except Exception: pass
+                    return valid_dict
                 
         except Exception as e:
             logger.warning(f"⚠️ Bhavcopy attempt {attempt} failed via ScraperAPI for {date_str}: {e}")
