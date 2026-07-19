@@ -58,6 +58,8 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             candidate = today - timedelta(days=days_back)
             while candidate.weekday() >= 5:
                 candidate -= timedelta(days=1)
+                
+            logger.info(f"🔄 Attempting to fetch MTO delivery data for date: {candidate}")
             result = fetch_delivery_data(candidate)
             if result:
                 logger.info(f"📦 Previous-day delivery loaded | Date={candidate}")

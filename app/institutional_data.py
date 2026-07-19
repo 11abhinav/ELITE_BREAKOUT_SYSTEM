@@ -80,6 +80,7 @@ def get_institutional_buys() -> dict[str, list[str]]:
     def process_url(url, deal_type):
         for attempt in range(3):
             try:
+                logger.info(f"🔄 Attempting to fetch {deal_type} deals from {url} (Attempt {attempt+1})")
                 r = session.get(url, timeout=15)
                 if r.status_code == 200:
                     text = r.text.strip()
