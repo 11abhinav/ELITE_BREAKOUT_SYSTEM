@@ -22,7 +22,7 @@ from data_fetch_status import mark_success, mark_failure
 logger = logging.getLogger(__name__)
 
 BHAVCOPY_URL = (
-    "https://archives.nseindia.com/products/content/"
+    "https://nsearchives.nseindia.com/products/content/"
     "sec_bhavdata_full_{date_str}.csv"
 )
 
