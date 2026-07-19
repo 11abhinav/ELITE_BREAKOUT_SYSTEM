@@ -275,31 +275,7 @@
     <!-- Target area for rendered Markdown content -->
     <div class="container" id="content"></div>
 
-    
-## 43. V8 Data Quality Framework
-
-### 43.1 System Invariant: Cache Protection
-**Healthy cache can never be overwritten by lower-quality data.**
-The V8 Data Quality Framework elevates data ingestion from a simple `df is not empty` check to a deterministic, lexicographical scoring pipeline. Incoming data is objectively evaluated and explicitly compared against the historical cache to protect the system from upstream provider anomalies (like Yahoo Finance BSE `.BO` truncations).
-
-### 43.2 DataQualityReport & MarketData Wrapper
-All data ingested from `DataFetcher` subclasses must be validated by the `DataQualityValidator`, which computes an objective `QualityScore` (0-100) based on:
-1. **Schema & Type Validation:** Enforces exact column matching (`Open, High, Low, Close, Volume`) and numeric datatypes.
-2. **Row Completeness (40 points):** Calculates expected rows dynamically based on the requested period/dates.
-3. **Missing Values (20 points):** Penalizes `NaN` rates.
-4. **Price Sanity (20 points):** Penalizes absurd prices (e.g., `High < Low`).
-5. **Continuity & Freshness (20 points):** Evaluates timestamp monotonicity and time-aware market freshness.
-
-The result is wrapped in an immutable `MarketData` dataclass that contains the dataframe, data source, and the generated `DataQualityReport`. Downstream scanners are abstracted away from these structures and unpack `MarketData` directly without knowing the data's origin.
-
-### 43.3 Cache Decision Engine Merge Policy
-The `price_cache.py` ingestion loop explicitly compares incoming data against the cache using a hierarchical formula:
-- `RemoteScore = QualityScore × SOURCE_RELIABILITY[source]`
-- `CacheScore = QualityScore × SOURCE_RELIABILITY["Cache"]`
-
-If the remote data is inferior, the system executes a **KEEP_CACHE** policy, preserving the local `.parquet` data and marking it as `is_stale`. This guarantees years of accumulated historical data are strictly immunized against sudden API failures or regressions (tracked via the `MAX_HISTORY_SHRINK` threshold).
-
-<!-- Hidden Raw Markdown Data Store -->
+    <!-- Hidden Raw Markdown Data Store -->
     <textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
 
 ## 1. Market Regime Definitions & Fallbacks
@@ -1371,11 +1347,37 @@ An extensive 13-phase architectural audit was performed on the V8 data ingestion
 - **Vulnerability**: A bad API response that passes basic validation but returns 5 days of data instead of 5 years will permanently wipe out the historical cache for that symbol.
 
 ### 39.2 Hardcoded Dataset Inflexibility
-- **Finding**: The `DataQualityValidator` was intended to be a universal framework but evolved into a rigid Price-Only validator. It hardcodes `REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]`.
-- **Vulnerability**: It is currently impossible to route non-OHLCV datasets (like Fundamentals, Bhavcopy, or Corporate Actions) through the standard validation pipeline. The system lacks a generic `BaseValidator` interface.
+- ~~**Finding**: The `DataQualityValidator` was intended to be a universal framework but evolved into a rigid Price-Only validator. It hardcodes `REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]`.~~
+- ~~**Vulnerability**: It is currently impossible to route non-OHLCV datasets (like Fundamentals, Bhavcopy, or Corporate Actions) through the standard validation pipeline. The system lacks a generic `BaseValidator` interface.~~
+- **[RESOLVED on 2026-07-19]**: The monolithic `DataQualityValidator` was deprecated and replaced with a dataset-aware `ValidationEngine`. `PriceValidator` now implements a `BaseValidator` interface, separating schema definition, business logic, and historical validation.
 
 ### 39.3 Provider Fallback Bleed
 - **Finding**: NSE to BSE ticker fallback logic is heavily duplicated. Both the low-level adapter (`price_provider.py`) and the high-level fetcher (`data_provider.py`) attempt to handle missing `.NS` symbols by swapping to `.BO`, leading to tangled responsibilities and redundant database mapping updates.
+
+## 40. V8 Data Quality & Validation Engine
+
+### 40.1 System Invariant: Cache Protection
+**Healthy cache can never be overwritten by lower-quality data.**
+The V8 Data Quality Framework elevates data ingestion from a simple `df is not empty` check to a deterministic, lexicographical scoring pipeline. Incoming data is objectively evaluated and explicitly compared against the historical cache to protect the system from upstream provider anomalies (like Yahoo Finance BSE `.BO` truncations).
+
+### 40.2 ValidationEngine Framework (Updated 2026-07-19)
+~~All data ingested from `DataFetcher` subclasses must be validated by the `DataQualityValidator`, which computes an objective `QualityScore` (0-100)...~~
+*(Removed 2026-07-19: The monolithic DataQualityValidator was deprecated in favor of the decoupled ValidationEngine)*
+
+The new `ValidationEngine` explicitly orchestrates validation via a strict 4-stage lifecycle:
+1. **Schema Validation (`validate_schema`)**: Enforces required and optional column definitions.
+2. **Business Rules (`validate_business`)**: Validates domain logic (e.g., `High >= Low`).
+3. **Historical Context (`validate_historical`)**: Evaluates temporal continuity using the `ValidationContext`.
+4. **Scoring (`BaseScoreCalculator`)**: Executed **only** if stages 1-3 pass, assigning a 0-100 quality score based on `ValidationMetrics` (missing % penalty, staleness, etc.).
+
+All findings are packaged into an immutable `DataQualityReport` featuring explicit `schema_failures`, `business_failures`, and `historical_failures` to dramatically improve observability over the deprecated boolean `is_valid` flag. Downstream scanners are abstracted away from these structures and unpack the final `MarketData` wrapper directly.
+
+### 40.3 Cache Decision Engine Merge Policy
+The `price_cache.py` ingestion loop explicitly compares incoming data against the cache using a hierarchical formula:
+- `RemoteScore = QualityScore × SOURCE_RELIABILITY[source]`
+- `CacheScore = QualityScore × SOURCE_RELIABILITY["Cache"]`
+
+If the remote data is inferior, the system executes a **KEEP_CACHE** policy, preserving the local `.parquet` data and marking it as `is_stale`. This guarantees years of accumulated historical data are strictly immunized against sudden API failures or regressions (tracked via the `MAX_HISTORY_SHRINK` threshold).
 </textarea>
 
 
