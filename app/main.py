@@ -110,7 +110,7 @@ def _cleanup_old_scanner_names():
                     UPDATE scanner_health 
                     SET status='IDLE', error_msg=NULL, is_acknowledged=TRUE
                     WHERE scanner_name IN ('EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
-                      AND status IN ('DOWN', 'RUNNING');
+                      AND (status IN ('DOWN', 'RUNNING') OR status LIKE 'QUEUED%');
                 """)
             conn.commit()
     except Exception as e:
