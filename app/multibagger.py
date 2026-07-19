@@ -274,10 +274,16 @@ def batch_download_market_data(symbols: list) -> dict:
     strip_forming = is_market_open(ist_now)
     
     results = {}
-    for sym, ticker_df in batch_res.items():
+    for sym, md in batch_res.items():
         from core_enums import ProviderResult
-        if ticker_df is None or isinstance(ticker_df, ProviderResult):
+        if md is None or isinstance(md, ProviderResult):
             continue
+        
+        # Handle both MarketData objects and direct dataframes
+        ticker_df = md.dataframe if hasattr(md, "dataframe") else md
+        if ticker_df is None or getattr(ticker_df, "empty", True):
+            continue
+            
         try:
             ticker_df = ticker_df.dropna(subset=["Close"])
             if ticker_df.empty:

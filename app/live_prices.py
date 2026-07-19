@@ -98,6 +98,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                     continue
                 
                 try:
+                    missing_count_before = len(missing)
                     response = fyers.quotes({"symbols": ",".join(fyers_symbols)})
                     if response and isinstance(response, dict) and response.get("s") == "ok":
                         data_list = response.get("d", [])
@@ -122,6 +123,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             original_sym = reverse_map.get(f_sym)
                             if original_sym and "Fyers" not in symbol_status[original_sym]:
                                 symbol_status[original_sym]["Fyers"] = FetchFailureType.EMPTY_RESPONSE
+                        
+                        missing_chunk = [s for s in chunk if s in missing]
+                        if len(missing_chunk) > 0:
+                            # Some were missing. Log the raw response so we can RCA.
+                            logger.warning(f"⚠️ Fyers quote returned 'ok' but missing data/prices for {missing_chunk}. Raw Fyers response: {response}")
                     else:
                         is_auth_error = False
                         if isinstance(response, dict):
@@ -164,6 +170,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                         
                 if be_symbols:
                     try:
+                        missing_count_before_be = len(missing)
                         response_be = fyers.quotes({"symbols": ",".join(be_symbols)})
                         if response_be and isinstance(response_be, dict) and response_be.get("s") == "ok":
                             for item in response_be.get("d", []):
@@ -184,6 +191,10 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                             if orig_clean.endswith(".NS"): orig_clean = orig_clean[:-3]
                                             save_fyers_mapping(orig_clean, be_sym)
                                         except Exception: pass
+                                        
+                            missing_chunk = [s for s in chunk if s in missing]
+                            if len(missing_chunk) > 0:
+                                logger.warning(f"⚠️ Fyers quote (-BE fallback) returned 'ok' but missing data/prices for {missing_chunk}. Raw Fyers response: {response_be}")
                         else:
                             is_auth_error = False
                             if isinstance(response_be, dict):
@@ -276,15 +287,17 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             symbol_status[orig]["YF_NS"] = FetchFailureType.RATE_LIMIT if is_rate_limit else FetchFailureType.NETWORK_ERROR
                 else:
                     if len(chunk) == 1:
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = df.columns.get_level_values(1)
                         if not df.empty and "Close" in df.columns:
                             val = float(df["Close"].iloc[-1])
                             if val > 0:
                                 prices[yf_reverse_map[chunk[0]]] = val
                                 symbol_status[yf_reverse_map[chunk[0]]]["YF_NS"] = FetchFailureType.SUCCESS
                             else:
-                                logger.info(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df)}, Columns = {list(df.columns)}, Download error = 'Close <= 0'")
+                                logger.info(f"Provider: Yahoo NS | Ticker: {chunk[0]} | df.empty: {df.empty} | shape: {df.shape} | all NaN: {df.isna().all().all()} | error: 'Close <= 0'")
                         else:
-                            logger.info(f"Yahoo NS: Ticker = {chunk[0]}, Rows = {len(df) if not df.empty else 0}, Columns = {list(df.columns) if not df.empty else []}, Download error = 'Empty DataFrame'")
+                            logger.info(f"Provider: Yahoo NS | Ticker: {chunk[0]} | df.empty: {df.empty} | shape: {df.shape} | all NaN: {df.isna().all().all() if not df.empty else 'N/A'} | error: 'Empty DataFrame'")
                     else:
                         if not hasattr(df.columns, 'levels'):
                             logger.warning(f"⚠️ yf.download returned flat (non-MultiIndex) columns for multi-ticker batch {i//chunk_size}.")
@@ -297,9 +310,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                             prices[yf_reverse_map[y_sym]] = val
                                             symbol_status[yf_reverse_map[y_sym]]["YF_NS"] = FetchFailureType.SUCCESS
                                         else:
-                                            logger.info(f"Yahoo NS: Ticker = {y_sym}, Rows = {len(df[y_sym])}, Columns = {list(df[y_sym].columns)}, Download error = 'Close <= 0'")
+                                            logger.info(f"Provider: Yahoo NS | Ticker: {y_sym} | df.empty: {df[y_sym].empty} | shape: {df[y_sym].shape} | all NaN: {df[y_sym].isna().all().all()} | error: 'Close <= 0'")
                                     else:
-                                        logger.info(f"Yahoo NS: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
+                                        logger.info(f"Provider: Yahoo NS | Ticker: {y_sym} | df.empty: True | shape: (0, 0) | all NaN: N/A | error: 'Missing in MultiIndex'")
                                 except Exception as parse_e:
                                     logger.info(f"Yahoo NS: Ticker = {y_sym}, Parse Error = {parse_e}")
                                     pass
@@ -314,8 +327,13 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
             bse_fallback_symbols = []
             bse_reverse_map = {}
             for sym in still_missing:
+                first_tested = None
+                for y_sym, orig in yf_reverse_map.items():
+                    if orig == sym:
+                        first_tested = y_sym
+                        break
                 clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
-                bse_sym = f"{clean}.BO"
+                bse_sym = f"{clean}.NS" if first_tested and first_tested.endswith(".BO") else f"{clean}.BO"
                 bse_fallback_symbols.append(bse_sym)
                 bse_reverse_map[bse_sym] = sym
                 
@@ -353,6 +371,8 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 symbol_status[orig]["YF_BO"] = FetchFailureType.RATE_LIMIT if is_rate_limit else FetchFailureType.NETWORK_ERROR
                     else:
                         if len(bse_fallback_symbols) == 1:
+                            if isinstance(df_bse.columns, pd.MultiIndex):
+                                df_bse.columns = df_bse.columns.get_level_values(1)
                             if not df_bse.empty and "Close" in df_bse.columns:
                                 val = float(df_bse["Close"].iloc[-1])
                                 if val > 0:
@@ -364,9 +384,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                         save_bse_mapping(orig_sym, bse_fallback_symbols[0])
                                     except Exception: pass
                                 else:
-                                    logger.info(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse)}, Columns = {list(df_bse.columns)}, Download error = 'Close <= 0'")
+                                    logger.info(f"Provider: Yahoo BO | Ticker: {bse_fallback_symbols[0]} | df.empty: {df_bse.empty} | shape: {df_bse.shape} | all NaN: {df_bse.isna().all().all()} | error: 'Close <= 0'")
                             else:
-                                logger.info(f"Yahoo BO: Ticker = {bse_fallback_symbols[0]}, Rows = {len(df_bse) if not df_bse.empty else 0}, Columns = {list(df_bse.columns) if not df_bse.empty else []}, Download error = 'Empty DataFrame'")
+                                logger.info(f"Provider: Yahoo BO | Ticker: {bse_fallback_symbols[0]} | df.empty: {df_bse.empty} | shape: {df_bse.shape} | all NaN: {df_bse.isna().all().all() if not df_bse.empty else 'N/A'} | error: 'Empty DataFrame'")
                         else:
                             if hasattr(df_bse.columns, 'levels'):
                                 for y_sym in bse_fallback_symbols:
@@ -382,9 +402,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                                     save_bse_mapping(orig_sym, y_sym)
                                                 except Exception: pass
                                             else:
-                                                logger.info(f"Yahoo BO: Ticker = {y_sym}, Rows = {len(df_bse[y_sym])}, Columns = {list(df_bse[y_sym].columns)}, Download error = 'Close <= 0'")
+                                                logger.info(f"Provider: Yahoo BO | Ticker: {y_sym} | df.empty: {df_bse[y_sym].empty} | shape: {df_bse[y_sym].shape} | all NaN: {df_bse[y_sym].isna().all().all()} | error: 'Close <= 0'")
                                         else:
-                                            logger.info(f"Yahoo BO: Ticker = {y_sym}, Rows = 0, Columns = [], Download error = 'Missing in MultiIndex'")
+                                            logger.info(f"Provider: Yahoo BO | Ticker: {y_sym} | df.empty: True | shape: (0, 0) | all NaN: N/A | error: 'Missing in MultiIndex'")
                                     except Exception as parse_e:
                                         logger.info(f"Yahoo BO: Ticker = {y_sym}, Parse Error = {parse_e}")
                                         pass
@@ -408,13 +428,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         yf_bo_status = statuses.get("YF_BO", FetchFailureType.UNKNOWN_ERROR)
         
         # Determine if failure is permanent
-        def is_permanent(st: FetchFailureType) -> bool:
-            return st in (FetchFailureType.INVALID_SYMBOL, FetchFailureType.EMPTY_RESPONSE)
-            
-        def is_temp(st: FetchFailureType) -> bool:
-            return st in (FetchFailureType.NETWORK_ERROR, FetchFailureType.RATE_LIMIT, FetchFailureType.PROVIDER_TIMEOUT, FetchFailureType.AUTHENTICATION_ERROR, FetchFailureType.SERVER_ERROR)
+        invalid_count = sum(1 for st in (fyers_status, yf_ns_status, yf_bo_status) if st == FetchFailureType.INVALID_SYMBOL)
 
-        if is_permanent(fyers_status) and is_permanent(yf_ns_status) and is_permanent(yf_bo_status):
+        if invalid_count >= 2:
             _dead_symbols_cache[s] = time.time()
             logger.warning(
                 f"🚫 Marking {s} as completely DEAD for 24h\n"

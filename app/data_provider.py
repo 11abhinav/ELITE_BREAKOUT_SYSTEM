@@ -475,7 +475,16 @@ class AutoSwitchingFetcher(DataFetcher):
                 if missing_symbols:
                     if len(missing_symbols) == len(symbols):
                         logger.warning(f"Fyers Batch API Silent Failure: Fyers returned poor data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.")
-                    logger.warning(f"Fyers batch fetch returned poor quality data for {len(missing_symbols)} symbols. Querying YFinance for these.")
+                    else:
+                        logger.warning(f"Fyers batch fetch returned poor quality data for {len(missing_symbols)} symbols. Querying YFinance for these.")
+                        
+                    for s in missing_symbols:
+                        res = results.get(s)
+                        if not res or res.dataframe is None:
+                            logger.debug(f"⚠️ {s} missing from Fyers: Empty dataframe or no data returned. (Date Range: {range_from} to {range_to})")
+                        elif res.quality_report and not res.quality_report.is_valid:
+                            logger.warning(f"⚠️ {s} Fyers data rejected by validator: {res.quality_report.warnings}")
+
                     yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
                     for s in missing_symbols:
                         if s in yf_results:
