@@ -121,11 +121,12 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             if original_sym and "Fyers" not in symbol_status[original_sym]:
                                 symbol_status[original_sym]["Fyers"] = FetchFailureType.EMPTY_RESPONSE
                     else:
+                        logger.error(f"❌ Fyers API returned error payload for batch {i//chunk_size}: {response}")
                         for f_sym in fyers_symbols:
                             original_sym = reverse_map.get(f_sym)
                             if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.UNKNOWN_ERROR
                 except Exception as e:
-                    logger.warning(f"⚠️ Fyers quote fetch failed for batch {i//chunk_size}: {e}")
+                    logger.error(f"⚠️ Fyers quote fetch failed for batch {i//chunk_size}: {e}")
                     for f_sym in fyers_symbols:
                         original_sym = reverse_map.get(f_sym)
                         if original_sym: symbol_status[original_sym]["Fyers"] = FetchFailureType.NETWORK_ERROR
@@ -164,8 +165,10 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                             if orig_clean.endswith(".NS"): orig_clean = orig_clean[:-3]
                                             save_fyers_mapping(orig_clean, be_sym)
                                         except Exception: pass
+                        else:
+                            logger.error(f"❌ Fyers API returned error payload for -BE fallback: {response_be}")
                     except Exception as e:
-                        logger.warning(f"⚠️ Fyers -BE fallback failed: {e}")
+                        logger.error(f"⚠️ Fyers -BE fallback failed: {e}")
                     
     except ImportError:
         logger.warning("⚠️ fyers_auth not found, falling back strictly to yfinance.")

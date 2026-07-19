@@ -444,7 +444,7 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
         
         sector = info.get('sector')
         raw_industry = info.get('industry')
-        from config.industry_normalizer import normalize_industry
+        from industry_normalizer import normalize_industry
         canonical_industry = normalize_industry(raw_industry)
         pe = norm_num(info.get('trailingPE') or info.get('peRatio'))
         pb = norm_num(info.get('priceToBook') or info.get('pbRatio'))
