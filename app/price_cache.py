@@ -17,6 +17,8 @@ from data_provider import get_fetcher
 from config import BATCH_DOWNLOAD_SIZE, PRICE_CACHE_TTL_SECONDS, DATA_DIR
 from core_enums import ProviderResult
 from validation import ValidationEngine, MarketData, ValidationContext, registry as val_registry, DatasetType
+from validation.result import ValidatedDataset, ValidationStatus
+from validation.history import history_recorder
 from config import SOURCE_RELIABILITY, MAX_HISTORY_SHRINK
 import json
 import os
@@ -295,6 +297,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         if os.path.exists(file_path):
             try:
                 cached_df = pd.read_parquet(file_path)
+                meta_path = file_path.replace('.parquet', '.meta.json')
+                is_degraded = False
+                if os.path.exists(meta_path):
+                    try:
+                        with open(meta_path, "r") as f:
+                            meta = json.load(f)
+                        if meta.get("validation_status") == "ValidationStatus.DEGRADED":
+                            is_degraded = True
+                    except Exception: pass
+                    
                 if not cached_df.empty:
                     # Find last timestamp
                     if 'Date' in cached_df.columns:
@@ -313,6 +325,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     is_up_to_date = _is_cache_up_to_date(last_ts, interval)
                     is_long_enough = _is_cache_long_enough(cached_df, period, sym)
                     
+                    if is_degraded:
+                        is_up_to_date = False
+                        logger.info(f"CACHE_POLICY | {sym} is marked DEGRADED. Forcing retry despite timestamp {last_ts}.")
+                    
                     if is_up_to_date:
                         if is_long_enough:
                             all_data[sym] = cached_df
@@ -322,10 +338,13 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
                             needs_full = True
+                    else:
+                        # Not up to date. If it is long enough, we can do a DELTA fetch.
+                        if is_long_enough:
+                            needs_full = False
+                        else:
+                            needs_full = True
                             
-                    if not is_long_enough:
-                        needs_full = True
-                        
                     if not needs_full:
                         # Back up 1 day to ensure we get overlapping candles to avoid gaps
                         range_from = (last_ts - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -360,11 +379,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             batch_results = fetcher.get_batch_ohlcv(batch, interval=interval, period=period, retries=3, range_from=range_from, range_to=range_to, caller=requester)
             
             if batch_results:
+                batch_validation_items = []
                 for sym in batch:
                     md = batch_results.get(sym)
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
-                    if md is None or md.dataframe is None:
+                    if md is None:
                         if cached_df is not None and not cached_df.empty:
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
@@ -375,6 +395,24 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     new_df = md.dataframe
                     new_report = md.quality_report
                     remote_source = md.source
+                    
+                    if new_report:
+                        batch_validation_items.append(
+                            ValidatedDataset(
+                                data=new_df, 
+                                result=new_report, # DataQualityReport is compatible enough for history_recorder (it has score, status, etc)
+                                score=new_report.quality_score, 
+                                status=new_report.status
+                            )
+                        )
+                        
+                    if new_df is None:
+                        if cached_df is not None and not cached_df.empty:
+                            cached_df.attrs['is_stale'] = True
+                            all_data[sym] = cached_df
+                        else:
+                            all_data[sym] = None
+                        continue
                     
                     # Cache Decision Engine
                     if cached_df is not None and not cached_df.empty:
@@ -405,7 +443,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             pass
                         else:
                             # Reject Remote Data (Lower Quality)
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym}")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score}")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
@@ -485,6 +523,19 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         try:
                             file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
                             all_data[sym].to_parquet(file_path)
+                            
+                            # Save sidecar metadata
+                            meta_path = file_path.replace('.parquet', '.meta.json')
+                            meta = {
+                                "validation_score": new_report.quality_score if new_report else 100,
+                                "validation_status": str(new_report.status) if new_report else "ValidationStatus.VALID",
+                                "validator_name": new_report.validator_name if new_report else "Unknown",
+                                "timestamp_saved": time.time(),
+                                "row_count": len(all_data[sym])
+                            }
+                            with open(meta_path, "w") as f:
+                                json.dump(meta, f)
+                                
                         except Exception as e:
                             logger.exception(f"Failed to write disk cache for {sym}")
                     else:
@@ -492,9 +543,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         if cached_df is not None and not cached_df.empty:
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
+                
+                # Record batch validation history
+                history_recorder.record_batch(DatasetType.PRICE, batch_validation_items)
             else:
                 logger.error(f"❌ Batch {desc} failed or returned empty for {len(batch)} symbols.")
                 rate_limited = True
+                
+                # Record empty batch history
+                history_recorder.record_batch(DatasetType.PRICE, [], fallback_status=ValidationStatus.INVALID)
+                
                 # Fallback entire batch to stale cache
                 for sym in batch:
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
@@ -507,7 +565,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
     for sym in symbols:
         df = all_data.get(sym)
-        if df is None or getattr(df, 'attrs', {}).get('is_stale', False) or isinstance(df, ProviderResult):
+        if df is None or isinstance(df, ProviderResult):
             try:
                 upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:

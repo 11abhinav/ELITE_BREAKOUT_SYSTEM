@@ -280,10 +280,9 @@ class YFinanceFetcher(DataFetcher):
                 engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                 ctx = ValidationContext(provider="NSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                 report = engine.validate(df, ctx)
+                reports[ns_sym] = report
                 if not report.is_valid:
                     missing_symbols.append(ns_sym)
-                else:
-                    reports[ns_sym] = report
                 
         if missing_symbols:
             bse_fetch_list = []
@@ -304,9 +303,9 @@ class YFinanceFetcher(DataFetcher):
                         engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
                         ctx = ValidationContext(provider="BSE", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
                         bse_report = engine.validate(df, ctx)
+                        reports[ns_sym] = bse_report
                         if bse_report.is_valid:
                             results[ns_sym] = df
-                            reports[ns_sym] = bse_report
                             try:
                                 from bse_mapping_utils import save_bse_mapping
                                 for orig in normalized_map.get(ns_sym, []):

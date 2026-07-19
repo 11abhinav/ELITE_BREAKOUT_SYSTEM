@@ -234,7 +234,23 @@ class OpportunityManager:
                             "allocation": c.get("allocation"),
                         },
                     )
-                    logger.info(f"✅ {symbol} persisted as FUNDED alert.")
+                    
+                    # Also persist as a candidate to maintain the 1:1 invariant
+                    save_candidate(
+                        symbol=symbol,
+                        breakout_type=c.get("breakout_type", "MULTI_TF"),
+                        scanner=c.get("scanner", ""),
+                        technical_score=c.get("technical_score", 0),
+                        volume_ratio=c.get("volume_ratio", 0.0),
+                        delivery_pct=c.get("delivery_pct", 0.0),
+                        rr_ratio=c.get("rr_ratio", 0.0),
+                        market_context=c.get("market_context") or {},
+                        status="FUNDED",
+                        rejection_reason="",
+                        ranking_breakdown=c.get("ranking_breakdown") or {},
+                    )
+                    
+                    logger.info(f"✅ {symbol} persisted as FUNDED alert and candidate.")
                 except Exception as e:
                     logger.error(f"Failed to persist FUNDED {symbol}: {e}")
 

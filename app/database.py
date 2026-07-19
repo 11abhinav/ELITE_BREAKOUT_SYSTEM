@@ -613,6 +613,29 @@ def init_db():
                 # Ensure a uniqueness constraint for upsert logic
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_fetch_errors_uni ON fetch_errors (source_name, scanner_name, symbol, interval, category)")
                 
+                # ── Validation History Table (Operational Ledger) ───────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS validation_history (
+                        id SERIAL PRIMARY KEY,
+                        dataset_name TEXT NOT NULL,
+                        score REAL NOT NULL,
+                        status TEXT NOT NULL,
+                        failures TEXT,
+                        warnings TEXT,
+                        row_count INTEGER,
+                        validator_version TEXT,
+                        symbols_processed INTEGER,
+                        symbols_valid INTEGER,
+                        symbols_failed INTEGER,
+                        average_score REAL,
+                        minimum_score REAL,
+                        maximum_score REAL,
+                        validated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_dataset ON validation_history(dataset_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_time ON validation_history(validated_at DESC)")
+                
                 # Add missing indexes for frequently queried columns
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")

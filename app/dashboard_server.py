@@ -1317,6 +1317,62 @@ def api_remove_portfolio():
         logger.exception(f"Failed to remove portfolio entry")
         return jsonify({"error": str(e)}), 500
 
+# ── Validation Health API ──────────────────────────────────────────────────────────
+@app.route("/api/validation_health", methods=["GET"])
+def get_validation_health():
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT DISTINCT ON (dataset_name)
+                        dataset_name,
+                        score,
+                        status,
+                        failures,
+                        warnings,
+                        symbols_processed,
+                        validator_version,
+                        validated_at
+                    FROM validation_history
+                    ORDER BY dataset_name, validated_at DESC
+                ''')
+                records = cur.fetchall()
+                
+        for r in records:
+            r['failures'] = json.loads(r['failures']) if r['failures'] else []
+            r['warnings'] = json.loads(r['warnings']) if r['warnings'] else []
+            r['validated_at'] = r['validated_at'].isoformat() if r['validated_at'] else None
+            
+        return jsonify({"status": "success", "data": records})
+    except Exception as e:
+        logger.exception("❌ /api/validation_health failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/validation_history/<dataset>", methods=["GET"])
+def get_validation_history(dataset):
+    try:
+        limit = int(request.args.get('limit', 30))
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT score, status, symbols_processed, symbols_failed, validated_at, warnings, failures
+                    FROM validation_history
+                    WHERE dataset_name = %s
+                    ORDER BY validated_at DESC
+                    LIMIT %s
+                ''', (dataset, limit))
+                records = cur.fetchall()
+                
+        for r in records:
+            r['failures'] = json.loads(r['failures']) if r['failures'] else []
+            r['warnings'] = json.loads(r['warnings']) if r['warnings'] else []
+            r['validated_at'] = r['validated_at'].isoformat() if r['validated_at'] else None
+            
+        return jsonify({"status": "success", "data": records})
+    except Exception as e:
+        logger.exception(f"❌ /api/validation_history/{dataset} failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/data_fetch_health")
 @login_required
 def api_data_fetch_health():

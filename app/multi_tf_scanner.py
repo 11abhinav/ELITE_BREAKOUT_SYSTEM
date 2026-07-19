@@ -702,7 +702,6 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             calc_target = sl_result["target_1"]
 
                             if sl_result.get("is_rejected"):
-                                rejected["low_rr"] += 1
                                 from database import save_rejected_alert
                                 if not is_test_mode:
                                     save_rejected_alert(

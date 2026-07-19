@@ -1535,6 +1535,16 @@ A new external data source cannot be merged into the codebase unless:
 4. It has a registered `BaseScoreCalculator` (if applicable).
 5. It passes the standard validation test suite (`test_registry.py` will automatically fail if the dataset is not properly registered).
 
+#### PR Guidelines for Behavior and Snapshot Changes
+To prevent subtle regressions, any Pull Request (PR) that alters the validation logic, cache merging logic, or scanner conditions must adhere to the following:
+1. **Explain the Behavior Change**: The PR description must explicitly state *why* the behavior is changing, not just *what* code is changing.
+2. **Snapshot Updates Require Justification**: If a change causes `test_regression_snapshots.py` to fail due to a changed snapshot output, the developer MUST review the diff. The snapshot file may only be updated if the change in output is fully understood, intended, and documented in the PR.
+3. **No Unintended Downgrades**: If a validation score changes for a specific dataset, the PR must explain whether the change reflects a stricter constraint or a bug fix. Stricter constraints are allowed; accidental bypasses are not.
+
+#### Engineering Rule for Defect Resolution
+**Any bug discovered in production MUST first be reproduced as an automated test before the fix is merged.**
+Every production issue strengthens the verification suite, transforming it into a permanent record of real-world failures to prevent future regressions.
+
 ### End-State Architecture
 The long-term goal is simple: the trading system no longer depends on the behavior of Yahoo, NSE, Fyers, or any other provider—it depends on internal validation contracts. If a provider changes its schema or returns partial data, the issue is detected and contained at the boundary.
 
@@ -1548,6 +1558,27 @@ flowchart TD
     F --> G[Validated Domain Object]
     G --> H[Application]
 ```
+
+## 42. Fault Injection & Chaos Engineering (V1)
+
+To ensure the Validation Engine and system ingestion pipelines behave deterministically under duress, a dedicated Chaos Engineering test suite (`test_fault_injection.py`) validates system resilience against real-world failures.
+
+### 42.1 Transport & Network Failures
+* **Network Timeouts & API Drops:** Simulates `requests.exceptions.Timeout` to verify that consumers correctly abort and write structured observability logs instead of raising unhandled exceptions.
+* **Corrupted Payloads (Cloudflare Blocks):** External providers frequently return HTML pages instead of expected CSV/JSON payloads. The system gracefully blocks parser failures before they reach the validation engine to prevent pipeline corruption.
+* **Truncated Responses:** By mocking extremely small or partial byte responses, the engine's `HIS001` (Symbol Count Drop) successfully intercepts the corrupted payload, marking it `INVALID`.
+
+### 42.2 Deep Data Corruption & Schema Mismatches
+* **Schema Violations:** Simulating missing mandatory columns (e.g., `SYMBOL`) verifies that `SCH001` is actively engaged to quarantine the dataset.
+* **Corrupted OHLCV Invariants:** Simulating impossible market data (e.g., Negative Prices or `High < Low`). 
+  - **Improvement & Bug Fix:** The system previously dropped severely corrupted dataframes for safety, but failed to record the Validation Failure onto the dashboard because the dataframe was discarded too early. 
+  - **The Fix:** The engine now strictly extracts the `ValidationStatus.INVALID` report and permanently records the failure in the `validation_history` ledger *before* securely destroying the corrupted dataframe.
+
+### 42.3 Database Offline Resilience
+* **Simulated Postgres Outage:** The suite mocks a complete `DATABASE_URL=offline` failure via `psycopg2.OperationalError` during live caching and data ingestion.
+* **Resilience Goal:** The system's primary directive is to **always serve price data**, regardless of monitoring database health.
+  - **Improvement & Bug Fix:** The test exposed a vulnerability where a telemetry/success callback (`delete_fetch_error_on_success`) crashed the entire price fetcher if the database was offline.
+  - **The Fix:** We implemented strict exception firewalls around all database telemetry bounds. If the DB is unreachable, the system will silently catch the errors and seamlessly route data locally from the `.parquet` file caching tier, ensuring zero downtime for trading operations.
 </textarea>
 
 

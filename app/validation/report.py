@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple, Optional
 import pandas as pd
+from .result import ValidationStatus
 
 @dataclass(frozen=True)
 class DataQualityReport:
@@ -10,6 +11,8 @@ class DataQualityReport:
     is_valid: bool
     quality_score: int
     critical_failures: Tuple[str, ...]
+    warnings: Tuple[str, ...] = ()
+    status: ValidationStatus = ValidationStatus.INVALID
     
     # Metadata for Cache Engines
     row_count: int = 0

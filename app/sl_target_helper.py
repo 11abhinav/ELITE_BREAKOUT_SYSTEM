@@ -914,6 +914,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
     
+    explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
@@ -983,6 +984,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
     
+    explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
         "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),

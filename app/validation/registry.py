@@ -6,6 +6,14 @@ from .base import BaseValidator
 from .scoring.base import BaseScoreCalculator
 from .validators.price_validator import PriceValidator
 from .scoring.price_score import PriceScoreCalculator
+from app.validation.validators.bhavcopy_validator import BhavcopyValidator
+from app.validation.scoring.bhavcopy_score import BhavcopyScoreCalculator
+from app.validation.validators.delivery_validator import DeliveryValidator
+from app.validation.scoring.delivery_score import DeliveryScoreCalculator
+from app.validation.validators.symbol_master_validator import SymbolMasterValidator
+from app.validation.scoring.symbol_master_score import SymbolMasterScoreCalculator
+from app.validation.validators.corporate_actions_validator import CorporateActionsValidator
+from app.validation.scoring.corporate_actions_score import CorporateActionsScoreCalculator
 
 class DatasetType(Enum):
     """Enumeration of all supported external data types in the system."""
@@ -47,13 +55,14 @@ class ValidationRegistry:
         self._register(DatasetType.PRICE, PriceValidator(), PriceScoreCalculator())
         
         # To be implemented:
-        self._register_stub(DatasetType.BHAVCOPY)
-        self._register_stub(DatasetType.DELIVERY)
-        self._register_stub(DatasetType.SYMBOL_MASTER)
+        self._register(DatasetType.BHAVCOPY, BhavcopyValidator(), BhavcopyScoreCalculator())
+        self._register(DatasetType.DELIVERY, DeliveryValidator(), DeliveryScoreCalculator())
+        self._register(DatasetType.SYMBOL_MASTER, SymbolMasterValidator(), SymbolMasterScoreCalculator())
         
         # Tier 2
+        self._register_stub(DatasetType.LIVE_QUOTES)
         self._register_stub(DatasetType.FUNDAMENTALS)
-        self._register_stub(DatasetType.CORPORATE_ACTIONS)
+        self._register(DatasetType.CORPORATE_ACTIONS, CorporateActionsValidator(), CorporateActionsScoreCalculator())
         self._register_stub(DatasetType.INDEX_CONSTITUENTS)
         
         # Tier 3

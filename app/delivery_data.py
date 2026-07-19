@@ -18,6 +18,9 @@ from datetime import date, timedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from data_fetch_status import mark_success, mark_failure
+from validation import ValidationEngine, ValidationContext, registry as val_registry, DatasetType
+from validation.result import ValidationStatus
+from validation.history import history_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -35,110 +38,8 @@ _delivery_cache_date = None
 _delivery_cache_lock = threading.RLock()
 _processed_sha256 = set()
 
-class V8DeliveryValidator:
-    """
-    7-Stage Data Quality Framework for V8.
-    Validates any incoming Bhavcopy data regardless of the source.
-    """
-    def __init__(self, expected_date: date):
-        self.expected_date = expected_date
-        self.expected_date_str = expected_date.strftime("%d-%b-%Y")
-        
-    def _log_reject(self, reason: str, **kwargs):
-        msg = f"DATA_VALIDATOR | Reason: {reason}"
-        for k, v in kwargs.items():
-            msg += f" | {k}: {v}"
-        logger.warning(msg)
-        
-    def _compute_sha256(self, raw_data: str) -> str:
-        return hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
-        
-    def run_pipeline(self, raw_data: str) -> dict[str, float]:
-        # Stage 1: SHA256 (Prevent processing the exact same corrupted/stale file twice)
-        file_hash = self._compute_sha256(raw_data)
-        if file_hash in _processed_sha256:
-            self._log_reject("DUPLICATE_FILE_HASH", Hash=file_hash[:8])
-            return None
-            
-        try:
-            df = pd.read_csv(io.StringIO(raw_data))
-            df.columns = [c.strip().upper() for c in df.columns]
-        except Exception as e:
-            self._log_reject("PARSE_ERROR", Error=str(e))
-            return None
-            
-        # Stage 2: Schema Validation
-        required_cols = {"SYMBOL", "SERIES", "DATE1", "DELIV_PER"}
-        missing = required_cols - set(df.columns)
-        if missing:
-            self._log_reject("INVALID_SCHEMA", Missing=missing)
-            return None
-            
-        # Stage 3: Type Validation
-        try:
-            df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
-        except Exception as e:
-            self._log_reject("TYPE_VALIDATION_FAILED", Column="DELIV_PER")
-            return None
-            
-        # Stage 4: Content Validation
-        actual_date = str(df["DATE1"].iloc[0]).strip()
-        if actual_date != self.expected_date_str:
-            self._log_reject("DATE_MISMATCH", Expected=self.expected_date_str, Actual=actual_date)
-            return None
-            
-        df["SERIES"] = df["SERIES"].astype(str).str.strip()
-        df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
-        
-        if (df["DELIV_PER"] < 0).any() or (df["DELIV_PER"] > 100).any():
-            invalid_count = len(df[(df["DELIV_PER"] < 0) | (df["DELIV_PER"] > 100)])
-            self._log_reject("INVALID_DELIVERY_PERCENT", Count=invalid_count)
-            return None
-            
-        empty_symbols = df["SYMBOL"].isna() | (df["SYMBOL"].astype(str).str.strip() == "")
-        if empty_symbols.any():
-            self._log_reject("EMPTY_SYMBOLS", Count=empty_symbols.sum())
-            return None
-            
-        df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
-        
-        if df.duplicated(subset=["SYMBOL"]).any():
-            dup_count = df.duplicated(subset=["SYMBOL"]).sum()
-            self._log_reject("DUPLICATE_SYMBOLS", Count=dup_count)
-            return None
-            
-        # Stage 5: Market Sanity Validation
-        num_symbols = len(df)
-        if num_symbols < 1800 or num_symbols > 4000:
-            self._log_reject("SYMBOL_COUNT_OUT_OF_BOUNDS", Expected="1800-4000", Actual=num_symbols)
-            return None
-            
-        # Validate missing data per-series according to business rules
-        eq_mask = df["SERIES"] == "EQ"
-        if eq_mask.any():
-            eq_missing_pct = df.loc[eq_mask, "DELIV_PER"].isna().mean()
-            # EQ series should rarely have missing delivery data
-            if eq_missing_pct > 0.05:
-                self._log_reject("TOO_MUCH_MISSING_DATA_EQ", Missing_Pct=f"{eq_missing_pct:.1%}")
-                return None
-            
-        # Stage 6: Historical Comparison
-        with _delivery_cache_lock:
-            if _delivery_cache is not None:
-                prev_count = len(_delivery_cache)
-                drift = abs(num_symbols - prev_count) / prev_count
-                if drift > 0.10:
-                    self._log_reject("HISTORICAL_DRIFT_TOO_HIGH", Prev=prev_count, New=num_symbols, Drift=f"{drift:.1%}")
-                    return None
-
-        # Stage 7: Quality Score (implicit ACCEPT)
-        _processed_sha256.add(file_hash)
-        logger.info(f"✅ V8 Pipeline: Bhavcopy Validated | Date: {self.expected_date_str} | Symbols: {num_symbols}")
-        
-        # Preserve NaN values for missing data rather than coercing to 0.0.
-        # Downstream consumers must handle NaNs correctly.
-        
-        return dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
+def _compute_sha256(raw_data: str) -> str:
+    return hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
 
 def _get_robust_session():
     # curl_cffi and impersonation are no longer needed since ScraperAPI handles TLS spoofing natively.
@@ -234,10 +135,54 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                     time.sleep(1)
                     continue
                 
-                validator = V8DeliveryValidator(expected_date=trading_date)
-                valid_dict = validator.run_pipeline(raw_data)
+                file_hash = _compute_sha256(raw_data)
+                if file_hash in _processed_sha256:
+                    logger.warning(f"⚠️ Duplicate file hash {file_hash[:8]} detected. Skipping.")
+                    return {}
+                    
+                try:
+                    df = pd.read_csv(io.StringIO(raw_data))
+                    df.columns = [c.strip().upper() for c in df.columns]
+                except Exception as e:
+                    logger.warning(f"⚠️ Parse Error: {e}")
+                    return {}
                 
-                if valid_dict is not None:
+                pipeline = val_registry.get_pipeline(DatasetType.BHAVCOPY)
+                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
+                ctx = ValidationContext(provider="NSE_BHAVCOPY")
+                
+                validated_dataset = engine.process(df, context=ctx)
+                
+                # Record to history
+                history_recorder.record_single(DatasetType.BHAVCOPY, validated_dataset)
+                
+                if validated_dataset.status == ValidationStatus.INVALID:
+                    logger.error(f"❌ Bhavcopy Validation Failed: {validated_dataset.result.critical_failures}")
+                    return {}
+                    
+                if validated_dataset.status == ValidationStatus.DEGRADED:
+                    logger.warning(f"⚠️ Bhavcopy Validation Degraded. Score: {validated_dataset.score}. Warnings: {validated_dataset.result.warnings}")
+                elif validated_dataset.result.has_warnings:
+                    logger.warning(f"⚠️ Bhavcopy Validation Warnings: {validated_dataset.result.warnings}")
+                    
+                _processed_sha256.add(file_hash)
+                logger.info(f"✅ ValidationEngine: Bhavcopy Validated | Date: {date_str} | Symbols: {len(df)}")
+                
+                # Consumer-specific extraction from the validated cross-sectional snapshot
+                if "DELIV_PER" not in df.columns:
+                    logger.error("❌ Bhavcopy is valid, but missing DELIV_PER column required for delivery extraction.")
+                    return {}
+                    
+                df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
+                df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
+                
+                # Filter for valid series
+                df["SERIES"] = df["SERIES"].astype(str).str.strip()
+                df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
+                
+                valid_dict = dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
+                
+                if valid_dict:
                     try:
                         mark_success('nse_bhavcopy')
                     except Exception: pass

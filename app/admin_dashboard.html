@@ -1689,6 +1689,9 @@
             <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading errors...</div>
           </div>
 
+          <!-- VALIDATION HEALTH PANEL -->
+          <div id="validationHealthContainer" style="margin-bottom:20px;"></div>
+
           <!-- API HEALTH PANEL -->
           <div id="apiHealthContainer" style="margin-bottom:20px;"></div>
 
@@ -1969,6 +1972,15 @@
           renderApiHealth(apiHealth);
         }
       } catch (e) { console.error('Failed to load API health', e); }
+
+      // 5b. Validation Health
+      try {
+        const rVal = await fetch('/api/validation_health');
+        if (rVal.ok) {
+          const valHealth = await rVal.json();
+          renderValidationHealth(valHealth.data);
+        }
+      } catch (e) { console.error('Failed to load validation health', e); }
 
       // 6. Pledge Worker Mode
       loadPledgeWorkerMode();
@@ -3548,6 +3560,55 @@
         await fetch('/api/data_fetch_health/acknowledge/' + sourceName, { method: 'POST' });
         await doRefresh();
       } catch (e) { console.error('Failed to ack API health', e); }
+    }
+
+    // ── VALIDATION HEALTH (Admin Panel)
+    function renderValidationHealth(healthData) {
+      const el = document.getElementById('validationHealthContainer');
+      if (!el) return;
+
+      if (!healthData || healthData.length === 0) {
+        el.innerHTML = `<div class="card"><div class="card-title">🛡️ Validation Health</div><div style="padding:12px;color:var(--muted)">No validation history recorded yet.</div></div>`;
+        return;
+      }
+
+      const rows = healthData.map(h => {
+        let statusColor = "var(--green)";
+        let statusIcon = "🟢";
+        if (h.status === "DEGRADED") {
+            statusColor = "var(--amber)";
+            statusIcon = "🟡";
+        } else if (h.status === "INVALID") {
+            statusColor = "var(--red)";
+            statusIcon = "🔴";
+        }
+        
+        const timestamp = h.validated_at ? new Date(h.validated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+        const warnings = h.warnings && h.warnings.length > 0 ? `<div style="font-size:11px; color:var(--amber); margin-top:6px;">⚠️ ${h.warnings.length} Warnings: ${h.warnings[0]}${h.warnings.length > 1 ? '...' : ''}</div>` : '';
+        const failures = h.failures && h.failures.length > 0 ? `<div style="font-size:11px; color:var(--red); margin-top:6px;">🚨 ${h.failures.length} Failures: ${h.failures[0]}${h.failures.length > 1 ? '...' : ''}</div>` : '';
+        const score = h.score != null ? h.score.toFixed(1) : '—';
+        const processed = h.symbols_processed ? `${h.symbols_processed} symbols` : '';
+        
+        return \`
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border);">
+      <div style="min-width:180px;">
+        <div style="font-family:var(--font-mono); font-weight:700; font-size:14px;">\${h.dataset_name}</div>
+        <div style="font-size:12px; color:\${statusColor}; font-weight:600; margin-top:4px;">\${statusIcon} \${h.status}</div>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:13px; color:var(--text); font-weight:600;">Score: \${score} \${processed ? '· ' + processed : ''}</div>
+        \${warnings}
+        \${failures}
+      </div>
+      <div style="text-align:right; min-width:120px; font-size:11px; color:var(--muted);">
+        <div>Last run:</div>
+        <div>\${timestamp}</div>
+      </div>
+    </div>
+  \`;
+      }).join('');
+
+      el.innerHTML = \`<div class="card"><div class="card-title">🛡️ Validation Health</div><div style="max-height:360px; overflow:auto;">\${rows}</div></div>\`;
     }
 
     function renderFetchErrors(errs) {
