@@ -1017,21 +1017,42 @@ To allow administrators to back-test, audit, or fix corrupted closed trades, we 
 
 ---
 
-## 19. SL_ENGINE_V6.4: The Multi-Target Architecture & Candidate Pipeline
+## 19. SL_ENGINE_V7: The Multi-Target Architecture (Active Legacy Fallback)
 
-**Status: Production-Grade V1.5 Architecture**
+**Status: Production-Grade V1.5 Architecture (Operating in `v1.0` Fallback Mode)**
 
-To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*. We also completely rebuilt the Exit logic to support dynamic scaling via multi-target cascades.
+To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*. 
 
-### 19.1 The V6.4 Target Engine (Dynamic Profit Taking)
+> [!WARNING]
+> **Orphaned V2.0 Institutional Engine**: The codebase contains a highly advanced Object-Oriented "V2.0 Institutional Engine" (with Kelly fractions, Bayesian confidence scoring, and dynamic Volatility Regimes). However, none of the scanners currently invoke it. `compute_sl_and_target()` defaults to `engine_version="v1.0"`, forcing all scanners into the `_legacy_compute_sl_and_target()` function which executes the **SL_ENGINE_V7** described below.
+
+### 19.1 The V7 Target Engine (Dynamic Profit Taking & Structural Cascades)
 The SL_ENGINE no longer outputs a single `target_price`. It now outputs a three-stage cascade (`target_1`, `target_2`, `target_3`), mathematically anchored to structural resistance and capped by macro volatility.
 
+- **Dynamic Support Selection Cascade (Stop-Loss Anchoring):**
+  Searches below entry price for the strongest structural support using priority cascade:
+  1. `swing_low_cluster` (Average of 2+ swing lows clustered within 1%)
+  2. `swing_low` (True technical pivot low)
+  3. `s1` (Standard floor pivot)
+  4. `swing_low_raw` (Rolling window low fallback)
+  5. `s2` (Deeper floor pivot)
+
+- **Dynamic Resistance Selection Cascade (Target Anchoring):**
+  Anchors T1 to the nearest logical structural resistance above entry price:
+  1. `swing_high` (True technical pivot high)
+  2. `r1` (Standard ceiling pivot)
+  3. `bb_upper` (Volatility ceiling limit)
+  4. `swing_high_raw` (Rolling window high)
+  5. `r2` (Deeper ceiling pivot)
+
 - **Multi-Target Scaling:** 
-  - **T1 (Primary):** Anchored to nearest structural resistance.
+  - **T1 (Primary):** Anchored to nearest structural resistance via the cascade above.
   - **T2 (Secondary):** 1.5x Risk/ATR projection, capped by regime constraints.
   - **T3 (Runner):** 3.0x Risk/ATR projection, capped by regime constraints.
-- **Natural RR / Reward Potential Gates:** A trade must pass minimum Reward:Risk ratio gates before it is even saved. If the nearest structural resistance is too close to the entry price, the trade is rejected (e.g., `GATE_NATURAL_RR`).
-- **Target Capping by Regime:** To prevent unrealistic target projections during volatile or bearish markets, `target_2` and `target_3` are strictly capped based on the current Macro Regime. Bear regimes constrain ATR projection, while Bull regimes allow targets to breathe.
+
+- **Target Kill-Gates (NO_VALID_STRUCTURAL):** 
+  - If no valid structural support can be found below entry, the trade is rejected with `NO_VALID_STRUCTURAL_STOP`.
+  - If the natural RR to the nearest resistance is below the scanner's minimum threshold (e.g. 2.0x for EOD/Reversal), the trade is rejected with `NO_VALID_STRUCTURAL_TARGET`.
 
 #### Target Suppression (The "Missing T2/T3" Logic)
 The engine proactively suppresses secondary targets based on mathematically proven momentum exhaustion. When a target is suppressed, it is saved as `null` in the DB.
@@ -1040,7 +1061,7 @@ The engine proactively suppresses secondary targets based on mathematically prov
 3. **Reversals:** Mean-reversion trades are highly speculative. The reversal scanner hardcodes `target_3` to `null` so it never chases runners on failing stocks.
 
 ### 19.2 The Hierarchical Separation of Concerns
-The pipeline is designed to be the universal standard for all strategies. **Currently, this full pipeline is ONLY implemented for the `MULTI_TF` scanner.** The `EOD` and `Reversal` scanners utilize the V6.4 Target Engine, but they bypass the Opportunity Manager and write directly to the database (legacy execution).
+The pipeline is designed to be the universal standard for all strategies. **Currently, this full pipeline is ONLY implemented for the `MULTI_TF` scanner.** The `EOD` and `Reversal` scanners utilize the V7 Target Engine, but they bypass the Opportunity Manager and write directly to the database (legacy execution).
 
 Future roadmaps will unify all scanners to use this exact flow:
 ```mermaid
