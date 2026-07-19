@@ -3,7 +3,12 @@ from typing import Dict, List
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import time
+
 logger = logging.getLogger(__name__)
+
+_dead_symbols_cache = {}
+_DEAD_TTL = 3600 * 24  # 24 hours
 
 def get_live_prices(symbols: List[str]) -> Dict[str, float]:
     """
@@ -14,8 +19,18 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
     if not symbols:
         return {}
 
+    now = time.time()
+    valid_symbols = []
+    for s in symbols:
+        if s in _dead_symbols_cache and (now - _dead_symbols_cache[s]) < _DEAD_TTL:
+            continue
+        valid_symbols.append(s)
+        
+    if not valid_symbols:
+        return {}
+
     prices = {}
-    missing = list(symbols)
+    missing = list(valid_symbols)
 
     # ── 1. Attempt Primary Fetch (Fyers) ────────────────────────────────────────────────
     try:
@@ -202,5 +217,10 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             
         except Exception as e:
             logger.exception(f"⚠️ YFinance batch fallback failed: {e}")
+            
+    final_missing = [s for s in missing if s not in prices]
+    for s in final_missing:
+        _dead_symbols_cache[s] = time.time()
+        logger.warning(f"🚫 Marking {s} as completely DEAD for 24h (failed Fyers, YFinance NS, and YFinance BO)")
             
     return prices
