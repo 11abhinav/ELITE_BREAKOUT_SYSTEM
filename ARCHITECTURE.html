@@ -1357,6 +1357,10 @@ To optimize wall-clock time, the orchestrator now executes `eod_scanner` and `re
 ### 38.4 Dashboard Queue State Self-Healing
 - **Old Behavior**: When an Admin triggered a scanner (like `DAILY_BUILDER` or `EOD`) from the Dashboard, the Postgres table `scanner_health` recorded its status as `QUEUED-X`. If the backend Railway container restarted (or a new code deploy occurred), the background execution threads were killed by the OS, but the Database retained the `QUEUED-X` string permanently. This created "ghost queues" on the Dashboard.
 - **New Behavior**: The backend boot routine (`_cleanup_old_scanner_names` in `main.py`) now intercepts and cleans up all stuck `QUEUED%` statuses on startup, resetting them to `IDLE`. The system now correctly self-heals after every deployment.
+
+### 38.5 Ephemeral Surveillance Cache Persistence (ASM/GSM Leak Fix)
+- **Old Behavior**: The `surveillance.py` module saved the fetched NSE ASM/GSM surveillance list exclusively to the local disk (`surveillance_blacklist.json`). On Railway (or any ephemeral container platform), this file was permanently wiped upon every code deployment or container restart. If the live NSE API subsequently blocked the fetch attempt (via Akamai rate-limiting), the system would fall back to an empty cache, completely failing to filter out toxic ASM/GSM stocks and erroneously leaking them into the watchlist.
+- **New Behavior**: The surveillance caching mechanism has been fully wired into the PostgreSQL `system_state` table. Fetched lists are instantly committed to the database (`save_system_state`), and the fallback logic natively restores from the database (`get_system_state`) instead of the local ephemeral file system. The surveillance guard (261+ stocks) is now guaranteed to survive all server restarts and deployments.
 </textarea>
 
 
