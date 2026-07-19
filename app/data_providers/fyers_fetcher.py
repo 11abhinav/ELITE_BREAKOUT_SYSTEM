@@ -165,9 +165,11 @@ class FyersFetcher(DataFetcher):
             bse_mappings = load_bse_mappings()
             if sym in bse_mappings:
                 # If mapped to .BO, use BSE exchange prefix in Fyers
-                return f"BSE:{sym}-EQ"
+                # Note: Fyers requires BSE series suffixes (-A, -B, -T).
+                # Since we don't have them dynamically, we omit -EQ.
+                return f"BSE:{sym}"
             if sym.endswith(".NS") and sym[:-3] in bse_mappings:
-                return f"BSE:{sym[:-3]}-EQ"
+                return f"BSE:{sym[:-3]}"
         except Exception:
             pass
             
@@ -394,46 +396,50 @@ class FyersFetcher(DataFetcher):
                 # Do not retry for non-retryable errors like bad symbols
                 if "Invalid symbol provided" in error_str:
                     tried_suffixes.add(ns_symbol)
-                    if ns_symbol.endswith("-EQ"):
-                        fallback_sym = ns_symbol.replace("-EQ", "-BE")
-                        if fallback_sym in tried_suffixes:
-                            logger.warning(f"⚠️ Both -EQ and -BE failed for {orig_sym}. Marking as permanently invalid.")
-                            try:
-                                from data_providers.fyers_mapping_utils import mark_fyers_invalid
-                                mark_fyers_invalid(orig_sym)
-                            except Exception:
-                                pass
-                            return None
-                            
-                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
-                        # NOTE: We do NOT save the mapping here — only save after confirmed success
-                        ns_symbol = fallback_sym
-                        data["symbol"] = fallback_sym
-                        continue  # Immediate retry with -BE without sleeping
-                        
-                    elif ns_symbol.endswith("-BE"):
-                        fallback_sym = ns_symbol.replace("-BE", "-EQ")
-                        if fallback_sym in tried_suffixes:
-                            logger.warning(f"⚠️ Both -BE and -EQ failed for {orig_sym}. Marking as permanently invalid.")
-                            try:
-                                from data_providers.fyers_mapping_utils import mark_fyers_invalid
-                                mark_fyers_invalid(orig_sym)
-                            except Exception:
-                                pass
-                            return None
-                            
-                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid (maybe moved back to EQ), attempting fallback to {fallback_sym}")
-                        
-                        try:
-                            from data_providers.fyers_mapping_utils import remove_fyers_mapping
-                            remove_fyers_mapping(orig_sym)
-                        except Exception as e:
-                            logger.warning(f"Failed to remove fallback mapping: {e}")
-                            
-                        ns_symbol = fallback_sym
-                        data["symbol"] = fallback_sym
-                        continue  # Immediate retry with -EQ without sleeping
                     
+                    # NSE-Specific Fallback Logic (-EQ <-> -BE)
+                    if ns_symbol.startswith("NSE:"):
+                        if ns_symbol.endswith("-EQ"):
+                            fallback_sym = ns_symbol.replace("-EQ", "-BE")
+                            if fallback_sym in tried_suffixes:
+                                logger.warning(f"⚠️ Both -EQ and -BE failed for NSE {orig_sym}. Marking as permanently invalid.")
+                                try:
+                                    from data_providers.fyers_mapping_utils import mark_fyers_invalid
+                                    mark_fyers_invalid(orig_sym)
+                                except Exception:
+                                    pass
+                                return None
+                                
+                            logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
+                            # NOTE: We do NOT save the mapping here — only save after confirmed success
+                            ns_symbol = fallback_sym
+                            data["symbol"] = fallback_sym
+                            continue  # Immediate retry with -BE without sleeping
+                            
+                        elif ns_symbol.endswith("-BE"):
+                            fallback_sym = ns_symbol.replace("-BE", "-EQ")
+                            if fallback_sym in tried_suffixes:
+                                logger.warning(f"⚠️ Both -BE and -EQ failed for NSE {orig_sym}. Marking as permanently invalid.")
+                                try:
+                                    from data_providers.fyers_mapping_utils import mark_fyers_invalid
+                                    mark_fyers_invalid(orig_sym)
+                                except Exception:
+                                    pass
+                                return None
+                                
+                            logger.info(f"🔄 Fyers: {ns_symbol} is invalid (maybe moved back to EQ), attempting fallback to {fallback_sym}")
+                            
+                            try:
+                                from data_providers.fyers_mapping_utils import remove_fyers_mapping
+                                remove_fyers_mapping(orig_sym)
+                            except Exception as e:
+                                logger.warning(f"Failed to remove fallback mapping: {e}")
+                                
+                            ns_symbol = fallback_sym
+                            data["symbol"] = fallback_sym
+                            continue  # Immediate retry with -EQ without sleeping
+
+                    # If it's BSE or any other format that failed, fast-fail without blacklisting
                     logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
                     return None
                     
