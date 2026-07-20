@@ -5093,3 +5093,33 @@ def get_latest_build_manifest(date: str = None) -> dict:
 
 # Alias for get_connection
 getconnection = get_connection
+
+def save_bhavcopy_cache(trading_date, delivery_data: dict):
+    """Save parsed delivery data to the database cache for a specific date."""
+    import json
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''
+                    INSERT INTO bhavcopy_cache (trading_date, delivery_data)
+                    VALUES (%s, %s)
+                    ON CONFLICT (trading_date) DO UPDATE
+                    SET delivery_data = EXCLUDED.delivery_data,
+                        fetched_at = CURRENT_TIMESTAMP
+                ''', (trading_date, json.dumps(delivery_data)))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to save bhavcopy cache: {e}")
+
+def get_bhavcopy_cache(trading_date) -> dict:
+    """Retrieve parsed delivery data from the database cache for a specific date."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT delivery_data FROM bhavcopy_cache WHERE trading_date = %s", (trading_date,))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+    except Exception as e:
+        logger.error(f"Failed to get bhavcopy cache: {e}")
+    return None
