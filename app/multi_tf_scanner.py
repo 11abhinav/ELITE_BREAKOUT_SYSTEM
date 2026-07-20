@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import time
 import pandas as pd
+
 from technical_indicators import apply_indicators
 from memory_profiler import MemoryProfiler
 from watchlist_cache import get_watchlist
@@ -107,8 +108,12 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     logger.info(f"📋 [MULTI_TF] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
     # 2. Fetch 1H data
-    with MemoryProfiler("1H Price Fetch"):
+    profiler_fetch1 = MemoryProfiler("1H Price Fetch")
+    profiler_fetch1.__enter__()
+    try:
         ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
+    finally:
+        profiler_fetch1.__exit__(None, None, None)
     
     # Handle rate limiting or fetch failures gracefully - continue with partial data
     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 7] Standardized missing data fallback if fetch_watchlist_data fails
@@ -131,14 +136,15 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     funnel = {"total": 0, "data_ok": 0, "indicators_ok": 0, "price_filtered": 0, "price_ok": 0,
               "ema_only_pass": 0, "adx_only_pass": 0, "ema_and_adx_pass": 0, "dist_pass": 0, "approved": 0}
     
-    with MemoryProfiler("1H Process Symbols"):
-        for idx, row in watchlist.iterrows():
-            try:
-                symbol = row["Stock"]
-                category = row["Category"]
-                funnel["total"] += 1
-            
-                df = ticker_data.get(symbol)
+    profiler_proc1 = MemoryProfiler("1H Process Symbols")
+    profiler_proc1.__enter__()
+    for idx, row in watchlist.iterrows():
+        try:
+            symbol = row["Stock"]
+            category = row["Category"]
+            funnel["total"] += 1
+        
+            df = ticker_data.get(symbol)
             # [VERSION: MTF_BAR_LIMIT_FIX] Reduced from 200 to 50 to allow YFinance fallback data to process safely
             if df is None or df.empty or len(df) < 50:
                 continue
@@ -254,6 +260,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         f"ema_and_adx_pass={funnel['ema_and_adx_pass']} → dist_pass={funnel['dist_pass']} → "
         f"approved={funnel['approved']}"
     )
+    profiler_proc1.__exit__(None, None, None)
             
     return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
 
@@ -299,8 +306,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     needs_5m  = [i["symbol"] for i in active_items if i["current_state"] == "ENTRY_READY"]
     
     import pandas as pd
-    with MemoryProfiler("MTF Price Fetch"):
+    profiler_fetch2 = MemoryProfiler("MTF Price Fetch")
+    profiler_fetch2.__enter__()
+    try:
         data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
+    finally:
+        profiler_fetch2.__exit__(None, None, None)
     if data_30m is None:
         data_30m = {}
     data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="5d", interval="15m") if needs_15m else {}
@@ -344,15 +355,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     "entry_candidates": 0, "ema15_pass": 0, "entry_ready": 0,
                     "trigger_candidates": 0, "triggered": 0, "demoted": 0}
 
-    with MemoryProfiler("MTF Process Symbols"):
-        for item in active_items:
-            try:
-                symbol = item["symbol"]
-                state = item["current_state"]
-                cat = item["category"]
-                breakout_level = item["breakout_level"] or 0
-    
-                if breakout_level <= 0:
+    profiler_proc2 = MemoryProfiler("MTF Process Symbols")
+    profiler_proc2.__enter__()
+    for item in active_items:
+        try:
+            symbol = item["symbol"]
+            state = item["current_state"]
+            cat = item["category"]
+            breakout_level = item["breakout_level"] or 0
+
+            if breakout_level <= 0:
                 continue
 
             # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──

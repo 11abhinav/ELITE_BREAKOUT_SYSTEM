@@ -54,12 +54,14 @@ class PipelineRunner:
         bayesian_version: str,
         publisher: EventPublisher
     ) -> None:
+        from memory_profiler import MemoryProfiler
         status = "REJECTED"
         try:
-            status = cls._execute_internal(
-                symbol, category, sector, ticker, delivery_pct, pledge_pct,
-                nifty_ret_20d, regime_ctx, bayesian_weights, bayesian_version, publisher
-            )
+            with MemoryProfiler(f"Pipeline: {symbol}"):
+                status = cls._execute_internal(
+                    symbol, category, sector, ticker, delivery_pct, pledge_pct,
+                    nifty_ret_20d, regime_ctx, bayesian_weights, bayesian_version, publisher
+                )
         finally:
             publisher.publish(PipelineCompleted({
                 "symbol": symbol,

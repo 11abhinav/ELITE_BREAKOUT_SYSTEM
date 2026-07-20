@@ -19,6 +19,7 @@ import socket
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 import random
+from memory_profiler import MemoryProfiler
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
@@ -168,18 +169,19 @@ import threading as _threading
 _watchlist_ready = _threading.Event()
 
 def _build_watchlist_background():
-    if os.path.exists(WATCHLIST_PATH):
-        logger.info(f"✅ Watchlist found | {WATCHLIST_PATH}")
-        _watchlist_ready.set()
-        return
-    logger.info("📋 Watchlist missing | Attempting to restore or build in background thread...")
-    try:
-        from watchlist_cache import get_watchlist
-        get_watchlist()
+    with MemoryProfiler("Startup - Watchlist", force_gc_cleanup=True):
         if os.path.exists(WATCHLIST_PATH):
+            logger.info(f"✅ Watchlist found | {WATCHLIST_PATH}")
             _watchlist_ready.set()
-    except Exception:
-        logger.exception("❌ Daily builder failed — scanners will rebuild at first scan cycle")
+            return
+        logger.info("📋 Watchlist missing | Attempting to restore or build in background thread...")
+        try:
+            from watchlist_cache import get_watchlist
+            get_watchlist()
+            if os.path.exists(WATCHLIST_PATH):
+                _watchlist_ready.set()
+        except Exception:
+            logger.exception("❌ Daily builder failed — scanners will rebuild at first scan cycle")
 
 _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
 
@@ -434,6 +436,8 @@ def _run_eod_with_retries(today_str):
             except Exception as pe:
                 logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
             logger.info("✅ EOD SCANNER | Completed successfully for today.")
+            with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
+                pass
             return
             
         except Exception as exc:
@@ -521,6 +525,8 @@ def _run_reversal_with_retries(today_str):
             except Exception as pe:
                 logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
             logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
+            with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
+                pass
             return
             
         except Exception as exc:
@@ -690,6 +696,8 @@ def run_system_scheduler():
                 scheduled_for="02:00 IST"
             )
             logger.info("✅ Wealth Engine (initial) completed successfully")
+            with MemoryProfiler("Cleanup - WEALTH", force_gc_cleanup=True):
+                pass
             return True
         except Exception as e:
             if "actively running" in str(e).lower():
