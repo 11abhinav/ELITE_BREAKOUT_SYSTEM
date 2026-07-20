@@ -1068,18 +1068,8 @@ def start_thread(name, target):
 
 def run_watchdog():
     """Watchdog loop — background daemon thread; Flask owns the main thread."""
-    _missing_env = [v for v in ("BOT_TOKEN", "CHAT_ID") if not os.getenv(v)]
-    if _missing_env:
-        logger.error(f"❌ FATAL: Missing env vars: {_missing_env}")
-
-    # Start Telegram Queue Flusher background thread
-    try:
-        from telegram_engine import flush_telegram_queue
-        flusher_thread = threading.Thread(target=flush_telegram_queue, name="TelegramQueueFlusher", daemon=True)
-        flusher_thread.start()
-        logger.info("📨 Background Telegram queue flusher thread started.")
-    except Exception as e:
-        logger.exception(f"❌ Failed to start Telegram queue flusher")
+    # Telegram functionality removed as requested
+    pass
 
     for name, target in ALL_THREADS.items():
         start_thread(name, target)
