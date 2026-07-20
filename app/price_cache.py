@@ -530,6 +530,25 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         # Save back to disk
                         try:
                             file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
+                            
+                            # [VERSION: CACHE_PARQUET_FIX] Ensure all column names are strings to prevent PyArrow conversion failures
+                            # If columns are a MultiIndex (sometimes returned by newer yfinance), flatten them or cast to str.
+                            if isinstance(all_data[sym].columns, pd.MultiIndex):
+                                all_data[sym].columns = ['_'.join(map(str, col)).strip() for col in all_data[sym].columns.values]
+                            all_data[sym].columns = all_data[sym].columns.astype(str)
+                            
+                            # Force strict types to prevent PyArrow ArrowInvalid crashes on mixed object types
+                            time_cols = ['Date', 'Datetime']
+                            for col in all_data[sym].columns:
+                                if col not in time_cols and all_data[sym][col].dtype == 'object':
+                                    all_data[sym][col] = pd.to_numeric(all_data[sym][col], errors='coerce')
+                                    
+                            if all_data[sym].index.name in time_cols or isinstance(all_data[sym].index, pd.DatetimeIndex):
+                                all_data[sym].index = pd.to_datetime(all_data[sym].index, errors='coerce')
+                            elif not isinstance(all_data[sym].index, pd.RangeIndex):
+                                # If it's an object index but not time, convert to string to be safe
+                                all_data[sym].index = all_data[sym].index.astype(str)
+                            
                             all_data[sym].to_parquet(file_path)
                             
                             # Save sidecar metadata
