@@ -263,8 +263,26 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     )
     profiler_proc1.__exit__(None, None, None)
             
-    return {"fetched": len(ticker_data), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
+    # ── Memory Cleanup Phase ──────────────────────────────────────────────
+    try:
+        import os, psutil, gc
+        process = psutil.Process(os.getpid())
+        rss_before = process.memory_info().rss / 1024 / 1024
+        
+        # Release large variables
+        del ticker_data
+        
+        rss_after_del = process.memory_info().rss / 1024 / 1024
+        
+        # Reclaim cyclic references
+        gc.collect()
+        
+        rss_after_gc = process.memory_info().rss / 1024 / 1024
+        logger.info(f"🧹 [MEMORY] 1H Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
+    except Exception as e:
+        logger.debug(f"Memory cleanup logging failed: {e}")
 
+    return {"fetched": len(watchlist), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
 def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.
@@ -852,8 +870,30 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
         except Exception as e:
             logger.error(f"OpportunityManager failed to process: {e}")
 
+    # ── Memory Cleanup Phase ──────────────────────────────────────────────
     unique_needed = set(needs_30m) | set(needs_15m) | set(needs_5m)
     unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
+    
+    try:
+        import os, psutil, gc
+        process = psutil.Process(os.getpid())
+        rss_before = process.memory_info().rss / 1024 / 1024
+        
+        # Release large dictionaries holding many DataFrames
+        del data_30m
+        del data_15m
+        del data_5m
+        
+        rss_after_del = process.memory_info().rss / 1024 / 1024
+        
+        # Reclaim cyclic references
+        gc.collect()
+        
+        rss_after_gc = process.memory_info().rss / 1024 / 1024
+        logger.info(f"🧹 [MEMORY] Lower TF Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
+    except Exception as e:
+        logger.debug(f"Memory cleanup logging failed: {e}")
+
     return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_count, "save_failures": db_save_failures}
 
 def run_sweeper(is_test_mode=False):

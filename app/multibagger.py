@@ -256,166 +256,180 @@ def fetch_constituents() -> list:
     return sorted(normalized)
 
 def batch_download_market_data(symbols: list) -> dict:
-    """Download historical price/volume data in bulk for all tickers using AutoSwitchingFetcher."""
+    """Download historical price/volume data in bulk for all tickers using AutoSwitchingFetcher in memory-efficient chunks."""
     from data_provider import get_fetcher
     from market_utils import is_market_open
+    import os, psutil, gc
     
     fetcher = get_fetcher()
     
-    logger.info(f"📥 Centralized batch downloading 1y history for {len(symbols)} tickers...")
+    BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "50"))
+    logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")
     
-    # Get batch results (prioritizes Fyers when active, falls back to YFinance)
-    batch_res = fetcher.get_batch_ohlcv(symbols, period="1y", interval="1d", caller="multibagger")
-    
-    if not batch_res:
-        return {}
-        
     ist_now = datetime.now(IST)
     strip_forming = is_market_open(ist_now)
+    process = psutil.Process(os.getpid())
     
     results = {}
-    for sym, md in batch_res.items():
-        from core_enums import ProviderResult
-        if md is None or isinstance(md, ProviderResult):
-            continue
+    
+    # Process symbols in chunks to flatten Peak Memory (O(BATCH_SIZE) instead of O(N))
+    for i in range(0, len(symbols), BATCH_SIZE):
+        chunk = symbols[i:i + BATCH_SIZE]
+        rss_before = process.memory_info().rss / 1024 / 1024
         
-        # Handle both MarketData objects and direct dataframes
-        ticker_df = md.dataframe if hasattr(md, "dataframe") else md
-        if ticker_df is None or getattr(ticker_df, "empty", True):
+        # 1. Fetch chunk DataFrames
+        batch_res = fetcher.get_batch_ohlcv(chunk, period="1y", interval="1d", caller="multibagger")
+        if not batch_res:
             continue
             
-        try:
-            ticker_df = ticker_df.dropna(subset=["Close"])
-            if ticker_df.empty:
+        rss_after_fetch = process.memory_info().rss / 1024 / 1024
+        
+        # 2. Convert DataFrames to StockPriceData
+        for sym, md in batch_res.items():
+            from core_enums import ProviderResult
+            if md is None or isinstance(md, ProviderResult):
+                continue
+            
+            ticker_df = md.dataframe if hasattr(md, "dataframe") else md
+            if ticker_df is None or getattr(ticker_df, "empty", True):
                 continue
                 
-            # Handle Fyers data format where Date/Datetime is a column, not the index
-            if "Date" in ticker_df.columns:
-                ticker_df = ticker_df.set_index("Date")
-            elif "Datetime" in ticker_df.columns:
-                ticker_df = ticker_df.set_index("Datetime")
-                
-            # Timezone normalization (ensure IST)
-            if isinstance(ticker_df.index, pd.DatetimeIndex):
-                if ticker_df.index.tz is None:
-                    ticker_df.index = ticker_df.index.tz_localize(IST)
-                else:
-                    ticker_df.index = ticker_df.index.tz_convert(IST)
-                
-            # --- PHASE 2 FIX: Preserve real-time price before stripping ---
-            real_time_close_series = ticker_df["Close"]
-            real_time_close = float(real_time_close_series.iloc[-1])
-            if len(real_time_close_series) >= 2:
-                real_time_prev = float(real_time_close_series.iloc[-2])
-                real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
-            else:
-                real_time_change = 0.0
-
-            if strip_forming and len(ticker_df) > 0:
-                last_ts = ticker_df.index[-1]
-                if last_ts.date() == ist_now.date():
-                    ticker_df = ticker_df.iloc[:-1]
+            try:
+                ticker_df = ticker_df.dropna(subset=["Close"])
+                if ticker_df.empty:
+                    continue
                     
-            if len(ticker_df) < 50: # Ensure we have enough data points for SMAs
-                continue
-            
-            close_series = ticker_df["Close"]
-            vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
-            
-            # Instead of overriding price with yesterday's close, use real_time_close
-            close_price = real_time_close
-            change_pct = real_time_change
-            
-            close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
-            
-            # [FIX #13] Use intraday High/Low columns for true 52-week range
-            if "High" in ticker_df.columns and "Low" in ticker_df.columns:
-                high_52w = float(ticker_df["High"].max())
-                low_52w = float(ticker_df["Low"].min())
-            else:
-                high_52w = float(close_series.max())
-                low_52w = float(close_series.min())
-            
-            # Compute 20-day average liquidity (Volume * Close)
-            recent_20 = ticker_df.tail(20)
-            if not recent_20.empty and "Volume" in recent_20.columns:
-                avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
-            else:
-                avg_turnover = 0.0
-            
-            # Calculate rolling averages & windows using pandas
-            sma_20 = float(close_series.rolling(20).mean().iloc[-1])
-            sma_50 = float(close_series.rolling(50).mean().iloc[-1])
-            
-            # Safe 200-day rolling handle (falls back to max available window if data < 200 days)
-            window_200 = min(200, len(close_series))
-            sma_200_series = close_series.rolling(window_200).mean()
-            sma_200 = float(sma_200_series.iloc[-1])
-            sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
-            
-            high_20d = float(close_series.rolling(20).max().iloc[-1])
-            high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
-            
-            # 3-month momentum (60 trading days)
-            hist_idx = min(60, len(close_series) - 1)
-            close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
-            mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
-            
-            # 6-month momentum (120 trading days)
-            hist_idx_6m = min(120, len(close_series) - 1)
-            close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
-            mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
-            
-            latest_volume = float(vol_series.iloc[-1])
-            volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
-            
-            # ATR(14) calculation
-            if "High" in ticker_df.columns and "Low" in ticker_df.columns:
-                high = ticker_df["High"]
-                low = ticker_df["Low"]
-                shifted_close = close_series.shift(1)
-                tr1 = high - low
-                tr2 = (high - shifted_close).abs()
-                tr3 = (low - shifted_close).abs()
-                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-                atr_14 = float(tr.rolling(14).mean().iloc[-1])
-            else:
-                atr_14 = close_price * 0.05
+                if "Date" in ticker_df.columns:
+                    ticker_df = ticker_df.set_index("Date")
+                elif "Datetime" in ticker_df.columns:
+                    ticker_df = ticker_df.set_index("Datetime")
+                    
+                if isinstance(ticker_df.index, pd.DatetimeIndex):
+                    if ticker_df.index.tz is None:
+                        ticker_df.index = ticker_df.index.tz_localize(IST)
+                    else:
+                        ticker_df.index = ticker_df.index.tz_convert(IST)
+                    
+                real_time_close_series = ticker_df["Close"]
+                real_time_close = float(real_time_close_series.iloc[-1])
+                if len(real_time_close_series) >= 2:
+                    real_time_prev = float(real_time_close_series.iloc[-2])
+                    real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
+                else:
+                    real_time_change = 0.0
+
+                if strip_forming and len(ticker_df) > 0:
+                    last_ts = ticker_df.index[-1]
+                    if last_ts.date() == ist_now.date():
+                        ticker_df = ticker_df.iloc[:-1]
+                        
+                if len(ticker_df) < 50:
+                    continue
                 
-            # EMA(20) calculation
-            ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
-            
-            # [FIX #4] SMA(200) breakdown persistence — reuse sma_200_series from above
-            closes_below_sma200_count = 0
-            if len(close_series) >= 5 and len(sma_200_series.dropna()) >= 5:
-                last_5_closes = close_series.iloc[-5:]
-                last_5_smas = sma_200_series.iloc[-5:]
-                closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
-            
-            results[sym] = StockPriceData(
-                symbol=sym,
-                price=close_price,
-                change_pct=change_pct,
-                low_52w=low_52w,
-                high_52w=high_52w,
-                turnover_20d=avg_turnover,
-                sma_20=sma_20,
-                sma_50=sma_50,
-                sma_200=sma_200,
-                high_20d=high_20d,
-                high_60d=high_60d,
-                mom_3m=mom_3m,
-                mom_6m=mom_6m,
-                latest_volume=latest_volume,
-                volume_sma20=volume_sma20,
-                close_yesterday=close_yesterday,
-                sma_200_yesterday=sma_200_yesterday,
-                atr_14=atr_14,
-                ema_20=ema_20,
-                closes_below_sma200_count=closes_below_sma200_count
-            )
-        except Exception as e:
-            logger.debug(f"Error parsing market data for {sym}: {e}")
+                close_series = ticker_df["Close"]
+                vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
+                
+                close_price = real_time_close
+                change_pct = real_time_change
+                
+                close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
+                
+                if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+                    high_52w = float(ticker_df["High"].max())
+                    low_52w = float(ticker_df["Low"].min())
+                else:
+                    high_52w = float(close_series.max())
+                    low_52w = float(close_series.min())
+                
+                recent_20 = ticker_df.tail(20)
+                if not recent_20.empty and "Volume" in recent_20.columns:
+                    avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
+                else:
+                    avg_turnover = 0.0
+                
+                sma_20 = float(close_series.rolling(20).mean().iloc[-1])
+                sma_50 = float(close_series.rolling(50).mean().iloc[-1])
+                
+                window_200 = min(200, len(close_series))
+                sma_200_series = close_series.rolling(window_200).mean()
+                sma_200 = float(sma_200_series.iloc[-1])
+                sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
+                
+                high_20d = float(close_series.rolling(20).max().iloc[-1])
+                high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
+                
+                hist_idx = min(60, len(close_series) - 1)
+                close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
+                mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
+                
+                hist_idx_6m = min(120, len(close_series) - 1)
+                close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
+                mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
+                
+                latest_volume = float(vol_series.iloc[-1])
+                volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
+                
+                if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+                    high = ticker_df["High"]
+                    low = ticker_df["Low"]
+                    shifted_close = close_series.shift(1)
+                    tr1 = high - low
+                    tr2 = (high - shifted_close).abs()
+                    tr3 = (low - shifted_close).abs()
+                    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                    atr_14 = float(tr.rolling(14).mean().iloc[-1])
+                else:
+                    atr_14 = close_price * 0.05
+                    
+                ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
+                
+                closes_below_sma200_count = 0
+                if len(close_series) >= 5 and len(sma_200_series.dropna()) >= 5:
+                    last_5_closes = close_series.iloc[-5:]
+                    last_5_smas = sma_200_series.iloc[-5:]
+                    closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
+                
+                results[sym] = StockPriceData(
+                    symbol=sym,
+                    price=close_price,
+                    change_pct=change_pct,
+                    low_52w=low_52w,
+                    high_52w=high_52w,
+                    turnover_20d=avg_turnover,
+                    sma_20=sma_20,
+                    sma_50=sma_50,
+                    sma_200=sma_200,
+                    high_20d=high_20d,
+                    high_60d=high_60d,
+                    mom_3m=mom_3m,
+                    mom_6m=mom_6m,
+                    latest_volume=latest_volume,
+                    volume_sma20=volume_sma20,
+                    close_yesterday=close_yesterday,
+                    sma_200_yesterday=sma_200_yesterday,
+                    atr_14=atr_14,
+                    ema_20=ema_20,
+                    closes_below_sma200_count=closes_below_sma200_count
+                )
+            except Exception as e:
+                logger.debug(f"Error parsing market data for {sym}: {e}")
+                
+        rss_after_convert = process.memory_info().rss / 1024 / 1024
+        
+        # 3. Explicitly release temporary DataFrames and force GC
+        del batch_res
+        # clear locals that might hold DataFrame references
+        locals().pop('ticker_df', None)
+        locals().pop('md', None)
+        locals().pop('close_series', None)
+        locals().pop('vol_series', None)
+        locals().pop('sma_200_series', None)
+        gc.collect()
+        
+        rss_after_gc = process.memory_info().rss / 1024 / 1024
+        logger.info(f"📊 Batch {i//BATCH_SIZE + 1}/{(len(symbols) + BATCH_SIZE - 1)//BATCH_SIZE} | "
+                    f"RSS before fetch: {rss_before:.1f} MB | After fetch: {rss_after_fetch:.1f} MB | "
+                    f"After convert: {rss_after_convert:.1f} MB | After cleanup: {rss_after_gc:.1f} MB")
             
     logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
     return results
@@ -1736,6 +1750,29 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         send_push_to_all("🚀 MULTIBAGGER Scanner OK", f"Found {alerts_count} new alerts.", bypass_throttle=True)
     except Exception as e:
         logger.error(f"Could not insert admin notification: {e}")
+    # ── Memory Cleanup Phase ──────────────────────────────────────────────
+    try:
+        import os, psutil, gc
+        process = psutil.Process(os.getpid())
+        rss_before = process.memory_info().rss / 1024 / 1024
+        
+        # Release large data structures
+        del price_data_map
+        del shortlist_candidates
+        del shortlist
+        del fundamentals_list
+        del futures
+        
+        rss_after_del = process.memory_info().rss / 1024 / 1024
+        
+        # Reclaim cyclic references
+        gc.collect()
+        
+        rss_after_gc = process.memory_info().rss / 1024 / 1024
+        logger.info(f"🧹 [MEMORY] Multibagger Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
+    except Exception as e:
+        logger.debug(f"Memory cleanup logging failed: {e}")
+
     return {
         "total_count": len(fundamentals_list),
         "processed_count": len(results),

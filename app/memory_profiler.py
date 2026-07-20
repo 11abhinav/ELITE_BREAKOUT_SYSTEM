@@ -97,6 +97,12 @@ def log_object_inventory():
     for stat in top_stats[:5]:
         logger.info(f"  {stat}")
 
+    logger.info("=== [INVENTORY] Environment & GC State ===")
+    arena_max = os.environ.get('MALLOC_ARENA_MAX', 'Not Set')
+    logger.info(f"  MALLOC_ARENA_MAX: {arena_max}")
+    logger.info(f"  GC Thresholds: {gc.get_threshold()}")
+    logger.info(f"  GC Object Counts: {gc.get_count()}")
+
     # Explicitly calculate Pandas / NumPy sizes which tracemalloc misses
     logger.info("=== [INVENTORY] Deep Native Sizing ===")
     

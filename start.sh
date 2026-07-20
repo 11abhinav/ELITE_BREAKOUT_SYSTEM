@@ -2,6 +2,8 @@
 
 echo "🚀 Starting Elite Breakout System Supervisor..."
 
+# Reduce glibc native memory fragmentation
+export MALLOC_ARENA_MAX=2
 echo "🧹 Running database symbol mappings cleanup..."
 python3 app/clear_poisoned_mappings.py
 
