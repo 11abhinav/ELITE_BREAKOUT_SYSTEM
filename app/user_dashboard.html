@@ -2358,6 +2358,17 @@ window.addEventListener('DOMContentLoaded', () => {
 // ============================================================================
 </script>
 <script src="/static/table_sorter.js"></script>
+
+<script>
+  // ── PWA: Service Worker Registration ──
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+        .then(reg => console.log('[PWA] Service worker registered'))
+        .catch(err => console.error('[PWA] SW registration failed:', err));
+    });
+  }
+</script>
 </body>
 </html>
 

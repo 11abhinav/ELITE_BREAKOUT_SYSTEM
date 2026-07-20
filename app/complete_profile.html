@@ -39,6 +39,11 @@
   button:hover { opacity: 0.9; }
   .error { color: var(--warn); font-size: 14px; margin-bottom: 16px; display: none; text-align: center; }
 </style>
+<!-- ── PWA: Manifest ── -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EliteBreakout">
 </head>
 <body>
   <div class="container">
@@ -134,6 +139,17 @@
       btn.disabled = false;
     }
   });
+</script>
+
+<script>
+  // ── PWA: Service Worker Registration ──
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+        .then(reg => console.log('[PWA] Service worker registered'))
+        .catch(err => console.error('[PWA] SW registration failed:', err));
+    });
+  }
 </script>
 </body>
 </html>

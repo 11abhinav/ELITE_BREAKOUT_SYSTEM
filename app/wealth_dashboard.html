@@ -241,6 +241,11 @@
   .guide-content strong { color: var(--text); font-weight: 600; }
 </style>
 
+<!-- ── PWA: Manifest ── -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EliteBreakout">
 </head>
 <body>
   <div class="header">
@@ -1643,5 +1648,16 @@ window.addEventListener('DOMContentLoaded', () => {
 <script src="/static/push.js"></script>
 
 <script src="/static/table_sorter.js"></script>
+
+<script>
+  // ── PWA: Service Worker Registration ──
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+        .then(reg => console.log('[PWA] Service worker registered'))
+        .catch(err => console.error('[PWA] SW registration failed:', err));
+    });
+  }
+</script>
 </body>
 </html>
