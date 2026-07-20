@@ -278,7 +278,7 @@ def _start_wrapper(force: bool = False):
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
-        import os, gc, time
+        import gc, time
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
         
         total_fetched_count = 0

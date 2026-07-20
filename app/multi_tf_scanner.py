@@ -108,7 +108,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
     logger.info(f"📋 [MULTI_TF] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
-    import os, gc, time
+    import gc, time
     BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "50"))
     
     stale_count = 0

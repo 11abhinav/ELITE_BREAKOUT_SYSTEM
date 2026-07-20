@@ -426,7 +426,7 @@ def _run_scan(force: bool = False):
     from database import get_recent_alerts_for_scanner
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
 
-    import os, gc, time
+    import gc, time
     BATCH_SIZE = int(os.environ.get("REVERSAL_FETCH_BATCH_SIZE", "50"))
     total_fetched_count = 0
     logger.info(f"📥 Processing REVERSAL phase in chunks of {BATCH_SIZE}...")
