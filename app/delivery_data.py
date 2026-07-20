@@ -88,7 +88,14 @@ def fetch_previous_day_delivery() -> dict[str, float]:
 
 def fetch_delivery_data(trading_date: date) -> dict[str, float]:
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+    from database import get_bhavcopy_cache, save_bhavcopy_cache
     
+    # 1. Check database cache first
+    cached_data = get_bhavcopy_cache(trading_date)
+    if cached_data:
+        logger.info(f"⚡ [DB CACHE HIT] Returning {len(cached_data)} symbols from DB for date: {trading_date}")
+        return cached_data
+
     date_str = trading_date.strftime("%d%m%Y")
     target_url = BHAVCOPY_URL.format(date_str=date_str)
     session  = _get_robust_session()
@@ -201,13 +208,16 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 df["SERIES"] = df["SERIES"].astype(str).str.strip()
                 df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
                 
-                valid_dict = dict(zip(df["SYMBOL"], df["DELIV_PER"].astype(float)))
+                final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
                 
-                if valid_dict:
+                # 2. Save to database cache
+                save_bhavcopy_cache(trading_date, final_dict)
+                
+                if final_dict:
                     try:
                         mark_success('nse_bhavcopy')
                     except Exception: pass
-                    return valid_dict
+                    return final_dict
                 
         except Exception as e:
             logger.warning(f"⚠️ Bhavcopy attempt {attempt} failed via ScraperAPI for {date_str}: {e}")

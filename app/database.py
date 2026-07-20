@@ -596,6 +596,16 @@ def init_db():
 
                 # ── Fetch error aggregation table (skipped records / fetch failures) ──
                 cur.execute("""
+                                    # ── Bhavcopy Delivery Cache ─────────────────────────────────────
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS bhavcopy_cache (
+                        trading_date DATE PRIMARY KEY,
+                        delivery_data JSONB NOT NULL,
+                        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS fetch_errors (
                         id SERIAL PRIMARY KEY,
                         source_name TEXT NOT NULL,
