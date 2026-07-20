@@ -262,7 +262,16 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                 if hasattr(yf, 'shared') and hasattr(yf.shared, '_ERRORS'):
                     for yf_err_sym, err_msg in yf.shared._ERRORS.items():
                         orig = yf_reverse_map.get(yf_err_sym)
-                        if orig: symbol_status[orig]["YF_NS"] = _parse_yf_error(err_msg)
+                        if orig: 
+                            symbol_status[orig]["YF_NS"] = _parse_yf_error(err_msg)
+                            # [VERSION: INVALIDATION_FIX] Invalidate mapping if yfinance directly reports failure
+                            if yf_err_sym.endswith(".BO"):
+                                logger.info(f"Provider: Yahoo Finance | Ticker: {yf_err_sym} | Result: {err_msg}. Invalidating BSE mapping.")
+                                try:
+                                    from bse_mapping_utils import invalidate_bse_mapping
+                                    invalidate_bse_mapping(orig)
+                                except Exception:
+                                    pass
                 
                 if dl_exception:
                     for y_sym in chunk:
@@ -282,6 +291,13 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 logger.info(f"Provider: Yahoo NS | Ticker: {chunk[0]} | df.empty: {df.empty} | shape: {df.shape} | all NaN: {df.isna().all().all()} | error: 'Close <= 0'")
                         else:
                             logger.info(f"Provider: Yahoo NS | Ticker: {chunk[0]} | df.empty: {df.empty} | shape: {df.shape} | all NaN: {df.isna().all().all() if not df.empty else 'N/A'} | error: 'Empty DataFrame'")
+                            if chunk[0].endswith(".BO"):
+                                logger.info(f"Provider: Yahoo Finance | Ticker: {chunk[0]} | Result: Empty DataFrame. Invalidating BSE mapping.")
+                                try:
+                                    from bse_mapping_utils import invalidate_bse_mapping
+                                    orig = yf_reverse_map.get(chunk[0])
+                                    if orig: invalidate_bse_mapping(orig)
+                                except Exception: pass
                     else:
                         if not hasattr(df.columns, 'levels'):
                             logger.warning(f"⚠️ yf.download returned flat (non-MultiIndex) columns for multi-ticker batch {i//chunk_size}.")
