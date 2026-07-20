@@ -453,6 +453,12 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         except Exception as e:
             logger.exception(f"⚠️ YFinance batch fallback failed: {e}")
             
+        recovered = len([s for s in missing if s in prices])
+        if recovered > 0:
+            logger.info(f"✅ YFinance fallback successfully recovered live prices for {recovered}/{len(missing)} missing symbols.")
+        if recovered < len(missing):
+            logger.warning(f"⚠️ YFinance fallback could not recover {len(missing) - recovered} symbols.")
+            
     # ── 3. Decision Logic for Missing Symbols ─────────────────────────────────────────
     final_missing = [s for s in missing if s not in prices]
     for s in final_missing:

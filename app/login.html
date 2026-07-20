@@ -979,6 +979,15 @@
       btn.disabled = false;
     }
   });
+
+  // ── PWA: Minimal Service Worker Registration for Install Prompts ──
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+        .then(reg => console.log('[PWA] Service worker registered (Install prompt ready)'))
+        .catch(err => console.error('[PWA] SW registration failed:', err));
+    });
+  }
 </script>
 </body>
 </html>
