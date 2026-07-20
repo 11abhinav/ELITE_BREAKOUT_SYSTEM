@@ -2103,11 +2103,11 @@ def api_notices(symbol):
             import requests
             s = requests.Session()
         # Ping homepage to establish cookies
-        s.get('https://www.nseindia.com', headers=headers, timeout=15)
+        s.get('https://www.nseindia.com', headers=headers, timeout=25)
         import time
         time.sleep(2.5)
         # Fetch the actual data
-        r = s.get(url, headers=headers, timeout=15)
+        r = s.get(url, headers=headers, timeout=25)
         
         if r.status_code != 200:
             logger.error(f"NSE API returned {r.status_code} for {symbol}")
@@ -2136,11 +2136,15 @@ def api_notices(symbol):
             logger.exception('Failed to report nse_announcements success')
         return jsonify(notices)
     except Exception as e:
-        logger.exception(f"Failed to fetch notices for {symbol}")
+        msg = str(e).lower()
+        if 'timeout' in msg or 'timed out' in msg:
+            logger.warning(f"⚠️ NSE API timeout fetching notices for {symbol}")
+        else:
+            logger.exception(f"Failed to fetch notices for {symbol}")
         try:
             mark_failure('nse_announcements', e)
         except Exception:
-            logger.exception('Failed to report nse_announcements exception')
+            pass
         return jsonify([])
 
 @app.route('/api/all_tickers', methods=['GET'])
