@@ -127,7 +127,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         with BatchMemoryTracker("MULTI_TF", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
             
             # 1. Fetch chunk
-            ticker_data = fetch_watchlist_data(chunk_df, period="60d", interval="1h")
+            ticker_data = fetch_watchlist_data(chunk_df, period="1mo", interval="1h")
             if not ticker_data:
                 continue
                 

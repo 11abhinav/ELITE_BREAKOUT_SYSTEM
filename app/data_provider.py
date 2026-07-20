@@ -128,6 +128,13 @@ class YFinanceFetcher(DataFetcher):
                     # Flatten MultiIndex if it exists
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = df.columns.get_level_values(0)
+                        
+                    # [VERSION: DOWNCAST] Force float32 precision for memory savings
+                    import numpy as np
+                    for numeric_col in df.columns:
+                        if pd.api.types.is_numeric_dtype(df[numeric_col]) and df[numeric_col].dtype == 'float64':
+                            df[numeric_col] = df[numeric_col].astype(np.float32)
+                            
                     # Reset index so 'Date' or 'Datetime' is a column
                     df = df.reset_index().copy()
                     return df

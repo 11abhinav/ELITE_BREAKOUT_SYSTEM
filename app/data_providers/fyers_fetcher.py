@@ -350,11 +350,12 @@ class FyersFetcher(DataFetcher):
                 timestamps = pd.to_datetime(df["Timestamp"], unit="s", utc=True).dt.tz_convert(IST)
                 
                 # Cast columns to appropriate float types
-                df["Open"] = df["Open"].astype(float)
-                df["High"] = df["High"].astype(float)
-                df["Low"] = df["Low"].astype(float)
-                df["Close"] = df["Close"].astype(float)
-                df["Volume"] = df["Volume"].astype(float)
+                import numpy as np
+                df["Open"] = df["Open"].astype(np.float32)
+                df["High"] = df["High"].astype(np.float32)
+                df["Low"] = df["Low"].astype(np.float32)
+                df["Close"] = df["Close"].astype(np.float32)
+                df["Volume"] = df["Volume"].astype(np.float32)
                 
                 if interval == "1d":
                     df["Date"] = pd.to_datetime(timestamps.dt.date)

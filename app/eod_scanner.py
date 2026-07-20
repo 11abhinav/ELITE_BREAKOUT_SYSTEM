@@ -290,7 +290,7 @@ def _start_wrapper(force: bool = False):
         with MemoryProfiler("Process Symbols"):
             for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
                 with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
-                    all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                    all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
                     if not all_ticker_data:
                         continue
                     
