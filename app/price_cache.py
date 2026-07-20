@@ -148,6 +148,8 @@ def get_dynamic_cadence(interval: str) -> int:
 
 
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
+    global _cache_hits
+    global _cache_misses
     requester = requester or threading.current_thread().name or "Unknown"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
@@ -160,7 +162,6 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 cached_data = entry["data"]
                 missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                 if not missing_symbols:
-                    global _cache_hits
                     _cache_hits += 1
                     logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
                     return {s: cached_data[s] for s in watchlist["Stock"]}
@@ -183,13 +184,11 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     cached_data = entry["data"]
                     missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                     if not missing_symbols:
-                        global _cache_hits
                         _cache_hits += 1
                         logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
                         return {s: cached_data[s] for s in watchlist["Stock"]}
         
         # Cache miss or stale — download fresh data
-        global _cache_misses
         _cache_misses += 1
         result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
 

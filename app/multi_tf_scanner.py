@@ -134,11 +134,11 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     with MemoryProfiler("1H Process Symbols"):
         for idx, row in watchlist.iterrows():
             try:
-            symbol = row["Stock"]
-            category = row["Category"]
-            funnel["total"] += 1
-        
-            df = ticker_data.get(symbol)
+                symbol = row["Stock"]
+                category = row["Category"]
+                funnel["total"] += 1
+            
+                df = ticker_data.get(symbol)
             # [VERSION: MTF_BAR_LIMIT_FIX] Reduced from 200 to 50 to allow YFinance fallback data to process safely
             if df is None or df.empty or len(df) < 50:
                 continue
@@ -347,12 +347,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     with MemoryProfiler("MTF Process Symbols"):
         for item in active_items:
             try:
-            symbol = item["symbol"]
-            state = item["current_state"]
-            cat = item["category"]
-            breakout_level = item["breakout_level"] or 0
-
-            if breakout_level <= 0:
+                symbol = item["symbol"]
+                state = item["current_state"]
+                cat = item["category"]
+                breakout_level = item["breakout_level"] or 0
+    
+                if breakout_level <= 0:
                 continue
 
             # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──
