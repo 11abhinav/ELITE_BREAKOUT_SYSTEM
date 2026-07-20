@@ -212,14 +212,24 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         yf_reverse_map = {}
         for sym in missing:
             clean_upper = sym.strip().upper()
-            is_bse = (
-                clean_upper in mappings or
-                (clean_upper.endswith(".NS") and clean_upper[:-3] in mappings) or
-                sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:")
-            )
+            
+            # Determine mapping logic
+            mapped_reason = "Default NSE"
+            is_bse = False
+            
+            if clean_upper in mappings or (clean_upper.endswith(".NS") and clean_upper[:-3] in mappings):
+                is_bse = True
+                mapped_reason = "BSE Mapping Cache"
+            elif sym.isdigit() or sym.endswith(".BO") or sym.startswith("BSE:"):
+                is_bse = True
+                mapped_reason = "Explicit BSE Suffix"
+
             clean = sym.replace("BSE:", "").replace("NSE:", "").replace(".NS", "").replace(".BO", "")
             suffix = ".BO" if is_bse else ".NS"
             yf_sym = f"{clean}{suffix}"
+            
+            logger.info(f"Mapping Decision | Orig: {sym} -> Selected: {yf_sym} | Reason: {mapped_reason}")
+            
             yf_symbols.append(yf_sym)
             yf_reverse_map[yf_sym] = sym
             
@@ -279,16 +289,25 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             for y_sym in chunk:
                                 try:
                                     if y_sym in df.columns.levels[0]:
+                                        if df[y_sym].empty:
+                                            logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | Result: Empty Dataset (0 rows). Invalidating if cached.")
+                                            try:
+                                                from bse_mapping_utils import invalidate_bse_mapping
+                                                orig = yf_reverse_map.get(y_sym)
+                                                if orig: invalidate_bse_mapping(orig)
+                                            except Exception: pass
+                                            continue
+                                        
                                         val = float(df[y_sym]["Close"].iloc[-1])
                                         if val > 0:
                                             prices[yf_reverse_map[y_sym]] = val
                                             symbol_status[yf_reverse_map[y_sym]]["YF_NS"] = FetchFailureType.SUCCESS
                                         else:
-                                            logger.info(f"Provider: Yahoo NS | Ticker: {y_sym} | df.empty: {df[y_sym].empty} | shape: {df[y_sym].shape} | all NaN: {df[y_sym].isna().all().all()} | error: 'Close <= 0'")
+                                            logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | df.empty: {df[y_sym].empty} | shape: {df[y_sym].shape} | error: 'Close <= 0'")
                                     else:
-                                        logger.info(f"Provider: Yahoo NS | Ticker: {y_sym} | df.empty: True | shape: (0, 0) | all NaN: N/A | error: 'Missing in MultiIndex'")
+                                        logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | df.empty: True | error: 'Missing in MultiIndex'")
                                 except Exception as parse_e:
-                                    logger.info(f"Yahoo NS: Ticker = {y_sym}, Parse Error = {parse_e}")
+                                    logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | Parse Error: {parse_e}")
                                     pass
                                     
                 for y_sym in chunk:
@@ -366,6 +385,15 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 for y_sym in bse_fallback_symbols:
                                     try:
                                         if y_sym in df_bse.columns.levels[0]:
+                                            if df_bse[y_sym].empty:
+                                                logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | Result: Empty Dataset (0 rows). Invalidating if cached.")
+                                                try:
+                                                    from bse_mapping_utils import invalidate_bse_mapping
+                                                    orig_sym = bse_reverse_map[y_sym]
+                                                    if orig_sym: invalidate_bse_mapping(orig_sym)
+                                                except Exception: pass
+                                                continue
+                                                
                                             val = float(df_bse[y_sym]["Close"].iloc[-1])
                                             if val > 0:
                                                 orig_sym = bse_reverse_map[y_sym]
@@ -376,11 +404,11 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                                     save_bse_mapping(orig_sym, y_sym)
                                                 except Exception: pass
                                             else:
-                                                logger.info(f"Provider: Yahoo BO | Ticker: {y_sym} | df.empty: {df_bse[y_sym].empty} | shape: {df_bse[y_sym].shape} | all NaN: {df_bse[y_sym].isna().all().all()} | error: 'Close <= 0'")
+                                                logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | df.empty: {df_bse[y_sym].empty} | shape: {df_bse[y_sym].shape} | error: 'Close <= 0'")
                                         else:
-                                            logger.info(f"Provider: Yahoo BO | Ticker: {y_sym} | df.empty: True | shape: (0, 0) | all NaN: N/A | error: 'Missing in MultiIndex'")
+                                            logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | df.empty: True | error: 'Missing in MultiIndex'")
                                     except Exception as parse_e:
-                                        logger.info(f"Yahoo BO: Ticker = {y_sym}, Parse Error = {parse_e}")
+                                        logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | Parse Error: {parse_e}")
                                         pass
                                     
                     for y_sym in bse_fallback_symbols:
