@@ -72,7 +72,7 @@ def _safe_float(val, default=0.0):
         if val is None or pd.isna(val) or val == "":
             return default
         return float(val)
-    except:
+    except Exception:
         return default
 
 def start(force: bool = False):

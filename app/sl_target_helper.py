@@ -899,7 +899,6 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
     
-    from config import MIN_NATURAL_RR
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
     if natural_rr_val < min_rr:
         return {
@@ -969,7 +968,6 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
     
-    from config import MIN_NATURAL_RR
     min_rr = MIN_NATURAL_RR.get("EOD", 2.5)
     if natural_rr_val < min_rr:
         return {
@@ -1022,7 +1020,6 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
     
     # Filter only above entry and enforce MIN_NATURAL_RR
-    from config import MIN_NATURAL_RR
     min_rr = MIN_NATURAL_RR.get("REVERSAL", 2.0)
     risk = abs(entry - sl_data["raw_sl"])
     

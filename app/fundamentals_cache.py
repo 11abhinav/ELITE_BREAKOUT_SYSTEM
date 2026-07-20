@@ -207,7 +207,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
                 logger.warning(f"⚠️ {yf_sym}: Fetch failed on attempt {attempt+1}/{max_retries} due to {e}. Retrying in {backoff:.1f}s...")
                 time.sleep(backoff)
             else:
-                logger.exception(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts.")
+                logger.warning(f"❌ {yf_sym}: Fundamentals fetch completely failed after {max_retries} attempts.")
                 return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
 
     if not success or (fin.empty and bs.empty):

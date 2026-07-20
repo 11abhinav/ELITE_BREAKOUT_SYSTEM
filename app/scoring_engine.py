@@ -288,13 +288,13 @@ def check_hard_disqualifiers(ticker, latest, volume_ratio, symbol=None, timefram
         exhaustion_count = 0
         avg_vol_20 = float(ticker["Volume"].iloc[-21:-1].mean())
         for i in range(-4, -1):
-            c    = float(ticker["Close"].iloc[i])
-            o    = float(ticker["Open"].iloc[i])
-            h    = float(ticker["High"].iloc[i])
-            l    = float(ticker["Low"].iloc[i])
+            close_val = float(ticker["Close"].iloc[i])
+            open_val  = float(ticker["Open"].iloc[i])
+            high_val  = float(ticker["High"].iloc[i])
+            low_val   = float(ticker["Low"].iloc[i])
             vol  = float(ticker["Volume"].iloc[i])
-            rng  = h - l
-            body = abs(c - o)
+            rng  = high_val - low_val
+            body = abs(close_val - open_val)
             is_doji = (body / rng) < 0.25 if rng > 0 else False
             is_low_volume = vol < avg_vol_20
             if is_doji and is_low_volume:

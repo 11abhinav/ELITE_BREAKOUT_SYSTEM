@@ -125,7 +125,7 @@ def get_institutional_buys() -> dict[str, list[str]]:
     try:
         # Hit main page once for cookies
         session.get("https://www.nseindia.com", timeout=10)
-    except: pass
+    except Exception: pass
     time.sleep(2.5)
     
     process_url(BULK_URL, "BULK")

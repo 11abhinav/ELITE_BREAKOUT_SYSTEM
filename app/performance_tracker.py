@@ -106,7 +106,6 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         # the entry is effectively the next trading day. We advance to the next day at 09:15
         # instead of replacing the time on the same day (which would incorrectly test that day's intraday dips).
         if alert_dt_ist.time() >= time(15, 30):
-            from datetime import timedelta
             alert_dt_ist = (alert_dt_ist + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
 
         # Guard: if alert is from today and market hasn't opened yet (before 09:15 IST),
@@ -182,7 +181,6 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
 
 
 import json
-
 
 def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     """

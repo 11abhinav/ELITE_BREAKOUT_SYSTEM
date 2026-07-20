@@ -1317,6 +1317,8 @@ def api_remove_portfolio():
 # ── Validation Health API ──────────────────────────────────────────────────────────
 @app.route("/api/validation_health", methods=["GET"])
 def get_validation_health():
+    from database import get_connection
+    from psycopg2.extras import RealDictCursor
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1347,6 +1349,8 @@ def get_validation_health():
 
 @app.route("/api/validation_history/<dataset>", methods=["GET"])
 def get_validation_history(dataset):
+    from database import get_connection
+    from psycopg2.extras import RealDictCursor
     try:
         limit = int(request.args.get('limit', 30))
         with get_connection() as conn:

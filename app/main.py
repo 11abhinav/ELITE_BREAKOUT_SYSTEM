@@ -603,7 +603,6 @@ def run_system_scheduler():
     - 8:30 AM: Verify file readiness
     - Market hours (9:15 AM - 3:30 PM): Wealth Engine hourly at :05 to generate new buy signals
     """
-    from daily_builder import build_watchlist
     from wealth_engine import run_wealth_scan
     from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
@@ -621,7 +620,6 @@ def run_system_scheduler():
         try:
             import os
             import pandas as pd
-            from config import WATCHLIST_PATH
             
             already_fresh = False
             if os.path.exists(WATCHLIST_PATH):

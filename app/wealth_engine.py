@@ -217,7 +217,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
     def _safe_float(val, default=0.0):
         if val is None or pd.isna(val) or val == "": return default
         try: return float(val)
-        except: return default
+        except Exception: return default
         
     market_cap = _safe_float(raw_data.get('Market Cap Cr', raw_data.get('Market Capitalization')))
     price = _safe_float(raw_data.get('cmp', 0.0))

@@ -243,7 +243,7 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
         elif p == "1mo": req = 20
         elif p.endswith("d"):
             try: req = int(p[:-1]) - 1
-            except: pass
+            except Exception: pass
             
         if req > 0:
             # A requested period of N calendar days will have at least N * 0.65 calendar days diff
