@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.join(root_dir, "app"))
 
 from app.core.events import EventPublisher
 from app.core.snapshot_collector import GoldenSnapshotCollector
+from app.core.invariant_engine import InvariantEngine
+from app.core.policies import StrictTestPolicy
 from app.pipeline_runner import PipelineRunner
 from tests.golden.datasets.dataset_registry import DatasetRegistry
 
@@ -61,7 +63,10 @@ def generate_all_snapshots():
         collector.pipeline_version = pipeline_version
         collector.schema_version = schema_version
         
+        invariant_engine = InvariantEngine(policy=StrictTestPolicy())
+        
         publisher.subscribe(collector)
+        publisher.subscribe(invariant_engine)
         
         # 3. Execute core business logic
         PipelineRunner.execute(
@@ -78,13 +83,29 @@ def generate_all_snapshots():
             publisher=publisher
         )
         
+    import hashlib
+    def hash_directory(directory: str) -> str:
+        hasher = hashlib.md5()
+        for root, _, files in sorted(os.walk(directory)):
+            for f in sorted(files):
+                if f.endswith(".json") and f != "manifest.json":
+                    path = os.path.join(root, f)
+                    with open(path, "rb") as file:
+                        hasher.update(file.read())
+        return hasher.hexdigest()
+        
+    snapshot_hash = hash_directory(SNAPSHOTS_DIR)
+    
     # 4. Generate manifest.json
     manifest = {
         "snapshot_set": "1.0",
         "generated": generated_date,
         "datasets": len(DATASET_NAMES),
+        "snapshots": len(DATASET_NAMES) * 7,
+        "pipeline_stages": 7,
         "pipeline_version": pipeline_version,
-        "schema_version": schema_version
+        "schema_version": schema_version,
+        "snapshot_hash": snapshot_hash
     }
     
     manifest_path = os.path.join(SNAPSHOTS_DIR, "manifest.json")

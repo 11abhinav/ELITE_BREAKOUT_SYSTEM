@@ -72,12 +72,6 @@ class GoldenSnapshotCollector(EventSubscriber):
         self._write_snapshot(stage_name, event.payload)
         self.captured_stages.append(stage_name)
         
-    def assert_coverage(self):
-        """Asserts that all 7 stages fired before pipeline exit."""
-        if len(self.captured_stages) < len(self.expected_sequence):
-            missing = set(self.expected_sequence) - set(self.captured_stages)
-            raise RuntimeError(f"Snapshot coverage violation for {self.dataset_name}. Missing stages: {missing}")
-            
     def _write_snapshot(self, stage_name: str, payload: Any):
         os.makedirs(self.output_dir, exist_ok=True)
         filepath = os.path.join(self.output_dir, f"{stage_name}.json")

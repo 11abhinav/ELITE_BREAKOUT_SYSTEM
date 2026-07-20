@@ -22,10 +22,19 @@ class ScoresCalculated(DomainEvent): pass
 class CandidateSelected(DomainEvent): pass
 
 @dataclass
-class SLTargetComputed(DomainEvent): pass
+class SLTargetComputed(DomainEvent):
+    """Payload requires: symbol, entry_price, stop_loss, target_1, target_2, target_3, target_4"""
+    pass
 
 @dataclass
-class AlertCreated(DomainEvent): pass
+class AlertCreated(DomainEvent):
+    """Payload requires: symbol, timestamp, type, action, signals, score, stop_loss, target"""
+    pass
+
+@dataclass
+class PipelineCompleted(DomainEvent):
+    """Payload requires: symbol, status. Fired when pipeline finishes for a symbol."""
+    pass
 
 class EventSubscriber:
     def on_event(self, event: DomainEvent) -> None:

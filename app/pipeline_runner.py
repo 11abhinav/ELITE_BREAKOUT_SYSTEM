@@ -9,7 +9,8 @@ from core.events import (
     ScoresCalculated,
     CandidateSelected,
     SLTargetComputed,
-    AlertCreated
+    AlertCreated,
+    PipelineCompleted
 )
 
 from technical_indicators import apply_indicators
@@ -53,6 +54,33 @@ class PipelineRunner:
         bayesian_version: str,
         publisher: EventPublisher
     ) -> None:
+        status = "REJECTED"
+        try:
+            status = cls._execute_internal(
+                symbol, category, sector, ticker, delivery_pct, pledge_pct,
+                nifty_ret_20d, regime_ctx, bayesian_weights, bayesian_version, publisher
+            )
+        finally:
+            publisher.publish(PipelineCompleted({
+                "symbol": symbol,
+                "status": status
+            }))
+
+    @classmethod
+    def _execute_internal(
+        cls,
+        symbol: str,
+        category: str,
+        sector: str,
+        ticker: pd.DataFrame,
+        delivery_pct: Optional[float],
+        pledge_pct: Optional[float],
+        nifty_ret_20d: float,
+        regime_ctx: dict,
+        bayesian_weights: Optional[dict],
+        bayesian_version: str,
+        publisher: EventPublisher
+    ) -> str:
         
         # ──────────────────────────────────────────────────────────
         # 1. Validation Stage
@@ -78,7 +106,7 @@ class PipelineRunner:
         }))
         
         if rejection_reason:
-            return
+            return "REJECTED"
 
         # ──────────────────────────────────────────────────────────
         # 2. Indicators Stage
@@ -94,7 +122,7 @@ class PipelineRunner:
                 "status": "REJECTED",
                 "rejection_reason": rejection_reason
             }))
-            return
+            return "REJECTED"
             
         latest = ticker.iloc[-1]
         
@@ -156,7 +184,7 @@ class PipelineRunner:
         }))
         
         if rejection_reason:
-            return
+            return "REJECTED"
 
         # ──────────────────────────────────────────────────────────
         # 4. Scoring Stage
@@ -230,7 +258,7 @@ class PipelineRunner:
         }))
         
         if rejection_reason:
-            return
+            return "REJECTED"
 
         # ──────────────────────────────────────────────────────────
         # 6. SL / Target Engine Stage
@@ -271,7 +299,7 @@ class PipelineRunner:
         }))
         
         if rejection_reason:
-            return
+            return "REJECTED"
 
         # ──────────────────────────────────────────────────────────
         # 7. Alert Creation Stage
@@ -318,3 +346,5 @@ class PipelineRunner:
             "target_2": sl_result.get("target_2"),
             "context": context
         }))
+        
+        return "SUCCESS"

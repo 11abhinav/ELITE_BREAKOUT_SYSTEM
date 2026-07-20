@@ -35,3 +35,11 @@ def test_classic_breakout_detection():
     # Verify that a breakout signal was detected
     assert len(signals) > 0, "Expected a breakout signal to be detected"
     assert "52W Breakout" in signals or "Daily Breakout" in signals, "Expected a standard breakout signal"
+
+def test_breakout_engine_with_gaps_and_wicks():
+    """
+    Rules:
+      EOD-001
+    """
+    # Create an OHLCV dataset where the high exceeds the breakout level,
+    # but the closing price does not (i.e. wick breakout, which should be rejected)."

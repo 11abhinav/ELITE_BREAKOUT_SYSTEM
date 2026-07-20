@@ -4,6 +4,9 @@ from app.daily_builder import classify_stock
 
 def test_daily_builder_happy_path():
     """
+    Rules:
+      EOD-002
+    
     Test that a strong growth non-financial stock gets the 'High Growth' category.
     """
     # A perfect high growth stock: high yoy revenue, high yoy profit, high qoq, high ROE

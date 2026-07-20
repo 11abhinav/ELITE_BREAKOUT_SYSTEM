@@ -339,6 +339,7 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             return v <= threshold
 
     # 1. Core Compounder — ₹10,000 Cr+ mega-quality
+    # Rule: EOD-002
     if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
         buckets.append("Core")
 

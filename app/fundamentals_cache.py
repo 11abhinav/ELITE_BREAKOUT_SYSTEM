@@ -152,6 +152,8 @@ def fetch_single_piotroski(symbol: str) -> dict:
                         yf_sym = ns_sym
                         success = True
                         break
+                # Rule: VAL-001
+            if fin.empty and bs.empty:
                 raise ValueError("Financials and Balance Sheet are both empty.")
             success = True
             break

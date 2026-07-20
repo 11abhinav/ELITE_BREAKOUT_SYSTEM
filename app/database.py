@@ -4634,6 +4634,7 @@ def reallocate_capital(alert_id: int):
                 
                 # Update the alert with the newly calculated amounts, plus the patched SL/Target, and ensure it's not marked rejected
                 cur.execute(
+                    # Rule: SL-001
                     "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
                     (new_cap, new_shares, stop_loss, target_price, alert_id)
                 )

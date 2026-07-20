@@ -145,6 +145,7 @@ def _is_volume_confirmed(df: pd.DataFrame, min_ratio: float = None) -> bool:
     if vol_avg <= 0:
         return True  # avoid division by zero
 
+    # Rule: EOD-001
     # [FINDING-1 FIX] Simple multiple check matching config intent
     return vol_now >= min_ratio * vol_avg
 

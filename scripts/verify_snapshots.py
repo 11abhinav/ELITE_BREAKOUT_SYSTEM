@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.join(root_dir, "app"))
 
 from app.core.events import EventPublisher
 from app.core.snapshot_collector import GoldenSnapshotCollector
+from app.core.invariant_engine import InvariantEngine
+from app.core.policies import StrictTestPolicy
 from app.pipeline_runner import PipelineRunner
 from tests.golden.datasets.dataset_registry import DatasetRegistry
 
@@ -46,7 +48,10 @@ def generate_into_dir(target_dir: str):
         
         publisher = EventPublisher()
         collector = GoldenSnapshotCollector(dataset_name=dataset_name, output_dir=out_dir)
+        invariant_engine = InvariantEngine(policy=StrictTestPolicy())
+        
         publisher.subscribe(collector)
+        publisher.subscribe(invariant_engine)
         
         PipelineRunner.execute(
             symbol=symbol,
@@ -101,6 +106,22 @@ def diff_dicts(expected: Dict, actual: Dict, path="") -> list:
             
     return diffs
 
+def validate_schema(snapshot: Dict) -> list:
+    errors = []
+    if "_metadata" not in snapshot:
+        errors.append("Missing '_metadata' block")
+    else:
+        meta = snapshot["_metadata"]
+        required_meta = ["snapshot_version", "dataset", "stage", "schema_version", "pipeline_version"]
+        for key in required_meta:
+            if key not in meta:
+                errors.append(f"Missing metadata key: {key}")
+                
+    if "data" not in snapshot:
+        errors.append("Missing 'data' block")
+        
+    return errors
+
 def verify_against_baseline():
     print("🔍 Generating candidate snapshots...")
     if os.path.exists(CANDIDATES_DIR):
@@ -138,6 +159,15 @@ def verify_against_baseline():
             with open(snap_path) as sp, open(cand_path) as cp:
                 snap_json = json.load(sp)
                 cand_json = json.load(cp)
+                
+            schema_errors = validate_schema(cand_json)
+            if schema_errors:
+                print(f"\n❌ SCHEMA VALIDATION FAILED")
+                print(f"Dataset: {dataset_name} | Stage: {f}")
+                for err in schema_errors:
+                    print(f"  - {err}")
+                mismatches += 1
+                continue
                 
             diffs = diff_dicts(snap_json.get("data", {}), cand_json.get("data", {}))
             if diffs:
