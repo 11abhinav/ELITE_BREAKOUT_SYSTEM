@@ -4009,7 +4009,7 @@ function renderSystemLogs(logs) {
     const safeTraceback = escapeHTML(log.traceback);
     
     html += `
-        <div class="card" style = "padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;" >
+        <div class="card" style="flex-shrink:0; padding:16px; border-left:4px solid ${levelColor}; margin-bottom:0;" >
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
           <div>
             <span class="badge" style="background:${levelColor}; color:#fff;">${escapeHTML(log.level)}</span>
