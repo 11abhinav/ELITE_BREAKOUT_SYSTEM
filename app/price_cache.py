@@ -496,8 +496,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             max_rows = 5000 if interval.endswith('m') else 2000
                             combined = combined.tail(max_rows).copy()
                             
+                            # [VERSION: CACHE_INDEX_FIX] If time is in a column, reset the index to prevent PyArrow
+                            # from crashing on a mixed type index resulting from concat.
+                            if time_col_comb:
+                                combined = combined.reset_index(drop=True)
+                            
                             all_data[sym] = combined
                         else:
+                            # [VERSION: CACHE_INDEX_FIX] Normalize index for fresh data too
+                            if time_col:
+                                new_df = new_df.reset_index(drop=True)
                             all_data[sym] = new_df
                             
                         # If this was a FULL fetch for a long historical period, record the earliest available date

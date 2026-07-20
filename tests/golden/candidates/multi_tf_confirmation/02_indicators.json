@@ -1,0 +1,24 @@
+{
+  "_metadata": {
+    "dataset": "multi_tf_confirmation",
+    "pipeline_version": "Constitution v1.0",
+    "schema_version": "1.0",
+    "snapshot_version": "1.0",
+    "stage": "02_indicators"
+  },
+  "data": {
+    "latest_indicators": {
+      "ADX": 0.0,
+      "ATR20": 4.0,
+      "BB_LOWER": 100.0,
+      "BB_UPPER": 100.0,
+      "EMA20": 100.0,
+      "PRIOR_20D_HIGH": 102.0,
+      "RSI": 100.0,
+      "SMA200": 0.0,
+      "SMA50": 100.0
+    },
+    "status": "PASSED",
+    "symbol": "MOCKSYM"
+  }
+}

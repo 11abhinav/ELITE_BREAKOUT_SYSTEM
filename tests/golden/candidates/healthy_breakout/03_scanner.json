@@ -1,0 +1,18 @@
+{
+  "_metadata": {
+    "dataset": "healthy_breakout",
+    "pipeline_version": "Constitution v1.0",
+    "schema_version": "1.0",
+    "snapshot_version": "1.0",
+    "stage": "03_scanner"
+  },
+  "data": {
+    "rejection_reason": "rsi_range",
+    "signals": {
+      "52W Breakout": 20.588,
+      "BB Breakout": 5.32
+    },
+    "status": "REJECTED",
+    "symbol": "MOCKSYM"
+  }
+}
