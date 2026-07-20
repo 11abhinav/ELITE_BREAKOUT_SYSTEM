@@ -5,7 +5,7 @@
 # gets a response immediately. The watchdog loop and all scanners run as daemon
 # threads in the background. This is the correct pattern for Railway deployments.
 #
-# EOD / REVERSAL run ONCE at 18:30 IST. They are NOT auto-restarted on crash.
+# EOD / REVERSAL run ONCE at 21:00 IST. They are NOT auto-restarted on crash.
 # Instead, any crash or zero-alert result sends a Telegram notification.
 # =====================================================================================
 import sys
@@ -139,6 +139,8 @@ def wait_for_window(name: str):
 def wait_for_bhavcopy_or_fallback(name: str):
     """Block until today's Bhavcopy is available, or fallback if it's past 11 PM."""
     from delivery_data import fetch_delivery_data
+    from database import upsert_scanner_health
+    first_wait = True
     while True:
         now = datetime.now(IST)
         if now.weekday() >= 5:
@@ -158,6 +160,17 @@ def wait_for_bhavcopy_or_fallback(name: str):
             return
             
         logger.info(f"[{name}] ⏳ Today's Bhavcopy not yet available. Waiting 5 mins...")
+        
+        # [VERSION: BHAVCOPY_UI_STATUS] Expose the blocking state to the UI so users don't think the scanner is dead
+        if first_wait and name == "EVENING_SCANNERS":
+            for scanner_name in ["EOD", "REVERSAL"]:
+                upsert_scanner_health(
+                    scanner_name, 
+                    status="IDLE", 
+                    error_msg="Blocked: Waiting for NSE to publish today's Bhavcopy (Delivery Data)..."
+                )
+            first_wait = False
+            
         time.sleep(300)
 
 
@@ -374,7 +387,7 @@ def block_until_watchlist_ready():
 # SINGLE-SHOT RUNNERS — EOD & Reversal
 #
 # Rules:
-#   • Runs between 18:30 IST and midnight.
+#   • Runs between 21:00 IST and midnight.
 #   • If the scan raises an exception  → send Telegram crash alert, and RETRY in 5 minutes.
 #   • Once it finishes successfully    → do NOT run again until the next day's window.
 # =====================================================================================
