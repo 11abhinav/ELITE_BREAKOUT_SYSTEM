@@ -1760,17 +1760,22 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     except Exception as e:
         logger.error(f"Could not insert admin notification: {e}")
     # ── Memory Cleanup Phase ──────────────────────────────────────────────
+    
+    # Store counts before deleting variables
+    total_count = len(fundamentals_list) if 'fundamentals_list' in locals() else 0
+    processed_count = len(results) if 'results' in locals() else 0
+    
     try:
         import os, psutil, gc
         process = psutil.Process(os.getpid())
         rss_before = process.memory_info().rss / 1024 / 1024
         
         # Release large data structures
-        del price_data_map
-        del shortlist_candidates
-        del shortlist
-        del fundamentals_list
-        del futures
+        if 'price_data_map' in locals(): del price_data_map
+        if 'shortlist_candidates' in locals(): del shortlist_candidates
+        if 'shortlist' in locals(): del shortlist
+        if 'fundamentals_list' in locals(): del fundamentals_list
+        if 'futures' in locals(): del futures
         
         rss_after_del = process.memory_info().rss / 1024 / 1024
         
@@ -1783,7 +1788,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         logger.debug(f"Memory cleanup logging failed: {e}")
 
     return {
-        "total_count": len(fundamentals_list),
-        "processed_count": len(results),
+        "total_count": total_count,
+        "processed_count": processed_count,
         "today_alerts": alerts_count
     }
