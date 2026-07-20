@@ -208,6 +208,9 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 df["SERIES"] = df["SERIES"].astype(str).str.strip()
                 df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
                 
+                # Drop NaN values to prevent PostgreSQL invalid JSON token errors
+                df = df.dropna(subset=["DELIV_PER"])
+                
                 final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
                 
                 # 2. Save to database cache
