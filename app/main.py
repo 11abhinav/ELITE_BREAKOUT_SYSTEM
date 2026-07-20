@@ -1085,7 +1085,7 @@ def run_watchdog():
 
     logger.info("=" * 70)
     logger.info("🛡️  SELF-HEALING WATCHDOG ACTIVE | All Scanners Initialized")
-    logger.info("🌐  Dashboard: https://elitebreakoutsystem-production.up.railway.app/")
+    logger.info("🌐  Dashboard: http://localhost:8080/")
     logger.info("=" * 70)
 
     _logged_ready = False

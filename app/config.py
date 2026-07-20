@@ -331,7 +331,7 @@ DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")  # auto, yfinance, fyers, or 
 # ── FYERS CONFIGURATION ──────────────────────────────────────────────────────────
 FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
-FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://elitebreakoutsystem-production.up.railway.app/fyers/callback")
+FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://elitebreakoutsystem-production-4ad2.up.railway.app/fyers/callback")
 FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
 

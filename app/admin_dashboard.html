@@ -2019,7 +2019,6 @@
     async function loadScannerStatus() {
       let stats = null;
       const urls = [
-        'https://elitebreakoutsystem-production.up.railway.app/api/scanner_status',
         '/api/scanner_status',
       ];
       for (const url of urls) {
@@ -3939,25 +3938,20 @@
 let viewerName = 'Admin';
 
 async function pingViewer() {
-  if (!viewerName) return;
-  try {
-    const urls = ['https://elitebreakoutsystem-production.up.railway.app/api/viewers', '/api/viewers'];
-    let data = null;
-    for (const url of urls) {
-      try {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({name: viewerName})
-        });
-        if (r.ok) { data = await r.json(); break; }
-      } catch (e) {}
-    }
-    if (data && data.active_count) {
-      document.getElementById('vCountVal').textContent = data.active_count;
-      document.getElementById('viewerCount').title = 'Active: ' + data.viewers.join(', ');
-    }
-  } catch(e) {}
+    try {
+      const r = await fetch('/api/viewers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: viewerName})
+      });
+      if (r.ok) { 
+        const data = await r.json(); 
+        if (data && data.active_count) {
+          document.getElementById('vCountVal').textContent = data.active_count;
+          document.getElementById('viewerCount').title = 'Active: ' + data.viewers.join(', ');
+        }
+      }
+    } catch(e) {}
 }
 
 // ── NON-CRITICAL ERRORS TRACKING
@@ -4785,14 +4779,10 @@ function closeUsersModal() {
 }
 
 function fetchUsersData() {
-    const urls = ['https://elitebreakoutsystem-production.up.railway.app/api/viewers', '/api/viewers'];
-    let fetched = false;
-
-    Promise.any(urls.map(url => fetch(url).then(r => {
+    fetch('/api/viewers').then(r => {
         if (!r.ok) throw new Error();
-        fetched = true;
         return r.json();
-    }))).then(data => {
+    }).then(data => {
         const onlineBody = document.getElementById('usersModalOnlineBody');
         const historyBody = document.getElementById('usersModalHistoryBody');
 
@@ -4893,7 +4883,7 @@ function closeAdminChat() {
 }
 
 function getChatApiBase() {
-    return window.location.protocol === 'file:' ? 'https://elitebreakoutsystem-production.up.railway.app' : '';
+    return '';
 }
 
 async function markMessagesAsReadAdmin() {

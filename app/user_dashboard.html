@@ -1659,7 +1659,7 @@ async function doRefresh(isAuto = false) {
 // ── Viewer Tracking
 async function pingViewer() {
   try {
-    const urls = ['https://elitebreakoutsystem-production.up.railway.app/api/viewers', '/api/viewers'];
+    const urls = ['/api/viewers'];
     let data = null;
     for (const url of urls) {
       try {
@@ -2056,7 +2056,7 @@ function toggleChat() {
 }
 
 function getChatApiBase() {
-  return window.location.protocol === 'file:' ? 'https://elitebreakoutsystem-production.up.railway.app' : '';
+  return '';
 }
 
 async function markMessagesAsRead() {

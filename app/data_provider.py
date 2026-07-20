@@ -443,7 +443,7 @@ class AutoSwitchingFetcher(DataFetcher):
                         "The daily Fyers token is missing or expired. "
                         "The system is currently falling back to Yahoo Finance.\n\n"
                         "🔗 <b>Action Required:</b>\n"
-                        "Please login to authorize: <a href='https://elitebreakoutsystem-production.up.railway.app/fyers/login'>Authorize Fyers</a>"
+                        "Please login to authorize: <a href='/fyers/login'>Authorize Fyers</a>"
                     )
                     send_telegram_message(msg)
                     
