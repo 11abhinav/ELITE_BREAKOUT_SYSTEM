@@ -148,3 +148,58 @@ start_tracemalloc()
 
 import threading
 threading.Thread(target=_inventory_worker, name="MemoryInventory", daemon=True).start()
+
+def chunk_iterable(iterable, batch_size):
+    """Safely chunks a list or pandas DataFrame."""
+    total_len = len(iterable)
+    for i in range(0, total_len, batch_size):
+        if isinstance(iterable, pd.DataFrame):
+            yield iterable.iloc[i:i + batch_size]
+        else:
+            yield iterable[i:i + batch_size]
+
+class BatchMemoryTracker:
+    """
+    Context manager to track memory through a typical Fetch -> Process -> Cleanup batch lifecycle.
+    """
+    def __init__(self, stage_name: str, batch_num: int, total_batches: int, item_count: int, collect_gc: bool = False):
+        self.stage_name = stage_name
+        self.batch_num = batch_num
+        self.total_batches = total_batches
+        self.item_count = item_count
+        self.collect_gc = collect_gc
+        self.process = psutil.Process(os.getpid())
+        
+        self.start_time = 0
+        self.rss_before = 0
+        self.rss_after_fetch = 0
+        self.row_count = 0
+
+    def __enter__(self):
+        self.start_time = time.monotonic()
+        self.rss_before = self.process.memory_info().rss / (1024 * 1024)
+        return self
+
+    def mark_fetch_complete(self, row_count: int = 0):
+        self.row_count = row_count
+        self.rss_after_fetch = self.process.memory_info().rss / (1024 * 1024)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.collect_gc:
+            gc.collect()
+            
+        rss_after_cleanup = self.process.memory_info().rss / (1024 * 1024)
+        elapsed = time.monotonic() - self.start_time
+        
+        # If fetch was never explicitly marked, just use cleanup memory for both
+        if self.rss_after_fetch == 0:
+            self.rss_after_fetch = rss_after_cleanup
+            
+        logger.info(
+            f"[{self.stage_name} Batch {self.batch_num}/{self.total_batches}] "
+            f"Symbols: {self.item_count} | Rows: {self.row_count} | "
+            f"RSS Before: {self.rss_before:.1f} MB | "
+            f"RSS After Fetch: {self.rss_after_fetch:.1f} MB | "
+            f"RSS After Cleanup: {rss_after_cleanup:.1f} MB | "
+            f"Elapsed: {elapsed:.1f}s"
+        )

@@ -594,9 +594,7 @@ def init_db():
                 """)
                 cur.execute("ALTER TABLE promoter_pledge_cache ADD COLUMN IF NOT EXISTS last_attempted_at TIMESTAMP WITH TIME ZONE")
 
-                # ── Fetch error aggregation table (skipped records / fetch failures) ──
-                cur.execute("""
-                                    # ── Bhavcopy Delivery Cache ─────────────────────────────────────
+                # ── Bhavcopy Delivery Cache ─────────────────────────────────────
                 cur.execute('''
                     CREATE TABLE IF NOT EXISTS bhavcopy_cache (
                         trading_date DATE PRIMARY KEY,
@@ -605,6 +603,7 @@ def init_db():
                     )
                 ''')
 
+                # ── Fetch error aggregation table (skipped records / fetch failures) ──
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS fetch_errors (
                         id SERIAL PRIMARY KEY,

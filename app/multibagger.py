@@ -268,22 +268,24 @@ def batch_download_market_data(symbols: list) -> dict:
     
     ist_now = datetime.now(IST)
     strip_forming = is_market_open(ist_now)
-    process = psutil.Process(os.getpid())
     
     results = {}
     
+    from memory_profiler import chunk_iterable, BatchMemoryTracker
+    total_batches = (len(symbols) + BATCH_SIZE - 1) // BATCH_SIZE
+    
     # Process symbols in chunks to flatten Peak Memory (O(BATCH_SIZE) instead of O(N))
-    for i in range(0, len(symbols), BATCH_SIZE):
-        batch_start_time = time.time()
-        chunk = symbols[i:i + BATCH_SIZE]
-        rss_before = process.memory_info().rss / 1024 / 1024
-        
-        # 1. Fetch chunk DataFrames
-        batch_res = fetcher.get_batch_ohlcv(chunk, period="1y", interval="1d", caller="multibagger")
-        if not batch_res:
-            continue
+    for batch_num, chunk in enumerate(chunk_iterable(symbols, BATCH_SIZE), start=1):
+        with BatchMemoryTracker("MULTIBAGGER", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
             
-        rss_after_fetch = process.memory_info().rss / 1024 / 1024
+            # 1. Fetch chunk DataFrames
+            batch_res = fetcher.get_batch_ohlcv(chunk, period="1y", interval="1d", caller="multibagger")
+            if not batch_res:
+                continue
+                
+            from core_enums import ProviderResult
+            rows_fetched = sum(len(df) for df in batch_res.values() if df is not None and not isinstance(df, ProviderResult))
+            tracker.mark_fetch_complete(row_count=rows_fetched)
         
         # 2. Convert DataFrames to StockPriceData
         for sym, md in batch_res.items():
@@ -415,30 +417,12 @@ def batch_download_market_data(symbols: list) -> dict:
             except Exception as e:
                 logger.debug(f"Error parsing market data for {sym}: {e}")
                 
-        rss_after_convert = process.memory_info().rss / 1024 / 1024
-        
-        # 3. Explicitly release temporary DataFrames and force GC
         del batch_res
-        # clear locals that might hold DataFrame references
         locals().pop('ticker_df', None)
         locals().pop('md', None)
         locals().pop('close_series', None)
         locals().pop('vol_series', None)
         locals().pop('sma_200_series', None)
-        gc.collect()
-        
-        rss_after_gc = process.memory_info().rss / 1024 / 1024
-        elapsed = time.time() - batch_start_time
-        
-        logger.info(
-            f"📊 Batch {i//BATCH_SIZE + 1}/{(len(symbols) + BATCH_SIZE - 1)//BATCH_SIZE}\n"
-            f"Symbols: {len(chunk)}\n"
-            f"Time: {elapsed:.1f} s\n"
-            f"RSS before fetch: {rss_before:.1f} MB\n"
-            f"RSS after fetch: {rss_after_fetch:.1f} MB\n"
-            f"RSS after convert: {rss_after_convert:.1f} MB\n"
-            f"RSS after cleanup: {rss_after_gc:.1f} MB"
-        )
             
     logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
     return results

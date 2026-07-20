@@ -877,43 +877,17 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         _rejection_lock = threading.Lock()
 
         all_symbols_to_fetch = list(candidate_symbols.union(set(orphan_symbols)))
-        logger.info(f"💰 [WEALTH ENGINE] Batch fetching 1D data for {len(all_symbols_to_fetch)} symbols...")
+        BATCH_SIZE = int(os.environ.get("WEALTH_BATCH_SIZE", "50"))
+        logger.info(f"💰 [WEALTH ENGINE] Processing {len(all_symbols_to_fetch)} symbols in chunks of {BATCH_SIZE}...")
+        
         from price_cache import fetch_unified_historical
-        all_historical_data = fetch_unified_historical(all_symbols_to_fetch, period="1y", interval="1d")
+        from memory_profiler import chunk_iterable, BatchMemoryTracker
+        import concurrent.futures
         
-        if all_historical_data is None:
-            all_historical_data = {}
-        
-        fetched_count = sum(1 for v in all_historical_data.values() if v is not None and not v.empty)
-        required_count = int(len(df) * 0.70)
-        
-        if fetched_count < required_count:
-            # Diagnose the exact reason why APIs are failing
-            exact_reason = ""
-            try:
-                from data_providers.fyers_fetcher import _fyers_circuit_breaker
-                from data_provider import _price_provider
-                import time
-                if _fyers_circuit_breaker.is_open:
-                    exact_reason += "Fyers Circuit Breaker OPEN (API rate-limited). "
-                if _price_provider.cooldown_until > time.time():
-                    exact_reason += f"YFinance Circuit Breaker OPEN (cooldown={int(_price_provider.cooldown_until - time.time())}s). "
-            except Exception:
-                pass
-            
-            error_details = exact_reason if exact_reason else "Unknown APIs fail / no cache available"
-            
-            logger.error(f"❌ INCOMPLETE DATA: Fetched {fetched_count}/{len(df)} symbols. EXACT REASON: {error_details}. Aborting Wealth Engine run to protect dashboard.")
-            if not getattr(database, "DONT_SAVE_WEALTH", False):
-                try:
-                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {fetched_count}/{len(df)} | {error_details}")
-                    from database import insert_notification
-                    insert_notification("error", "⚠️ WEALTH ENGINE DEGRADED", f"Data fetched for only {fetched_count}/{len(df)} symbols.\nReason: {error_details}")
-                except Exception:
-                    pass
-            # Return empty DataFrame to safely abort without throwing an unhandled exception traceback
-            return pd.DataFrame()
-            
+        global_fetched_count = 0
+        technicals = []
+        total_batches = (len(all_symbols_to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE
+
         def process_symbol(idx, sym, historical_cache=None):
             try:
                 tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=historical_cache)
@@ -962,22 +936,58 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": sym}
 
-        technicals = []
-        import concurrent.futures
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-                futures = {executor.submit(process_symbol, i, sym, all_historical_data): i for i, sym in enumerate(all_symbols_to_fetch)}
-                completed = 0
-                for future in concurrent.futures.as_completed(futures, timeout=1800):
-                    try:
-                        technicals.append(future.result())
-                    except Exception:
-                        pass
-                    completed += 1
-                    if completed % 50 == 0 or completed == len(all_symbols_to_fetch):
-                        logger.info(f"💰 [WEALTH ENGINE] Progress: {completed}/{len(all_symbols_to_fetch)} stocks processed...")
-        except concurrent.futures.TimeoutError:
-            logger.error("❌ Timeout during technical calculations in Wealth Engine. Aborting remaining fetches to prevent deadlock.")
+        for batch_num, chunk in enumerate(chunk_iterable(all_symbols_to_fetch, BATCH_SIZE), start=1):
+            with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
+                chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
+                
+                if chunk_historical_data is None:
+                    chunk_historical_data = {}
+                    
+                valid_fetches = sum(1 for v in chunk_historical_data.values() if v is not None and not v.empty)
+                global_fetched_count += valid_fetches
+                rows_fetched = sum(len(df) for df in chunk_historical_data.values() if df is not None)
+                
+                tracker.mark_fetch_complete(row_count=rows_fetched)
+                
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
+                        futures = {executor.submit(process_symbol, i, sym, chunk_historical_data): i for i, sym in enumerate(chunk)}
+                        for future in concurrent.futures.as_completed(futures, timeout=120):
+                            try:
+                                technicals.append(future.result())
+                            except Exception:
+                                pass
+                except concurrent.futures.TimeoutError:
+                    logger.error("❌ Timeout during technical calculations in Wealth Engine chunk. Proceeding to next.")
+                    
+                # Explicit cleanup of large DataFrame references
+                del chunk_historical_data
+
+        required_count = int(len(df) * 0.70)
+        if global_fetched_count < required_count:
+            exact_reason = ""
+            try:
+                from data_providers.fyers_fetcher import _fyers_circuit_breaker
+                from data_provider import _price_provider
+                import time
+                if _fyers_circuit_breaker.is_open:
+                    exact_reason += "Fyers Circuit Breaker OPEN. "
+                if _price_provider.cooldown_until > time.time():
+                    exact_reason += f"YFinance Circuit Breaker OPEN ({int(_price_provider.cooldown_until - time.time())}s). "
+            except Exception:
+                pass
+            
+            error_details = exact_reason if exact_reason else "Unknown APIs fail / no cache available"
+            logger.error(f"❌ INCOMPLETE DATA: Fetched {global_fetched_count}/{len(df)} symbols. Aborting to protect dashboard. {error_details}")
+            
+            if not getattr(database, "DONT_SAVE_WEALTH", False):
+                try:
+                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {global_fetched_count}/{len(df)}")
+                    from database import insert_notification
+                    insert_notification("error", "⚠️ WEALTH ENGINE DEGRADED", f"Data fetched for only {global_fetched_count}/{len(df)} symbols.\nReason: {error_details}")
+                except Exception:
+                    pass
+            return pd.DataFrame()
 
         tech_df = pd.DataFrame(technicals)
         

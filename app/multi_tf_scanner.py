@@ -108,151 +108,162 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
     logger.info(f"📋 [MULTI_TF] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
-    # 2. Fetch 1H data
-    profiler_fetch1 = MemoryProfiler("1H Price Fetch")
-    profiler_fetch1.__enter__()
-    try:
-        ticker_data = fetch_watchlist_data(watchlist, period="60d", interval="1h")
-    finally:
-        profiler_fetch1.__exit__(None, None, None)
+    import os, gc, time
+    BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "50"))
     
-    # Handle rate limiting or fetch failures gracefully - continue with partial data
-    # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 7] Standardized missing data fallback if fetch_watchlist_data fails
-    if ticker_data is None:
-        ticker_data = {}
-        
-    fetched_count = len(ticker_data)
-    required_count = int(len(watchlist) * 0.70)
-    
-    if fetched_count < required_count:
-        # [VERSION: MTF_FETCH_ABORT_FIX] Catch failure gracefully and skip only Phase A, instead of crashing the whole cycle
-        logger.warning(f"⚠️ 1H data fetch returned {fetched_count}/{len(watchlist)} symbols (70% minimum required). Skipping Phase A processing.")
-        return {"fetched": fetched_count, "total": len(watchlist), "stale": 0, "approved": 0, "abort": True}
-    else:
-        logger.info(f"✅ Successfully fetched {fetched_count} symbols for 1H hourly phase")
-        
     stale_count = 0
-
+    fetched_count = 0
+    
     # ── FUNNEL STATS: measure how many stocks pass each gate ──────────────
     funnel = {"total": 0, "data_ok": 0, "indicators_ok": 0, "price_filtered": 0, "price_ok": 0,
               "ema_only_pass": 0, "adx_only_pass": 0, "ema_and_adx_pass": 0, "dist_pass": 0, "approved": 0}
+              
+    logger.info(f"📥 Processing 1H phase in chunks of {BATCH_SIZE}...")
     
-    profiler_proc1 = MemoryProfiler("1H Process Symbols")
-    profiler_proc1.__enter__()
-    for idx, row in watchlist.iterrows():
-        try:
-            symbol = row["Stock"]
-            category = row["Category"]
-            funnel["total"] += 1
-        
-            df = ticker_data.get(symbol)
-            # [VERSION: MTF_BAR_LIMIT_FIX] Reduced from 200 to 50 to allow YFinance fallback data to process safely
-            if df is None or df.empty or len(df) < 50:
-                continue
-            
-            if getattr(df, 'attrs', {}).get('is_stale') == True:
-                logger.debug(f"⏭️ Skipping {symbol} (1H scan) due to stale data.")
-                stale_count += 1
-                continue
+    from memory_profiler import chunk_iterable, BatchMemoryTracker
+    total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
-            df = strip_forming_candle(df, 60, datetime.now(IST))
-            if df is None or df.empty or len(df) < 2:
-                continue
-            df = apply_indicators(df, timeframe="1h")
-            if df is None or df.empty:
-                continue
+    for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
+        with BatchMemoryTracker("MULTI_TF", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
             
-            # Validate indicator columns
-            required_cols = ["EMA9", "EMA20", "SMA50", "SMA200", "ADX", "PRIOR_20D_HIGH"]
-            if not all(col in df.columns for col in required_cols):
-                logger.warning(f"⚠️ {symbol} missing required indicators. Skipping.")
+            # 1. Fetch chunk
+            ticker_data = fetch_watchlist_data(chunk_df, period="60d", interval="1h")
+            if not ticker_data:
                 continue
-
-            funnel["data_ok"] += 1
-            latest = df.iloc[-1]
+                
+            from core_enums import ProviderResult
+            valid_fetches = sum(1 for v in ticker_data.values() if v is not None and getattr(v, "empty", False) is False)
+            fetched_count += valid_fetches
+            rows_fetched = sum(len(df) for df in ticker_data.values() if df is not None and not isinstance(df, ProviderResult))
+            tracker.mark_fetch_complete(row_count=rows_fetched)
         
-            close = _safe_float(latest.get("Close"))
-            if close < MIN_STOCK_PRICE:
-                funnel["price_filtered"] += 1
-                continue
+        # 2. Process chunk
+        for idx, row in chunk_df.iterrows():
+            try:
+                symbol = row["Stock"]
+                category = row["Category"]
+                funnel["total"] += 1
             
-            # Extract indicators safely — NaN = indicator not ready, hard skip
-            def _safe_val(series_val):
-                """Return float or None if value is missing/NaN."""
-                # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 4] Wrapped in try/except to catch ValueError on unparseable string data
-                try:
-                    if series_val is None:
+                df = ticker_data.get(symbol)
+                # [VERSION: MTF_BAR_LIMIT_FIX] Reduced from 200 to 50 to allow YFinance fallback data to process safely
+                if df is None or df.empty or len(df) < 50:
+                    continue
+                
+                if getattr(df, 'attrs', {}).get('is_stale') == True:
+                    logger.debug(f"⏭️ Skipping {symbol} (1H scan) due to stale data.")
+                    stale_count += 1
+                    continue
+    
+                df = strip_forming_candle(df, 60, datetime.now(IST))
+                if df is None or df.empty or len(df) < 2:
+                    continue
+                df = apply_indicators(df, timeframe="1h")
+                if df is None or df.empty:
+                    continue
+                
+                # Validate indicator columns
+                required_cols = ["EMA9", "EMA20", "SMA50", "SMA200", "ADX", "PRIOR_20D_HIGH"]
+                if not all(col in df.columns for col in required_cols):
+                    logger.warning(f"⚠️ {symbol} missing required indicators. Skipping.")
+                    continue
+    
+                funnel["data_ok"] += 1
+                latest = df.iloc[-1]
+            
+                close = _safe_float(latest.get("Close"))
+                if close < MIN_STOCK_PRICE:
+                    funnel["price_filtered"] += 1
+                    continue
+                
+                # Extract indicators safely — NaN = indicator not ready, hard skip
+                def _safe_val(series_val):
+                    """Return float or None if value is missing/NaN."""
+                    # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 4] Wrapped in try/except to catch ValueError on unparseable string data
+                    try:
+                        if series_val is None:
+                            return None
+                        v = float(series_val)
+                        if math.isnan(v):
+                            return None
+                        return v
+                    except (TypeError, ValueError):
                         return None
-                    v = float(series_val)
-                    if math.isnan(v):
-                        return None
-                    return v
-                except (TypeError, ValueError):
-                    return None
-        
-            e9 = _safe_val(latest.get("EMA9"))
-            e20 = _safe_val(latest.get("EMA20"))
-            s50 = _safe_val(latest.get("SMA50"))
-            s200 = _safe_val(latest.get("SMA200"))
-            adx_val = _safe_val(latest.get("ADX"))
-            prior_high = _safe_val(latest.get("PRIOR_20D_HIGH"))
-        
-            # Any uncomputed indicator = hard skip (not silently pass)
-            if any(v is None for v in (e9, e20, s50, s200, adx_val, prior_high)):
-                logger.debug(f"⏭️ {symbol} skipped — indicator NaN/missing "
-                             f"(e9={e9}, e20={e20}, s50={s50}, s200={s200}, adx={adx_val}, prior_high={prior_high})")
-                continue
-        
-            funnel["indicators_ok"] += 1
-        
-            if prior_high <= 0:
-                continue
-
-            funnel["price_ok"] += 1
             
-            dist_to_breakout = (prior_high - close) / prior_high
-        
-            # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
-            # AND price must be within 0.5% to 3.0% of the breakout level
-            ema_ok = e9 > e20 and e20 > s50 and close > s200
-            adx_ok = adx_val > 20
-            # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum
-            dist_ok = -0.02 <= dist_to_breakout <= 0.05
-        
-            if ema_ok:
-                funnel["ema_only_pass"] += 1
-            if adx_ok:
-                funnel["adx_only_pass"] += 1
-            if ema_ok and adx_ok:
-                funnel["ema_and_adx_pass"] += 1
-            if ema_ok and adx_ok and dist_ok:
-                funnel["dist_pass"] += 1
-                # We have an hourly approved setup!
-                now_dt = datetime.now(IST)
-                end_of_session = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
-                if now_dt > end_of_session:
-                    from datetime import timedelta
-                    end_of_session = now_dt + timedelta(minutes=15)
-                if not is_test_mode:
-                    # [VERSION: MTF_PHASE_B_DROP_FIX] Force clear old context (expires_at, invalidated_at) so Phase B doesn't silently ignore this stock due to yesterday's stale state
-                    upsert_breakout_watchlist(
-                        symbol=symbol,
-                        category=category,
-                        current_state="HOURLY_APPROVED",
-                        h1_status="PASSED",
-                        breakout_level=prior_high,
-                        clear_context=True,
-                        trigger_level=prior_high,
-                        signal_timestamp=now_dt.isoformat(),
-                        expires_at=end_of_session.isoformat(),
-                        timeframe="1h"
-                    )
-                funnel["approved"] += 1
-                logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+                e9 = _safe_val(latest.get("EMA9"))
+                e20 = _safe_val(latest.get("EMA20"))
+                s50 = _safe_val(latest.get("SMA50"))
+                s200 = _safe_val(latest.get("SMA200"))
+                adx_val = _safe_val(latest.get("ADX"))
+                prior_high = _safe_val(latest.get("PRIOR_20D_HIGH"))
+            
+                # Any uncomputed indicator = hard skip (not silently pass)
+                if any(v is None for v in (e9, e20, s50, s200, adx_val, prior_high)):
+                    logger.debug(f"⏭️ {symbol} skipped — indicator NaN/missing "
+                                 f"(e9={e9}, e20={e20}, s50={s50}, s200={s200}, adx={adx_val}, prior_high={prior_high})")
+                    continue
+            
+                funnel["indicators_ok"] += 1
+            
+                if prior_high <= 0:
+                    continue
+    
+                funnel["price_ok"] += 1
+                
+                dist_to_breakout = (prior_high - close) / prior_high
+            
+                # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
+                # AND price must be within 0.5% to 3.0% of the breakout level
+                ema_ok = e9 > e20 and e20 > s50 and close > s200
+                adx_ok = adx_val > 20
+                # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum
+                dist_ok = -0.02 <= dist_to_breakout <= 0.05
+            
+                if ema_ok:
+                    funnel["ema_only_pass"] += 1
+                if adx_ok:
+                    funnel["adx_only_pass"] += 1
+                if ema_ok and adx_ok:
+                    funnel["ema_and_adx_pass"] += 1
+                if ema_ok and adx_ok and dist_ok:
+                    funnel["dist_pass"] += 1
+                    # We have an hourly approved setup!
+                    now_dt = datetime.now(IST)
+                    end_of_session = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+                    if now_dt > end_of_session:
+                        from datetime import timedelta
+                        end_of_session = now_dt + timedelta(minutes=15)
+                    if not is_test_mode:
+                        # [VERSION: MTF_PHASE_B_DROP_FIX] Force clear old context (expires_at, invalidated_at) so Phase B doesn't silently ignore this stock due to yesterday's stale state
+                        upsert_breakout_watchlist(
+                            symbol=symbol,
+                            category=category,
+                            current_state="HOURLY_APPROVED",
+                            h1_status="PASSED",
+                            breakout_level=prior_high,
+                            clear_context=True,
+                            trigger_level=prior_high,
+                            signal_timestamp=now_dt.isoformat(),
+                            expires_at=end_of_session.isoformat(),
+                            timeframe="1h"
+                        )
+                    funnel["approved"] += 1
+                    logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+    
+            except Exception as e:
+                logger.exception(f"Fault isolation caught exception for Phase A: {e}")
+                continue
+                
+        del ticker_data
+        locals().pop('df', None)
+            
+    # Post-run requirement check
+    required_count = int(len(watchlist) * 0.70)
+    if fetched_count < required_count:
+        logger.warning(f"⚠️ 1H data fetch returned {fetched_count}/{len(watchlist)} symbols (70% minimum required). Phase A results may be incomplete.")
+        return {"fetched": fetched_count, "total": len(watchlist), "stale": 0, "approved": 0, "abort": True}
+    else:
+        logger.info(f"✅ Successfully fetched {fetched_count} symbols for 1H hourly phase")
 
-        except Exception as e:
-            logger.exception(f"Fault isolation caught exception for Phase A: {e}")
-            continue
     # ── Log the funnel so we can see exactly where stocks drop off ────────
     logger.info(
         f"📊 Phase A Funnel: total={funnel['total']} → data_ok={funnel['data_ok']} → "
@@ -261,28 +272,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         f"ema_and_adx_pass={funnel['ema_and_adx_pass']} → dist_pass={funnel['dist_pass']} → "
         f"approved={funnel['approved']}"
     )
-    profiler_proc1.__exit__(None, None, None)
-            
-    # ── Memory Cleanup Phase ──────────────────────────────────────────────
-    try:
-        import os, psutil, gc
-        process = psutil.Process(os.getpid())
-        rss_before = process.memory_info().rss / 1024 / 1024
-        
-        # Release large variables
-        del ticker_data
-        
-        rss_after_del = process.memory_info().rss / 1024 / 1024
-        
-        # Reclaim cyclic references
-        gc.collect()
-        
-        rss_after_gc = process.memory_info().rss / 1024 / 1024
-        logger.info(f"🧹 [MEMORY] 1H Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
-    except Exception as e:
-        logger.debug(f"Memory cleanup logging failed: {e}")
 
-    return {"fetched": len(watchlist), "total": len(watchlist), "stale": stale_count, "save_failures": 0}
+    return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_count, "save_failures": 0}
 def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.
