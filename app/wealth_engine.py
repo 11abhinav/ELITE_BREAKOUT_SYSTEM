@@ -1184,10 +1184,18 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             try:
                 from database import upload_parquet_to_db
                 cols = ['Stock', 'Sector', 'FM_Score', 'Consistency_Score', 'Valuation_Score', 'Reliability', 'Base_FV', 'Bull_FV', 'Portfolio_Bucket', 'Signal', 'Hold_Score', 'hold_trend', 'Core_Selected']
-                for c in cols:
-                    if c not in wealth_df.columns: wealth_df[c] = None
+                
+                # Bulk assign missing columns to prevent DataFrame block fragmentation
+                new_cols = {c: None for c in cols if c not in wealth_df.columns}
+                if new_cols:
+                    wealth_df = wealth_df.assign(**new_cols)
+                    
                 wealth_df.to_parquet(WEALTH_PATH)
                 upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                
+                # Free large intermediate dataframes
+                del tech_df, candidate_tech, prev_wealth_df, all_historical_data
+                
                 from database import upsert_scanner_health
                 upsert_scanner_health(
                     scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),

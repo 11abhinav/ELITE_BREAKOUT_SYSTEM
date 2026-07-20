@@ -55,13 +55,19 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             
             if df is not None and not df.empty:
                 # Paginate if needed
-                while len(df) < total:
-                    offset = len(df)
+                pages = [df]
+                current_len = len(df)
+                while current_len < total:
+                    offset = current_len
                     q_next = q.offset(offset)
                     next_total, next_df = q_next.get_scanner_data()
                     if next_df is None or next_df.empty:
                         break
-                    df = pd.concat([df, next_df], ignore_index=True)
+                    pages.append(next_df)
+                    current_len += len(next_df)
+                
+                df = pd.concat(pages, ignore_index=True)
+                del pages
                 
                 if len(df) < total:
                     logger.warning(f"Universe pagination incomplete: fetched {len(df)} out of {total} total stocks.")

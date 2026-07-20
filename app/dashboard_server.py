@@ -2046,7 +2046,23 @@ def api_news(symbol):
             })
 
         with _news_lock:
-            _news_cache[yf_symbol] = {"data": news, "timestamp": time.time()}
+            # 1. Clean up expired entries (TTL 15 min / 900s)
+            now = time.time()
+            expired = [k for k, v in _news_cache.items() if now - v["timestamp"] > 900]
+            for k in expired:
+                del _news_cache[k]
+                
+            # 2. Add new entry
+            _news_cache[yf_symbol] = {"data": news, "timestamp": now}
+            
+            # 3. If cache still too large (e.g., burst of 500 different queries in 15min), remove oldest
+            MAX_NEWS_CACHE_SIZE = 500
+            if len(_news_cache) > MAX_NEWS_CACHE_SIZE:
+                excess = len(_news_cache) - MAX_NEWS_CACHE_SIZE
+                oldest_keys = list(_news_cache.keys())[:excess]
+                for k in oldest_keys:
+                    del _news_cache[k]
+                logger.info(f"🧹 Evicted {len(expired)} expired and {len(oldest_keys)} oldest entries from _news_cache.")
         try:
             mark_success('yfinance')
         except Exception:

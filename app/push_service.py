@@ -17,13 +17,27 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
     global _push_throttle_cache
     now = time.time()
     
+    # 1. Clean up expired throttles
+    expired_keys = [k for k, v in _push_throttle_cache.items() if now - v > _THROTTLE_SECONDS]
+    for k in expired_keys:
+        del _push_throttle_cache[k]
+        
     # Throttle identical titles (to prevent MULTI_TF from spamming every 5 minutes during outages)
     if not bypass_throttle and title in _push_throttle_cache:
-        if now - _push_throttle_cache[title] < _THROTTLE_SECONDS:
-            logger.info(f"🔕 Throttling duplicate push notification: '{title}' | Details: {body}")
-            return
+        # We already removed expired keys above, so if it's still here, it is within throttle window
+        logger.info(f"🔕 Throttling duplicate push notification: '{title}' | Details: {body}")
+        return
     
     _push_throttle_cache[title] = now
+    
+    # 2. Limit maximum cache size
+    MAX_PUSH_CACHE_SIZE = 1000
+    if len(_push_throttle_cache) > MAX_PUSH_CACHE_SIZE:
+        excess = len(_push_throttle_cache) - MAX_PUSH_CACHE_SIZE
+        oldest_keys = list(_push_throttle_cache.keys())[:excess]
+        for k in oldest_keys:
+            del _push_throttle_cache[k]
+        logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from _push_throttle_cache.")
 
     vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
     vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")

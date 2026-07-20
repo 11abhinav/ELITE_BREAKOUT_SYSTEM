@@ -54,6 +54,22 @@ def classify_symbol(results: list[ProviderResult]) -> DeadSymbolDecision:
 
 _dead_symbols_cache = {}
 _DEAD_TTL = 3600 * 24  # 24 hours
+_MAX_DEAD_CACHE_SIZE = 1000
+
+def _cleanup_dead_symbols_cache():
+    now = time.time()
+    # 1. Remove expired
+    expired_keys = [k for k, v in _dead_symbols_cache.items() if now - v > _DEAD_TTL]
+    for k in expired_keys:
+        del _dead_symbols_cache[k]
+        
+    # 2. If still over limit, remove oldest (Python 3.7+ dicts preserve insertion order)
+    if len(_dead_symbols_cache) > _MAX_DEAD_CACHE_SIZE:
+        excess = len(_dead_symbols_cache) - _MAX_DEAD_CACHE_SIZE
+        oldest_keys = list(_dead_symbols_cache.keys())[:excess]
+        for k in oldest_keys:
+            del _dead_symbols_cache[k]
+        logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from _dead_symbols_cache.")
 
 def _parse_yf_error(err_str: str) -> FetchFailureType:
     err_str = str(err_str).lower()
@@ -449,6 +465,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         invalid_count = sum(1 for st in (fyers_status, yf_ns_status, yf_bo_status) if st == FetchFailureType.INVALID_SYMBOL)
 
         if invalid_count >= 2:
+            _cleanup_dead_symbols_cache()
             _dead_symbols_cache[s] = time.time()
             logger.warning(
                 f"🚫 Marking {s} as completely DEAD for 24h\n"
