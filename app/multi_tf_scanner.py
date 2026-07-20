@@ -71,7 +71,8 @@ def strip_forming_candle(df, tf_minutes, ist_now):
             candle_end = candle_start + pd.Timedelta(minutes=tf_minutes)
             
             if now_naive < candle_end:
-                return df.iloc[:-1].copy()
+                # [VERSION: MEMORY_OPTIMIZATION_v1.0] Removed redundant .copy() to save memory
+                return df.iloc[:-1]
     except Exception as e:
         logger.warning(f"Failed to strip forming candle: {e}")
         pass

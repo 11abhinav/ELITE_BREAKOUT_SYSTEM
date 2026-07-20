@@ -35,7 +35,8 @@ def ist_converter(*args):
     return datetime.fromtimestamp(timestamp, IST).timetuple()
 
 logging.Formatter.converter = ist_converter
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+# [VERSION: LOGGING_STDOUT_FIX_v1.0] Route logs to stdout to prevent Railway interpreting all INFO as ERROR
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S", stream=sys.stdout)
 
 from db_logger import install_db_logger
 install_db_logger()
