@@ -486,9 +486,17 @@ class AutoSwitchingFetcher(DataFetcher):
                             logger.warning(f"⚠️ {s} Fyers data rejected by validator: {res.quality_report.warnings}")
 
                     yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
+                    recovered_count = 0
                     for s in missing_symbols:
                         if s in yf_results:
                             results[s] = yf_results[s]
+                            if results[s].dataframe is not None and results[s].quality_report and results[s].quality_report.is_valid:
+                                recovered_count += 1
+                                
+                    if recovered_count > 0:
+                        logger.info(f"✅ YFinance fallback successfully recovered data for {recovered_count} out of {len(missing_symbols)} missing symbols.")
+                    if recovered_count < len(missing_symbols):
+                        logger.warning(f"⚠️ YFinance fallback could not recover {len(missing_symbols) - recovered_count} symbols.")
                 for s in symbols:
                     if s not in results:
                         results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
