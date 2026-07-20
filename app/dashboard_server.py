@@ -425,7 +425,8 @@ def api_messages():
         
         user_id = get_user_id_by_username(user_name)
         if not user_id:
-            return jsonify({"error": "User not found"}), 404
+            # [VERSION: DASHBOARD_CHAT_BUG_FIX_v1.0] Return empty list instead of 404 to avoid breaking frontend chat polling
+            return jsonify([])
             
         messages = get_user_messages(user_id)
         return jsonify(messages)
@@ -462,7 +463,8 @@ def api_messages_read():
         
     user_id = get_user_id_by_username(user_name)
     if not user_id:
-        return jsonify({"error": "User not found"}), 404
+        # [VERSION: DASHBOARD_CHAT_BUG_FIX_v1.0] User not found; return success to prevent frontend console errors
+        return jsonify({"status": "success"})
         
     success = mark_user_messages_read(user_id, as_admin)
     return jsonify({"status": "success" if success else "error"})

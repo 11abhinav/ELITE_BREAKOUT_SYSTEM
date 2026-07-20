@@ -4899,7 +4899,7 @@ function getChatApiBase() {
 async function markMessagesAsReadAdmin() {
     if (!currentChatUser) return;
     try {
-        await fetch(`${ getChatApiBase() } /api/messages / read`, {
+        await fetch(`${getChatApiBase()}/api/messages/read`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ user: currentChatUser, as_admin: true })
@@ -4910,7 +4910,7 @@ async function markMessagesAsReadAdmin() {
 async function fetchAdminChatMessages() {
     if (!currentChatUser) return;
     try {
-        const res = await fetch(`${ getChatApiBase() } /api/messages ? user = ${ encodeURIComponent(currentChatUser) }& t=${ Date.now() } `, { cache: 'no-store' });
+        const res = await fetch(`${getChatApiBase()}/api/messages?user=${encodeURIComponent(currentChatUser)}&t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) return;
         const messages = await res.json();
         
@@ -4941,12 +4941,12 @@ function renderAdminMessages(messages) {
         const time = m.created_at ? m.created_at.split(' ')[1].substring(0,5) : '';
         
         html += `
-    <div style = "display:flex; flex-direction:column; align-items:${align}; width:100%;" >
+    <div style="display:flex; flex-direction:column; align-items:${align}; width:100%;">
             <div style="background:${bg}; color:${textColor}; padding:8px 14px; border-radius:${borderRadius}; max-width:85%; word-wrap:break-word;">
             ${m.message}
             </div>
             <div style="font-size:10px; color:var(--muted); margin-top:4px;">${time}</div>
-        </div >
+        </div>
     `;
     });
     
@@ -4965,7 +4965,7 @@ async function sendAdminChatMessage() {
     input.value = '';
     
     try {
-        await fetch(`${ getChatApiBase() } /api/messages`, {
+        await fetch(`${getChatApiBase()}/api/messages`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ user: currentChatUser, message: msg, is_from_admin: true })
