@@ -159,7 +159,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                         
                         for f_sym in fyers_symbols:
                             original_sym = reverse_map.get(f_sym)
-                            if original_sym and symbol_status[original_sym]["Fyers NSE"] == FetchFailureType.NOT_ATTEMPTED:
+                            if original_sym and symbol_status[original_sym].get("Fyers NSE", FetchFailureType.NOT_ATTEMPTED) == FetchFailureType.NOT_ATTEMPTED:
                                 symbol_status[original_sym]["Fyers NSE"] = FetchFailureType.PROVIDER_INCOMPLETE_RESPONSE
                         
                         missing_chunk = [s for s in chunk if s in missing]
