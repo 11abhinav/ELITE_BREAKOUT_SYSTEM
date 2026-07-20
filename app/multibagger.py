@@ -259,7 +259,7 @@ def batch_download_market_data(symbols: list) -> dict:
     """Download historical price/volume data in bulk for all tickers using AutoSwitchingFetcher in memory-efficient chunks."""
     from data_provider import get_fetcher
     from market_utils import is_market_open
-    import os, psutil, gc
+    import os, psutil, gc, time
     
     fetcher = get_fetcher()
     
@@ -274,6 +274,7 @@ def batch_download_market_data(symbols: list) -> dict:
     
     # Process symbols in chunks to flatten Peak Memory (O(BATCH_SIZE) instead of O(N))
     for i in range(0, len(symbols), BATCH_SIZE):
+        batch_start_time = time.time()
         chunk = symbols[i:i + BATCH_SIZE]
         rss_before = process.memory_info().rss / 1024 / 1024
         
@@ -427,9 +428,17 @@ def batch_download_market_data(symbols: list) -> dict:
         gc.collect()
         
         rss_after_gc = process.memory_info().rss / 1024 / 1024
-        logger.info(f"📊 Batch {i//BATCH_SIZE + 1}/{(len(symbols) + BATCH_SIZE - 1)//BATCH_SIZE} | "
-                    f"RSS before fetch: {rss_before:.1f} MB | After fetch: {rss_after_fetch:.1f} MB | "
-                    f"After convert: {rss_after_convert:.1f} MB | After cleanup: {rss_after_gc:.1f} MB")
+        elapsed = time.time() - batch_start_time
+        
+        logger.info(
+            f"📊 Batch {i//BATCH_SIZE + 1}/{(len(symbols) + BATCH_SIZE - 1)//BATCH_SIZE}\n"
+            f"Symbols: {len(chunk)}\n"
+            f"Time: {elapsed:.1f} s\n"
+            f"RSS before fetch: {rss_before:.1f} MB\n"
+            f"RSS after fetch: {rss_after_fetch:.1f} MB\n"
+            f"RSS after convert: {rss_after_convert:.1f} MB\n"
+            f"RSS after cleanup: {rss_after_gc:.1f} MB"
+        )
             
     logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
     return results
