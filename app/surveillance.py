@@ -94,7 +94,7 @@ def get_live_blacklist() -> set[str]:
                         if api_key:
                             payload = {'api_key': api_key, 'url': url, 'render': 'false', 'country_code': 'in'}
                             resp = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
-                            if resp.status_code in [403, 429]:
+                            if resp.status_code in [401, 403, 429]:
                                 mark_key_exhausted_today(api_key)
                                 raise Exception(f"ScraperAPI rate-limited ({resp.status_code})")
                             if resp.status_code == 200:

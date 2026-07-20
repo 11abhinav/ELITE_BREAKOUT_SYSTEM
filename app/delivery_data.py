@@ -114,7 +114,7 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
             
             logger.info(f"   -> 📥 CSV Response status: {response.status_code}")
             
-            if response.status_code in [403, 429]:
+            if response.status_code in [401, 403, 429]:
                 logger.warning(f"⚠️ ScraperAPI key {api_key[:5]}... exhausted or rate limited (HTTP {response.status_code}).")
                 mark_key_exhausted_today(api_key)
                 time.sleep(2)
