@@ -129,6 +129,7 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 return {}
                 
             if response.status_code == 200:
+                logger.info(f"   -> ✅ Successfully downloaded Bhavcopy data from NSE.")
                 raw_data = response.text
                 if len(raw_data) < 1000:
                     logger.warning("⚠️ Received suspiciously small response. Retrying...")
