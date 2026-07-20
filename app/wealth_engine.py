@@ -608,8 +608,10 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
                 path = r.get("Path", "")
                 mom_conf = r.get("momentum_confidence", "")
                 
-                # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'is not None' — np.nan passes 'is not None'
-                fcf_ok = True if path == "Financial" else (not pd.isna(fcf_margin) and fcf_margin > 0)
+                # [VERSION: WEALTH_FCF_MISSING_FIX] Treat missing FCF data as "Unknown" (pass) rather than "Fail", 
+                # so we don't reject prime multibaggers solely due to provider data voids.
+                # Explicitly negative FCF still fails.
+                fcf_ok = True if path == "Financial" else (pd.isna(fcf_margin) or fcf_margin > 0)
                 
                 if (score >= 65 and cons_score >= 18 and val_score >= 10 and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and

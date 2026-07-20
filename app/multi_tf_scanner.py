@@ -462,7 +462,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         logger.debug(f"⏭️ {symbol} phase B: indicators failed to compute")
                         continue
                     latest = df.iloc[-1]
-                    bb_pctile = float(latest.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                    # [VERSION: MTF_BB_TIMING_FIX] Evaluate consolidation on previous candle (iloc[-2])
+                    # so a breakout on the current candle doesn't invalidate its own base via BB expansion.
+                    prev = df.iloc[-2] if len(df) >= 2 else latest
+                    bb_pctile = float(prev.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
                 
                     close = _safe_float(latest.get("Close"))
                     dist_to_breakout = (breakout_level - close) / breakout_level
