@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Optional
 
 from technical_indicators import apply_indicators
+from memory_profiler import MemoryProfiler
 from database import init_db, save_alert_if_new, save_candidate, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
@@ -347,7 +348,8 @@ def _run_scan(force: bool = False):
     logger.info(f"📋 [REVERSAL] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash} | scan_id={scan_id}")
 
     # Pulling 1y data to ensure we catch the 52W High correctly
-    all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
+    with MemoryProfiler("Price Fetch"):
+        all_ticker_data = fetch_watchlist_data(watchlist, period="1y", interval="1d")
 
     # Fetch pledge map to pass to scoring engine
     try:
@@ -453,8 +455,9 @@ def _run_scan(force: bool = False):
     from database import get_recent_alerts_for_scanner
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
 
-    for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
-        symbol = "UNKNOWN"
+    with MemoryProfiler("Process Symbols"):
+        for idx, (_, row) in enumerate(watchlist.iterrows(), start=1):
+            symbol = "UNKNOWN"
         try:
             symbol   = row["Stock"]
             category = row["Category"]
@@ -994,130 +997,131 @@ def _run_scan(force: bool = False):
     # ── PERSISTENCE ───────────────────────────────────────────────────────────
     total_alerts = 0
     if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
-        try:
-            for alert in shortlisted_alerts:
-                # [REV_SAVE_ALERT_FIX_v1.0] BUG-6 FIX: alert["dedup_key"] was incorrectly passed as 2nd positional arg
-                # (the breakout_type slot). This stored "CATEGORY|SYMBOL|DATE|REVERSAL" in the breakout_type DB column
-                # instead of the literal "REVERSAL" string. Broken all frontend filters and analytics.
-                # BUG-7 FIX: regime_ctx kwarg silently swallowed by **kwargs in save_alert_if_new.
-                # Now derive bayesian_regime (string) from the dict and pass the correct named param.
-                _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
-                inserted, reason, _, _ = database.save_alert_if_new(
-                    alert["symbol"],
-                    "REVERSAL",
-                    alert["alert_time"],
-                    scanner="REVERSAL",
-                    category=alert["category"],
-                    entry_price=alert["entry_price"],
-                    signals=alert["signals"],
-                    score=alert["score"],
-                    rsi=alert["rsi"],
-                    volume_ratio=alert["volume_ratio"],
-                    stop_loss=alert["stop_loss"],
-                    target_1=alert.get("target_1"),
-                    target_2=alert.get("target_2"),
-                    target_3=alert.get("target_3"),
-                    target_price=alert["target_price"],
-                    context=alert["context"],
-                    model_version=ACTIVE_ALGO_VERSION,
-                    bayesian_regime=regime_ctx.get("trend", "NEUTRAL"),
-                    bayesian_weights=bayesian_weights,
-                    structural_failure_stop=alert.get("structural_failure_stop"),
-                    target_quality_score=alert.get("target_quality_score")
-                )
-                if inserted or reason == "CANDIDATE_QUEUED":
-                    total_alerts += 1
+        with MemoryProfiler("Cleanup", force_gc_cleanup=True):
+            try:
+                for alert in shortlisted_alerts:
+                    # [REV_SAVE_ALERT_FIX_v1.0] BUG-6 FIX: alert["dedup_key"] was incorrectly passed as 2nd positional arg
+                    # (the breakout_type slot). This stored "CATEGORY|SYMBOL|DATE|REVERSAL" in the breakout_type DB column
+                    # instead of the literal "REVERSAL" string. Broken all frontend filters and analytics.
+                    # BUG-7 FIX: regime_ctx kwarg silently swallowed by **kwargs in save_alert_if_new.
+                    # Now derive bayesian_regime (string) from the dict and pass the correct named param.
+                    _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
+                    inserted, reason, _, _ = database.save_alert_if_new(
+                        alert["symbol"],
+                        "REVERSAL",
+                        alert["alert_time"],
+                        scanner="REVERSAL",
+                        category=alert["category"],
+                        entry_price=alert["entry_price"],
+                        signals=alert["signals"],
+                        score=alert["score"],
+                        rsi=alert["rsi"],
+                        volume_ratio=alert["volume_ratio"],
+                        stop_loss=alert["stop_loss"],
+                        target_1=alert.get("target_1"),
+                        target_2=alert.get("target_2"),
+                        target_3=alert.get("target_3"),
+                        target_price=alert["target_price"],
+                        context=alert["context"],
+                        model_version=ACTIVE_ALGO_VERSION,
+                        bayesian_regime=regime_ctx.get("trend", "NEUTRAL"),
+                        bayesian_weights=bayesian_weights,
+                        structural_failure_stop=alert.get("structural_failure_stop"),
+                        target_quality_score=alert.get("target_quality_score")
+                    )
+                    if inserted or reason == "CANDIDATE_QUEUED":
+                        total_alerts += 1
 
-            if total_alerts > 0:
-                if not verify_alerts_saved_today("REVERSAL", total_alerts):
-                    logger.critical(f"🚨 CRITICAL ERROR: REVERSAL scanner generated {total_alerts} alerts but save failed!")
+                if total_alerts > 0:
+                    if not verify_alerts_saved_today("REVERSAL", total_alerts):
+                        logger.critical(f"🚨 CRITICAL ERROR: REVERSAL scanner generated {total_alerts} alerts but save failed!")
+                        upsert_scanner_health(
+                            scanner_name="REVERSAL",
+                            status="DOWN",
+                            error_msg="CRITICAL: Alerts failed to save to database"
+                        )
+                        return total_alerts
+                        
+                status = "OK"
+                error_msg = None
+                stale_count = rejected.get("stale_data", 0)
+                total_symbols = len(watchlist)
+                if total_symbols > 0 and (stale_count / total_symbols) > 0.05:
+                    status = "DEGRADED"
+                    error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+                    
+                fetched_count = len(all_ticker_data) if all_ticker_data else 0
+                if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
+                    status = "DEGRADED"
+                    error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
+
+                elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+                
+                # Insert scan failures via batch
+                if scan_failures and not is_test_mode:
+                    try:
+                        from database import get_connection
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                from psycopg2.extras import execute_values
+                                execute_values(
+                                    cur,
+                                    """
+                                    INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
+                                    VALUES %s
+                                    """,
+                                    [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
+                                )
+                            conn.commit()
+                    except Exception as e:
+                        logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
+
+                # Map overall outcome
+                outcome = "SUCCESS"
+                if total_symbols > 0 and fetched_count < (total_symbols * 0.70):
+                    outcome = "PARTIAL"
+                if fetched_count == 0:
+                    outcome = "FAILED"
+
+                upsert_scanner_health(
+                    scanner_name="REVERSAL",
+                    status=status if outcome != "FAILED" else "DEGRADED",
+                    last_success=ist_now.isoformat() if outcome != "FAILED" else None,
+                    today_alerts=total_alerts,
+                    processed_count=total_alerts,
+                    total_count=total_symbols,
+                    error_msg=error_msg,
+                    outcome=outcome,
+                    provider_stats=provider_stats_counts,
+                    duration_seconds=elapsed_time
+                )
+                
+                try:
+                    from database import insert_notification
+                    from push_service import send_push_to_all
+                    if status == "OK" and force:
+                        insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
+                        send_push_to_all("🚀 REVERSAL Scanner OK", f"Found {total_alerts} new alerts.", bypass_throttle=True)
+                    elif status == "DEGRADED":
+                        insert_notification("admin", f"⚠️ REVERSAL Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
+                        send_push_to_all("⚠️ REVERSAL Scanner DEGRADED", error_msg or "Stale data exceeded limit.", bypass_throttle=True)
+                except Exception:
+                    pass
+                    
+            except Exception as e:
+                logger.exception("Failed to save REVERSAL alerts")
+                try:
                     upsert_scanner_health(
                         scanner_name="REVERSAL",
                         status="DOWN",
-                        error_msg="CRITICAL: Alerts failed to save to database"
+                        error_msg=f"Persistence failure: {e}"
                     )
-                    return total_alerts
-                    
-            status = "OK"
-            error_msg = None
-            stale_count = rejected.get("stale_data", 0)
-            total_symbols = len(watchlist)
-            if total_symbols > 0 and (stale_count / total_symbols) > 0.05:
-                status = "DEGRADED"
-                error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
-                
-            fetched_count = len(all_ticker_data) if all_ticker_data else 0
-            if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
-                status = "DEGRADED"
-                error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
-
-            elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
-            
-            # Insert scan failures via batch
-            if scan_failures and not is_test_mode:
-                try:
-                    from database import get_connection
-                    with get_connection() as conn:
-                        with conn.cursor() as cur:
-                            from psycopg2.extras import execute_values
-                            execute_values(
-                                cur,
-                                """
-                                INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
-                                VALUES %s
-                                """,
-                                [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
-                            )
-                        conn.commit()
-                except Exception as e:
-                    logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
-
-            # Map overall outcome
-            outcome = "SUCCESS"
-            if total_symbols > 0 and fetched_count < (total_symbols * 0.70):
-                outcome = "PARTIAL"
-            if fetched_count == 0:
-                outcome = "FAILED"
-
-            upsert_scanner_health(
-                scanner_name="REVERSAL",
-                status=status if outcome != "FAILED" else "DEGRADED",
-                last_success=ist_now.isoformat() if outcome != "FAILED" else None,
-                today_alerts=total_alerts,
-                processed_count=total_alerts,
-                total_count=total_symbols,
-                error_msg=error_msg,
-                outcome=outcome,
-                provider_stats=provider_stats_counts,
-                duration_seconds=elapsed_time
-            )
-            
-            try:
-                from database import insert_notification
-                from push_service import send_push_to_all
-                if status == "OK" and force:
-                    insert_notification("admin", f"🚀 Reversal Scanner ran successfully. Found {total_alerts} new alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks.")
-                    send_push_to_all("🚀 REVERSAL Scanner OK", f"Found {total_alerts} new alerts.", bypass_throttle=True)
-                elif status == "DEGRADED":
-                    insert_notification("admin", f"⚠️ REVERSAL Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
-                    send_push_to_all("⚠️ REVERSAL Scanner DEGRADED", error_msg or "Stale data exceeded limit.", bypass_throttle=True)
-            except Exception:
-                pass
-                
-        except Exception as e:
-            logger.exception("Failed to save REVERSAL alerts")
-            try:
-                upsert_scanner_health(
-                    scanner_name="REVERSAL",
-                    status="DOWN",
-                    error_msg=f"Persistence failure: {e}"
-                )
-                from database import insert_notification
-                from push_service import send_push_to_all
-                insert_notification("admin", f"❌ REVERSAL Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
-                send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(e)[:100]}")
-            except Exception:
-                pass
+                    from database import insert_notification
+                    from push_service import send_push_to_all
+                    insert_notification("admin", f"❌ REVERSAL Scanner CRASHED (DOWN)", f"Error: {str(e)[:200]}")
+                    send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(e)[:100]}")
+                except Exception:
+                    pass
             
     elapsed_time_final = (datetime.now(IST) - scan_start).total_seconds()
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time_final:.2f}s | Found {total_alerts} bottoming stocks.")

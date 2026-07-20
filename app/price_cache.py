@@ -31,6 +31,57 @@ _lock = threading.Lock()
 _fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
+# Cache metrics tracking
+_cache_hits = 0
+_cache_misses = 0
+
+def _log_cache_timeline():
+    """Calculates and logs the current memory footprint of _cache."""
+    with _lock:
+        keys_count = len(_cache)
+        if keys_count == 0:
+            return
+            
+        total_dfs = 0
+        total_mb = 0.0
+        largest_key = None
+        largest_key_mb = 0.0
+        
+        for k, entry in _cache.items():
+            data = entry.get("data", {})
+            key_mb = 0.0
+            dfs_in_key = 0
+            for sym, df in data.items():
+                if df is not None and not df.empty:
+                    dfs_in_key += 1
+                    try:
+                        key_mb += df.memory_usage(deep=True).sum() / (1024 * 1024)
+                    except Exception:
+                        pass
+            
+            total_dfs += dfs_in_key
+            total_mb += key_mb
+            
+            if key_mb > largest_key_mb:
+                largest_key_mb = key_mb
+                largest_key = k
+                
+        logger.info(
+            f"[CACHE_TIMELINE] Keys: {keys_count} | Memory: {total_mb:.1f} MB | "
+            f"Largest: {largest_key} ({largest_key_mb:.1f} MB) | Total DFs: {total_dfs} | "
+            f"Hits: {_cache_hits} | Misses: {_cache_misses}"
+        )
+
+def _cache_timeline_worker():
+    while True:
+        time.sleep(1800)  # Log every 30 mins
+        try:
+            _log_cache_timeline()
+        except Exception as e:
+            logger.warning(f"Failed to log cache timeline: {e}")
+
+threading.Thread(target=_cache_timeline_worker, name="CacheTimeline", daemon=True).start()
+
 from market_utils import is_market_open
 
 def _is_market_hours() -> bool:
@@ -109,6 +160,8 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 cached_data = entry["data"]
                 missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                 if not missing_symbols:
+                    global _cache_hits
+                    _cache_hits += 1
                     logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
                     return {s: cached_data[s] for s in watchlist["Stock"]}
             else:
@@ -130,10 +183,14 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     cached_data = entry["data"]
                     missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                     if not missing_symbols:
+                        global _cache_hits
+                        _cache_hits += 1
                         logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
                         return {s: cached_data[s] for s in watchlist["Stock"]}
         
         # Cache miss or stale — download fresh data
+        global _cache_misses
+        _cache_misses += 1
         result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
 
     # Determine oldest timestamp in batch
