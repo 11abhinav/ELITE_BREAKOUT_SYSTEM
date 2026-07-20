@@ -2102,12 +2102,25 @@ def api_notices(symbol):
         except ImportError:
             import requests
             s = requests.Session()
-        # Ping homepage to establish cookies
-        s.get('https://www.nseindia.com', headers=headers, timeout=25)
         import time
-        time.sleep(2.5)
-        # Fetch the actual data
-        r = s.get(url, headers=headers, timeout=25)
+        max_retries = 3
+        r = None
+        for attempt in range(max_retries):
+            try:
+                if attempt == 0:
+                    s.get('https://www.nseindia.com', headers=headers, timeout=25)
+                    time.sleep(2.5)
+                r = s.get(url, headers=headers, timeout=30)
+                if r.status_code == 200:
+                    break
+                else:
+                    logger.warning(f"NSE returned {r.status_code} for {symbol}, retrying...")
+                    time.sleep((attempt + 1) * 3)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"NSE timeout for {symbol} (attempt {attempt+1}): {e}, retrying...")
+                time.sleep((attempt + 1) * 3)
         
         if r.status_code != 200:
             logger.error(f"NSE API returned {r.status_code} for {symbol}")
@@ -2200,10 +2213,28 @@ def fetch_and_analyze_concall(symbol):
         except ImportError:
             import requests
             s = requests.Session()
-        s.get('https://www.nseindia.com', headers=headers, timeout=15)
+            
         import time
-        time.sleep(2.5)
-        r = s.get(url, headers=headers, timeout=15)
+        # [VERSION: NSE_TIMEOUT_FIX_v1.0] Added robust retry loop and 30s timeout to bypass NSE rate-limiting drops
+        max_retries = 3
+        r = None
+        for attempt in range(max_retries):
+            try:
+                if attempt == 0:
+                    # Ping homepage to establish cookies on first attempt
+                    s.get('https://www.nseindia.com', headers=headers, timeout=25)
+                    time.sleep(2.5)
+                r = s.get(url, headers=headers, timeout=30)
+                if r.status_code == 200:
+                    break
+                else:
+                    logger.warning(f"NSE returned {r.status_code} for {yf_symbol}, retrying...")
+                    time.sleep((attempt + 1) * 3)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"NSE timeout for {yf_symbol} (attempt {attempt+1}): {e}, retrying...")
+                time.sleep((attempt + 1) * 3)
         
         if r.status_code != 200:
             return {"error": "Failed to fetch NSE announcements."}
