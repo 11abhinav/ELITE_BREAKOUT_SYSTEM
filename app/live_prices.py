@@ -302,7 +302,6 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                             val = float(df["Close"].iloc[-1])
                             if val > 0:
                                 prices[yf_reverse_map[chunk[0]]] = val
-                                logger.info(f"✅ Successfully fetched Live Price for {chunk[0]} via Yahoo Finance (NS)")
                                 symbol_status[yf_reverse_map[chunk[0]]]["YF_NS"] = FetchFailureType.SUCCESS
                             else:
                                 logger.info(f"Provider: Yahoo NS | Ticker: {chunk[0]} | df.empty: {df.empty} | shape: {df.shape} | all NaN: {df.isna().all().all()} | error: 'Close <= 0'")
@@ -334,7 +333,6 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                         val = float(df[y_sym]["Close"].iloc[-1])
                                         if val > 0:
                                             prices[yf_reverse_map[y_sym]] = val
-                                            logger.info(f"✅ Successfully fetched Live Price for {y_sym} via Yahoo Finance (NS)")
                                             symbol_status[yf_reverse_map[y_sym]]["YF_NS"] = FetchFailureType.SUCCESS
                                         else:
                                             logger.info(f"Provider: Yahoo Finance | Ticker: {y_sym} | df.empty: {df[y_sym].empty} | shape: {df[y_sym].shape} | error: 'Close <= 0'")
@@ -405,7 +403,6 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                 if val > 0:
                                     orig_sym = bse_reverse_map[bse_fallback_symbols[0]]
                                     prices[orig_sym] = val
-                                    logger.info(f"✅ Successfully fetched Live Price for {bse_fallback_symbols[0]} via Yahoo Finance (BO)")
                                     symbol_status[orig_sym]["YF_BO"] = FetchFailureType.SUCCESS
                                     try:
                                         from bse_mapping_utils import save_bse_mapping
@@ -433,7 +430,6 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                                             if val > 0:
                                                 orig_sym = bse_reverse_map[y_sym]
                                                 prices[orig_sym] = val
-                                                logger.info(f"✅ Successfully fetched Live Price for {y_sym} via Yahoo Finance (BO)")
                                                 symbol_status[orig_sym]["YF_BO"] = FetchFailureType.SUCCESS
                                                 try:
                                                     from bse_mapping_utils import save_bse_mapping

@@ -380,7 +380,6 @@ class FyersFetcher(DataFetcher):
                 report = engine.validate(df, ctx)
                 if not report.is_valid:
                     return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
-                logger.info(f"✅ Successfully fetched Fyers OHLCV data for {symbol} ({len(df)} rows).")
                 return MarketData(df, "Fyers", report, False, False, None)
                 
             except Exception as e:
