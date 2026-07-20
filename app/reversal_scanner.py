@@ -628,30 +628,14 @@ def _run_scan(force: bool = False):
                         sma200_val = float(latest["SMA200"])
                         above_sma200 = bool(close_price >= sma200_val)
 
-                    # [FIX P1] SOFT SMA50 GATE: Instead of a hard rejection when below SMA50,
-                    # allow stocks that are approaching SMA50 from below (within 3%) AND above EMA20.
-                    # This catches early-stage reversals before the crossover completes.
+                    # [FIX P1] SOFT SMA50 GATE:
+                    # Allow stocks that are below SMA50 to pass. Deep discount reversals
+                    # will trigger MACD cross far below the SMA50. The scoring engine
+                    # already handles this by granting fewer trend points (10 instead of 18)
+                    # if above_sma50 is False.
                     if above_sma50 is not True:
-                        # Check if price is within 3% of SMA50 (approaching recovery)
-                        if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
-                            sma50_val = float(latest["SMA50"])
-                            if sma50_val > 0:
-                                pct_below_sma50 = (sma50_val - close_price) / sma50_val * 100
-                                # Allow if within 3% of SMA50 AND above EMA20 (already confirmed above)
-                                if pct_below_sma50 <= 3.0:
-                                    logger.debug(f"  ✓ {symbol} within 3% of SMA50 ({pct_below_sma50:.1f}%) — soft pass")
-                                    above_sma50 = False  # Mark as below but don't reject
-                                else:
-                                    logger.debug(f"  ⊘ {symbol} not above SMA50 ({pct_below_sma50:.1f}% below) — skipping")
-                                    rejected["not_above_sma50"] += 1
-                                    continue
-                            else:
-                                rejected["not_above_sma50"] += 1
-                                continue
-                        else:
-                            # SMA50 data unavailable — cannot confirm recovery structure
-                            rejected["not_above_sma50"] += 1
-                            continue
+                        above_sma50 = False
+                        logger.debug(f"  ✓ {symbol} below SMA50 — soft pass (relies on EMA20 + MACD)")
 
                     # ── Volume confirmation — single threshold (FIX 4) ──────────────────────
                     vol_now = float(latest["Volume"])

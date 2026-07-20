@@ -593,13 +593,22 @@ def _start_wrapper(force: bool = False):
                             if red_count > max_red:
                                 # Too many red candles. Reject unless it's a very tight base (volatility compression)
                                 is_tight_base = False
-                                if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
-                                    if _safe_float(latest.get("BB_WIDTH_PCTILE")) <= tight_base_threshold:
+                                if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                                    if _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= tight_base_threshold:
                                         is_tight_base = True
                                 
                                 if not is_tight_base:
-                                    rejection_counts["prior_red_candles"] += 1
+                                    logger.debug(f"  ⊘ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — skipping")
+                                    rejection_counts["pre_breakout_weak"] += 1
                                     continue
+
+                        # ── v5: BASE TIGHTNESS FILTER ──────────────────────────────────────────
+                        if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                            bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
+                            if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
+                                logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
+                                rejection_counts["base_too_wide"] += 1
+                                continue
 
                         # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
                         # [FINDING-8 FIX] OBV_SLOPE is a 3-bar diff which is noisy on breakout
