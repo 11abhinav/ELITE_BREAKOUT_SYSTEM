@@ -31,7 +31,6 @@ def empty_delivery_cache():
     import delivery_data
     delivery_data._delivery_cache = None
     delivery_data._delivery_cache_date = None
-    delivery_data._processed_sha256.clear()
     yield
 
 # ==============================================================================

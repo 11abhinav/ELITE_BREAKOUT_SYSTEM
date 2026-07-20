@@ -36,7 +36,6 @@ MAX_RETRIES = 3
 _delivery_cache = None
 _delivery_cache_date = None
 _delivery_cache_lock = threading.RLock()
-_processed_sha256 = set()
 
 def _compute_sha256(raw_data: str) -> str:
     return hashlib.sha256(raw_data.encode('utf-8')).hexdigest()
@@ -90,14 +89,21 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     from database import get_bhavcopy_cache, save_bhavcopy_cache
     
-    # 1. Check database cache first
+    # 1. Check database cache first (Outside lock for speed)
     cached_data = get_bhavcopy_cache(trading_date)
     if cached_data:
         logger.info(f"⚡ [DB CACHE HIT] Returning {len(cached_data)} symbols from DB for date: {trading_date}")
         return cached_data
 
-    date_str = trading_date.strftime("%d%m%Y")
-    target_url = BHAVCOPY_URL.format(date_str=date_str)
+    with _delivery_cache_lock:
+        # Double-check inside lock to prevent race conditions when multiple scanners start in parallel
+        cached_data = get_bhavcopy_cache(trading_date)
+        if cached_data:
+            logger.info(f"⚡ [DB CACHE HIT] Returning {len(cached_data)} symbols from DB for date: {trading_date} (after waiting for lock)")
+            return cached_data
+
+        date_str = trading_date.strftime("%d%m%Y")
+        target_url = BHAVCOPY_URL.format(date_str=date_str)
     session  = _get_robust_session()
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -147,11 +153,6 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                     logger.warning("⚠️ ScraperAPI returned an HTML block page instead of CSV. Retrying...")
                     time.sleep(2)
                     continue
-                
-                file_hash = _compute_sha256(raw_data)
-                if file_hash in _processed_sha256:
-                    logger.warning(f"⚠️ Duplicate file hash {file_hash[:8]} detected. Skipping.")
-                    return {}
                     
                 try:
                     df = pd.read_csv(io.StringIO(raw_data))
@@ -193,7 +194,6 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 elif validated_dataset.result.has_warnings:
                     logger.warning(f"⚠️ Bhavcopy Validation Warnings: {validated_dataset.result.warnings}")
                     
-                _processed_sha256.add(file_hash)
                 logger.info(f"✅ ValidationEngine: Bhavcopy Validated | Date: {date_str} | Symbols: {len(df)}")
                 
                 # Consumer-specific extraction from the validated cross-sectional snapshot
