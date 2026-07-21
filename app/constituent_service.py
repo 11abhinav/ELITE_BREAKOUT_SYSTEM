@@ -62,7 +62,7 @@ class ConstituentService:
         # 1. Fast path without lock
         if cls._cached_symbols is not None and cls._cache_trading_date == current_market_date:
             cls.hits += 1
-            logger.info(f"✅ Using cached constituents ({cls.symbol_count} symbols) [Hits: {cls.hits}]")
+            logger.debug(f"✅ Using cached constituents ({cls.symbol_count} symbols) [Hits: {cls.hits}]")
             return list(cls._cached_symbols) # Return a shallow copy of the list
 
         # 2. Slow path with lock
@@ -70,7 +70,7 @@ class ConstituentService:
             # Double-check inside lock
             if cls._cached_symbols is not None and cls._cache_trading_date == current_market_date:
                 cls.hits += 1
-                logger.info(f"✅ Using cached constituents ({cls.symbol_count} symbols) [Hits: {cls.hits}]")
+                logger.debug(f"✅ Using cached constituents ({cls.symbol_count} symbols) [Hits: {cls.hits}]")
                 return list(cls._cached_symbols)
             
             cls.misses += 1

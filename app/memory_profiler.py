@@ -10,6 +10,8 @@ import pandas as pd
 import numpy as np
 from config import MEMORY_PROFILER_CONFIG
 
+TARGET_THRESHOLDS = [300, 400, 500, 600, 700, 800, 900]
+
 class ProfilerState:
     session_start_rss = None
     loop_count = 0
@@ -18,6 +20,7 @@ class ProfilerState:
     last_snapshot = None
     last_rss = None
     rolling_gains = []
+    crossed_rss_thresholds = set()
     
     @classmethod
     def init_session(cls):
@@ -274,6 +277,8 @@ class BatchMemoryTracker:
         if self.rss_after_fetch == 0:
             self.rss_after_fetch = rss_after_cleanup
             
+        _check_rss_thresholds(self.rss_before, rss_after_cleanup)
+            
         logger.debug(
             f"[{self.stage_name} Batch {self.batch_num}/{self.total_batches}] "
             f"Symbols: {self.item_count} | Rows: {self.row_count} | "
@@ -434,6 +439,112 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
             ProfilerState.consecutive_anomalies = 0
 
 
+
+def _check_rss_thresholds(previous_rss_mb: float, current_rss_mb: float):
+    if not ENABLE_PROFILING:
+        return
+        
+    for threshold in TARGET_THRESHOLDS:
+        if threshold in ProfilerState.crossed_rss_thresholds:
+            continue
+            
+        if previous_rss_mb < threshold <= current_rss_mb:
+            ProfilerState.crossed_rss_thresholds.add(threshold)
+            logger.warning(f"🚨 [THRESHOLD BREACH] RSS crossed {threshold} MB! Triggering deep diagnostic...")
+            _dump_threshold_snapshot(threshold, current_rss_mb)
+
+def _dump_threshold_snapshot(threshold: int, current_rss_mb: float):
+    import json
+    import threading
+    from datetime import datetime
+    import collections
+    from config import DATA_DIR
+    
+    # 1. Process Memory
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info()
+    heap = 0
+    anon = 0
+    lib_rss = {}
+    try:
+        maps = process.memory_maps()
+        for m in maps:
+            path = m.path
+            base = os.path.basename(path) if path else "[anonymous]"
+            lib_rss[base] = lib_rss.get(base, 0) + m.rss
+            if "[heap]" in path:
+                heap += m.rss
+            elif "[anon]" in path or not path:
+                anon += m.rss
+    except Exception:
+        pass
+
+    # 2. Python Allocations
+    tracemalloc_stats = []
+    tracemalloc_peak_mb = 0
+    if tracemalloc.is_tracing():
+        tracemalloc_peak_mb = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        tracemalloc_stats = [str(stat) for stat in top_stats[:10]]
+
+    # 3. DataFrames & NumPy
+    df_inventory = get_dataframe_inventory()
+    
+    objs = gc.get_objects()
+    np_arrays = [o for o in objs if isinstance(o, np.ndarray)]
+    np_count = len(np_arrays)
+    np_bytes = sum(arr.nbytes for arr in np_arrays) if np_arrays else 0
+    
+    # 4. GC Objects
+    type_counts = collections.Counter(type(o).__name__ for o in objs)
+    top_gc = {k: v for k, v in type_counts.most_common(10)}
+    
+    # 5. Thread Context
+    threads = []
+    for t in threading.enumerate():
+        threads.append({"name": t.name, "is_daemon": t.daemon, "is_alive": t.is_alive()})
+        
+    # 6. Cache Statistics
+    cache_stats = {}
+    try:
+        import constituent_service
+        cache_stats["ConstituentService"] = {
+            "symbol_count": constituent_service.ConstituentService.symbol_count,
+            "hits": constituent_service.ConstituentService.hits,
+            "misses": constituent_service.ConstituentService.misses
+        }
+    except Exception as e:
+        cache_stats["ConstituentService_Error"] = str(e)
+        
+    snapshot_data = {
+        "timestamp": datetime.now().isoformat(),
+        "threshold_mb": threshold,
+        "rss_mb": current_rss_mb,
+        "heap_mb": heap / (1024 * 1024),
+        "anonymous_mb": anon / (1024 * 1024),
+        "tracemalloc_peak_mb": tracemalloc_peak_mb,
+        "tracemalloc_top_10": tracemalloc_stats,
+        "dataframes": df_inventory,
+        "numpy_arrays": {
+            "count": np_count,
+            "memory_mb": np_bytes / (1024 * 1024)
+        },
+        "gc_objects_top_10": top_gc,
+        "threads": threads,
+        "cache_stats": cache_stats,
+        "memory_maps": {k: v / (1024 * 1024) for k, v in sorted(lib_rss.items(), key=lambda x: x[1], reverse=True)[:15]}
+    }
+    
+    os.makedirs(DATA_DIR, exist_ok=True)
+    filepath = os.path.join(DATA_DIR, f"memory_snapshot_{threshold}.json")
+    try:
+        with open(filepath, 'w') as f:
+            json.dump(snapshot_data, f, indent=4)
+        logger.warning(f"✅ Saved deep diagnostic snapshot to {filepath}")
+    except Exception as e:
+        logger.error(f"Failed to save threshold snapshot: {e}")
+
 def profile_function(stage_name: str, budget_mb: float = None):
     """Decorator for function-level profiling (tracemalloc, RSS, DF counts)."""
     from functools import wraps
@@ -467,6 +578,8 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 elapsed = time.monotonic() - start_time
                 mem = process.memory_info()
                 end_rss = mem.rss / (1024 * 1024)
+                
+                _check_rss_thresholds(start_rss, end_rss)
                 
                 if hasattr(mem, 'peak_wset'):
                     sys_peak = mem.peak_wset
