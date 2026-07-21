@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "generated": "2026-07-20 09:20:55",
+    "commit": "85cb2c7b",
+    "status": "PASS",
+    "drifts": 5
+  },
+  "rules": {
+    "EOD-001": {
+      "id": "EOD-001",
+      "name": "Minimum Volume Breakout",
+      "lifecycle": "Frozen",
+      "implementations": [
+        "app/breakout_engine.py:148"
+      ],
+      "tests": [
+        "tests/test_breakout_engine_gap.py"
+      ]
+    },
+    "EOD-002": {
+      "id": "EOD-002",
+      "name": "Minimum Quality Threshold (Core Bucket)",
+      "lifecycle": "Frozen",
+      "implementations": [
+        "app/wealth_engine.py:342"
+      ],
+      "tests": [
+        "tests/test_component_daily_builder.py"
+      ]
+    },
+    "MTF-001": {
+      "id": "MTF-001",
+      "name": "Hourly RSI Confirmation",
+      "lifecycle": "Frozen",
+      "implementations": [],
+      "tests": []
+    },
+    "REV-001": {
+      "id": "REV-001",
+      "name": "Reversal Structural Prerequisites",
+      "lifecycle": "Frozen",
+      "implementations": [],
+      "tests": []
+    },
+    "SL-001": {
+      "id": "SL-001",
+      "name": "Initial Stop Loss Baseline",
+      "lifecycle": "Frozen",
+      "implementations": [
+        "app/database.py:4637"
+      ],
+      "tests": []
+    },
+    "SL-002": {
+      "id": "SL-002",
+      "name": "Trailing Mechanism",
+      "lifecycle": "Frozen",
+      "implementations": [],
+      "tests": []
+    },
+    "VAL-001": {
+      "id": "VAL-001",
+      "name": "Missing Data Veto",
+      "lifecycle": "Frozen",
+      "implementations": [
+        "app/fundamentals_cache.py:155"
+      ],
+      "tests": []
+    }
+  }
+}

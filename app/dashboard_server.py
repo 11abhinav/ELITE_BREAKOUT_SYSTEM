@@ -1828,8 +1828,8 @@ def api_scanner_status():
                             cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
                             symbols_set.update(r[0] for r in cur.fetchall())
                     try:
-                        from ai_worker import get_constituents_cached
-                        idx_symbols = get_constituents_cached()
+                        from constituent_service import fetch_constituents
+                        idx_symbols = fetch_constituents()
                         if idx_symbols:
                             symbols_set.update(idx_symbols)
                     except Exception:

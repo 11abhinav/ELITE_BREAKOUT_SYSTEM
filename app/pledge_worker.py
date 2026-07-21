@@ -109,27 +109,6 @@ def discover_trendlyne_url(symbol: str) -> str:
     # 3. Fallback to the fast_url so it fails naturally downstream
     return fast_url
 
-_cached_constituents = None
-_cached_constituents_date = None
-
-def get_constituents_cached() -> list:
-    global _cached_constituents, _cached_constituents_date
-    today = datetime.now(IST_ZONE).date()
-    if _cached_constituents is not None and _cached_constituents_date == today:
-        return _cached_constituents
-    
-    try:
-        from multibagger import fetch_constituents
-        symbols = fetch_constituents()
-        if symbols:
-            _cached_constituents = symbols
-            _cached_constituents_date = today
-            return symbols
-    except Exception as e:
-        logger.warning(f"Could not fetch NSE constituents: {e}")
-        
-    return _cached_constituents or []
-
 def worker_loop():
     logger.info("🚀 Starting Pledge Worker Daemon")
     init_db()
@@ -179,7 +158,8 @@ def worker_loop():
                 except Exception as e:
                     logger.warning(f"Could not read excluded csv {excluded_path}: {e}")
                     
-        idx_symbols = get_constituents_cached()
+        from constituent_service import fetch_constituents
+        idx_symbols = fetch_constituents()
         constituents_count = len(idx_symbols) if idx_symbols else 0
         if idx_symbols:
             symbols_set.update(idx_symbols)

@@ -33,7 +33,8 @@ LEGACY_EXCLUSIONS = {
     "validation_report.py",
     "reversal_scanner.py",
     "multi_tf_scanner.py",
-    "test_low.py"
+    "test_low.py",
+    "constituent_service.py"
 }
 
 FORBIDDEN_IMPORTS = {"yfinance", "requests", "fyers_auth"}

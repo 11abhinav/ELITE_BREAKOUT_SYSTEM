@@ -42,22 +42,7 @@ logger = logging.getLogger("multibagger")
 IST = ZoneInfo("Asia/Kolkata")
 CACHE_PATH = "data/multibagger_fundamentals_cache.json"
 
-# Target URLs for NSE Archives
-CONSTITUENT_URLS = {
-    "Nifty 50": "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
-    "Nifty Next 50": "https://nsearchives.nseindia.com/content/indices/ind_niftynext50list.csv",
-    "Nifty Midcap 150": "https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv",
-    "Nifty Smallcap 250": "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
-    "Nifty 500": "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
-    "Nifty Microcap 250": "https://nsearchives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
-}
 
-# Browser-like headers to bypass NSE's strict user-agent checking
-HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5"
-}
 
 @dataclass
 class StockPriceData:
@@ -113,20 +98,6 @@ class ScreenerResult:
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
-def get_nse_session():
-    """Returns a curl_cffi Session to bypass NSE WAF, with fallback to requests."""
-    try:
-        from curl_cffi import requests as cffi_requests
-        session = cffi_requests.Session(impersonate="chrome")
-        session.headers.update(HTTP_HEADERS)
-        return session
-    except ImportError:
-        session = requests.Session()
-        adapter = HTTPAdapter(pool_connections=5, pool_maxsize=10, max_retries=3)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        session.headers.update(HTTP_HEADERS)
-        return session
 
 def safe_float(val, default=0.0):
     try:
@@ -174,87 +145,6 @@ def save_fundamentals_cache(cache_data: dict):
     except Exception as e:
         logger.exception(f"❌ Failed to save fundamentals cache")
 
-def fetch_constituents() -> list:
-    """Download index lists from NSE and return unique, normalized symbol list."""
-    symbols = set()
-    session = get_nse_session()
-    
-    for name, url in CONSTITUENT_URLS.items():
-        try:
-            logger.info(f"📥 Downloading {name} constituents...")
-            
-            # Manual retry loop for curl_cffi compatibility with exponential backoff
-            response = None
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    # [VERSION: NSE_TIMEOUT_FIX_v1.0] Increase timeout to 30s for archives.nseindia.com
-                    response = session.get(url, timeout=30)
-                    if response.status_code == 200:
-                        break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        # Final attempt failed
-                        err_msg = f"Failed to download {name} constituents after {max_retries} attempts: {e}"
-                        logger.error(err_msg)
-                        try:
-                            from database import insert_notification
-                            insert_notification(
-                                notif_type="error",
-                                title=f"🚨 NSE API Timeout ({name})",
-                                message=f"Failed to fetch {url}. The NSE server is throttling or down. Error: {str(e)[:200]}"
-                            )
-                        except Exception:
-                            pass
-                        raise
-                    
-                    backoff = (2 ** attempt) * 5  # 5s, 10s
-                    logger.warning(f"⚠️ NSE API error for {name} (attempt {attempt+1}): {e}. Retrying in {backoff}s...")
-                    time.sleep(backoff)
-            
-            if response and response.status_code == 200:
-                df = pd.read_csv(io.StringIO(response.text))
-                if "Symbol" in df.columns:
-                    for sym in df["Symbol"].dropna().unique():
-                        clean_sym = str(sym).strip()
-                        if clean_sym:
-                            symbols.add(clean_sym)
-                    logger.info(f"✅ Loaded {len(df)} constituents for {name}.")
-            else:
-                logger.warning(f"⚠️ Failed to fetch {name}: HTTP {response.status_code if response else 'Unknown'}")
-                try:
-                    from database import insert_notification
-                    insert_notification(
-                        notif_type="error",
-                        title=f"🚨 NSE API Failed ({name})",
-                        message=f"HTTP Error {response.status_code if response else 'Unknown'} for {url}"
-                    )
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.warning(f"⚠️ Error fetching {name}: {e}")
-        
-        # Anti-Rate Limit Sleep to prevent NSE WAF blocks
-        time.sleep(2.5)
-            
-    # [VERSION: SYMBOL_FIX_v1.0] Normalize symbols for yfinance querying.
-    # NSE constituents use '&' in symbol names (M&M, J&KBANK, GVT&D, M&MFIN).
-    # These must NOT be replaced with hyphens — Yahoo Finance requires '&'.
-    # Reuse daily_builder's SYMBOL_CORRECTIONS for consistent mapping.
-    from daily_builder import SYMBOL_CORRECTIONS
-    normalized = []
-    for s in symbols:
-        if s in SYMBOL_CORRECTIONS:
-            clean = SYMBOL_CORRECTIONS[s]
-        else:
-            clean = s  # NSE CSV symbols are already correct (use & not _)
-        if "DUMMY" in clean.upper():
-            logger.info(f"🗑️ Skipping NSE placeholder symbol: {clean}")
-            continue
-        normalized.append(clean)
-        
-    logger.info(f"🎯 Total unique constituent symbols fetched: {len(normalized)}")
-    return sorted(normalized)
 
 def batch_download_market_data(symbols: list) -> dict:
     """Download historical price/volume data in bulk for all tickers using AutoSwitchingFetcher in memory-efficient chunks."""
@@ -1294,6 +1184,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     cache = load_cache()
     
     # 1. Fetch constituents
+    from constituent_service import fetch_constituents
     symbols = fetch_constituents()
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")

@@ -1,33 +1,22 @@
-import sys
+import re
 
-with open("app/multibagger.py", "r") as f:
+with open('app/multibagger.py', 'r') as f:
     content = f.read()
 
-# Fix get_ohlcv usage
-old_nifty = """    try:
-        nifty_df = get_fetcher().get_ohlcv("^NSEI", period="1y", interval="1d")
-        if nifty_df is not None and not nifty_df.empty:"""
+# Remove CONSTITUENT_URLS
+content = re.sub(r'# Target URLs for NSE Archives\nCONSTITUENT_URLS = \{.*?\n\}\n', '', content, flags=re.DOTALL)
 
-new_nifty = """    try:
-        nifty_md = get_fetcher().get_ohlcv("^NSEI", period="1y", interval="1d")
-        nifty_df = nifty_md.dataframe if nifty_md else None
-        if nifty_df is not None and not nifty_df.empty:"""
+# Remove HTTP_HEADERS
+content = re.sub(r'# Browser-like headers to bypass NSE\'s strict user-agent checking\nHTTP_HEADERS = \{.*?\n\}\n', '', content, flags=re.DOTALL)
 
-# Fix get_batch_ohlcv usage
-old_batch = """    batch_res = fetcher.get_batch_ohlcv(symbols, period="1y", interval="1d", caller="multibagger")
-    for sym in symbols:
-        df = batch_res.get(sym)
-        if df is None or hasattr(df, 'empty') and df.empty or getattr(df, 'name', '') in ['RATE_LIMIT', 'NETWORK_ERROR']:"""
+# Remove get_nse_session
+content = re.sub(r'def get_nse_session\(\):.*?return session\n', '', content, flags=re.DOTALL)
 
-new_batch = """    batch_res = fetcher.get_batch_ohlcv(symbols, period="1y", interval="1d", caller="multibagger")
-    for sym in symbols:
-        md = batch_res.get(sym)
-        df = md.dataframe if md else None
-        if df is None or (hasattr(df, 'empty') and df.empty):"""
+# Remove fetch_constituents
+content = re.sub(r'def fetch_constituents\(\) -> list:.*?return sorted\(normalized\)\n', '', content, flags=re.DOTALL)
 
-content = content.replace(old_nifty, new_nifty)
-content = content.replace(old_batch, new_batch)
+# Update _start_wrapper to use constituent_service
+content = content.replace('symbols = fetch_constituents()', 'from constituent_service import fetch_constituents\n    symbols = fetch_constituents()')
 
-with open("app/multibagger.py", "w") as f:
+with open('app/multibagger.py', 'w') as f:
     f.write(content)
-print("Patched multibagger.py")

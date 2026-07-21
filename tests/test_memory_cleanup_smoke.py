@@ -14,9 +14,10 @@ def test_multibagger_memory_cleanup_no_crash(monkeypatch):
     variables like `fundamentals_list` before they are used in the return statement.
     """
     import multibagger
-    
+    import constituent_service
+
     # 1. Mock NSE constituent fetch
-    monkeypatch.setattr(multibagger, "fetch_constituents", lambda: ["MOCK_STOCK_1", "MOCK_STOCK_2"])
+    monkeypatch.setattr(constituent_service, "fetch_constituents", lambda: ["MOCK_STOCK_1", "MOCK_STOCK_2"])
     
     # 2. Mock batch download
     from multibagger import StockPriceData
