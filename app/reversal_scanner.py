@@ -179,12 +179,13 @@ def _score_reversal(
             elif mh_atr > 0.0:   score += 5    # turning positive
         except (TypeError, ValueError):
             pass
-    elif macd_hist is not None:
+    elif macd_hist is not None and close_price is not None and close_price > 0:
         try:
-            mh = float(macd_hist)
-            if mh > 0.3:   score += 15   # fallback for legacy mode
-            elif mh > 0.1: score += 10
-            elif mh > 0:   score += 5
+            # Fallback: Normalize by nominal price to prevent bias against low-priced stocks
+            mh_norm = (float(macd_hist) / float(close_price)) * 100
+            if mh_norm >= 0.5:   score += 15
+            elif mh_norm >= 0.2: score += 10
+            elif mh_norm > 0:    score += 5
         except (TypeError, ValueError):
             pass
 

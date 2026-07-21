@@ -126,6 +126,9 @@ def get_connection(timeout: int = 5):
         logger.exception(f"🔴 DB connection failed (circuit breaker)")
         if conn:
             try:
+                conn.rollback()
+            except Exception: pass
+            try:
                 p.putconn(conn, close=True)  # Return broken connection to pool
             except Exception:
                 pass
@@ -135,10 +138,13 @@ def get_connection(timeout: int = 5):
         logger.exception(f"🔴 DB operation failed")
         if conn:
             try:
-                p.putconn(conn, close=True)
+                conn.rollback()
             except Exception:
-                pass
-            conn = None
+                try:
+                    p.putconn(conn, close=True)
+                except Exception:
+                    pass
+                conn = None
         raise
     finally:
         # Return connection to pool if we checked one out
@@ -161,7 +167,7 @@ _INIT_LOCK = threading.Lock()
 
 
 
-def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
+def _insert_notification_sync(notif_type: str, title: str, message: str, symbol: str = None):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -172,6 +178,10 @@ def insert_notification(notif_type: str, title: str, message: str, symbol: str =
             conn.commit()
     except Exception as e:
         logger.exception(f"Failed to insert notification")
+
+def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
+    import threading
+    threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol), daemon=True).start()
 
 def init_db():
     global _DB_INITIALIZED

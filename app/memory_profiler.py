@@ -97,22 +97,22 @@ class MemoryProfiler:
         
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
-        logger.info(f"=== [PROFILE] {self.stage_name} ===")
-        logger.info(f"  Time            : {elapsed:.2f}s")
-        logger.info(f"  RSS Before      : {start_mb:.1f} MB")
-        logger.info(f"  RSS After       : {current_mb:.1f} MB")
-        logger.info(f"  RSS Delta       : {delta_str} MB")
-        logger.info(f"  RSS Peak        : {peak_mb:.1f} MB")
-        logger.info(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
+        logger.debug(f"=== [PROFILE] {self.stage_name} ===")
+        logger.debug(f"  Time            : {elapsed:.2f}s")
+        logger.debug(f"  RSS Before      : {start_mb:.1f} MB")
+        logger.debug(f"  RSS After       : {current_mb:.1f} MB")
+        logger.debug(f"  RSS Delta       : {delta_str} MB")
+        logger.debug(f"  RSS Peak        : {peak_mb:.1f} MB")
+        logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
         
         if ENABLE_PROFILING and self.df_start:
             df_end = get_dataframe_inventory()
             peak_alloc_mb = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
-            logger.info(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
-            logger.info(f"  Live DF Count   : {self.df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - self.df_start['count']:+d})")
-            logger.info(f"  Total DF Memory : {self.df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
+            logger.debug(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
+            logger.debug(f"  Live DF Count   : {self.df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - self.df_start['count']:+d})")
+            logger.debug(f"  Total DF Memory : {self.df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
             if df_end['largest_mb'] > 0:
-                logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                logger.debug(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
                 
             df_delta_mb = df_end['memory_mb'] - self.df_start['memory_mb']
             _trigger_deep_diagnostic(delta_mb, df_delta_mb, self.stage_name, peak_alloc_mb)
@@ -120,14 +120,17 @@ class MemoryProfiler:
             # Session Stats
             ProfilerState.increment_loop()
             session_gain, gain_per_loop = ProfilerState.get_session_stats()
-            logger.info(f"  Session Gain    : {session_gain:+.1f} MB")
-            logger.info(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
+            logger.debug(f"  Session Gain    : {session_gain:+.1f} MB")
+            logger.debug(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
                 
-        logger.info("=================================")
+        logger.debug("=================================")
         
         # Budget Alerts
         current_gb = current_mb / 1024
-        if current_gb >= 3.0:
+        if current_gb >= 3.5:
+            logger.critical(f"🚨 FATAL MEMORY USAGE: {current_gb:.2f} GB! Raising MemoryError to force thread restart.")
+            raise MemoryError(f"Process RSS exceeded 3.5 GB safety threshold ({current_gb:.2f} GB).")
+        elif current_gb >= 3.0:
             logger.error(f"🚨 CRITICAL MEMORY USAGE: {current_gb:.2f} GB! Threshold (3 GB) exceeded.")
         elif current_gb >= 2.0:
             logger.warning(f"⚠️ WARNING MEMORY USAGE: {current_gb:.2f} GB! Threshold (2 GB) exceeded.")
@@ -259,13 +262,13 @@ class BatchMemoryTracker:
         if self.rss_after_fetch == 0:
             self.rss_after_fetch = rss_after_cleanup
             
-        logger.info(
+        logger.debug(
             f"[{self.stage_name} Batch {self.batch_num}/{self.total_batches}] "
             f"Symbols: {self.item_count} | Rows: {self.row_count} | "
             f"RSS Before: {self.rss_before:.1f} MB | "
             f"RSS After Fetch: {self.rss_after_fetch:.1f} MB | "
             f"RSS After Cleanup: {rss_after_cleanup:.1f} MB | "
-            f"Elapsed: {elapsed:.1f}s"
+            f"Time: {elapsed:.2f}s"
         )
 
 # =======================================================
