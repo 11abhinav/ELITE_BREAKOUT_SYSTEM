@@ -1,282 +1,5 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Architecture & Design Principles</title>
-    
-    <!-- Premium Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
-    <!-- Marked.js for Markdown Parsing -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    
-    <!-- Mermaid.js for Diagram Rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-    
-    <style>
-        :root {
-            --bg-color: #0b0f19;
-            --text-color: #f1f5f9;
-            --text-muted: #94a3b8;
-            --primary: #00d4a1;
-            --secondary: #00b4d8;
-            --accent: #ff4d6d;
-            --card-bg: rgba(22, 28, 45, 0.6);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --code-bg: #1e293b;
-        }
-
-        /* Print Override Styles */
-        @media print {
-            body {
-                background: #ffffff !important;
-                color: #000000 !important;
-            }
-            .no-print {
-                display: none !important;
-            }
-            .container {
-                max-width: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                box-shadow: none !important;
-                background: transparent !important;
-            }
-            pre, code, blockquote, tr {
-                page-break-inside: avoid;
-            }
-            a {
-                text-decoration: underline !important;
-                color: #09090b !important;
-            }
-            h1, h2, h3, h4 {
-                color: #000000 !important;
-                page-break-after: avoid;
-            }
-            --border-color: #e4e4e7;
-            --card-bg: #f4f4f5;
-            --code-bg: #f4f4f5;
-            --text-color: #09090b;
-            --text-muted: #71717a;
-            --bg-color: #ffffff;
-        }
-
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: 'Outfit', sans-serif;
-            line-height: 1.7;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 900px;
-            padding: 40px 24px;
-            box-sizing: border-box;
-        }
-
-        /* Markdown Styling */
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            border-bottom: 2px solid var(--border-color);
-            padding-bottom: 12px;
-            margin-top: 40px;
-            margin-bottom: 24px;
-        }
-
-        h2 {
-            font-size: 1.8rem;
-            font-weight: 600;
-            color: var(--secondary);
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 8px;
-            margin-top: 36px;
-            margin-bottom: 16px;
-        }
-
-        h3 {
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: var(--primary);
-            margin-top: 28px;
-            margin-bottom: 12px;
-        }
-
-        p, li {
-            font-size: 1.05rem;
-            color: #cbd5e1;
-            font-weight: 400;
-        }
-
-        strong {
-            color: #ffffff;
-            font-weight: 600;
-        }
-
-        code {
-            font-family: 'JetBrains Mono', monospace;
-            background-color: var(--code-bg);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.95em;
-            color: var(--secondary);
-        }
-
-        pre {
-            background-color: #111827;
-            padding: 16px;
-            border-radius: 12px;
-            overflow-x: auto;
-            border: 1px solid var(--border-color);
-        }
-
-        pre code {
-            background-color: transparent;
-            padding: 0;
-            border-radius: 0;
-            color: #f3f4f6;
-            font-size: 0.9em;
-        }
-
-        blockquote {
-            margin: 20px 0;
-            padding: 12px 24px;
-            background-color: var(--card-bg);
-            border-left: 4px solid var(--primary);
-            border-radius: 0 8px 8px 0;
-            color: var(--text-color);
-        }
-
-        blockquote p {
-            margin: 0;
-            font-style: italic;
-        }
-
-        ul, ol {
-            padding-left: 24px;
-            margin-bottom: 20px;
-        }
-
-        li {
-            margin-bottom: 8px;
-        }
-
-        hr {
-            border: 0;
-            height: 1px;
-            background-color: var(--border-color);
-            margin: 40px 0;
-        }
-
-        /* Styled Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 24px 0;
-            background-color: var(--card-bg);
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--border-color);
-        }
-
-        th, td {
-            padding: 14px 18px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        th {
-            background-color: rgba(255, 255, 255, 0.03);
-            font-weight: 600;
-            color: #ffffff;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        /* Action Buttons */
-        .no-print {
-            position: fixed;
-            top: 24px;
-            right: 24px;
-            display: flex;
-            gap: 12px;
-            z-index: 100;
-        }
-
-        .btn {
-            background: rgba(22, 28, 45, 0.85);
-            backdrop-filter: blur(8px);
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-            padding: 10px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Outfit', sans-serif;
-            font-weight: 500;
-            font-size: 0.95rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s ease;
-        }
-
-        .btn:hover {
-            border-color: var(--primary);
-            background: rgba(0, 212, 161, 0.1);
-            color: var(--primary);
-            transform: translateY(-2px);
-        }
-
-        /* Mermaid Wrapper styling */
-        .mermaid {
-            background-color: #111827;
-            padding: 24px;
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-            margin: 24px 0;
-            display: flex;
-            justify-content: center;
-        }
-
-        /* Clickable absolute links styling */
-        a {
-            color: var(--secondary);
-            text-decoration: none;
-            transition: color 0.15s ease;
-        }
-        a:hover {
-            color: var(--primary);
-            text-decoration: underline;
-        }
-    </style>
-</head>
-<body>
-
-    <!-- Print / Back controls -->
-    <div class="no-print">
-        <button class="btn" onclick="window.print()">
-            🖨️ Save as PDF
-        </button>
-    </div>
-
-    <!-- Target area for rendered Markdown content -->
-    <div class="container" id="content"></div>
-
-    <!-- Hidden Raw Markdown Data Store -->
     <textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
+
 
 ## 1. Market Regime Definitions & Fallbacks
 
@@ -1608,6 +1331,326 @@ To ensure the Validation Engine and system ingestion pipelines behave determinis
 - **Object Identity:** To diagnose memory leaks and object retention in high-frequency loops (like Intraday Multi-TF), `memory_profiler.py` MUST track the memory identity `id()` of the largest `pd.DataFrame`.
 - **Efficiency Metric:** The profiler computes `RSS Delta` over `Rows Processed` and `Symbols Processed` to normalize memory cost evaluations across batches of different sizes.
 **Version:** `MEMORY_PROFILER_V3.0` applied 2026-07-21
+## 48. Configuration Constants & Tuning Parameters (`config.py`)
+This section documents the explicit configurations used across all engines. Implementation dictates that these values are strictly pulled from `config.py`.
+
+### 48.1 Score Thresholds & AI
+- `ENABLE_AI_SENTIMENT_SCORE` (bool): Enables experimental AI sentiment scoring for audits. If false, skips AI daemon checks.
+- `SCORE_THRESHOLDS`: Minimum composite scores required for alerts.
+  - `15m`: 78
+  - `1h`: 80
+  - `1d`: 82
+- `ACTIVE_ALGO_VERSION`: `"SL_ENGINE_V7.1"` (Target Engine v7 Pipeline, Institutional S/R Clustering).
+
+### 48.2 Scanner-Specific Algorithm Parameters
+- **`MULTI_TF_CONFIG`**: Controls Phase D multi-timeframe breakout execution.
+  - `MIN_SIGNALS`: 2
+  - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
+  - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
+  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
+  - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
+  - `MIN_RSI`: 52 / `MAX_RSI`: 87.
+  - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
+- **`LIVE_1H_CONFIG`**: 
+  - `MIN_SIGNALS`: 3
+  - `MIN_BODY_RATIO`: 0.55
+  - `MIN_VOLUME_RATIO`: 2.0
+- **`EOD_CONFIG`**: Standard end-of-day momentum filters.
+  - `MIN_SIGNALS`: 1
+  - `MIN_BODY_RATIO`: 0.45
+  - `MIN_VOLUME_RATIO`: 1.8
+- **`EOD_ADVANCED_CONFIG`**:
+  - `MAX_DISTANCE_FROM_52W_HIGH_PCT`: 15.0%
+  - `MAX_SINGLE_DAY_MOVE_PCT`: 15.0% (Prevents gap-and-go traps).
+  - `MAX_GAP_FROM_PRIOR_HIGH_PCT`: 3.0%
+  - `GAP_LOOKBACK_BARS`: 10
+  - `MIN_ATR_EXPANSION_RATIO`: 0.9 (Relaxed to allow steady uptrends).
+  - `MAX_BB_WIDTH_PCTILE`: 0.80 (Bollinger band expansion limit).
+- **`REVERSAL_CONFIG`**: 
+  - `MIN_DROP_FROM_52W_HIGH`: 20.0%
+  - `MAX_DROP_FROM_52W_HIGH`: 45.0%
+  - `RSI_OVERSOLD_THRESHOLD`: 45
+  - `RSI_CURL_MIN`: 50
+  - `MIN_ROE`: 12.0
+  - `MIN_YOY_REVENUE_GROWTH`: 8.0
+  - `REVERSAL_COOLDOWN_TRADING_DAYS`: 30 (Fallen knife defense).
+
+### 48.3 Data Quality & Execution Parameters
+- `QUALITY_VALIDATOR_VERSION`: `"V8.0"`
+- `QUALITY_SCORE_WEIGHTS`:
+  - `row_completeness`: 40, `missing`: 20, `price_sanity`: 20, `continuity`: 10, `freshness`: 10.
+- `MAX_HISTORY_SHRINK`: 0.30 (Max % row loss before logging warning).
+- `SOURCE_RELIABILITY`: `NSE` (1.0), `Fyers` (1.0), `Cache` (0.95), `BSE` (0.70).
+- `ADX_MIN_THRESHOLD`: 18 (Lowered from 25 to capture developing phases).
+- `MIN_STOCK_PRICE`: 100.0 (No penny stocks).
+
+### 48.4 Liquidity & Timing Parameters
+- `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`: ₹15 Cr/day.
+- `MIN_DAILY_LIQUIDITY_RUPEES_WEALTH`: ₹1 Cr/day.
+- `ALERT_COOLDOWN_MINUTES`: EOD and Reversal use `5760` (96 hours).
+- `PRICE_CACHE_TTL_SECONDS`: `60` (Intraday support).
+
+### 48.5 Anti-Fake-Breakout & Anti-Trap Parameters
+- `MIN_BREAKOUT_MARGIN`: `15m` (0.3%), `1h` (0.5%), `1d` (0.7%).
+- `MIN_BREAKOUT_VOLUME_RATIO`: 1.5.
+- `CLIMAX_VOLUME_LOOKBACK`: 20.
+- `LOWER_HIGH_LOOKBACK`: 6.
+- `MIN_CANDLE_RANGE_PCT`: 0.003 (0.3%).
+
+### 48.6 SL/Target Caps & Institutional Weights
+- `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
+- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
+- `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
+- `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
+- `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
+- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
+
+### 48.7 Market Regimes (`REGIME_POLICIES`)
+- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
+- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
+- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
+- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
+
+
+
+## 48. Configuration Constants & Tuning Parameters (`config.py`)
+This section documents the explicit configurations used across all engines. Implementation dictates that these values are strictly pulled from `config.py`.
+
+### 48.1 Score Thresholds & AI
+- `ENABLE_AI_SENTIMENT_SCORE` (bool): Enables experimental AI sentiment scoring for audits. If false, skips AI daemon checks.
+- `SCORE_THRESHOLDS`: Minimum composite scores required for alerts.
+  - `15m`: 78
+  - `1h`: 80
+  - `1d`: 82
+- `ACTIVE_ALGO_VERSION`: `"SL_ENGINE_V7.1"` (Target Engine v7 Pipeline, Institutional S/R Clustering).
+
+### 48.2 Scanner-Specific Algorithm Parameters
+- **`MULTI_TF_CONFIG`**: Controls Phase D multi-timeframe breakout execution.
+  - `MIN_SIGNALS`: 2
+  - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
+  - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
+  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
+  - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
+  - `MIN_RSI`: 52 / `MAX_RSI`: 87.
+  - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
+- **`LIVE_1H_CONFIG`**: 
+  - `MIN_SIGNALS`: 3
+  - `MIN_BODY_RATIO`: 0.55
+  - `MIN_VOLUME_RATIO`: 2.0
+- **`EOD_CONFIG`**: Standard end-of-day momentum filters.
+  - `MIN_SIGNALS`: 1
+  - `MIN_BODY_RATIO`: 0.45
+  - `MIN_VOLUME_RATIO`: 1.8
+- **`EOD_ADVANCED_CONFIG`**:
+  - `MAX_DISTANCE_FROM_52W_HIGH_PCT`: 15.0%
+  - `MAX_SINGLE_DAY_MOVE_PCT`: 15.0% (Prevents gap-and-go traps).
+  - `MAX_GAP_FROM_PRIOR_HIGH_PCT`: 3.0%
+  - `GAP_LOOKBACK_BARS`: 10
+  - `MIN_ATR_EXPANSION_RATIO`: 0.9 (Relaxed to allow steady uptrends).
+  - `MAX_BB_WIDTH_PCTILE`: 0.80 (Bollinger band expansion limit).
+- **`REVERSAL_CONFIG`**: 
+  - `MIN_DROP_FROM_52W_HIGH`: 20.0%
+  - `MAX_DROP_FROM_52W_HIGH`: 45.0%
+  - `RSI_OVERSOLD_THRESHOLD`: 45
+  - `RSI_CURL_MIN`: 50
+  - `MIN_ROE`: 12.0
+  - `MIN_YOY_REVENUE_GROWTH`: 8.0
+  - `REVERSAL_COOLDOWN_TRADING_DAYS`: 30 (Fallen knife defense).
+
+### 48.3 Data Quality & Execution Parameters
+- `QUALITY_VALIDATOR_VERSION`: `"V8.0"`
+- `QUALITY_SCORE_WEIGHTS`:
+  - `row_completeness`: 40, `missing`: 20, `price_sanity`: 20, `continuity`: 10, `freshness`: 10.
+- `MAX_HISTORY_SHRINK`: 0.30 (Max % row loss before logging warning).
+- `SOURCE_RELIABILITY`: `NSE` (1.0), `Fyers` (1.0), `Cache` (0.95), `BSE` (0.70).
+- `ADX_MIN_THRESHOLD`: 18 (Lowered from 25 to capture developing phases).
+- `MIN_STOCK_PRICE`: 100.0 (No penny stocks).
+
+### 48.4 Liquidity & Timing Parameters
+- `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`: ₹15 Cr/day.
+- `MIN_DAILY_LIQUIDITY_RUPEES_WEALTH`: ₹1 Cr/day.
+- `ALERT_COOLDOWN_MINUTES`: EOD and Reversal use `5760` (96 hours).
+- `PRICE_CACHE_TTL_SECONDS`: `60` (Intraday support).
+
+### 48.5 Anti-Fake-Breakout & Anti-Trap Parameters
+- `MIN_BREAKOUT_MARGIN`: `15m` (0.3%), `1h` (0.5%), `1d` (0.7%).
+- `MIN_BREAKOUT_VOLUME_RATIO`: 1.5.
+- `CLIMAX_VOLUME_LOOKBACK`: 20.
+- `LOWER_HIGH_LOOKBACK`: 6.
+- `MIN_CANDLE_RANGE_PCT`: 0.003 (0.3%).
+
+### 48.6 SL/Target Caps & Institutional Weights
+- `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
+- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
+- `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
+- `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
+- `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
+- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
+
+### 48.7 Market Regimes (`REGIME_POLICIES`)
+- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
+- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
+- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
+- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
+
+
+
+## 49. Core Modular Engines (`app/core/`)
+The `app/core/` directory contains the deeply modularized scoring and validation engines used primarily by the `Wealth Engine` and `Multibagger Pipeline`. These engines are designed as stateless evaluators that accept raw metric dictionaries and return scored dataclasses.
+
+### 49.1 Multibagger Pipeline (`multibagger_pipeline.py`)
+- **Purpose**: The orchestration layer for long-term investments.
+- **Workflow**:
+  1. `gate_engine.evaluate()`: Checks Hard Gates (e.g., Debt-to-Equity, Minimum Promoter Holding).
+  2. `financial_strength_engine.evaluate()`: Checks ROCE/ROE and Piotroski F-Score.
+  3. `valuation_engine.evaluate()`: Calculates Graham Intrinsic Value, DCF, and Margin of Safety.
+  4. `growth_engine.evaluate()`: Checks YoY Revenue and Profit growth.
+  5. `quality_engine.evaluate()`: Evaluates earnings consistency and operational cash flow vs PAT.
+  6. `technical_engine.evaluate()`: Confirms long-term trend (Price > 200 DMA).
+- **Invariants**: Validated via `pipeline_invariants.py` to ensure scores do not exceed maximum bounds and that rejected stocks never receive a "BUY" status.
+
+### 49.2 Snapshot & Audit System (`snapshot_collector.py`, `audit_engine.py`)
+- **Purpose**: Point-in-time traceability.
+- **Implementation**: Before any score is mutated or finalized, the `SnapshotCollector` captures the exact inputs (e.g., raw PE ratio, raw ROCE). The `AuditEngine` can replay these snapshots to verify that the scoring math was correct and deterministic, providing a verifiable "audit trail" for every BUY signal.
+
+### 49.3 Invariant & Event Engines (`invariant_engine.py`, `events.py`)
+- **Purpose**: Chaos prevention and pub/sub architecture.
+- **Implementation**: The `InvariantEngine` is tightly coupled with `invariants.py` to enforce strict mathematical rules (e.g., `Margin of Safety <= 100%`, `Final Score <= 100`). The `events.py` module dispatches asynchronous events (e.g., `OnSignalGenerated`, `OnQualityGateFailed`) to decouple logging and notifications from the core scoring loop.
+
+
+## 50. Data Providers, Caches, & Registry
+The data ingestion layer is designed to be highly resilient against API rate limits and network outages.
+
+### 50.1 `data_provider.py` (Unified Fetcher Routing)
+- **Purpose**: The central factory for market data routing.
+- **Workflow**: All OHLCV queries pass through `get_fetcher()`. It prefers the `FyersFetcher` if the token is valid, otherwise downgrades to `YFinanceFetcher`.
+- **Error Handling**: `ProviderResult` enums enforce that missing data returns `NOT_FOUND` or `RATE_LIMIT` rather than generic `None`.
+- **Mappings**: Integrates with `BSE_FALLBACK_MAPPING` to seamlessly route `.NS` misses to `.BO` equivalents without redundant rate limits.
+
+### 50.2 `price_cache.py` (Delta-Fetching Engine)
+- **Purpose**: The local `.parquet` caching tier.
+- **Workflow**:
+  1. `_is_cache_up_to_date()` checks if the parquet file contains data up to the last 15:30 IST market close.
+  2. If up to date, it skips the network fetch.
+  3. If missing recent days, it executes a `DELTA` fetch (only fetching the missing dates).
+  4. If `first_dt == earliest_dates[sym]`, it aborts infinite historical `FULL` fetch loops on IPOs.
+- **Concurrency**: Uses `_fetch_lock` (Threading Lock) to serialize cache writes and prevent corruption.
+
+### 50.3 `fundamentals_cache.py` & `watchlist_cache.py`
+- **Fundamentals**: Uses a local SQLite dictionary or JSON store. Enforces a 48-hour retry cooldown (`is_stale(days_old > 2)`) for failed metrics to protect API limits.
+- **Watchlist**: Caches the TradingView API results. Generates an MD5 fingerprint hash of the final universe to guarantee cross-scanner determinism.
+
+### 50.4 `data_registry.py` & `data_quality.py`
+- **Purpose**: Tracks dataset lineage.
+- **Workflow**: Logs the exact timestamp, provider, and checksum of fetched data. If `data_quality.py` detects a `MAX_HISTORY_SHRINK` violation (>30% row loss), it actively quarantines the new dataset and forces the system to serve from the cache.
+
+
+## 51. The Scanner Pipelines
+The system uses 5 independent scanner pipelines.
+
+### 51.1 `eod_scanner.py` (End of Day Breakouts)
+- **Purpose**: Detect standard daily timeframe breakouts with high institutional conviction.
+- **Workflow**:
+  1. Filters by `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`.
+  2. Applies `EOD_ADVANCED_CONFIG` (Max distance from 52W High < 15%, No gap-and-go traps > 15%).
+  3. `technical_indicators.py` calculates RSI, MACD, ATR, ADX, Bollinger Bands.
+  4. `breakout_engine.detect_breakouts()` confirms price > prior high and volume > 1.5x avg.
+  5. `scoring_engine.calculate_score()` assigns a 0-100 score. Requires `>= SCORE_THRESHOLDS["1d"]` (82).
+- **Execution Timing**: Runs post-market close (15:30+ IST). Uses EOD Bhavcopy fallback if delayed.
+
+### 51.2 `reversal_scanner.py` (Fallen Angels / Reversals)
+- **Purpose**: Detect structurally sound companies undergoing temporary oversold conditions.
+- **Workflow**:
+  1. Checks `REVERSAL_CONFIG` (Drop from 52W high between 20-45%).
+  2. Rejects if not strictly recovering above SMA50, or if RSI isn't curling up from oversold.
+  3. Rejects if recent ROE < 12% or Revenue Growth < 8% (Fundamental safety).
+  4. Rejects if `(macd_hist / close) * 100` normalization fails to show momentum divergence.
+  5. Enforces `REVERSAL_COOLDOWN_TRADING_DAYS` (30 days) to prevent fallen-knife spam.
+
+### 51.3 `multi_tf_scanner.py` (Intraday Multi-Timeframe)
+- **Purpose**: Align 1H, 30m, 15m, and 5m trends for precision entries.
+- **Workflow**:
+  - **Phase A (1H Approval)**: MACD > 0, ADX > 25, Price > VWAP. Sets `HOURLY_APPROVED`.
+  - **Phase B (30m Filter)**: Confirm 30m structure matches 1H.
+  - **Phase C (15m Coiling)**: RSI > 52, Bollinger Bands tightening. Sets `ENTRY_READY`.
+  - **Phase D (5m Execution)**: `PULLBACK_TRIGGER_MODE` dynamically routes to either `thrust` (breaking highs with volume) or `pullback` (defending EMA9/Breakout level with strong engulfing).
+- **Execution Timing**: Runs continuously every 5 minutes during market hours (09:15 - 15:30 IST).
+
+### 51.4 `wealth_engine.py` (Medium-Term Quality)
+- **Purpose**: Identify highly profitable, fairly valued companies crossing above 200-DMA.
+- **Workflow**: 
+  - Passes `passes_profitability_gate()` (ROE >= 15 for Financials, ROCE >= 15 for non-Financials).
+  - Uses `scoring_engine` to assess fundamental quality. Must pass `TARGET_CONFIDENCE_BASELINE`.
+- **Alert Creation**: Directly invokes `save_alert_if_new` under `WEALTH` mode.
+
+### 51.5 `multibagger.py` (Long-Term Structural Holds)
+- **Purpose**: The deepest fundamental screener using `app/core/` engines.
+- **Workflow**: Uses `multibagger_pipeline.py` to route through Gate, Valuation, Quality, and Growth engines. Rejects if Promoter Pledge > 20% (with `None` tolerance). Uses `bayesian_updater` to weight macro-regime probabilities.
+
+
+## 52. SL, Target & Risk Engine (`sl_target_helper.py`)
+This engine defines the asymmetric risk profiling for all scanners (excluding Multibagger, which uses fundamental holds).
+
+### 52.1 Anti-Trap Mechanics
+- **Core Concept**: Stop losses are anchored *below* structural support zones to avoid institutional wick-hunting.
+- **Dynamic Buffering**: `max(mode_atr_fraction * ATR, mode_pct * price)`.
+- **ADX-Aware Scaling**: If ADX > 35 (strong trend), the SL buffer is expanded by 30% to survive deeper natural pullbacks without false stop-outs.
+
+### 52.2 Support Discovery Cascade (`_pick_support`)
+1. **Swing Low Cluster**: If 2+ of the last 3 swing lows are within 1% of each other, this forms a high-conviction institutional base.
+2. **Pivot Swing Low**: Nearest true structural low.
+3. **Pivot S1**: Floor pivot support.
+4. **Rolling Swing Low**: Fallback n-period low.
+5. **EMA20 / SMA50 / VWAP**: Dynamic technical support lines.
+
+### 52.3 Resistance Discovery & Target Anchoring (`_pick_resistance`)
+1. **Pivot Swing High / R1 / R2**: Technical ceilings.
+2. **Bollinger Upper Band**: Volatility containment ceiling.
+3. **Fibonacci Extensions**: `FIB_EXTENSIONS` (1.272, 1.618, 2.0).
+- Targets are dynamically anchored to these levels. If a structural resistance is *too close* to entry, `Target Quality` fails (Minimum `NATURAL_RR`), and the alert is aborted.
+
+### 52.4 Partial Exit Scaling (`performance_tracker.py`)
+- Executes strict partial exits upon target hits.
+  - `EOD` Profile (BALANCED): 40% at T1, 30% at T2, 30% at T3.
+  - `MULTI_TF` Profile (AGGRESSIVE): 20% at T1, 30% at T2, 50% at T3 (Runner).
+  - `REVERSAL` Profile (CONSERVATIVE): 30% at T1, 30% at T2, 40% at T3.
+- Modifying `stop_loss` in the database aborts if `remaining_shares <= 0`, preserving the visual integrity of fully closed trades.
+
+
+## 53. Infrastructure, Schedulers, & Diagnostics
+This section covers the underlying orchestrators, persistence, and telemetry layers.
+
+### 53.1 Main Orchestrator (`main.py`)
+- **Purpose**: The master `SystemScheduler` process.
+- **Workflow**: Sets up `schedule` tasks for EOD, Reversal, Multibagger, and Daily Builder jobs. Spawns `RESTARTABLE_THREADS` for Intraday Scanners (`run_live_scanner`), `ai_worker`, and `performance_tracker`.
+- **Fault Tolerance**: Implements a `_run` wrapper with aggressive `try/except Exception` blocks. Background threads are infinitely restarted via the `restartable_thread_wrapper` on fatal crashes.
+
+### 53.2 Persistence Layer (`database.py`)
+- **Purpose**: Global SQLite data store (`alerts.db`).
+- **Data Integrity Constraints**:
+  - `alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date)` prevents cross-scanner DB collisions.
+  - JSON strings (like `bayesian_weights` or `context`) undergo strict `sanitize()` preprocessing to strip `NaN` and `Infinity` floats before SQL insertion.
+- **Connection Management**: Employs `ThreadedConnectionPool` guarded by `_conn_semaphore` to prevent SQLite `database is locked` concurrency crashes across 5 parallel scanners.
+
+### 53.3 Dashboard Server (`dashboard_server.py`)
+- **Purpose**: The Flask backend serving the Admin Dashboard.
+- **Architecture**: Contains modular REST endpoints (`/api/scanner_status`, `/api/alerts`).
+- **Security & UX**: Implements COOP `target="_blank" rel="noopener noreferrer"` for all external TradingView links to prevent browser tab-isolation freezing. Dynamic sliding queues (`QUEUED-1`) are generated on-the-fly from database timestamps.
+
+### 53.4 Telemetry & Profiling (`memory_profiler.py`)
+- **Purpose**: Production V3 memory tracking and loop isolation.
+- **Implementation**: The `@profile_function` wrapper calculates exact memory allocation churn (`transient_mb = max(0, peak_rss - end_rss)`). It leverages `get_dataframe_inventory()` to trace the memory `id()` of the largest dataframe, explicitly revealing whether high-frequency intraday loops are reusing pandas objects or leaking them.
+
+### 53.5 Macro Utilities (`macro_utils.py`)
+- **Purpose**: Centralized NIFTY environment tracking.
+- **Workflow**: `get_macro_regime()` calculates NIFTY's 20-day returns and cross-references ADX trend strength. If it fails due to network outage, it strictly defaults to `NEUTRAL` to prevent scan freezing.
+
+### 53.6 AI Worker Daemon (`ai_worker.py`)
+- **Purpose**: Asynchronous parsing of concall transcripts.
+- **Workflow**: Uses a `_scan_lock` to ensure manual dashboard triggers do not overlap with scheduled nighttime (7 PM - 7 AM) daemon loops.
+- **Caching Policy**: Valid transcripts are cached for 60 days. Hard failures (or "error" responses) are cached for exactly 1 day to allow automatic retries on the next execution cycle without infinitely hammering the API.
+
+
 </textarea>
 
     <!-- Rendering Script -->
