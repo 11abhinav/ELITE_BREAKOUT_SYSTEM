@@ -193,7 +193,7 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         if not stock_row.empty:
             current_ticker = stock_row.iloc[0].get("ticker")
             if pd.notna(current_ticker):
-                peers = peers[peers["ticker"] != current_ticker]
+                peers = peers[peers["ticker"] != current_ticker].copy()
         
         # Clean anomalous P/E, P/B, and ROE values so they don't pollute sector medians
         peers["price_earnings_ttm"] = peers["price_earnings_ttm"].apply(lambda x: x if pd.notnull(x) and 0 < x < 500 else np.nan)
