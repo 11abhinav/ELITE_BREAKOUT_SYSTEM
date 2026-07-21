@@ -210,6 +210,9 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 
+from memory_profiler import profile_function
+
+@profile_function("Wealth: map_watchlist_to_v5")
 def map_watchlist_to_v5(raw_data: dict) -> dict:
     """Maps Screener export headers to V5 snake_case variables and reconstructs missing absolute metrics for Valuation Engine."""
     import pandas as pd
@@ -273,6 +276,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'price': price
     }
 
+@profile_function("Wealth: apply_core_engine_scores")
 def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     """
     Migrated to V5 Pipeline architecture since core.deprecated.core_score_engine was removed.
@@ -303,6 +307,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
         })
 
 
+@profile_function("Wealth: determine_portfolio_bucket")
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
     import pandas as pd
@@ -363,6 +368,7 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     return ", ".join(buckets) if buckets else "REVIEW"
 
 
+@profile_function("Wealth: apply_sector_cap")
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:
     """
     Enforce sector concentration limits on a bucket:
@@ -511,6 +517,7 @@ logger = logging.getLogger(__name__)
 # =====================================================================================
 # LAYER 1: CANDIDATE SELECTION
 # =====================================================================================
+@profile_function("Wealth: evaluate_candidates")
 def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     """Evaluates core fundamentals and technicals for candidates, omitting entry logic."""
     if wealth_df.empty:
@@ -569,6 +576,7 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
 # =====================================================================================
 # LAYER 2: ENTRY TIMING
 # =====================================================================================
+@profile_function("Wealth: generate_entry_signal")
 def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, open_symbols=None):
     """Decides whether a candidate should be bought, suppressed, or watched."""
     if candidate_df.empty:
@@ -608,7 +616,15 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             if "Quality-On-Sale" in bucket:
                 cons_score = r.get("Consistency_Score", 0)
                 val_score = r.get("Valuation_Score", 0)
-                roce = _safe_num(r.get("ROCE %"))
+                def passes_profitability_gate(record: pd.Series) -> bool:
+                    path = record.get("Path", "")
+                    roce = _safe_num(record.get("ROCE %"))
+                    roe = _safe_num(record.get("ROE %"))
+                    if path == "Financial":
+                        return roe >= 15
+                    return roce >= 15
+                    
+                profitability_ok = passes_profitability_gate(r)
                 fcf_margin = r.get("FCF Margin %")
                 path = r.get("Path", "")
                 mom_conf = r.get("momentum_confidence", "")
@@ -620,7 +636,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
                 
                 if (score >= 65 and cons_score >= 18 and val_score >= 10 and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
-                    rs > -10 and roce >= 15 and fcf_ok and mom_conf != "LOW"):
+                    rs > -10 and profitability_ok and fcf_ok and mom_conf != "LOW"):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
@@ -707,6 +723,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
 # =====================================================================================
 # LAYER 3: PORTFOLIO MANAGEMENT
 # =====================================================================================
+@profile_function("Wealth: evaluate_open_positions")
 def evaluate_open_positions(portfolio_df, portfolio_dict):
     """Generates HOLD/SELL/SELL_REVIEW/TLH signals for independently fetched open positions."""
     if portfolio_df.empty:
@@ -909,7 +926,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         logger.info(f"💰 [WEALTH ENGINE] Processing {len(all_symbols_to_fetch)} symbols in chunks of {BATCH_SIZE}...")
         
         from price_cache import fetch_unified_historical
-        from memory_profiler import chunk_iterable, BatchMemoryTracker
+        from memory_profiler import chunk_iterable, BatchMemoryTracker, MemoryProfiler
         import concurrent.futures
         
         global_fetched_count = 0
@@ -1031,6 +1048,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # =====================================================================================
         # EXECUTE LAYER 1: CANDIDATE SELECTION
         # =====================================================================================
+        _prof_l1 = MemoryProfiler("Wealth: Candidate Selection").__enter__()
         # wealth_df consists ONLY of the fundamental watchlist candidates joined with technicals
         candidate_tech = tech_df[tech_df["Stock"].isin(candidate_symbols)]
         wealth_df = pd.merge(df, candidate_tech, on="Stock", how="left")
@@ -1040,9 +1058,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         
         wealth_df = evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w)
         
+        _prof_l1.__exit__(None, None, None)
+        
         # =====================================================================================
         # EXECUTE LAYER 2: ENTRY TIMING
         # =====================================================================================
+        _prof_l2 = MemoryProfiler("Wealth: Entry Timing").__enter__()
         BUY_GATE_ACTIVE = False
         suppression_reason = None
         
@@ -1077,6 +1098,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason, open_symbols)
         
         # Persist BUY Signals
+        saved_alerts_count = 0
         try:
             from database import save_wealth_buy_alert, DONT_SAVE_WEALTH
             buy_signals = wealth_df[wealth_df["Signal_Code"] == "BUY"]
@@ -1125,12 +1147,28 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Code"] = "SUPPRESSED"
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Reason"] = "Rejected by DB Idempotency/Guard"
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal"] = "SUPPRESSED (Rejected by DB)"
+                    else:
+                        saved_alerts_count += 1
 
         except Exception: pass
+
+        passed_layer1 = len(wealth_df[wealth_df["Portfolio_Bucket"] != "REVIEW"]) if "Portfolio_Bucket" in wealth_df.columns else 0
+        logger.info(
+            f"=== [WEALTH ENGINE PIPELINE SUMMARY] ===\n"
+            f"Universe Loaded: {len(candidate_symbols)}\n"
+            f"Historical Data Fetched: {global_fetched_count}\n"
+            f"Passed Layer 1 (Fundamentals & Scoring): {passed_layer1}\n"
+            f"Passed Layer 2 (Technical Entry Gates): {len(buy_signals) if 'buy_signals' in locals() else 0}\n"
+            f"Alerts Persisted to DB: {saved_alerts_count}\n"
+            f"=========================================="
+        )
+
+        _prof_l2.__exit__(None, None, None)
 
         # =====================================================================================
         # EXECUTE LAYER 3: PORTFOLIO MANAGEMENT
         # =====================================================================================
+        _prof_l3 = MemoryProfiler("Wealth: Portfolio Mgmt").__enter__()
         # Extract open positions into a separate dataframe
         portfolio_rows = []
         
@@ -1217,7 +1255,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     from database import update_position_real_time_prices
                     update_position_real_time_prices({s: {"price": p, "score": port_map.get(s, {}).get("Hold_Score")} for s, p in realtime_metrics.items()})
             except Exception as _rt_e: logger.exception(f"Error updating real-time prices: {_rt_e}")
+            
+        _prof_l3.__exit__(None, None, None)
+        
         # Final Dashboard Export
+        _prof_l4 = MemoryProfiler("Wealth: Dashboard Export").__enter__()
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
                 from database import upload_parquet_to_db
@@ -1240,6 +1282,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df)
                 )
             except Exception as _sh_e: logger.exception(f"Error updating scanner health: {_sh_e}")
+            
+        _prof_l4.__exit__(None, None, None)
 
     except Exception as e:
         logger.exception("❌ CRITICAL ERROR in Wealth Engine")

@@ -414,9 +414,12 @@ def bonus_modifiers(
       -8  Unsustained volume (fewer than 2 of last 3 bars above 80% of avg)
       -5  Gap-up chase (>8% single-bar move) — INTRADAY/1H ONLY
       -5  Extreme overbought RSI (> 78)
-      -6  Extended above SMA50 (>5% above SMA50) — FIX 5: new penalty
+      -6  Extended above SMA50 (>5% above SMA50)
     """
-
+    
+    # Imports were mistakenly inside the docstring block in previous edits
+    from typing import Tuple, Dict
+    from memory_profiler import profile_function
     import pandas as pd
 
     bonus = 0
@@ -737,6 +740,7 @@ def bonus_modifiers(
 # MAIN SCORING FUNCTION
 # =====================================================================================
 
+@profile_function("Scoring", budget_mb=500.0)
 def calculate_score(
     category,
     breakout_count,
