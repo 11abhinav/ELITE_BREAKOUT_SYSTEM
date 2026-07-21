@@ -497,16 +497,15 @@ def _run_scan(force: bool = False):
                         logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
                         rejected["no_data"] += 1
                         provider_stats_counts["EMPTY_DATA"] += 1
-                        scan_failures.append(ScanFailure(symbol, "REVERSAL", "unknown", "missing data", scan_id=scan_id))
+                        scan_failures.append(ScanFailure(symbol, "unknown", "missing data", "unknown", "REVERSAL", "data_fetch"))
                         continue
                 
                     if isinstance(all_ticker_data[symbol], ProviderResult):
                         res = all_ticker_data[symbol]
                         provider_stats_counts[res.name] += 1
-                        if res != ProviderResult.SUCCESS:
-                            rejected["no_data"] += 1
-                            scan_failures.append(ScanFailure(symbol, "REVERSAL", "unknown", f"Provider error: {res.name}", scan_id=scan_id))
-                            continue
+                        scan_failures.append(ScanFailure(symbol, "unknown", f"Provider error: {res.name}", "unknown", "REVERSAL", "data_fetch"))
+                        rejected["no_data"] += 1
+                        continue
                     else:
                         provider_stats_counts["SUCCESS"] += 1
 

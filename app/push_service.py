@@ -73,8 +73,10 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
             )
         except WebPushException as ex:
             # If the subscription expired, user revoked permission, or VAPID keys changed (400/403)
-            if ex.response and ex.response.status_code in (400, 403, 404, 410):
-                logger.info(f"🧹 Removing invalid/expired subscription: {sub['endpoint']} (Status: {ex.response.status_code})")
+            status_code = getattr(ex.response, "status_code", None) if hasattr(ex, "response") and ex.response else None
+            is_invalid = (status_code in (400, 403, 404, 410)) or any(code in str(ex) for code in ["400", "403", "404", "410"])
+            if is_invalid:
+                logger.info(f"🧹 Removing invalid/expired subscription: {sub['endpoint']} (Status: {status_code or 'from string'})")
                 database.remove_push_subscription(sub['endpoint'])
             else:
                 logger.error(f"WebPush error: {repr(ex)}")

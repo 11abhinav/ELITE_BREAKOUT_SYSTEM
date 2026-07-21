@@ -1232,7 +1232,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 upload_parquet_to_db("wealth_engine", WEALTH_PATH)
                 
                 # Free large intermediate dataframes
-                del tech_df, candidate_tech, prev_wealth_df, all_historical_data
+                del tech_df, candidate_tech, prev_wealth_df
                 
                 from database import upsert_scanner_health
                 upsert_scanner_health(

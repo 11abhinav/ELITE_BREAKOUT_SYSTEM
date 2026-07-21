@@ -285,7 +285,7 @@ def batch_download_market_data(symbols: list) -> dict:
                 continue
                 
             from core_enums import ProviderResult
-            rows_fetched = sum(len(df) for df in batch_res.values() if df is not None and not isinstance(df, ProviderResult))
+            rows_fetched = sum(len(df.dataframe) if hasattr(df, "dataframe") else len(df) for df in batch_res.values() if df is not None and not isinstance(df, ProviderResult))
             tracker.mark_fetch_complete(row_count=rows_fetched)
         
         # 2. Convert DataFrames to StockPriceData
