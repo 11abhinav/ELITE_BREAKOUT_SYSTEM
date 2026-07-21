@@ -85,7 +85,11 @@ class MemoryProfiler:
             logger.info(f"  Live DF Count   : {self.df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - self.df_start['count']:+d})")
             logger.info(f"  Total DF Memory : {self.df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
             if df_end['largest_mb'] > 0:
-                logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB ({df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                
+            df_delta_mb = df_end['memory_mb'] - self.df_start['memory_mb']
+            if delta_mb > 5.0 and df_delta_mb < 1.0:
+                _trigger_deep_diagnostic(delta_mb, df_delta_mb, self.stage_name)
                 
         logger.info("=================================")
         
@@ -281,6 +285,47 @@ def get_dataframe_inventory():
         "largest_id": largest_df_id
     }
 
+def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name: str):
+    logger.warning(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}'")
+    logger.warning(f"🚨 RSS grew by {rss_delta_mb:.1f} MB but DF memory changed by {df_delta_mb:+.1f} MB.")
+    
+    if tracemalloc.is_tracing():
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        logger.warning("=== Top 5 Python Allocations (tracemalloc) ===")
+        for stat in top_stats[:5]:
+            logger.warning(f"  {stat}")
+            
+    try:
+        from collections import Counter
+        logger.warning("=== GC Object Type Counts ===")
+        objs = gc.get_objects()
+        type_counts = Counter(type(o).__name__ for o in objs)
+        for t_name, count in type_counts.most_common(5):
+            logger.warning(f"  {t_name}: {count} objects")
+    except Exception as e:
+        logger.warning(f"  Failed to get GC object counts: {e}")
+        
+    try:
+        logger.warning("=== Process Memory Maps (Native Shared Libraries) ===")
+        process = psutil.Process(os.getpid())
+        maps = process.memory_maps()
+        lib_rss = {}
+        for m in maps:
+            path = m.path
+            base = os.path.basename(path) if path else "[anonymous]"
+            lib_rss[base] = lib_rss.get(base, 0) + m.rss
+            
+        sorted_libs = sorted(lib_rss.items(), key=lambda x: x[1], reverse=True)
+        for base, rss_bytes in sorted_libs[:10]:
+            rss_mb = rss_bytes / (1024 * 1024)
+            if rss_mb > 1.0:
+                logger.warning(f"  {base}: {rss_mb:.1f} MB")
+    except Exception as e:
+        logger.warning(f"  Failed to read memory_maps (possibly restricted in container): {e}")
+        
+    logger.warning("==================================================")
+
 def profile_function(stage_name: str, budget_mb: float = None):
     """Decorator for function-level profiling (tracemalloc, RSS, DF counts)."""
     from functools import wraps
@@ -345,7 +390,12 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 logger.info(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
                 
                 if df_end['largest_mb'] > 0:
-                    logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB ({df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                    logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                    
+                rss_delta_mb = end_rss - start_rss
+                df_delta_mb = df_end['memory_mb'] - df_start['memory_mb']
+                if rss_delta_mb > 5.0 and df_delta_mb < 1.0:
+                    _trigger_deep_diagnostic(rss_delta_mb, df_delta_mb, stage_name)
                     
                 logger.info("=================================")
         return wrapper
