@@ -659,12 +659,30 @@ def run_evening_scanners():
         eod_thread.join()
         rev_thread.join()
 
-        # Run Pullback Scanner strictly 6th in the batch (after EOD & Reversal finish)
+        # Run Pullback Scanner 6th in the batch (after EOD & Reversal finish)
         pb_thread.start()
         pb_thread.join()
+
+        # Verify actual execution outcome from database health records before declaring status
+        from database import get_all_scanner_health
+        health_records = {r.get("scanner_name"): r for r in get_all_scanner_health()}
         
-        logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) have finished execution for today.")
-        # Sleep for a few hours to avoid retriggering until the window closes
+        def _check_scanner_ok(name):
+            rec = health_records.get(name, {})
+            last_success = str(rec.get("last_success", ""))
+            return rec.get("status") == "OK" and last_success.startswith(today_str)
+            
+        eod_ok = _check_scanner_ok("EOD")
+        rev_ok = _check_scanner_ok("REVERSAL")
+        pb_ok  = _check_scanner_ok("PULLBACK")
+
+        if eod_ok and rev_ok and pb_ok:
+            logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) completed successfully for today.")
+        else:
+            status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
+            logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
+
+        # Sleep for 6 hours to avoid retriggering until the window closes
         time.sleep(3600 * 6)
 
 
