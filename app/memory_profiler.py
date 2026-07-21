@@ -353,11 +353,29 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
         
         logger.warning("=== Python Object Population (gc.get_objects) ===")
         import collections
+        import numpy as np
         objs = gc.get_objects()
+        
         type_counts = collections.Counter(type(o).__name__ for o in objs)
         top_types = type_counts.most_common(10)
         for obj_type, count in top_types:
             logger.warning(f"  {obj_type}: {count} instances")
+            
+        logger.warning("=== NumPy Array Diagnostics ===")
+        try:
+            arrays = [o for o in objs if isinstance(o, np.ndarray)]
+            count = len(arrays)
+            total_bytes = sum(arr.nbytes for arr in arrays)
+            logger.warning(f"  Live ndarrays: {count}")
+            logger.warning(f"  Total memory : {total_bytes / (1024*1024):.2f} MB")
+            
+            if arrays:
+                largest = sorted(arrays, key=lambda x: x.nbytes)[-5:]
+                logger.warning("  Largest 5 arrays:")
+                for arr in largest:
+                    logger.warning(f"    Shape: {arr.shape}, dtype: {arr.dtype}, Size: {arr.nbytes / 1024:.1f} KB")
+        except Exception as e:
+            logger.warning(f"  Could not track NumPy arrays: {e}")
             
         # LEVEL 1: Tracemalloc and Memory Maps
         if tracemalloc.is_tracing():
