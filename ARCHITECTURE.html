@@ -1,1654 +1,261 @@
     <textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
 
+# ELITE BREAKOUT SYSTEM: V8 ARCHITECTURE (SINGLE SOURCE OF TRUTH)
+*(Last Updated: 2026-07-21 | System Version: V8.0 / Target Engine v7.1)*
 
-## 1. Market Regime Definitions & Fallbacks
+## 1. System Overview & Execution Flow
 
-The system uses two independent regime systems to govern breakout risk. **Rule of thumb: Regimes should tighten quality gates, not blindly kill scans.**
+The Elite Breakout System is a highly concurrent, fully automated trading scanner optimized for the Indian Equity Market (NSE/BSE). It is designed to run continuously on cloud environments (Railway), orchestrating 5 primary algorithmic pipelines through a unified SQLite database and exposing a decoupled Web Dashboard.
 
-### 1.1 Short-Term Momentum Regime (`macro_utils.get_macro_regime`)
-Used by: **EOD, Reversal, Multi-TF Scanners**
-Measures: 20-day Nifty return vs ADX trend strength.
-- **Trending Market (ADX >= 20):**
-  - BULL: > +3.0%
-  - BEAR: < -5.0%
-  - NEUTRAL: otherwise
-- **Rangebound Market (ADX < 20):**
-  - BULL: > +5.0%
-  - BEAR: < -8.0%
-  - NEUTRAL: otherwise
-
-**Fail-Safe:** If API fetch fails or regime cannot be computed, this function MUST default to `NEUTRAL` (not BULL or BEAR). This ensures scans can proceed normally.
-
-### 1.2 Structural Regime (`multibagger.py`)
-Used by: **Multibagger System Only**
-Measures: Nifty Close vs 200-DMA.
-- BULL: Nifty > 200-DMA
-- BEAR: Nifty < 200-DMA
-
-**Fail-Safe:** If Nifty data is unavailable or has insufficient history (<200 days), Multibagger MUST default to `BEAR` (conservative fail-direction). Quality-over-quantity dictates we assume high risk if we cannot prove otherwise.
-
----
-
-## 2. Scanner Reactions to BEAR Regimes
-
-Scanners react to BEAR markets by raising the bar for conviction, not by turning off completely (except Multibagger gating).
-
-| Scanner | Reaction to BEAR |
-|---------|------------------|
-| **EOD** | Global minimum score threshold raised by +5 (e.g. 82 -> 87) |
-| **Multi-TF** | Bayesian engine uses bearish historical weights to penalize weak setups |
-| **Multibagger** | No penalty. The Scoring Pipeline already grades weak fundamentals aggressively; no artificial BEAR downgrades are applied to HIGH_QUALITY setups. |
-| **Reversal** | No penalty. Reversals naturally occur in weak/bear markets |
-
----
-
-## 3. Data Freshness & Stale Data Logic
-
-**Weekend & Holiday Integrity (CRITICAL):**
-When running EOD or Reversal scanners, `ist_now.date()` may be a non-trading day.
-- **NEVER** use `if last_bar.date() != ist_now.date(): reject()` as this will reject the entire universe on weekends.
-- **INSTEAD**, use a maximum age check: `_bar_age_days = (ist_now.date() - last_ts.date()).days <= 4` (to cover Fri->Mon and long weekends).
-
-**Timezone Provenance:**
-- yfinance `.NS` tickers return **naive timestamps** that represent IST local time.
-- If you `tz_localize("UTC")` on a `.NS` ticker, you shift the time by +5.5 hours. At 6:30 PM IST, this pushes the timestamp past midnight into tomorrow, breaking date matching.
-- **ALWAYS** localize `.NS` naive timestamps directly to `Asia/Kolkata`.
-
-**Fallback Watchlist Degradation & Degradation Thresholds:**
-If the upstream `daily_builder` fails and uses yesterday's fallback watchlist, or if the price caches are rate-limited, the scanners must soft-degrade their health status to `DEGRADED` without hard-aborting. The exact thresholds for status degradation are:
-- **EOD Scanner:** Degrades to `DEGRADED` if `stale_count / total_symbols > 0.05` (5%) or if the fetched symbol count is `< 95%` of the watchlist (`eod_scanner.py:764-772`).
-- **Reversal Scanner:** Degrades to `DEGRADED` if `stale_count / total_symbols > 0.05` (5%) or if the fetched symbol count is `< 95%` of the watchlist (`reversal_scanner.py:880-888`).
-- **Multi-TF Scanner:** Degrades to `DEGRADED` if `total_stale / total_symbols > 0.05` (5%), if any timeframe's fetched count is `< 95%` of expected, or if there are any DB save failures (`multi_tf_scanner.py:786-802`).
-- **Multibagger Scanner:** Degrades to `DEGRADED` if the fundamental data load ratio is `< 70%` (`multibagger.py:1208-1217`).
-
----
-
-## 4. Filter Cascade Anti-Patterns
-
-When building scanner gates, avoid **Structural Contradictions**.
-
-### Anti-Pattern: Reversal vs Trend Contradiction
-*Example:* Requiring a stock to be 30% below its 52W High (Reversal) while also requiring `Close >= SMA50` (Trend).
-*Why it fails:* A stock 30% down is mathematically almost guaranteed to be below its 50-DMA. The gate will reject 95% of valid setups until they have already recovered 15-20% (too late).
-*Solution (Soft Gate):* If below SMA50, check if it is within 3% of reclaiming it (approaching recovery) and above EMA20.
-
-### Anti-Pattern: Window Constraint Contradiction
-*Example:* Requiring a fresh MACD Crossover in the last 2 bars for a swing trade.
-*Why it fails:* If the scanner runs once a day, the cross might have happened 3-4 days ago on the initial thrust. A 2-bar window rejects stocks that are still perfectly in play.
-*Solution:* Expand the window to 5 bars for swing timeframe indicators, or 10 bars for reversal setups.
-
-### Anti-Pattern: Hard Gate vs Soft Scoring Contradiction
-*Example:* Using strict Value Investing hard-gates (e.g., ROCE > 15%, Revenue CAGR > 8%) to preemptively filter a Breakout/Momentum scanner.
-*Why it fails:* Hard gates act as blind guillotines. Mature blue-chip leaders (like TCS/INFY) that naturally have slower growth (e.g., 5% CAGR) will be instantly killed before they even reach the Scoring Engine, completely starving the breakout alerts.
-*Solution:* Use Hard Gates ONLY for baseline survivability (e.g., negative revenue, extreme debt). Let the quantitative Scoring Pipeline grade the metrics (0-100) and balance tradeoffs dynamically.
-
-### Anti-Pattern: Valuation (Margin of Safety) in Breakout Strategies
-*Example:* Anchoring the final Composite Score heavily to a Margin of Safety (intrinsic value) requirement.
-*Why it fails:* Breakout strategies by definition seek stocks making new highs or exhibiting extreme relative strength. These stocks almost always trade at a premium to calculated fair value. Punishing them heavily for having negative Margin of Safety zeroes out the score of genuine market leaders.
-*Solution:* Flatten the Valuation penalty curve. Only penalize absurd mania pricing (e.g., MoS < -50%). Treat premium-priced quality (MoS -10% to -30%) as acceptable context rather than a fatal flaw.
-
----
-
-## 5. Admin Manual Triggers (Market Bypass)
-
-Whenever an administrator manually triggers a scanner (e.g., via the dashboard UI), the scanner runner receives a `run_once=True` or `force=True` flag. 
-**Architectural Rule:** All scanners MUST interpret this flag as an explicit override to bypass the `is_market_open()` check. If `run_once=True` or `force=True`, the scanner must execute immediately, even if it is a weekend or outside of market hours, and must save alerts to the database without operating in test mode.
-
----
-
-## 6. Caching & Rate Limit Protections
-
-### 6.1 Shared Price-Fetch Layer Caching (`price_cache.py`)
-To avoid rate limits and useless API calls when the market is closed, `_download_all_robust()` checks if the locally cached Parquet file is up to date before fetching.
-- **Cache Integrity Check (`_is_cache_up_to_date()`):** Returns true if the cache contains data up to the last market close (15:30 IST).
-  - **Weekends:** Evaluates against Friday's 15:30 close.
-  - **Weekdays (Off-Hours):** Evaluates against today's 15:30 close (if now > 15:30 IST) or yesterday's 15:30 close (if now < 09:15 IST).
-  - **Market Active Hours (09:15 - 15:30 IST):** The cache optimization is suspended, returning `False` to guarantee live intraday and daily candles are pulled.
-  - **Intraday Buffer:** Allows a 30-minute buffer for early broker closures (e.g. 15:25 candle).
-  - **Serialization Lock (`_fetch_lock`):** Serializes all concurrent price-fetch queries to prevent rate limits and thundering herd API spam.
-
----
-
-## 7. Wealth Engine: Dual-Gate Signal Architecture
-
-The Wealth Engine completely avoids the "Hard Gate vs Soft Scoring Contradiction" (see section 4) by utilizing a strictly tiered **Dual-Gate Architecture** for generating Buy Signals:
-
-### Gate 1: The Bucket Prerequisite (Quality Enforcement)
-A stock is evaluated against 4 rigid fundamental templates (Core Compounder, Growth Multiplier, Quality-On-Sale, Opportunistic). These act as strict Hard Gates:
-- **Core Compounder:** `score >= 65`, `mcap >= 10000 Cr`, `roce >= 20%`, `roe >= 15%`, `de <= 0.5`.
-- **Growth Multiplier:** `score >= 60`, `mcap >= 2000 Cr`, `yoy_sales >= 20%`, `yoy_profit >= 20%`, `rs_6m >= 0`, `dist_52w <= 15%`.
-- **Quality-On-Sale:** `score >= 50`, `roce >= 15%`, `dist_52w >= 20%`, `de <= 1.0`.
-- **Opportunistic:** `score >= 55`, `yoy_profit >= 40%`, `rs_6m >= 15%`, and "SME" not in categories.
-- **Architectural Rule:** *A stock MUST pass the Bucket Prerequisite to even be evaluated for a Buy signal.* This prevents low-quality anomalies (e.g. poor ROCE with temporary momentum) from polluting the alert stream.
-
-### Gate 2: The Timing Check (Value + Momentum)
-If a stock safely lands in a bucket, it is then subjected to the Timing Gates:
-- **Baseline Fundamentals:** `FM_Score >= 55`, `Consistency_Score >= 15`, `Valuation_Score >= 5`.
-- **Momentum Strength:** `momentum_score >= 25` (Waiting for Momentum if < 25), `momentum_confidence != "LOW"`.
-- **Trend Confirmation:** `Close (cmp) > 200 SMA (sma) > 0`.
-
-By cleanly separating the Structural Quality (Gate 1) from the Tactical Entry (Gate 2), the system guarantees that every buy signal is both highly durable and actively trending.
-
----
-
-## 8. Daily Builder: Exchange Routing and Junk Filtration
-
-The Daily Builder script builds the primary watchlist universe by querying third-party fundamental data. It enforces the following core architectural rules:
-
-### 8.1 Cross-Exchange Deduplication
-- **Universal Capture:** To capture BSE-exclusive value opportunities, the TradingView query retrieves both `"NSE"` and `"BSE"` exchange data.
-- **De-duplication Policy:** To avoid duplicate processing of cross-listed companies, the raw scan must be sorted descending by `ticker` (placing `"NSE:"` above `"BSE:"`) and deduplicated on the `name` column using a `"first"` match constraint. This guarantees a clean, single-record representation per ticker, preferring the liquid NSE listings where available.
-
-### 8.2 Promoter Holdings & Market Cap Gates
-- **Shell Prevention:** To block shell companies with artificial capital metrics, the system filters out companies whose promoter-backed market cap is below `MIN_PROMOTER_MCAP` (₹500 Cr).
-- **Float-Based Calculation:** Since direct promoter holdings percentages are prone to missing API data, the builder computes the promoter holdings ratio via shares outstanding:
-  $$\text{Promoter MCAP} = \frac{\text{Total Shares Outstanding} - \text{Float Shares Outstanding}}{\text{Total Shares Outstanding}} \times \text{Market Capitalization}$$
-- **Mandatory Validation:** The calculated Promoter MCAP must be actively compared against `MIN_PROMOTER_MCAP` in both financial and non-financial pipelines. Any stock failing this check must be skipped.
-
-### 8.3 Transient Database Lag Resilience
-- **Soft Evaluation vs. Hard Skips:** Transient quarterly database lags (missing QoQ sales/profit growth fields) must never lead to a hard exclusion at the classification gate.
-- **Scoring Penalization:** The stock should be allowed to proceed through classification (subject to standard annual criteria), but receives zero points in the scoring engine for the missing parameters. This automatically lowers its rank on the leaderboard while preventing system blindness.
-
----
-
-## 9. Database & Persistence Principles
-
-### Generic DataFrame to Table (`save_df_to_table`)
-When using `database.py:save_df_to_table()` to persist a daily snapshot (like `daily_watchlist`) where the primary key is just the symbol (e.g. `PRIMARY KEY ("Stock")`), it attempts to clean up the table by deleting rows older than today.
-
-**CRITICAL LESSON:** Always guard against orphaned `NULL` values when performing time-series cleanups on snapshot tables.
-- **The Bug:** `DELETE FROM table WHERE "Date" < 'today'` will silently skip any rows where `Date` is `NULL`. When the script then attempts to `INSERT` today's fresh data for a stock that was orphaned, it will hit a `UniqueViolation` on the primary key and crash the pipeline.
-- **The Fix:** The cleanup logic must explicitly target `IS NULL`. The correct purge sequence is:
-  `DELETE FROM table WHERE "Date" IS NULL OR "Date" < today_str`
-
-### Multi-TF Pipeline: State Transition Context Clearing
-When Phase A evaluates the hourly timeframe and assigns a stock the `HOURLY_APPROVED` status, it must explicitly clear any lingering state attributes (`expires_at`, `invalidated_at`, `cooldown_until`) from previous sessions.
-- **The Bug:** The DB `upsert_breakout_watchlist` uses `COALESCE(EXCLUDED.invalidated_at, breakout_watchlist.invalidated_at)` to protect existing state during minor updates. If Phase A doesn't explicitly wipe these fields, the DB preserves yesterday's `invalidated_at`. Phase B will then silently drop the stock on the next query because `invalidated_at > NOW()` evaluates to False.
-- **The Fix:** Phase A must pass `clear_context=True, force=True`, and the underlying database logic must execute an explicit `UPDATE SET invalidated_at = NULL, cooldown_until = NULL` before proceeding with the `ON CONFLICT DO UPDATE`.
-
-### Multi-TF Pipeline: Session Transition State Resets and Expiry Mechanics
-To prevent false positive buy alerts during the volatile market-open period, the system enforces a strict end-of-session state reset and expiration sweeper (`sweep_stale_breakout_watchlist`):
-
-- **End-of-Session Resets (Resetting Intraday Triggers):**
-  At the end of the day, any setups that were in `BREAKOUT_CONFIRMED` or `ENTRY_READY` but didn't trigger an active trade are updated:
-  * `current_state` is set back to `SETUP_ARMED`.
-  * `m15_status` and `m5_status` are set back to `PENDING`.
-  
-  *Rationale:* If setups stayed as `ENTRY_READY` overnight, they would bypass the 15-minute micro-alignment check (Phase C) on the following morning. During the market open, the 5m trigger (Phase D) would compare the opening 5-minute candle against the 3:25 PM candle from yesterday. Because opening volume and price movements are anomalously high, the system would immediately trigger a false positive "thrust" breakout on normal opening volatility. Resetting forces the stock to re-verify its 15m trend alignment and coiling proximity today before it is allowed to trade.
-
-- **Intraday Expirations:**
-  During active market hours, all new `HOURLY_APPROVED` setups have their database `expires_at` timestamp set to today's market close (**15:30 IST**). Once the session ends, the background sweeper marks these expired setups as `FAILED` (invalidated), clearing them from the active list. For post-market diagnostics or manual testing after 15:30 IST, setups are written with a short 15-minute TTL (`expires_at = now + 15 minutes`) before being swept to `FAILED`.
-
-
----
-
-## 10. Promoter Pledge Data Handling & Null Safety
-
+### 1.1 Architecture Mermaid Diagram
 ```mermaid
-sequenceDiagram
-    participant WebServer as Flask Web Server
-    participant DB as Postgres Database
-    participant Scraper as Pledge Worker Daemon
-    participant NSE as NSE Website (Constituents)
-
-    Note over Scraper: Background Loop Starts
-    Scraper->>NSE: Fetch Nifty constituents (Cached 1 day)
-    Scraper->>DB: Build target Watchlist + Excluded universe
-    Scraper->>DB: Query cached pledge records
-    Scraper->>DB: Write progress to scanner_health table (non-blocking)
-    
-    Note over WebServer: Admin Clicks Refresh
-    WebServer->>DB: Query scanner_health status row
-    alt Health row empty
-        WebServer->>DB: Quick dynamic count fallback (<2ms)
+flowchart TD
+    subgraph Schedulers [Orchestration Layer - main.py]
+        A1[Multi-TF Watchdog]
+        A2[EOD Scheduler]
+        A3[Reversal Scheduler]
+        A4[Wealth Engine Scheduler]
     end
-    WebServer-->>Dashboard: Return JSON progress metrics
+
+    subgraph Core [Data & Caching Layer]
+        B1[Data Provider Factory]
+        B2[Price Cache .parquet]
+        B3[Validation Engine V8]
+    end
+
+    subgraph Scanners [Algorithm Layer]
+        C1[multi_tf_scanner.py]
+        C2[eod_scanner.py]
+        C3[reversal_scanner.py]
+        C4[wealth_engine.py]
+        C5[multibagger_pipeline.py]
+    end
+
+    subgraph Risk [Execution & Risk Layer]
+        D1[sl_target_helper.py]
+        D2[breakout_engine.py]
+        D3[performance_tracker.py]
+    end
+
+    subgraph Persistence [Database Layer]
+        E1[(alerts.db SQLite)]
+    end
+
+    subgraph Web [Presentation Layer]
+        F1[dashboard_server.py Flask]
+    end
+
+    Schedulers -->|Triggers| Scanners
+    Scanners -->|Fetches Data| Core
+    Core -->|Validates API Data| Scanners
+    Scanners -->|Applies Logic| Risk
+    Risk -->|Persists Signals| Persistence
+    Persistence -->|Serves UI| Web
 ```
 
-### 10.1 Sentinel Handling and Null Propagation
-- **DB Sentinel Representation:** The pledge scraper (`pledge_worker.py`) stores a sentinel value of `-1.0` in `promoter_pledge_cache` to indicate a fetch failure (such as a 404 error, missing pledge page text, or API timeout) and sets a 7-day retry cooldown.
-- **Null Safety in Scrapers:** The fetcher (`fetch_promoter_pledge()`) must map this `-1.0` sentinel as well as any missing DB cache records to Python's `None` (representing an unknown/unverified state) instead of defaulting to `0.0` (which is a perfect score of no pledge).
-- **Quality Gate Tolerance (No-Data Bypass):** Downstream scanners and kill gates (e.g., Multibagger Quality Gate checking `pledge > 0.20` and core `Kill Gates` checking `pledge > 0.50`) must explicitly allow `None`/`NaN` to pass the gate. They must **not** fail the gate on missing data to prevent temporary scraper/network errors from hard-excluding healthy stocks (preventing high false-negative exclusion rates).
-- **No Score Advantage:** Although missing data passes the gate, it must not be treated as a `0%` pledge in any scoring evaluations (e.g., in `wealth_engine.py` scoring). Since it is `None`, it is excluded from receiving the score bonuses that are strictly reserved for verified `0%` pledge holdings (which receive a `+10` points bonus).
-
-### 10.2 Non-Blocking Progress Metrics & Attempt Tracking
-- **Progress Tracking Column:** The `promoter_pledge_cache` database table contains a `last_attempted_at` timestamp column. Every time the worker processes a stock (whether the scrape succeeds, returns missing/404, or hard-fails), it sets `last_attempted_at = NOW()`.
-- **Cumulative Processed Progress:** The progress metrics display the **cumulative processed counts** (already up-to-date from previous days + today's processed) against the **total combined universe size** (watchlist + excluded + constituents). For example, it starts around `1126 / 1181` and increments to `1181 / 1181` on success.
-- **Non-Blocking Status Dashboard Refresh:** To prevent the web server dashboard status API `/api/scanner_status` from freezing when querying progress metrics, all slow external network dependencies (such as downloading index constituents from the NSE website) are kept out of the web server request thread.
-- **Delegated Metric Updates:** The background `Pledge Worker` daemon compiles the stale universe and writes its own live progress counts (`today_alerts` representing processed today, and `total_count` representing total eligible today) directly to the `scanner_health` database table.
-- **Database-Driven Fallback:** If the database health columns are empty/null (e.g., on first boot before the loop updates), the dashboard status API dynamically queries the database tables (`daily_watchlist` and `daily_excluded_watchlist`) directly to reconstruct the universe and calculate the cumulative status metrics in less than 2ms.
-- **Constituents Caching:** To prevent overloading the NSE site, the constituents list is cached in memory for the current calendar day (fetched at most once per day). Subsequent loops reuse the cache instantly (0ms with no network calls).
+### 1.2 Startup Sequence (`main.py`)
+1. **Boot Checks**: Invokes `diagnostics.py` to assert memory limits, filesystem writable paths, and `schedule` package versions.
+2. **Database Cleanups**: Invokes `_cleanup_old_scanner_names()` to strip dead thread records from `scanner_health` ensuring a clean state.
+3. **Daemon Subprocesses**: Spawns multiple `threading.Thread` instances wrapped in a `restartable_thread_wrapper`:
+   - `run_dashboard()`: Binds the Flask server to port 5000.
+   - `performance_tracker`: Constantly updates historical alert hit/miss states.
+   - `ai_worker_daemon`: Parses earnings transcripts asynchronously.
+   - `live_scanner_thread`: Controls Intraday (Multi-TF).
+4. **Cron Scheduler**: Blocks the main thread with `schedule.run_pending()` to fire off EOD, Reversal, and Wealth Engine at 21:00 IST daily.
+5. **Fault Recovery**: If any background thread crashes, the `restartable_thread_wrapper` sleeps for 60 seconds and respawns it indefinitely, guaranteeing high availability.
 
 ---
 
-## 11. AI Worker Daemon & Manual Trigger Architecture
+## 2. Folder Structure & Module Responsibilities
 
-```mermaid
-graph TD
-    A[Background Daemon Schedule] -->|Check 7PM - 7AM IST| B{Lock Free?}
-    C[Admin Manual Trigger] -->|Click Scan| B
-    B -->|No| D[Reject Execution]
-    B -->|Yes| E[Acquire _scan_lock]
-    E -->|1. Read Transcripts| F[Analyze Concall]
-    F -->|2. Analysis Successful?| G{Success?}
-    G -->|Yes| H[Cache 60 Days]
-    G -->|No| I[Cache 1 Day retry]
-    H --> J[Release Lock]
-    I --> J
-```
+The codebase separates infrastructure, data ingestion, core engines, and specific scanners.
 
-### 11.1 Background Execution & Scheduling Window
-The `AI Worker` runs continuously as a background daemon thread (`run_worker_loop` under `RESTARTABLE_THREADS` in `main.py`). It is active during its designated scheduling window of **7 PM to 7 AM IST**, checking every 5 minutes for missing concall cache records and analyzing them.
+### 2.1 Root Application (`app/`)
+* **`main.py`**: The orchestrator, scheduler, and fault-recovery loop.
+* **`config.py`**: The centralized truth for all weights, scoring caps, and algorithm parameters.
+* **`database.py`**: Connection pool and SQLite schema manager for `alerts.db`.
+* **`dashboard_server.py`**: Flask frontend.
 
-### 11.2 Single-Scan Extraction & Thread Safety
-- **Core Scan Extraction:** The concall extraction logic is separated from the infinite loop into `run_ai_worker_scan_once()`.
-- **Manual Trigger:** The admin dashboard control endpoint is mapped to `"AI Worker"`, allowing administrators to manually trigger a single full scan cycle on-demand.
-- **Execution Lock:** To prevent manual scans from overlapping with background scheduled scans or causing API rate-limit starvation, a threading lock (`_scan_lock`) protects the execution. If a scan is already running, subsequent manual triggers are rejected immediately with a warning.
+### 2.2 Scanners (The Pipeline Implementations)
+* **`eod_scanner.py`**: Daily momentum breakouts (Runs at 21:00 IST).
+* **`reversal_scanner.py`**: Fallen angels / oversold structurally sound stocks.
+* **`multi_tf_scanner.py`**: Intraday precision entries using 1H/30m/15m/5m timeframes.
+* **`wealth_engine.py`**: Medium-term momentum on structurally sound companies crossing 200DMA.
+* **`multibagger.py`**: Deep-fundamental hold screening using the `app/core/` pipelines.
 
-### 11.3 Expiration and Retry Policy (Dynamic Caching)
-- **Successful Cache Expiration:** Valid AI concall analyses (not containing `"error"`) are cached with a **60-day expiration window** (approx. one earnings season). The worker checks Nifty/NSE for fresh transcripts once this window expires.
-- **Failed Cache Expiration (Negative Cache):** Any failed fetch or analysis (where the returned JSON contains an `"error"` field) is cached with a **1-day expiration window**. This prevents the worker from repeatedly querying failed stocks or consuming API quotas on the same day, while ensuring they are automatically retried on the next day's run.
+### 2.3 Data & Caching (`app/data_providers/` & Core)
+* **`data_provider.py`**: Routes API calls between Fyers and YFinance. Handles BSE mapping (`BSE_FALLBACK_MAPPING`).
+* **`price_cache.py`**: Delta-fetching cache stored in `.parquet` files. Checks first date to prevent infinite historical looping on IPOs.
+* **`fundamentals_cache.py`**: Disk-backed cache for financial metrics (ROE, ROCE, Debt/Equity).
+* **`data_quality.py`**: Detects anomalies like `MAX_HISTORY_SHRINK` to block corrupted data.
 
-### 11.4 Wealth Engine Scoring Integration
-- **Soft Integration & Graceful Failure:** If a symbol has no cached AI concall analysis or the cache query fails, the Wealth Engine defaults `AI_Confidence` to `0`. It does **not** reject or filter the stock, ensuring quantitative evaluation continues uninterrupted.
-- **Alpha Adjustments Rubric:** Under Gate 5 of the Wealth Engine scoring rubric:
-  - `AI_Confidence >= 7` adds a **`+15` points bonus** to the composite score.
-  - `AI_Confidence >= 4` adds a **`+5` points bonus** to the composite score.
-  - The final score is capped at `100`. High AI confidence directly increases the stock's visibility on the leaderboards.
+### 2.4 Modular Validation (`app/validation/`)
+* **`engine.py`**: The V8 Validation Engine that enforces strict dataset contracts before any scanner touches the data.
+* **`validators/`**: Dataset-specific rules (e.g., `bhavcopy_validator.py`, `price_validator.py`).
+* **`scoring/`**: Quality computation (e.g., deducting points for missing wicks, penalizing stale data).
 
----
+### 2.5 Core Evaluation Engines (`app/core/`)
+* **`multibagger_pipeline.py`**: Orchestrates sequential checks for long-term investments.
+* **`gate_engine.py`**: Hard fundamental filters (Debt, Pledges).
+* **`financial_strength_engine.py`**: Piotroski scores and ROE/ROCE gating.
+* **`valuation_engine.py`**: Graham Intrinsic Value and Discounted Cash Flows.
+* **`audit_engine.py`**: State persistence for point-in-time scoring audibility.
 
-## 12. Dynamic BSE Fallback Resolver
+### 2.6 Execution, Risk & Helpers
+* **`breakout_engine.py`**: Identifies specific candle setups (Gap-ups, Volume Climax, Tight Bases).
+* **`sl_target_helper.py`**: Institutional Support/Resistance cluster detection. Calculates Target 1, 2, 3 and Structural Stop Loss.
+* **`scoring_engine.py`**: Composite technical momentum scoring.
+* **`memory_profiler.py`**: Production telemetry tracking dataframe `id()` and RSS Delta / Rows metrics.
 
-```mermaid
-graph TD
-    A[Scanner/Performance Tracker] -->|Request Price Data| B(AutoSwitchingFetcher)
-    B -->|Check Fyers Auth| C{Token Valid?}
-    C -->|Yes| D[FyersFetcher]
-    C -->|No| E[YFinanceFetcher]
-    
-    D -->|Fetch Price| F{Fyers API Success?}
-    F -->|Yes| G[Return OHLCV]
-    F -->|No| E
-    
-    E -->|1. Fetch Batch .NS| H{All Symbols Returned?}
-    H -->|Yes| G
-    H -->|No| I[Identify Failed Tickers]
-    I -->|2. Batch Request .BO equivalents| J[BSE Fallback Fetch]
-    J --> G
-```
-
-### 12.1 BSE-Only Listings & Default Normalization
-- **Default Exchange Normalization:** The system default is to normalize raw symbol names to `.NS` (NSE) for fetching pricing/OHLCV data from Yahoo Finance.
-- **Dynamic Fallback:** To support BSE-exclusive listings (such as SME or recently listed companies like `NSDL`, `YASHHV`, `CIANAGRO` which do not trade on NSE), the data fetcher implements an automatic fallback mechanism.
-
-### 12.2 Single and Batch Resolver Policies
-- **Single Ticker Fallback:** For single-ticker OHLCV fetches (`get_ohlcv`) and quotes (`get_quote`), if the primary `.NS` fetch returns empty or fails, the fetcher immediately retries with the `.BO` (BSE) equivalent.
-- **Batch Deduplication & Single-BSE-Batch Query:** For batch queries (`get_batch_ohlcv`), symbols that fail to return data during the initial `.NS` batch call are collected and resolved in exactly **one single BSE batch query** (replacing the suffix with `.BO`). This avoids thundering rate-limit storms of individual single-symbol calls.
 
 ---
 
-## 13. Corporate Filings PDF Parsing & AES Decryption
+## 3. Data Ingestion, Validation & Caching (V8 Framework)
 
-### 13.1 Digitally Signed / Encrypted Documents
-- **Encryption Detection:** Corporate filings downloaded from NSE archives are frequently digitally signed or locked with certificate authorities using AES encryption algorithms.
-- **Standard Decryption Bypass:** The PDF text extractor (`pdf_parser.py`) checks `reader.is_encrypted`. If true, it automatically calls `reader.decrypt("")` to unlock standard digitally signed files with an empty password, allowing text extraction to proceed.
-- **AES Dependency:** AES-encrypted PDFs require `pycryptodome` to decrypt the streams in PyPDF2. This package must be explicitly listed in `requirements.txt` to prevent runtime `DependencyError` exceptions during scans.
+Data integrity is the foundation of the Elite Breakout System. The ingestion pipeline guarantees that corrupted or partial data from upstream providers (Fyers/YFinance) is rejected before any algorithmic evaluation occurs.
 
----
-
-## 14. Institutional & Insider Bulk Deal Detection
-
-To capture institutional momentum and corporate insider conviction, the system scans daily bulk and block deal logs. It translates high-impact buying activities into score enhancements across all scanning engines.
-
-### 14.1 Data Sources & Refresh Cadence
-The system fetches bulk and block deal sheets daily from the NSE Equities archives. Scrapes are initiated by the background scheduler during daily universe updates, and the results are cached case-insensitively in `data/fii_block_deals.json`.
-
-### 14.2 Normalization & Token Matching Heuristics
-Client names are standardized via a normalization pipeline:
-1. Standardizes name to uppercase, removing all punctuation and duplicate spaces.
-2. Expands abbreviations (e.g. `MF` -> `MUTUAL FUND`, `AMC` -> `ASSET MANAGEMENT COMPANY`).
-3. Strips corporate legal suffixes (e.g., `PRIVATE LIMITED`, `LTD`, `LTD`, `PLC`).
-
-Matching utilizes token set logic:
-* **FII & DII/Super-Investors:** Checked against token sets and shorthand aliases (such as `ADIA` or `SBIMF`) to avoid false-negatives due to variable phrasing.
-* **Promoters:** Identified via `PROMOTER` keywords or when the buyer name shares key tokens with the underlying ticker symbol (e.g., `ADANI` buying `ADANIENT`).
-
-### 14.3 Scoring Integration & Mode Mappings
-Scoring is processed via `compute_inst_bonus` under one of two operational modes:
-
-| Mode | Input | Output Range | Use Cases | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **Raw** | `symbol` only | `0` to `20` points | Wealth Engine, EOD `bonus_modifiers` | Returns the raw footprint scores. The final cap (100) is enforced downstream at the scanner execution level. |
-| **Capped** | `symbol` + `base_score` | `0` to `min(20, 100 - base)` | Reversal, Multi-TF, Multibagger | Calculates and returns a capped bonus based on the current base score to prevent score overflows. |
-
-#### Concrete Examples
-| Symbol | Footprints Detected | System | Base Score | Inst Bonus | Final Score |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **RELIANCE** | FII (NOMURA), DII (HDFC MF) | Breakout | 86 | 14 | 100 (Capped) |
-| **TATAPOWER** | Promoter only | Reversal | 72 | 6 | 78 (Uncapped) |
-| **SBIN** | FII, Promoter, DII | Breakout | 100 | 0 | 100 (Capped) |
-
----
-
-## 15. Web Dashboard UI Component Architecture & UX Controls
-
-To optimize administrative control and viewing layouts without layout shifting or page load freezes, the UI employs collapsible component panels and secure external link sandboxing.
-
-### 15.1 Collapsible Panel Architecture
-To manage large data volumes cleanly on single-page views, secondary components and auxiliary data cards (e.g. System Health, User Management, Multibagger Watchlist, and All Trades) are wrapped in collapsible container states.
-
-- **Header Controls:** Panels are headed by an interactive header block (`cursor: pointer`, styled with `var(--card2)` background).
-- **Icons & Animations:** Contain a right-aligned SVG chevron indicator. Toggling scales/rotates the chevron via CSS transitions (`transition: transform 0.2s`).
-- **State Behavior:**
-  - **Primary cards** (e.g., *All Trades*) start in an **expanded** state by default (`Click to collapse`) to show core features immediately.
-  - **Auxiliary panels** (e.g., *System Health* and *Multibagger Watchlist*) start in a **collapsed** state by default (`Click to expand` / `Click to load`) to minimize loading latency and screen clutter.
-
-### 15.2 Cross-Origin COOP Link Restrictions
-Browsers block tab reuse for cross-origin targets that serve strict security headers.
-
-- **The COOP Header:** TradingView servers respond with `Cross-Origin-Opener-Policy: same-origin-allow-popups`.
-- **Targeting Failures:** Because the target domain (`tradingview.com`) is cross-origin to the dashboard server, the browser isolates the target tab into a separate context group, severing the opener link.
-- **Strict Compliance:** Any named targets (like `target="tradingview_chart_window"`) are treated as `_blank`. As a standard, external links are explicitly formatted with `target="_blank"` and `rel="noopener noreferrer"` to prevent security vulnerability exploits (like reverse tabnabbing).
-
-## 16. Persistent BSE Fallback Mapping Architecture
-
-To support BSE-exclusive listings (such as SME or recently listed companies like `NSDL`, `YASHHV`, `CIANAGRO` which do not trade on NSE) without cluttering logs with redundant `Quote not found / possibly delisted` warnings, the system employs a persistent fallback mapping architecture.
-
-### 16.1 Mappings Schema & Storage
-* **File Location:** `data/bse_symbol_mappings.json`
-* **Format:** Standard JSON key-value dictionary, mapping the base alphabetical symbol to its verified Yahoo Finance BSE ticker format (e.g. `{"YASHHV": "YASHHV.BO"}`).
-
-### 16.2 Resolution & Fallback Flow
-1. **Cache Inspection:** During symbol normalization (`_normalize_symbol` in `app/data_provider.py`, `_symbol_to_yf` in `app/price_fetcher.py`, `app/live_prices.py`, etc.), the system loads the JSON cache. If the symbol (or its `.NS` version) exists in the cache, it routes directly to the mapped `.BO` target.
-2. **First-Time Try & Fallback:** If a symbol is not in the cache, the system attempts the default NSE fetch first. If the NSE query returns empty or raises an exception, the provider dynamically:
-   - Formulates the BSE equivalent (`.BO` suffix).
-   - Retries the download.
-   - If the BSE fallback succeeds, it dynamically registers the mapping by appending it to `data/bse_symbol_mappings.json`.
-3. **Efficiency gains:** Subsequent cycles immediately query the cached BSE ticker directly. No `.NS` query is ever attempted again, completely avoiding redundant rate limits, delay retries, and error logs.
-
-### 16.3 System-Wide Integration Points
-
-The BSE fallback mapping resolution is implemented in the following modules across the codebase:
-1. [app/price_provider.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/price_provider.py) (`PriceProvider.fetch_batch`): Tickers are mapped to their BSE counterparts prior to batch download, and keys are restored to original watchlist formats in outputs.
-2. [app/live_prices.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/live_prices.py) (`get_live_prices`): Normalizes tickers before routing them to Fyers or YFinance CMP quote fetches.
-3. [app/wealth_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/wealth_engine.py): Delegates current price fetching to the centralized `get_live_prices` engine, inheriting its automatic BSE resolution.
-4. [app/multibagger.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/multibagger.py) (`batch_download_market_data` & `fetch_ticker_fundamentals`): Integrates mappings lookup for price downloads and Piotroski scans. Writes new entries to the mappings database on successful fallback retrievals.
-5. [app/fundamentals_cache.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/fundamentals_cache.py) (`fetch_single_piotroski`): Checks the persistent mappings database before running Piotroski scores fetches and caches new entries dynamically.
-6. [app/valuation_utils.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/valuation_utils.py) (`extract_raw_metrics`): Verifies mappings before performing Graham-Intrinsic and DCF valuations.
-7. [app/dashboard_server.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/dashboard_server.py):
-   - **`/api/news/<symbol>`:** Looks up mappings to fetch news headlines matching the correct trading exchange.
-   - **`fetch_cmp` inside `api_breakout_watchlist`:** Uses mapped BSE targets to prevent dashboard charts and stats from loading stale values.
-
----
-
-## 17. Unified Market Data Fetching & NSE Surveillance Caching
-
-### 17.1 Centralized Fyers-First Data Routing
-To prevent redundant rate limiting and code duplication across the ecosystem, all data requests (Multibagger bulk downloads, Nifty Macro regimes, live Dashboard CMPs, and Wealth Engine pricing) are routed through a singular, factory-based `get_fetcher()` abstraction located in `data_provider.py`.
-- **Primary Source (Fyers):** If the Fyers API token is valid, data is streamed rapidly through `FyersFetcher`.
-- **Secondary Fallback (Yahoo Finance):** If Fyers is unauthenticated or fails, `AutoSwitchingFetcher` automatically degrades gracefully to `YFinanceFetcher`.
-- **Legacy Elimination:** The duplicate `price_fetcher.py` file has been completely removed to enforce this single point of routing truth.
-
-### 17.2 Surveillance Network Resilience
-- **Rapid Timeouts:** Background scanner dependencies (such as NSE ASM/GSM surveillance lists) operate with strict 5-second `curl_cffi` network timeouts, preventing temporary NSE website blocks from indefinitely locking the backend execution threads.
-- **Persistent JSON Fallback:** On successful surveillance fetches, the lists are saved to a local JSON cache (`data/surveillance_blacklist.json`). If the cloud server's IP is blocked by NSE during subsequent loops, the system automatically falls back to loading this local JSON file. This guarantees that background loops never fail completely and always operate with the most recently known valid blacklist.
-
-### 17.3 The Fetcher Fallback Contract & Drop-Out Protection
-- **Strict Return Schemas:** When batch fetching via `get_batch_ohlcv`, both `FyersFetcher` and `YFinanceFetcher` are bound by a strict contract: they **MUST** return a dictionary containing keys for *every* symbol requested, even if the value is `None`. 
-- **Preventing Silent Drops:** If a fetcher is rate-limited, blocked, or a circuit breaker trips, returning an empty `{}` would cause the upstream cache manager (`price_cache.py`) to bypass its fallback stale-cache injection, silently omitting all failed symbols from downstream engines like Wealth and Reversal (triggering "Incomplete Data" abortions). The strict contract guarantees the cache manager detects all missing data and activates the necessary fallbacks safely.
-
----
-
-## 18. Scanner Stop-Loss (SL) and Target (TGT) Architecture (Auditing & Logic)
-
-The system utilizes a centralized, mode-dispatching SL/Target engine (`sl_target_helper.py`) for all scanners except Multibagger. A core principle of this engine is the **Anti-Operator-Trap Design**: retail traders typically place stops exactly at swing lows, making them vulnerable to institutional stop-hunting wicks. To combat this, the system places SLs *below* the structural support zones with a dynamically calculated buffer.
-
-### 18.1 Core Anti-Trap Mechanics
-- **Dynamic Buffering:** SL is buffered by `max(mode_atr_fraction × ATR, mode_pct × price)`.
-- **ADX-Aware Scaling:** Trending stocks (ADX > 35) receive up to a 30% wider SL buffer. Deep trends experience deeper pullbacks, and this prevents premature stop-outs.
-- **Multi-Swing Clustering:** Scans the last 3 swing lows. If 2+ cluster within 1% of each other, the system anchors the SL to this clustered zone, as it represents significantly stronger institutional support.
-- **Target Capping:** Prevents unrealistic targets by hard-capping target extensions based on macro conditions.
-
-### Key V6.4 Features
-- **Structural Discovery:** Dynamically locates technical pillars (e.g., VWAP, Swing Low clusters, Fibonacci extensions) to anchor targets and stops, rather than blindly relying on static ATR offsets.
-- **Natural RR / Reward Potential Gates:** A trade must pass minimum Reward:Risk ratio gates before it is even saved. If the nearest structural resistance is too close to the entry price, the trade is rejected (e.g., `GATE_NATURAL_RR`).
-- **Target Capping by Regime:** To prevent unrealistic target projections during volatile or bearish markets, `target_1`, `target_2`, and `target_3` are strictly capped based on the current Macro Regime. Bear regimes constrain ATR projection, while Bull regimes allow targets to breathe.
-- **Multi-Target Scaling:** 
-  - **T1 (Primary):** Anchored to nearest structural resistance.
-  - **T2 (Secondary):** 1.5x Risk/ATR projection, capped by regime constraints.
-  - **T3 (Runner):** 3.0x Risk/ATR projection, capped by regime constraints.
-- **Exit Monitor Integration:** The Performance Tracker executes sequential partial exits (e.g., 25% at T1, 35% at T2, 40% at T3). It evaluates tick/bar data and can handle multiple target hits in a single massive candle seamlessly. Gap Downs below SL execute precisely at the Open price.
-
-#### 18.1.1 Dynamic Support Selection Cascade (For Stop-Loss Anchoring)
-Stop-Loss levels are **never hardcoded**. The system dynamically searches below the entry price for the strongest structural support using a strict priority cascade (`_pick_support`):
-1. **Swing Low Cluster:** (Strongest) Average of 2+ swing lows clustered within 1% of each other.
-2. **Pivot Swing Low:** The nearest true technical pivot low.
-3. **Pivot S1:** Standard floor pivot support.
-4. **Rolling Swing Low:** Local n-period rolling window low (fallback).
-5. **Pivot S2:** Deeper floor pivot support.
-*(If no structural support exists, it falls back to a strict minimum ATR distance).*
-
-#### 18.1.2 Dynamic Resistance Selection Cascade (For Target Anchoring)
-Breakout targets are **never hardcoded** multipliers. The system dynamically anchors T1 to the nearest logical structural resistance above the entry price using this priority cascade (`_pick_resistance`):
-1. **Pivot Swing High:** The nearest true technical pivot high.
-2. **Pivot R1:** Standard ceiling pivot resistance.
-3. **Bollinger Upper Band:** Volatility ceiling limit.
-4. **Rolling Swing High:** Local n-period rolling window high.
-5. **Pivot R2:** Deeper ceiling pivot resistance.
-*(If overhead resistance is too close, the target is artificially bumped to meet the minimum Risk-to-Reward ratio).*
-
-### 18.2 EOD Scanner (Daily Breakout)
-- **Trade Thesis:** Swing trade, holding days to weeks.
-- **Stop-Loss:** **Dynamic.** Anchored to the support identified by the *Support Selection Cascade*, then buffered by 0.75×ATR (or 0.75%). Capped at 3.0×ATR.
-- **Targets:**
-  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually Swing High or R1). Must meet a minimum **2.0:1** Risk-to-Reward (RR) ratio.
-  - **T2:** R2 or 3.5×RR (Disabled if RSI is Overbought).
-  - **T3:** 5.0×RR, activated only on strong confluence (Bullish MACD + ADX > 25) to hold for a parabolic run.
-- **Trailing Rule:** "Raise SL to breakeven after T1 is hit."
-
-### 18.3 Intraday Scanner (15m Momentum Scalp)
-- **Trade Thesis:** Early-momentum scalp, holding for the same day.
-- **Stop-Loss:** **Dynamic.** Priority 1: **VWAP-Anchored** (if VWAP falls between the entry price and the triggering candle's low). Priority 2: The triggering candle's own low + 0.5×ATR buffer. Priority 3: Fallback to the *Support Selection Cascade*.
-- **Targets:**
-  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually Session High, R1, or BB Upper Band). Must meet a min **1.5:1** RR.
-  - **T2:** R1 or 2.5×RR.
-  - **T3:** NONE (Intraday does not hold for extended targets).
-- **Trailing Rule:** "Hold position until SL or Target is hit."
-
-### 18.4 Multi-TF / LIVE_1H Scanner (Hourly Swing)
-- **Trade Thesis:** Hourly swing continuation, holding 1-5 days.
-- **Stop-Loss:** **Dynamic.** VWAP-anchored (if valid) OR anchored to the support identified by the *Support Selection Cascade* (usually last hourly swing low) + 0.5×ATR buffer.
-- **Targets:**
-  - **T1:** **Dynamic.** Anchored to the resistance identified by the *Resistance Selection Cascade* (usually R1 or Swing High). Must meet a min **2.0:1** RR.
-  - **T2:** R2 or 3.0×RR (Disabled if RSI is Overbought).
-  - **T3:** NONE.
-- **Trailing Rule:** "Trail SL to last hourly swing low after T1 is hit."
-
-### 18.5 Reversal Scanner (Counter-Trend Oversold)
-- **Trade Thesis:** Mean reversion bounce, holding days to weeks. (Volatility is extremely high).
-- **Stop-Loss:** **Dynamic.** Anchored to the recent oversold swing low (via *Support Selection Cascade*) with a **WIDE buffer** (1.0×ATR or 1.00%). The wide buffer is an absolute necessity because beaten-down stocks have massive daily ranges.
-- **Targets (Mean Reversion based, NOT resistance based):**
-  - **T1:** **Dynamic Mean.** Bollinger Mid-Band (BB_MID) or SMA50. These stocks have heavy overhead resistance, so the target is the magnetic mean, not a structural high. Min **2.0:1** RR.
-  - **T2:** SMA50 (if not T1) or R1 (further recovery).
-  - **T3:** R2, activated only on strong MACD + ADX > 20.
-- **Trailing Rule:** "Book 50% at T1 (EMA20). Trail remainder to breakeven."
-
-### 18.6 Multibagger Scanner (Value Investing)
-- **Routing:** Multibagger is part of the standard breakout ecosystem. Its alerts are routed to the `ALL_TRADES` table and appear on the Admin and User dashboards.
-- **Stop-Loss:** `0.0` (None). Multibagger operates on a long-term value accumulation thesis. Strict stop-losses are not applied, as price drops in fundamentally stellar, low-debt companies are treated as accumulating opportunities rather than invalidations.
-
-### 18.7 Wealth System / Dashboard (Separate Entity)
-- **Routing:** The Wealth System uses its own fundamental evaluation logic (the V5 pipeline). Its alerts ("New Wealth Buy Alert" / "Position Closed") are completely isolated from `ALL_TRADES` and live exclusively in the dedicated **Wealth Dashboard**. They do not show up in the standard admin/user tables.
-- **Targets:** Intrinsic Valuation targets. The system computes a `target_multiple` by averaging Graham Intrinsic Value and DCF models (factoring in Margin of Safety), establishing a fair-value exit horizon rather than a technical trading target.
-
----
-
-## 19. Price Cache Engine & Delta-Fetching Architecture
-
-To minimize network latency, avoid API rate limits, and enable ultra-fast background scanner loops, the Elite Breakout System implements a robust local disk-caching architecture (`app/price_cache.py`). This engine stores historical OHLCV data in highly compressed Parquet format within `data/history/<interval>/`.
-
-### 19.1 Delta vs. Full Fetching Logic
-The system intelligently decides what data to fetch to minimize network load. When a scanner requests data for a watchlist, the engine evaluates each ticker:
-1. **Cache Existence:** Does `data/history/<interval>/<symbol>.parquet` exist?
-   - If **NO**: Symbol is queued for a **FULL** fetch (e.g., download full 2 years of history).
-2. **Up-To-Date Check (`_is_cache_up_to_date`):** If the cache exists, the system compares the last timestamp against the current market timestamp.
-   - If the last timestamp is exactly the end of the previous trading day (or today's live close), the cache is marked as up to date.
-3. **Length Validation (`_is_cache_long_enough`):** Ensures the local cache contains enough historical bars to satisfy the current scanner's `period` requirement (e.g. 1 year vs 1 month).
-4. **Queue Assignment:**
-   - **Fully Up-To-Date & Long Enough:** Returns the cached DataFrame instantly without any network calls (`0 API hits`).
-   - **Long Enough, but Stale (e.g. missing today):** Queues symbol for a **DELTA** fetch. The system only downloads the missing bars (e.g. `start_date=Yesterday`, `end=Today`), and seamlessly concatenates them with the existing local cache.
-   - **Not Long Enough:** Even if up to date, if the scanner requires 2 years but the cache only has 1 month, it falls through and queues the symbol for a **FULL** fetch, overwriting the old short cache.
-
-### 19.2 Timezone Normalization Boundary
-Data providers (Fyers, Yahoo Finance) return timestamps in arbitrary and sometimes mixed timezones (UTC vs IST). The Price Cache Engine acts as the strict normalization boundary:
-- Before any concatenation occurs, all incoming dates and indices are strictly cast to `Asia/Kolkata` (IST).
-- Local cached data loaded from Parquet is also immediately localized to IST upon loading.
-- Deduplication is strictly enforced by `drop_duplicates(subset=['Datetime'], keep='last')` to ensure overlapping delta fetches do not create duplicate rows.
-
-### 19.3 Rate-Limit Fallbacks and Graceful Degradation
-- **Stale Fallback:** If a Delta or Full fetch fails (due to rate limiting or connection drop), the system automatically degrades gracefully by marking the existing local cache as `is_stale=True` and returning it to the scanner. This allows the scanner to continue running on yesterday's data instead of crashing completely.
-- **Error Tracking (`no_data_after_fetch`):** If a ticker is requested, lacks a valid local cache, and fails the fresh API fetch, it is explicitly excluded from the return dictionary and flagged as `no_data_after_fetch` in the tracking database to alert administrators.
-
----
-
-## 20. Institutional Risk Engine v2.0
-
-The `sl_target_helper.py` acts as the core engine determining Stop Losses, Target exits, and Position Sizing. In v2.0, the codebase shifted from simple technical scripts to an Object-Oriented Adapter Pattern enforcing quantitative institutional mechanics.
-
-### 20.1 Architecture and Adapter Pattern
-Instead of hardcoded functions per scanner, all risk math is centralized in `BaseRiskEngine`. The scanner engines (`BreakoutAdapter`, `ReversalAdapter`, `IntradayAdapter`, `HourlyAdapter`) inherit from this class to inject scanner-specific behaviors like **Time Stops** and **Historical Base Rates (Win Rate & Average RR)**.
-
-### 20.2 Sub-Engines and Independence
-The engine is broken down into sub-components to prevent Trade Quality from inappropriately skewing physical Stop Loss geometry:
-- **Trade Quality Engine:** Scored via ADX (Trend) and RSI (Momentum).
-- **Support Confidence Engine:** Scores the validity of the support anchor by assessing its proximity to moving averages, age, and volume.
-- **Volatility Regime Engine:** Classifies the current environment as `HIGH`, `NORMAL`, or `LOW` based on ATR percentiles.
-
-### 20.3 Pre-Production and Risk Limits
-The system enforces several strict institutional risk guards before returning metrics:
-- **Target Clustering:** Instead of just outputting `min(swing_high, 2*RR)`, targets are formed by a weighted consensus map comprising Fibonacci extensions, measured moves, VWAP, ATR projections, and Pivot Rs. The weights automatically normalize to sum to 100%.
-- **Kelly Risk Capping:** Position sizing is scaled by a fraction of the Kelly Criterion dictated by Trade Quality. However, a strict ceiling `MAX_RISK_LIMIT = 2.0%` enforces that no individual trade exposes more than 2% account equity, overriding aggressive Kelly suggestions.
-- **Diagnostics and Explainability:** The system logs an internal payload of `warnings` (e.g. *"Target very close to resistance"*) and a deep `diagnostics` footprint revealing the source of the support, the source of the target, and the underlying mathematical components driving the Stop-Loss geometry.
-
----
-
-## 21. Multi-Target Portfolio Extensibility
-
-The system supports a robust multi-target matrix (T1, T2, T3) instead of a monolithic single target logic.
-
-### 21.1 Tiered Exit Strategies
-All alert tables and database schemas natively record `target_1`, `target_2`, and `target_3`. The `sl_target_helper.py` engine computes these dynamically via cascading R:R (Risk-to-Reward) ratios and technical structural caps. This unlocks partial-booking capabilities for portfolio engines.
-
-### 21.2 Off-Market Performance Optimization
-To prevent API rate limit abuse and protect `current_price` metrics during off-market hours, `performance_tracker.py` uses dual-mode initialization:
-- **Active Market (`is_market_open() == True`):** Fetches real-time prices via the central data routing layer.
-- **Closed Market:** Aborts real-time fetching and preserves the last-known `current_price` cached in the database, preventing P&L column obliteration during off-hours.
-- **Admin Overrides (`force_live_fetch=True`):** Authorized manual triggers (via the Scanner Health grid) bypass the off-market gate to perform single-shot data recalibrations.
-
-### 21.3 Universal UI Sorting (Data-Agnostic)
-The web interface standardizes all `<table>` elements with a frontend DOM-based sorting algorithm (`table_sorter.js`). The script auto-detects column data types (Currency, Percentages, Dates, Strings) via Regex parsing. This decouples the backend logic from presentation requirements, ensuring tables can be sorted dynamically without issuing database `ORDER BY` API calls.
-
-### 21.4 Trade Lifecycle State Machine & Allowed Statuses
-To support partial profit-booking and risk management, trade outcomes transition dynamically through the following status states inside `performance_tracker.py` and `database.py`:
-- **`OPEN`**: Default status when an alert is first created and active.
-- **`PARTIAL_WIN_1`**: Triggered when the price hits the first target (`target_1`). 25% of the position is closed, and the stop-loss is raised to the entry price (breakeven).
-- **`PARTIAL_WIN_2`**: Triggered when the price hits the second target (`target_2`) from `PARTIAL_WIN_1`. 35% of the position is closed, and the stop-loss is raised to `target_1`.
-- **`WIN`**: Final state when either:
-  1. The final target (`target_3`) is hit.
-  2. The trailing stop-loss is hit on a position that has already booked a partial profit (i.e., status was `PARTIAL_WIN_1` or `PARTIAL_WIN_2`).
-- **`LOSS`**: Final state when the stop-loss is hit on a position that is still in `OPEN` status (no partial profit has been booked).
-- **`NEUTRAL`**: A custom final state manually assigned by the administrator through the dashboard manual judgement option.
-- **`CLOSED`**: Final fallback state representing a closed position.
-
----
-
-## 22. Scanner Concurrency & Performance Rebuild Locks
-
-### 22.1 The Asynchronous Debounced Rebuild Strategy
-- **The Bug:** Originally, `build_performance_data()` was called as a post-scan hook by every scanner and every alert action (accept, reject, reallocate). When decoupled to rely *only* on a 5-minute background loop, this caused a significant UI lag where newly generated scanner signals or manual action updates would not reflect on the "All Trades" dashboard table until the next scheduler cycle (taking up to 5 minutes).
-- **The Fix:** Implement `trigger_performance_rebuild()` using a dedicated `_perf_rebuild_lock` with `blocking=False` in an asynchronous thread. When EOD/scanners complete or alert actions are clicked, they invoke this function. The thread exits immediately (no-op) if a rebuild is already running, completely eliminating rebuild storms. If idle, it acquires the lock, waits to serialize safely with active scanners on `main.scanner_execution_lock`, and executes `build_performance_data()`. This updates the UI within seconds of changes while keeping the request/main thread completely responsive.
-
-### 22.2 Lock Decoupling for Live Updates
-- **The Bug:** Originally, the background rebuild thread (`trigger_performance_rebuild`) blockingly waited on `main.scanner_execution_lock`. Because scanners can run for several minutes (fetching data and running filters), the performance data build was delayed. Newly generated scanner signals or manual actions (accept/reject) would not update the dashboard until the entire scan completed.
-- **The Fix:** The `scanner_execution_lock` check was removed from the performance rebuild process. Since database transactions are safe (Postgres row-level locks) and API rate limits are governed globally by `yf_rate_limiter.py` (which uses a concurrent semaphore of 6 and a minimum interval of 1.25s), the performance rebuild thread can safely run concurrently with scanners. In addition, a `trigger_performance_rebuild()` call was wired directly into the alert insertion pipeline (`save_alert_if_new()`). This ensures that when a new alert is generated, the performance data is updated immediately, allowing the trade to show up on the dashboard "All Trades" table instantly when the user clicks the push notification.
-
----
-
-## 23. Bayesian ML Feedback Loop (Dynamic Weighting)
-
-### 23.1 The Train Partition Feedback Loop
-To adapt dynamically to evolving market cycles, the system implements a Bayesian Feedback Loop (`bayesian_updater.py`). The engine evaluates closed trades marked as `WIN` or `LOSS` strictly within the `TRAIN` partition of the `alerts` table. It computes a trailing win rate.
-
-### 23.2 Administrative Approval Gateway
-Rather than directly writing model parameter weights to production, the updater runs a simplified Bayesian shift calculation. If it detects a feature (such as `VOLUME_ZSCORE`) that is demonstrating higher predictive power in winning trades, it proposes a new model version (e.g. `v1` to `v2`) with adjusted feature weights. The proposed weights are written to the `bayesian_model_updates` table and queued for admin approval. Once approved via the Admin UI, the new weights are marked as `APPROVED` and are loaded dynamically by the `scoring_engine.py` using `get_latest_weights(regime)`.
-
----
-
-## 24. Sector Rotation Engine
-
-### 24.1 Relative Strength (RS) Scoring
-The Sector Rotation Engine (`sector_rotation.py`) computes the relative strength of sectors against the Nifty 50 benchmark (`^NSEI`). The sector returns are measured over a 20-day lookback window (`RS_LOOKBACK_DAYS`), and the momentum is measured over a 5-day window (`MOMENTUM_LOOKBACK_DAYS`).
-
-### 24.2 Sector Classifications & Multi-Mapping
-Sectors are classified into four quadrants:
-- **LEADING:** RS >= 1.0 and RS momentum >= 0 (Strong & Strengthening)
-- **IMPROVING:** RS < 1.0 and RS momentum >= 0 (Weak but Recovering)
-- **WEAKENING:** RS >= 1.0 and RS momentum < 0 (Strong but Fading)
-- **LAGGING:** RS < 1.0 and RS momentum < 0 (Weak & Weakening)
-
-The engine fetches ETF close prices in a single batch query to minimize network queries. Sector names returned by TradingView are translated to ETF tracker equivalents via `TV_SECTOR_TO_ROTATION`.
-
-### 24.3 Zero-Cost Scoring Bonuses
-Instead of loading sector data per stock inside the scanning loop, the rotation engine is run once at scanner boot to build a sector-to-RS map. Downstream, each stock retrieves its sector status instantly from memory. The score is modified according to the sector's classification:
-- **LEADING:** +4 points
-- **IMPROVING:** +2 points
-- **WEAKENING:** -2 points
-- **LAGGING:** -4 points
-
----
-
-## 25. Technical Indicators Engine
-
-### 25.1 Pivot Swing Point Detection
-Rather than using simple rolling min/max windows (which capture extreme points regardless of their technical significance), `technical_indicators.py` uses proper pivot swing point detection. It requires a bar's High/Low to be the extreme value in a left-right window (`pivot_n`) of:
-- EOD (`1d`): 5 bars
-- Hourly (`1h`): 4 bars
-- Intraday (`15m`): 3 bars
-
-### 25.2 Timeframe-Aware Support/Resistance Anchoring
-For intraday timeframes (15m/1h), pivot points (PP, S1-S3, R1-R3) are calculated from the previous day's OHLC data (using daily charts) instead of the previous intraday bar. This ensures supports and resistances represent standard floor pivots used by institutional traders.
-
-### 25.3 Advanced Metrics: OBV_TREND, BASE_WIDTH, VCP_TIGHTENING
-- **OBV_TREND:** Spanning a 50-bar rolling On-Balance Volume. A positive slope awards +1, indicating volume confirms price direction; a negative slope indicates distribution/divergence (-1).
-- **BASE_WIDTH:** Measures price consolidation tightness. Calculated as `(rolling_max_high_10 - rolling_min_low_10) / ATR`. Values `< 1.5` represent a tight base (consolidation breakout, +4 points), whereas values `> 3.0` represent volatile price action (-4 points).
-- **VCP_TIGHTENING:** True VCP is confirmed if the 20-day average ATR% is strictly lower than the 60-day average ATR%, indicating volatility contraction.
-
----
-
-## 26. Observability & System Logging
-
-### 26.1 Database Intercept Handler
-The logging framework (`db_logger.py`) installs a custom handler (`DatabaseLogHandler`) to intercept `ERROR` and `CRITICAL` logs. It automatically filters out noisy third-party libraries (e.g. `yfinance`, `urllib3`, `requests`, `httpx`). Valid application error logs are written directly to the `system_logs` table in Postgres, complete with standard traceback formatting.
-
-### 26.2 Unhandled Thread Exceptions
-The framework overrides `sys.excepthook` to capture uncaught application or background thread crashes. When triggered, it logs the traceback as a `CRITICAL` error to the database. These logs are exposed via `/api/system_logs` on the Admin dashboard.
-
----
-
-## 27. Security & Notification Flow
-
-### 27.1 Web Push Services
-The system supports standard Web Push Notifications (`push_service.py`) via the VAPID protocol. Users subscribe through the frontend dashboard, and subscriptions are persisted in the database. When a new alert is generated, `push_service.send_push_to_all()` issues a payload containing the stock symbol and entry price.
-
-### 27.2 Throttling and Eviction
-To prevent outage spam (e.g. Fyers token expiration causing background threads to fail and alert the admin every 5 minutes), push notifications are throttled using an in-memory cache for up to 1 hour (`_THROTTLE_SECONDS = 3600`). If a subscriber endpoint returns a `404` or `410` (unregistered/expired), the subscription is automatically evicted from the Postgres database.
-
----
-
-## 28. Production Stability & Performance Fixes (July 2026 Audit)
-
-### 28.1 Database Connection Pool Leak Prevention
-In `database.py:get_connection()`, a connection checkout operational exception triggered `p.putconn(conn, close=True)` inside `except` blocks but left the local variable `conn` truthy. The subsequent `finally` block executed `p.putconn(conn)` on the same closed/invalid connection, triggering a `PoolError` and corrupting the threaded connection pool's allocation tracking. The fix sets `conn = None` immediately after the first checkout release in the error handlers.
-
-### 28.2 N+1 Query Elimination in Background Pledge Worker
-The `pledge_worker.py` daemon was executing an EMR/scanned symbol loop on every iteration (1,100+ tickers), querying the database one-by-one to evaluate cache expiration. This created heavy connection contention and CPU utilization. It has been optimized to a single batch lookup using `symbol = ANY(%s)` in a single database round-trip.
-
-### 28.3 Infinite Watchdog Revival Loop
-When environments lacked `SCRAPERAPI_KEY`, the pledge worker thread logged the error and exited. However, the watchdog script `main.py` revived any crashed thread registered in the restartable mappings, leading to a CPU-intensive infinite crash-and-restart loop every 10 seconds. The daemon was modified to pause/sleep and report a descriptive health error state instead of exiting when keys are missing.
-
-### 28.4 RangeIndex Date Coercion & VWAP Calculation Failures
-- **Nifty Drop Checks**: `pd.to_datetime(df_safe.index)` on default integer RangeIndex coerced indices into `1970-01-01`. This broke Nifty intraday return checks, rendering the Nifty macro regime gate inside `live_scanner.py` permanently inactive.
-- **Intraday VWAP resets**: The VWAP reset logic checked `hasattr(df.index, 'date')` to determine boundary crossings. On integer RangeIndex dataframes, this returned `False` and forced all calculations to fallback to cumulative EOD VWAP.
-- **The Fix**: Both subsystems now dynamically search for datetime-like columns (`Datetime`, `Date`, or `index`), set them as index bounds first, and perform datetime conversions on the localized index.
-
-### 28.5 Import Crashes and Timezone Checks
-- **Wealth Watchlist Trigger**: If the watchlist was missing, `wealth_engine.py` imported `build_watchlist` from `daily_builder.py`, which failed since the module's entry point is named `main`. Resolved by aliasing the import correctly.
-- **Timezone conversions**: Timezone checking inside `multibagger.py` checked `hasattr(df.index, 'tzinfo')`, which is absent on pandas indices. Refactored to inspect `isinstance(df.index, pd.DatetimeIndex)` and `df.index.tz` directly.
-
-### 28.6 Performance Tracker DatetimeIndex bugs
-- **RCA**: The performance tracker's method `_fetch_post_alert_bars` accessed `idx.tzinfo` on the dataframe's index to check for timezone status. In pandas, a `DatetimeIndex` does not possess a `.tzinfo` attribute (only `.tz`), raising an `AttributeError` which was caught by a generic handler, silently returning `None` and disabling outcome tracking. Furthermore, if a dataframe with a `DatetimeIndex` already set was passed as `prefetched_hist`, the column lookup discarded it.
-- **The Fix**: The check was changed to `idx.tz is None`. Added a type validation check `isinstance(hist.index, pd.DatetimeIndex)` as a fallback so pre-indexed datasets are preserved instead of discarded.
-
-### 28.7 PostgreSQL Status CHECK Constraint Violation
-- **RCA**: The `alerts` table has a CHECK constraint `chk_alerts_status` enforcing `status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED')`. When the performance tracker updated trades during partial limit hits (`update_partial_exit`), it tried to write `'PARTIAL_WIN_1'` or `'PARTIAL_WIN_2'`. This violated the check constraint, triggering a `CheckViolation` database error and aborting state transitions.
-- **The Fix**: The PostgreSQL initialization schema inside `database.py` was updated to explicitly allow all valid runtime status tags: `'OPEN'`, `'PARTIAL_WIN_1'`, `'PARTIAL_WIN_2'`, `'WIN'`, `'LOSS'`, `'CLOSED'`, and `'NEUTRAL'`.
-
-### 28.8 Database-Backed CMP Persistence for Breakout Alerts
-- **RCA**: When the market was closed or a live price fetch failed, the performance tracker had no way of retrieving the last known current market price (CMP) since the `alerts` table had no `current_price` column. It defaulted `t["current_price"]` to `None`, which overwrote previously saved prices in the dashboard's `performance_data.json` payload, rendering open trade returns as `--`.
-- **The Fix**: Addressed this by implementing the exact same database-backed CMP persistence pattern already standard in the Wealth System. Added a `current_price REAL` column to the `alerts` table, initialized it to `entry_price` on creation, and update it dynamically whenever fresh prices are successfully fetched. Off-market, the tracker loads and preserves the database-cached value.
-
-### 28.9 Misleading Entry Price Displayed as CMP + trigger_performance_rebuild Not Fetching Live Prices
-- **RCA (Misleading fallback)**: During the initial implementation of the `current_price` column, a fallback `else entry_price` was added when the DB column was `NULL`. This caused all existing (pre-migration) alerts and today's alerts (created before deployment) to show `CMP = entry_price` and `P&L = +0.00%`, which is misleading — it implies no price movement when in fact the live price was simply not yet recorded.
-- **Fix**: Removed the fallback. When `current_price` is `NULL` in the DB, it renders as `--` on the dashboard, which is honest and correct.
-- **RCA (No live fetch in auto-triggers)**: `trigger_performance_rebuild()` was calling `build_performance_data()` without `force_live_fetch=True`. This meant all accept/reject/refresh-triggered rebuilds skipped live price fetching and never saved fresh CMP to the database, even when admin manually triggered them.
-- **Fix**: Changed `trigger_performance_rebuild()` to always call `build_performance_data(force_live_fetch=True)`. This ensures every rebuild (auto or manual) fetches the latest price from Fyers/Yahoo and persists it to the `current_price` column in the `alerts` table. Bar history SL/target checks are also correctly triggered off-market, catching any missed SL/target hits from the trading day.
-
-### 28.10 Duplicate SL_HIT & The Full Replay Architecture
-
-**Severity: Critical — produced contradictory exit history and incorrect final P&L**
-
-#### Root Cause (Incremental Processing Failure)
-
-Previously, the `process_trade_history` state machine was incremental. When a trade hit `PARTIAL_WIN_2` (T1 and T2 hit, SL raised to T1 level), a subsequent run might re-apply that *raised* SL retroactively to ALL historical bars — including bars that occurred BEFORE T1/T2 were even hit. This caused false, retroactive Stop Loss events. A temporary fix attempted to skip bars before the `last_event_ts`, but this was brittle and prone to DB persistence failures.
-
-#### The Fix: Full Replay Architecture
-
-We completely overhauled the engine to use a robust **Full Replay** methodology, decoupling the persistent database state from the in-memory chronological state machine.
-
-**1. Clean State Initialization:**
-Whenever the tracker processes a trade, it forces the in-memory state back to `OPEN`, resets `remaining_shares`, and sets the `stop_loss` back to the original `initial_stop_loss`.
-
-**2. Chronological Forward Iteration:**
-It fetches *all* 5-minute bars strictly starting from the `alert_time` to the present moment, walking forward chronologically.
-
-**3. State Evolution & DB Deduplication:**
-As it walks forward:
-- If a target is hit (e.g., T1), it naturally raises the in-memory trailing SL for the *next* bars.
-- To prevent writing duplicate exit events to the database (and double-booking P&L), it checks the DB's `exit_history`. If `"T1_HIT"` is already in the database, it skips the DB write, but *still raises the in-memory SL* so the replay continues accurately.
-- This guarantees the exact sequence of events is always preserved perfectly, regardless of tracking interruptions.
-
-#### Admin Recalculation (Manual Fix Tool)
-To allow administrators to back-test, audit, or fix corrupted closed trades, we introduced a manual override.
-- An endpoint `/api/alert/recalculate` and a button on the dashboard allow an admin to force-reset any closed position.
-- This triggers `reset_alert_for_recalculation()` in the database, which physically deletes the trade's old `exit_history`, sets its status back to `OPEN`, and resets its SL.
-- It then instantly commands the performance tracker to rebuild the entire exit history from scratch using the Full Replay engine.
-
----
-
-## 19. SL_ENGINE_V7: The Multi-Target Architecture (Active Legacy Fallback)
-
-**Status: Production-Grade V1.5 Architecture (Operating in `v1.0` Fallback Mode)**
-
-To support massive scaling across dozens of scanners and to ensure determinism in position sizing, we overhauled the core pipeline. The most critical shift is that **the database is no longer used as a message queue**. Instead, candidates flow through an abstract in-memory interface, allowing the database to act purely as the source of truth for the *final state*. 
-
-> [!WARNING]
-> **Orphaned V2.0 Institutional Engine**: The codebase contains a highly advanced Object-Oriented "V2.0 Institutional Engine" (with Kelly fractions, Bayesian confidence scoring, and dynamic Volatility Regimes). However, none of the scanners currently invoke it. `compute_sl_and_target()` defaults to `engine_version="v1.0"`, forcing all scanners into the `_legacy_compute_sl_and_target()` function which executes the **SL_ENGINE_V7** described below.
-
-### 19.1 The V7 Target Engine (Dynamic Profit Taking & Structural Cascades)
-The SL_ENGINE no longer outputs a single `target_price`. It now outputs a three-stage cascade (`target_1`, `target_2`, `target_3`), mathematically anchored to structural resistance and capped by macro volatility.
-
-- **Dynamic Support Selection Cascade (Stop-Loss Anchoring):**
-  Searches below entry price for the strongest structural support using priority cascade:
-  1. `swing_low_cluster` (Average of 2+ swing lows clustered within 1%)
-  2. `swing_low` (True technical pivot low)
-  3. `s1` (Standard floor pivot)
-  4. `swing_low_raw` (Rolling window low fallback)
-  5. `s2` (Deeper floor pivot)
-
-- **Dynamic Resistance Selection Cascade (Target Anchoring):**
-  Anchors T1 to the nearest logical structural resistance above entry price:
-  1. `swing_high` (True technical pivot high)
-  2. `r1` (Standard ceiling pivot)
-  3. `bb_upper` (Volatility ceiling limit)
-  4. `swing_high_raw` (Rolling window high)
-  5. `r2` (Deeper ceiling pivot)
-
-- **Multi-Target Scaling:** 
-  - **T1 (Primary):** Anchored to nearest structural resistance via the cascade above.
-  - **T2 (Secondary):** 1.5x Risk/ATR projection, capped by regime constraints.
-  - **T3 (Runner):** 3.0x Risk/ATR projection, capped by regime constraints.
-
-- **Target Kill-Gates (NO_VALID_STRUCTURAL):** 
-  - If no valid structural support can be found below entry, the trade is rejected with `NO_VALID_STRUCTURAL_STOP`.
-  - If the natural RR to the nearest resistance is below the scanner's minimum threshold (e.g. 2.0x for EOD/Reversal), the trade is rejected with `NO_VALID_STRUCTURAL_TARGET`.
-
-#### Target Suppression (The "Missing T2/T3" Logic)
-The engine proactively suppresses secondary targets based on mathematically proven momentum exhaustion. When a target is suppressed, it is saved as `null` in the DB.
-1. **Missing T2:** If the stock is currently **Overbought** (RSI > 72), momentum is considered exhausted. `target_2` is forced to `null`, meaning the tracker will exit 100% of shares safely at T1.
-2. **Missing T3:** The runner target requires elite institutional momentum. If `MACD < 0`, or RSI is overbought, or `ADX < 25`, the `target_3` is forced to `null`. 
-3. **Reversals:** Mean-reversion trades are highly speculative. The reversal scanner hardcodes `target_3` to `null` so it never chases runners on failing stocks.
-
-### 19.2 The Hierarchical Separation of Concerns
-The pipeline is designed to be the universal standard for all strategies. **Currently, this full pipeline is ONLY implemented for the `MULTI_TF` scanner.** The `EOD` and `Reversal` scanners utilize the V7 Target Engine, but they bypass the Opportunity Manager and write directly to the database (legacy execution).
-
-Future roadmaps will unify all scanners to use this exact flow:
-```mermaid
-graph TD
-    A[Scanner Script] -->|Emits Candidates| B(CandidatePool Interface)
-    B --> C{OpportunityManager}
-    C -->|Batch Ranking| D[TradeRankingEngine]
-    D -->|Ranked Trades| E[PortfolioEngine]
-    E -->|Funded / Rejected| F[(PostgreSQL Alerts Table)]
-```
-
-### 19.3 The Opportunity Manager & Portfolio Engine
-
-#### 1. CandidatePoolService (The Abstract Buffer)
-- **V1.5 Implementation:** `InMemoryCandidatePool`. Scanners push candidates into this memory pool during their active run.
-- **Why?** It abstracts the storage. Tomorrow, this can be swapped with Redis, Kafka, or RabbitMQ without touching a single line of scanner logic.
-- **Rule:** Never use SQL `INSERT -> SELECT -> UPDATE` as a short-lived event bus.
-
-#### 2. TradeRankingEngine (The Deterministic Sorter)
-- **Problem:** Weighted composite scores (Technical 40%, Sector 20%) cause "score collisions" where fundamentally different trades look identical.
-- **Solution (Hierarchical Sorting):** Trades are sorted strictly by tiers.
-  1. Quality Gate (Must pass minimum thresholds)
-  2. Institutional Score (Follow the big money)
-  3. Technical/Trend Score (Pure momentum)
-  4. Reward Quality (Natural R:R Ratio)
-  5. **Tie Breaker (Freshness):** Time decay (0-30m) and price drift are used as multipliers to break ties, heavily favoring trades generated closer to the actual breakout threshold.
-
-#### 3. PortfolioEngine (The Capital Allocator)
-- Purely responsible for: *"Which of these ranked trades can we actually afford?"*
-- Implements institutional risk sizing: allocates a strict percentage of the portfolio's equity to each trade, bounding total exposure based on `max_open_risk` and `max_new_positions`. If out of money, trades are rejected.
-
-#### 4. OpportunityManager (The Orchestrator)
-- Pulls from the `CandidatePool`, calls `TradeRankingEngine`, passes the sorted list to `PortfolioEngine`, and coordinates the final write. It natively suppresses duplicate signals by checking `symbol` + `breakout_type` in memory.
-- **Crucial Rule (Negative Logging):** We persist NOT ONLY the `FUNDED` trades, but also `REJECTED_CAPITAL` (ran out of money) and `REJECTED_RANK` (poor setups). This prevents survivorship bias in backtesting.
-
-### 19.4 Exit Monitor Integration (Gap Handling & Multi-Targets)
-The `performance_tracker.py` is fully decoupled from the Scanners. It processes the V6 multi-targets flawlessly:
-- **Massive Gaps:** If a stock gaps UP past all three targets simultaneously, the state machine cascades through `T1_HIT`, `T2_HIT`, and `T3_HIT` on the exact same tick, logging all partial exits at the `open_p`. Gap Downs trigger SL exits instantly at the open.
-- **Missing Targets:** If `t2` or `t3` is `null` in the database, the monitor automatically forces a 100% `rem_shares` exit at the prior target, closing the trade cleanly as a `WIN` without leaving orphaned shares open in the database.
-
----
-
-## 29. Lessons Learnt & Future Development Guidelines
-
-### 29.1 The RangeIndex Pitfall in Pandas
-- **Rule**: When fetchers or data providers reset dataframe indexes (converting `Date`/`Datetime` to columns), never assume that `df.index` represents a datetime or contains timestamp attributes/methods.
-- **Guideline**: Always resolve the index dynamically by looking for date columns: `datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)`. If found, set it to the index before executing date-based groupbys, resamples, or filters.
-
-### 29.2 Thread Exits vs. Watchdog Lifecycles
-- **Rule**: If a daemon thread has a fatal configuration dependency (e.g. missing keys or credentials), it must not simply exit. Exiting triggers self-healing watchdogs to spawn a thread revival loop.
-- **Guideline**: Capture initialization errors, report the error description to the central dashboard health database (`upsert_scanner_health`), and put the thread to sleep for long intervals (e.g., 1 hour) instead of exiting the function.
-
-### 29.3 Batch Database Ingestion (Avoiding N+1 Loops)
-- **Rule**: Do not query the database within a loop iterating over watchlists or symbol universes.
-- **Guideline**: Rely on PostgreSQL array structures (`symbol = ANY(%s)`) or bulk `IN` statements to load all indices or records in a single query, followed by in-memory key indexing.
-
-### 29.4 LRU Cache Invalidation
-- **Rule**: If functions accessing database caches are decorated with `@lru_cache`, they will serve stale or missing entries forever if the database updates in the background.
-- **Guideline**: Clear the cache using `func.cache_clear()` at the start of any scanner execution cycle to ensure the database updates are correctly registered.
-
-### 29.5 Ghost PNL for Rejected Trades & Frontend Masking
-- **Rule**: Never mask or destructively alter core backend status enumerations (`OPEN`, `WIN`, `LOSS`) just to satisfy frontend filtering requirements (like hiding "Rejected" trades).
-- **Guideline**: The Performance Tracker requires the true historical state (`WIN` / `LOSS`) of every trade to accurately calculate the PNL of the alerting algorithm, even if the user manually rejected the trade. We enforce this by preserving the true `status` in the database, and using a separate boolean `is_rejected` column. The JSON API layer (`get_all_alerts`) handles the frontend masking on-the-fly by overwriting `status = "REJECTED"` only in the HTTP payload if `is_rejected` is true, keeping the database constraint and performance algorithms mathematically pure.
-
-### 29.6 Dynamic Timeout Threading in Rate-Limited Fetches
-- **Rule**: When using `ThreadPoolExecutor.as_completed(timeout=X)`, the timeout must NEVER be a hardcoded static value if the underlying tasks are rate-limited.
-- **Guideline**: Rate limiters (e.g., 1.5 requests/sec for Fyers) enforce a mathematical floor on execution time. If you batch fetch 750 symbols at 1.5/sec, it will take at least 500 seconds. A hardcoded 300s timeout will abruptly kill the batch exactly 300 seconds in (after 450 symbols), silently dropping data. Always compute timeouts dynamically based on the input size: `calc_timeout = max(300, len(symbols) * 2)` to guarantee safety buffers.
-
-### 29.7 Dashboard UI Flexbox Layouts vs Rigid Grids
-- **Rule**: Avoid rigid CSS Grids for highly dynamic data-dense KPI rows unless strict column wrapping is controlled via media queries.
-- **Guideline**: Use CSS Flexbox (`display: flex; flex-wrap: wrap; gap: 1rem`) for `.kpi-row` components. This prevents overlapping numbers and horizontal overflow cropping on mobile or split-screen views, allowing cards to naturally reflow.
-
-### 29.8 Timezone Boundary Leaks in 5m YFinance Pipelines
-- **Rule**: If the underlying fetcher drops timezone awareness, 5m intra-day bars will implicitly fallback to UTC, completely misaligning local market trading logic.
-- **Guideline**: Implement strict explicit normalization (`normalize_index`) immediately after dataframe initialization. Ensure `df.index` is actively localized to `Asia/Kolkata` before passing to any timeframe bounding logic or indicator applications.
-
-### 29.9 Intraday Candle Alignment & YFinance 15m Overlaps
-- **Rule**: Strict bar counts (e.g., expecting exactly three 5m bars inside a 15m block) will fail frequently due to provider anomalies or delayed ticks at the market open (e.g., 9:15).
-- **Guideline**: Always relax exact bounds to soft bounds. For instance, `len(seq) < 2` is a safer fallback than `len(seq) != 3`. This accommodates missing provider data while maintaining enough structural integrity to validate the pattern.
-
-### 29.10 Missing Target Handling in State Machines
-- **Rule**: When evaluating target progressions (e.g. T1 -> T2 -> T3), do not assume all targets will be populated. Different scanning timeframes (like MF/Multi-Timeframe) intentionally omit T3 to cap exposure.
-- **Guideline**: The state machine must elegantly fallback. If `T3` is null or missing when `T2` is hit, the engine must immediately liquidate the entire remaining position (`shares_to_sell = rem_shares`) rather than calculating a percentage exit and leaving stranded shares.
-
-### 29.11 Observability Blindspots in Exception Handlers
-- **Rule**: Catching exceptions to prevent crashes is necessary, but using bare `except Exception:` without logging tracebacks causes catastrophic losses of observability.
-- **Guideline**: If an exception is expected to happen and shouldn't crash the loop, ALWAYS use `logger.exception(f"Context msg: {e}")`. This ensures custom database logging handlers that rely on `sys.exc_info()` can correctly insert the full traceback into the `system_logs` table for admin debugging.
-
-### 29.12 Graceful Degradation in Date Parsing Fallbacks
-- **Rule**: When parsing dynamic database string values (like `alert_date`), failing to parse the date MUST fallback to the safest, most neutral value possible.
-- **Guideline**: In the `multibagger` auto-exit monitor, an unparseable date defaulted to `days_held = 999`. This erroneously triggered time-based holding decay exits, ruining the portfolio logic. Always use safe, non-triggering defaults (like `days_held = 0`) when date parsing exceptions occur, and log the failure.
-
-### 29.13 Pandas Timezone Comparison TypeErrors
-- **Rule**: You cannot filter a localized timezone-aware pandas index (e.g. `df.index`) using a timezone-naive datetime object (e.g. `block_start`). 
-- **Guideline**: Pandas will natively throw a silent `TypeError: Cannot compare tz-naive and tz-aware timestamps`. If the dataframe is localized to `Asia/Kolkata`, explicitly ensure the comparison variable is either localized or converted: `block_start = block_start.tz_localize(IST) if getattr(block_start, 'tzinfo', None) is None else block_start.tz_convert(IST)`.
-
-### 29.14 API JSON Parse Vulnerabilities
-- **Rule**: If a frontend-facing health API relies on database values formatted as JSON, it must gracefully catch JSON parse failures.
-- **Guideline**: In Railway or similar serverless containers, an uncaught exception in the `/health` check will cause the load balancer to forcefully restart the container. Wrap API JSON loading in `try/except as e:` and use `logger.warning()` rather than `logger.exception()` if it runs frequently, to prevent flooding the database `system_logs` with recurring errors.
----
-
-## 30. Incident Reports & Root Cause Analyses (RCA)
-
-### 30.1 Admin Dashboard Infinite Loading Freeze (July 2026)
-**Incident:** The Admin Dashboard continuously showed the loading overlay and failed to render, while backend server logs showed no crashes. EOD and Reversal scanners were incorrectly reported as not triggering.
-**Root Cause:** 
-- A closed trade in the database had a missing or zero cost basis, causing the backend performance tracking calculations to yield `NaN` (Not-a-Number) and `Infinity`.
-- The `performance_tracker.py` serialized these mathematical anomalies directly into the `performance_data.json` payload. While `math.isnan` was sanitized in an earlier patch, Python's `json.dumps()` still passed `float('inf')` as `Infinity`.
-- The browser-side JSON parser threw an uncaught `SyntaxError: Unexpected token I in JSON at position X` because `Infinity` is strictly invalid in JSON.
-- Because `await r.json()` was unhandled in the original JS, this caused a silent unhandled promise rejection that permanently froze the UI in a loading state.
-**Resolution & Architectural Rule:**
-- **Sanitization:** All JSON payloads transmitted to the frontend MUST sanitize ALL float anomalies. `performance_tracker.py` was updated to check both `math.isnan(obj)` and `math.isinf(obj)` and replace them with `0.0` or `null` before serialization. Additionally, a crash in the `_write_empty` fallback function was resolved.
-- **Frontend Fault Tolerance:** The frontend API fetch calls in `admin_dashboard.html` were wrapped in `try/catch` blocks using `await r.json()`. If parsing fails, the UI must gracefully degrade to a fallback state (e.g., "No alert history") rather than halting the entire dashboard execution thread.
-
-### 30.2 User and Wealth Dashboard Freeze (Pandas DataFrame JSON Serialization)
-**Incident:** The user and wealth dashboards suffered from incomplete or frozen loading states.
-**Root Cause:**
-- Similar to incident 30.1, the dashboards process large payloads of JSON data parsed natively in the browser via `await r.json()`.
-- The APIs returning this data (`/api/wealth`, `/api/shortlist`) utilized Pandas DataFrame's `.to_json(orient="records")` method and passed the output through `json.loads()` and `json.dumps()`.
-- Because Pandas converts missing values or anomalies to `NaN` or `Infinity`, and Python's native JSON library accepts these, the server payload was being sent with unquoted `NaN`/`Infinity` literals.
-- Browsers throw a strict `SyntaxError` on encountering these literals during JSON parsing, causing the frontend JavaScript loop to permanently crash and leaving the DOM in a perpetually frozen/loading state.
-**Resolution & Architectural Rule:**
-- **DataFrame Sanitization:** Never rely on native `df.to_json()` when streaming directly to web frontends if the data potentially contains float anomalies (like ratios, P/E, PEG).
-- Always convert to a dictionary `df.to_dict(orient="records")` and recursively sanitize all `math.isnan` and `math.isinf` values to `None` BEFORE invoking `jsonify` or `json.dumps()`.
-
-### 30.3 Background Thread Deletion & Schedule Desync
-**Incident:** Following a system orchestrator (`main.py`) refactor, essential background threads (like the Daily Builder and Staleness Watchdog) ceased executing on local deployments.
-**Root Cause:**
-- An automated patch inadvertently deleted the `run_system_scheduler` and `run_performance_tracker` functions from `main.py`, as well as removing them from the `RESTARTABLE_THREADS` orchestration dictionary.
-- Schedule labels in `admin_dashboard.html` became desynchronized from the actual `wait_for_window` constraints.
-**Resolution & Architectural Rule:**
-- The missing blocks were restored by directly extracting them from `main_origin.py`.
-- **UI Truth Sync:** The `scheduled_for` database string must perfectly mirror the backend chron constraint. EOD and Reversal schedule strings were corrected to `18:30 IST` and Multibagger to `Daily 19:00 IST` to prevent admin confusion regarding trigger times.
-- **Zero-Alert Silence:** Scanners are intentionally designed to succeed silently if 0 alerts are found (without Telegram spam). Admins must verify health via the "Scanners Health" dashboard pane, which necessitates that the dashboard UI remains highly fault-tolerant (see 30.1).
-
----
-
-## 31. Scanner Notifications & Admin Push Architecture
-
-The notification system uses `push_service.py` (`send_push_to_all`) to dispatch real-time web push notifications to the Admin Dashboard and subscribed devices.
-
-### 31.1 Notification States per Scanner
-
-To ensure administrators have complete observability without relying solely on Telegram, the system pushes notifications across three critical execution states:
-
-| Scanner | Success (Empty) / 0 Alerts | Success / >0 Alerts | Crash / Degraded |
-| :--- | :--- | :--- | :--- |
-| **EOD Scanner** | `send_push_to_all` triggered (Empty Watchlist or 0 breakouts). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on Exception (`DOWN`) or Stale Data (`DEGRADED`). |
-| **Reversal Scanner** | `send_push_to_all` triggered (Empty Watchlist or 0 reversals). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on Exception (`DOWN`) or Stale Data (`DEGRADED`). |
-| **Multibagger** | `send_push_to_all` triggered (0 qualified stocks). | `send_push_to_all` triggered with total alert count. | `send_push_to_all` on execution crash (`main.py`) or Incomplete Data (`DEGRADED`). |
-
-### 31.2 Throttle Bypass
-For automated background scanner tasks, the `bypass_throttle=True` flag is heavily utilized in `send_push_to_all` to guarantee the delivery of scanner completion states, bypassing the default anti-spam caching limits. This ensures that even if scanners finish closely together, notifications are reliably delivered to the Admin Dashboard.
-
----
-
-## 32. Rejected Trades Lifecycle & KPI Integrity
-
-The execution engine maintains rigorous boundaries between active monitoring and manually rejected stocks to prevent false PnL tracking and KPI pollution.
-
-### 32.1 The Rejection State
-- When an admin explicitly rejects an alert from the Dashboard (e.g., due to poor Natural RR or structural invalidation), the API updates the trade in the database by setting **`is_rejected = TRUE`** and hardcoding **`status = 'REJECTED'`**.
-- Rejected trades are immediately filtered out from the `performance_tracker.py` active tracking loop. This prevents the execution engine from erroneously monitoring the rejected stock's live ticks for Stop Loss or Target breaches.
-- Consequently, a rejected stock will **never** mutate into a `WIN` or `LOSS` state, ensuring zero impact on the system's global Win Rate or Average Return KPIs.
-
-### 32.2 KPI Scrubbing (Historical Cleanup)
-- In the event of a state misalignment (where a rejected trade incorrectly morphed into a `LOSS`), the `fix_rejected_status.py` cleanup script serves as a hard override. It retroactively scans for trades with `is_rejected = TRUE` and forcibly nullifies false PnL values while locking the state back to `REJECTED`.
-
----
-
-## 33. Scanner Locking & Queue Architecture
-
-To prevent rate-limit starvation and cross-thread data races, all primary execution pipelines are serialized using explicit threading or process locks.
-
-### 33.1 The Global Execution Lock (`scanner_execution_lock`)
-- **Shared Locking:** The system utilizes a global `threading.Lock` (`scanner_execution_lock` in `main.py`) which acts as a serialized gateway for EOD, Reversal, Multibagger, and all associated Admin Manual Triggers.
-- **The `QUEUED` State:** Whenever a scanner is invoked (either via its background schedule or a manual admin trigger), it first updates its status in the database to `QUEUED` with an explicit message (`Waiting for global execution lock...`). 
-- **Transition to `RUNNING`:** The scanner execution thread is then blocked from proceeding until the lock is freed. Only *after* the lock is successfully acquired will the database transition the state to `RUNNING`. This ensures the Admin Dashboard accurately reflects real-time lock-starvation without falsely implying a scanner is actively making API calls when it is actually blocked.
-
-### 33.2 Independent Process Locks (`_scan_lock`)
-- The **Multi-TF Scanner** and **AI Worker Daemon** operate using independent process/file-based locks (`ProcessLock` from `lock_utils.py` or internal module locks). 
-- **Isolation:** Because these background loops run on heavily staggered and independent timelines (Multi-TF every 5 minutes, AI Worker continuously overnight), they do not share the primary `scanner_execution_lock`. This prevents a long-running Multi-TF loop from indefinitely halting the critical EOD end-of-day execution sweep.
-
-## 34. NSE API Fetching, Rate Limiting & Admin Notifications
-
-Because the National Stock Exchange (NSE) employs a strict Cloudflare Web Application Firewall (WAF) to prevent aggressive automated scraping, all API requests targeted at `nseindia.com` must adhere to rigorous fetching protocols.
-
-### 34.1 The WAF Bypass Protocol
-- **Impersonation:** Standard `requests.Session` connections are immediately blocked with HTTP 403. The system explicitly requires `curl_cffi` using the `impersonate="chrome110"` flag to successfully mimic a valid browser fingerprint.
-- **Header Injection:** Valid `User-Agent` and `Referer: https://www.nseindia.com/` headers must be attached to the active `curl_cffi` session.
-- **Cookie Establishment:** Before fetching JSON payloads, PDFs, or CSV data, the session must execute a dry-run `GET` request to the NSE root homepage (`https://www.nseindia.com/`) to establish valid Cloudflare bypass cookies.
-
-### 34.2 Rate Limiting and Spaced Requests
-- To prevent IP bans from Cloudflare rate limits, explicit `time.sleep(2.5)` buffers are injected between sequential NSE endpoint queries.
-- For example, if the `block_deal_detector.py` fetches the historical block-deals CSV, it must sleep for 2.5 seconds before querying the snapshot bulk-deals CSV.
-
-### 34.3 Hard-Failure Alerting
-- **No Swallowed Errors:** If the retry loop is exhausted and the data remains un-fetchable, the fetcher will fire an explicit, high-priority **Telegram/Push notification** directly to the admin (e.g., `⚠️ NSE API ERROR: Bhavcopy fetch failed`). This ensures that the execution engine never degrades silently in the background without explicit admin awareness.
-
----
-
-## 35. Institutional Business Logic Refinements (v1.0)
-
-To resolve False Negatives without compromising institutional risk models, the execution engine was updated with three core algorithmic adjustments.
-
-### 35.1 Tight Stop Acceptance & Analytics
-- The Structural Stop logic in `sl_target_helper.py` no longer forcefully rejects stops tighter than the `MIN_STOP_PCT`. Instead, it accepts the strongest structural anchor and flags it as a `TIGHT_STRUCT_`.
-- Analytics metadata (`is_tight_stop`, `tight_stop_pct`, `min_stop_pct`) is actively exposed in the returned dictionary and explicitly logged for future Bayesian assessment of ultra-tight stop performance.
-
-### 35.2 Dynamic Gap-and-Go Penalty
-- The EOD Scanner no longer hard-rejects breakouts that close excessively far above the prior high (extended breakouts).
-- Instead, it assesses a dynamic score deduction within a `technical_penalties` framework: `penalty = min(GAP_AND_GO_MAX_PENALTY, (atr_extension - MAX_EXTENDED_BREAKOUT_ATR_MULT) * GAP_AND_GO_PENALTY_MULT)`.
-- This ensures that exceptional setups with massive fundamental/volume tailwinds can still clear the final threshold, while strictly punishing sub-par "chasers".
-
-### 35.3 Block Deal Bonus Baseline & Tracking
-- The Wealth Engine strictly mandates a minimum baseline (`Base FM_Score >= 50`) before allocating the +15 point Institutional Block Deal bonus. This prevents failing companies from clearing buy-gates solely off a single large order flow event.
-- For complete downstream transparency, the Wealth payload now retains `base_fm_score` and `inst_bonus_applied` alongside the final score. Additionally, the Risk Engine sets `position_capped = True` if tight volatility unexpectedly maxes out the allocation limit.
-
----
-
-## 36. SL/Target Engine v7 (Institutional Restructuring)
-
-### 36.1 7-Layer Pipeline Architecture
-To solve the false-positive target clustering and eliminate non-market synthetic levels (e.g. weighted averages), the `sl_target_helper.py` was completely refactored into a strict 7-layer pipeline:
-1. **Candidate Generator**: Lazy-evaluation of specific candidate targets (Resistance, Highs, Fibonacci 127/162/200, ABCD). Candidates are only generated if preconditions (like ADX > 30 and VWAP confirmation for FIB_200) are met.
-2. **Target Scorer**: Assigns institutional confidence weights based on current market regime and pattern strength, completely decoupled from candidate price generation.
-3. **Cluster Engine**: Groups candidates within a `0.5 ATR` or `0.75%` window and establishes a consensus price driven by structural priority (e.g., `EQUAL_HIGH > RESISTANCE > FIB`).
-4. **Round Number Engine**: Scans clusters, and if a consensus price is within `0.5%` of a major tick level (e.g. 50, 100, 500, 1000), it artificially pulls the target to the round number and awards an `+8` confidence boost.
-5. **Conflict Resolver**: Selects the optimal clusters based on scanner policy (`REGIME` for EOD, `CONFIDENCE` for Multi-TF, and `NEAREST` for Reversal).
-6. **Strategy Selector**: Routes the resolved clusters into exit tiers (T1/T2/T3) based on scanner-specific playbooks (e.g., Trend Extension for Multi-TF vs. Mean Reversion for Reversals).
-7. **Exit Policy**: Applies the final exit sizing weights (e.g., Aggressive: 20/30/50).
-
-### 36.2 Proper ABCD Alternating Pivot Validation
-The `ABCDDetector` no longer uses naive local rolling highs/lows. It iterates backwards through strictly alternating `SWING_LOW` and `SWING_HIGH` pivots provided by `technical_indicators.py`. A valid ABCD pattern requires the `BC_ratio` (retracement) to fall strictly between `38.2%` and `78.6%`. Only then is the `CD = AB` projection generated.
-
-### 36.3 Post-Trade Analytics Transparency
-The entire generated candidate pool (including all rejected targets, their generation source, cluster assignments, and final selection state) is passed to the Performance Tracker via the `sl_result` JSONB field. This creates a fully queryable post-trade diagnostic trail, allowing quantitative review of exactly why a specific target was chosen over another.
-
----
-
-## 37. System-Wide Integration Audit & Edge-Case Resolutions (v7 Final)
-
-Following the deployment of the V7 Engine, a full-stack integration audit was conducted to resolve critical logic gaps arising from system intersections (e.g. orchestration state, tracker state, and data staleness).
-
-### 37.1 Market Holiday Duplication Protection
-**The Problem**: The `main.py` scheduler paused execution natively on weekends, but not public holidays. During a holiday, `bhavcopy_downloader` failed to fetch data and fell back to the previous trading day's data. Since the daily EOD scanner had an `ALERT_COOLDOWN_MINUTES` of 390 minutes (6.5 hours), a Friday alert would re-trigger identically on a Monday holiday (72 hours later) because the data was technically valid under the 4-day long-weekend staleness rules.
-**The Solution**: The `ALERT_COOLDOWN_MINUTES` for both `EOD` and `REVERSAL` was extended to `5760` minutes (96 hours) in `config.py`. This ensures that even if a public holiday forces the scanner to evaluate stale data, it cannot re-issue the exact same breakout alert within a 4-day window.
-
-### 37.2 Structural Failure Early-Exit (Performance Tracker)
-**The Problem**: The V7 engine introduced `structural_failure_stop` as a tight early-exit level for setups that cleanly fail (preventing them from bleeding down to the wider protective stop loss). However, this level was only being captured in the database, and never evaluated by the `performance_tracker.py` forward-tick state machine.
-**The Solution**: Injected a `STRUCTURAL_FAIL` evaluation block into the tracker loop immediately following the primary intraday stop loss (`SL_HIT`) check. 
-- **Wick vs Close Validation**: The tracker explicitly processes `structural_failure_stop` on a *closing basis* (`close_p <= structural_failure_stop`), honoring the engine's design that structural levels require a confirmed close to be invalidated.
-- Conversely, the protective `stop_loss` remains a hard intraday stop evaluated against the tick's `Low`.
-
-### 37.3 Parallel Dispatch Orchestration
-To optimize wall-clock time, the orchestrator now executes `eod_scanner` and `reversal_scanner` as parallel thread dispatches immediately upon Bhavcopy readiness, rather than sequentially. Because the database engine uses SQLite WAL and explicit thread locks, the scanners can evaluate completely independent strategies concurrently without data races.
-
-### 37.4 Orphaned Structural Target Pipeline (sl_target_helper.py)
-**The Problem**: The V7 engine function `_compute_structural_failure_stop` was an orphaned function. It was defined but never actually invoked inside the core V7 execution pathways (`_compute_eod`, `_compute_reversal`, `_compute_multi_tf`). This meant that `structural_failure_stop` universally returned `None`, completely disabling the early-exit tracker feature.
-**The Solution**: Explicitly invoked the function within all three pipeline engines, resolving the required trailing inputs (e.g., `eff_atr` and `supports`), and injected the resolved price into the final output dictionary.
-
-### 37.5 Multi-TF Scanner Database Mapping Parity
-**The Problem**: During the initial V7 integration, the `eod_scanner` and `reversal_scanner` were correctly updated to capture the newly introduced `structural_failure_stop` and `target_quality_score` fields for database insertion. However, the `multi_tf_scanner` was bypassed, meaning intraday setups permanently lost this data.
-### 37.6 Orphaned Target Quality Pipeline
-**The Problem**: Similar to the structural failure stop logic, the V7 engine's explainable target quality score (`_compute_target_quality`) was implemented but remained uncalled inside the core execution branches (`_compute_multi_tf`, `_compute_eod`, `_compute_reversal`). Consequently, the trade ranking engine was operating blindly, as all scanners yielded a null score for target quality.
-**The Solution**: Appended the target quality computations to all three primary execution pathways inside `sl_target_helper.py`, passing the required trailing variables (RSI, ADX, MACD, Volume) and inserting the derived `tq_score` into the master output payloads.
-
-### 37.7 Opportunity Manager Database Payload Gap
-**The Problem**: The `multi_tf_scanner` operates on a delayed DB injection strategy via the `OpportunityManager`. While the scanner itself queued the new V7 DB fields (`structural_failure_stop` and `target_quality_score`) into memory, `opportunity_manager.py` was not extracting them during its iterative sweep over the memory-mapped candidates when invoking the DB layer (`save_alert_if_new`).
-**The Solution**: Patched the `OpportunityManager` to dynamically pull and append both DB parameters into the final `save_alert_if_new` commit step for `FUNDED` status alerts.
-### 37.8 Combined System Flow: Pledge Data Gap (Scoring Engine)
-**The Problem**: The `pledge_worker.py` correctly fetches and caches promoter pledge percentages into the `promoter_pledge_cache` table. The `multibagger.py` and `gate_engine.py` correctly use this data to disqualify stocks with >50% pledge. Additionally, the `bayesian_updater.py` explicitly defines a `PLEDGE_PENALTY` in `DEFAULT_WEIGHTS` for scoring. However, the `scoring_engine.py` (which powers the EOD, Multi-TF, and Reversal scanners) never queries the pledge cache or applies this penalty. Consequently, heavily pledged stocks can still achieve a >82 breakout score.
-**The Implication**: The Institutional footprint validation is partially blind to pledge risk in the technical scanners, completely bypassing the intended Bayesian penalty.
-
-### 37.9 Algorithm Version Bump
-**The Problem**: With the multiple patches applied during the V7 Final audit, historical trades generated by the original V7.0 logic were conceptually mixed with those generated under the patched engine.
-**The Solution**: The `ACTIVE_ALGO_VERSION` in `config.py` was officially bumped to `SL_ENGINE_V7.1` to enforce strict lineage boundaries for all forward-generated alerts.
-
-## 38. V8 Architecture Finalization & Reliability Upgrades (2026-07-19)
-
-### 38.1 Delivery Data Anomaly Handling (V8DeliveryValidator)
-- **Old Behavior**: The delivery data fetching blindly applied `.fillna(0.0)` for all missing delivery percentages. Furthermore, a strict 5% missing data threshold was applied globally, which frequently caused `TOO_MUCH_MISSING_DATA` validation failures because the NSE exchange intentionally leaves `DELIV_PER` blank for Trade-To-Trade (BE, BZ) and SME (SM) series.
-- **New Behavior**: The `V8DeliveryValidator` replaces the previous logic with a highly robust 7-stage pipeline. The validator is now **Column-and-Series-Aware**. It enforces the strict `< 5%` missing threshold *only* on standard Equities (`EQ` series), while intentionally preserving legitimate `NaN` values for `BE/BZ/SM` segments to prevent false data rejection.
-
-### 38.2 Institutional Deal Source Migration (WAF Bypass)
-- **Old Behavior**: Block and Bulk deals were fetched via `www.nseindia.com/api` endpoints. These JSON APIs were heavily throttled and frequently blocked by Akamai WAF rules, leading to 130s+ timeout hangs, fallback failures, and the ingestion of historical/stale block deals instead of strictly daily snapshots.
-- **New Behavior**: The Institutional Data module (`institutional_data.py`) has been fully migrated to fetch from the unmetered CSV mirrors at `nsearchives.nseindia.com`. The execution time has plummeted from ~134 seconds to under 2 seconds. The logic is strictly restricted to parsing yesterday's deals, stripping out historical noise and significantly improving the precision of the `inst_accumulation` category.
-
-### 38.3 Multi-Threaded Cache Deadlock Fixes
-- **Old Behavior**: The `delivery_data` cache lock (`_delivery_cache_lock`) used a standard `threading.Lock`. Because the `fetch_previous_day_delivery` function and the internal validators both attempted to acquire this lock in a nested/reentrant manner during the Daily Builder execution, the system occasionally hard-froze in a permanent deadlock.
-- **New Behavior**: The lock was swapped to `threading.RLock()` to safely permit reentrant locking by the same background worker thread, entirely eliminating the freezing behavior.
-
-### 38.4 Dashboard Queue State Self-Healing
-- **Old Behavior**: When an Admin triggered a scanner (like `DAILY_BUILDER` or `EOD`) from the Dashboard, the Postgres table `scanner_health` recorded its status as `QUEUED-X`. If the backend Railway container restarted (or a new code deploy occurred), the background execution threads were killed by the OS, but the Database retained the `QUEUED-X` string permanently. This created "ghost queues" on the Dashboard.
-- **New Behavior**: The backend boot routine (`_cleanup_old_scanner_names` in `main.py`) now intercepts and cleans up all stuck `QUEUED%` statuses on startup, resetting them to `IDLE`. The system now correctly self-heals after every deployment.
-
-### 38.5 Ephemeral Surveillance Cache Persistence (ASM/GSM Leak Fix)
-- **Old Behavior**: The `surveillance.py` module saved the fetched NSE ASM/GSM surveillance list exclusively to the local disk (`surveillance_blacklist.json`). On Railway (or any ephemeral container platform), this file was permanently wiped upon every code deployment or container restart. If the live NSE API subsequently blocked the fetch attempt (via Akamai rate-limiting), the system would fall back to an empty cache, completely failing to filter out toxic ASM/GSM stocks and erroneously leaking them into the watchlist.
-- **New Behavior**: The surveillance caching mechanism has been fully wired into the PostgreSQL `system_state` table. Fetched lists are instantly committed to the database (`save_system_state`), and the fallback logic natively restores from the database (`get_system_state`) instead of the local ephemeral file system. The surveillance guard (261+ stocks) is now guaranteed to survive all server restarts and deployments.
-
-## 39. V8 Data Pipeline Architecture Audit Findings (Pre-Refactor)
-
-An extensive 13-phase architectural audit was performed on the V8 data ingestion and validation framework (`data_quality.py`, `price_cache.py`, `data_provider.py`, `price_provider.py`). The audit identified three major areas of architectural drift and vulnerability that require remediation:
-
-### 39.1 Cache Shrink Protection Failure
-- **Finding**: The cache engine (`price_cache.py`) attempts to protect against data truncation by checking if `new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK)`. However, when this condition is met, the system only issues a `logger.warning` and proceeds to overwrite the healthy cache with the truncated dataset anyway.
-- **Vulnerability**: A bad API response that passes basic validation but returns 5 days of data instead of 5 years will permanently wipe out the historical cache for that symbol.
-
-### 39.2 Hardcoded Dataset Inflexibility
-- ~~**Finding**: The `DataQualityValidator` was intended to be a universal framework but evolved into a rigid Price-Only validator. It hardcodes `REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]`.~~
-- ~~**Vulnerability**: It is currently impossible to route non-OHLCV datasets (like Fundamentals, Bhavcopy, or Corporate Actions) through the standard validation pipeline. The system lacks a generic `BaseValidator` interface.~~
-- **[RESOLVED on 2026-07-19]**: The monolithic `DataQualityValidator` was deprecated and replaced with a dataset-aware `ValidationEngine`. `PriceValidator` now implements a `BaseValidator` interface, separating schema definition, business logic, and historical validation.
-
-### 39.3 Provider Fallback Bleed
-- **Finding**: NSE to BSE ticker fallback logic is heavily duplicated. Both the low-level adapter (`price_provider.py`) and the high-level fetcher (`data_provider.py`) attempt to handle missing `.NS` symbols by swapping to `.BO`, leading to tangled responsibilities and redundant database mapping updates.
-
-## 40. V8 Data Quality & Validation Engine
-
-### 40.1 System Invariant: Cache Protection
-**Healthy cache can never be overwritten by lower-quality data.**
-The V8 Data Quality Framework elevates data ingestion from a simple `df is not empty` check to a deterministic, lexicographical scoring pipeline. Incoming data is objectively evaluated and explicitly compared against the historical cache to protect the system from upstream provider anomalies (like Yahoo Finance BSE `.BO` truncations).
-
-### 40.2 ValidationEngine Framework (Updated 2026-07-19)
-~~All data ingested from `DataFetcher` subclasses must be validated by the `DataQualityValidator`, which computes an objective `QualityScore` (0-100)...~~
-*(Removed 2026-07-19: The monolithic DataQualityValidator was deprecated in favor of the decoupled ValidationEngine)*
-
-The new `ValidationEngine` explicitly orchestrates validation via a strict 4-stage lifecycle:
-1. **Schema Validation (`validate_schema`)**: Enforces required and optional column definitions.
-2. **Business Rules (`validate_business`)**: Validates domain logic (e.g., `High >= Low`).
-3. **Historical Context (`validate_historical`)**: Evaluates temporal continuity using the `ValidationContext`.
-4. **Scoring (`BaseScoreCalculator`)**: Executed **only** if stages 1-3 pass, assigning a 0-100 quality score based on `ValidationMetrics` (missing % penalty, staleness, etc.).
-
-All findings are packaged into an immutable `DataQualityReport` featuring explicit `schema_failures`, `business_failures`, and `historical_failures` to dramatically improve observability over the deprecated boolean `is_valid` flag. Downstream scanners are abstracted away from these structures and unpack the final `MarketData` wrapper directly.
-
-### 40.3 Cache Decision Engine Merge Policy
-The `price_cache.py` ingestion loop explicitly compares incoming data against the cache using a hierarchical formula:
-- `RemoteScore = QualityScore × SOURCE_RELIABILITY[source]`
-- `CacheScore = QualityScore × SOURCE_RELIABILITY["Cache"]`
-
-If the remote data is inferior, the system executes a **KEEP_CACHE** policy, preserving the local `.parquet` data and marking it as `is_stale`. This guarantees years of accumulated historical data are strictly immunized against sudden API failures or regressions (tracked via the `MAX_HISTORY_SHRINK` threshold).
-
-## 41. Elite Data Validation Framework (V1)
-
-### 41.1 Core Principle
-
-The parser converts bytes/JSON/CSV into a DataFrame or domain object. The validator determines whether it is trustworthy.
-
+### 3.1 Data Flow Diagram
 ```mermaid
 flowchart TD
-    A[External Source] --> B[Adapter / Parser]
-    B --> C[Validation Engine]
-    C --> D[MarketData Validated]
-    D --> E[Cache / Consumers]
+    API[External API - Fyers/NSE] --> Fetcher[data_provider.py]
+    Fetcher --> Fallback{Is .NS missing?}
+    Fallback -- Yes --> BSE[BSE_FALLBACK_MAPPING]
+    Fallback -- No --> Cache[price_cache.py]
+    BSE --> Cache
+    Cache --> Engine[Validation Engine V8]
+    Engine --> Validator[price_validator.py]
+    Validator --> Rules{Passes Contracts?}
+    Rules -- Yes --> Scanners[Algorithmic Scanners]
+    Rules -- No --> Quarantine[Quarantine / Log]
+    Rules -- Missing Days --> Delta[Trigger Delta Fetch]
 ```
 
-### Phase 1 – Inventory Every External Data Source
-Create a complete inventory before writing validators. Nothing enters the system until it's classified.
-
-| Dataset | Source | Format | Frequency | Criticality |
-|---|---|---|---|---|
-| Historical OHLC | Yahoo/Fyers | DataFrame | Daily/Intraday | Critical |
-| Bhavcopy | NSE | CSV | Daily | Critical |
-| Delivery Data | NSE | CSV | Daily | Critical |
-| Index Constituents | NSE | CSV/JSON | Monthly | High |
-| Corporate Actions | NSE/BSE | CSV/API | Daily | High |
-| Fundamentals | Screener/API | JSON | Daily | High |
-| Live Quotes | Fyers | JSON | Seconds | Critical |
-| Market Breadth | NSE | JSON | Intraday | Medium |
-| Holidays | NSE | CSV | Yearly | Low |
-| Symbol Master | NSE | CSV | Weekly | Critical |
-
-### Phase 2 – Dataset Contract
-Every dataset should have a formal contract which becomes the specification.
-**Example: Bhavcopy Contract**
-- **Required Columns:** SYMBOL, SERIES, OPEN, HIGH, LOW, CLOSE, TTL_TRD_QNTY
-- **Optional Columns:** DELIV_QTY, DELIV_PER
-- **Primary Key:** (SYMBOL)
-- **Business Rules:** HIGH >= LOW, OPEN > 0, CLOSE > 0
-- **Historical Rules:** Date monotonic, No duplicate symbols
-
-### Phase 3 – Validator Layers
-Every validator follows the same pipeline. Only the dataset-specific rules differ.
-
-```mermaid
-flowchart TD
-    A[Schema Validation] --> B[Type Validation]
-    B --> C[Business Rules]
-    C --> D[Historical Validation]
-    D --> E[Dataset-specific Validation]
-    E --> F[Metrics]
-    F --> G[Quality Score]
-```
-
-### Phase 4 – Dataset-Specific Validators
-Each validator owns only its dataset inside the `validators/` directory:
-- `price_validator.py`
-- `bhavcopy_validator.py`
-- `delivery_validator.py`
-- `fundamentals_validator.py`
-- `corporate_actions_validator.py`
-- `live_quote_validator.py`
-- `constituents_validator.py`
-- `holidays_validator.py`
-- `symbol_master_validator.py`
-
-### Phase 5 – Dataset-Specific Business Rules
-Every dataset has different rules:
-- **Price**: High >= Low, Open > 0, Volume >= 0
-- **Bhavcopy**: Series ∈ {EQ, BE, SM...}, DELIV_PER optional, Duplicate SYMBOL not allowed
-- **Fundamentals**: ROE between -100 and 1000, Debt >= 0, Market Cap > 0
-- **Live Quotes**: Bid <= Ask, LTP within Circuit, Timestamp recent, Volume monotonic
-- **Corporate Actions**: Valid Action Type, Future effective dates, Unique event ID
-
-### Phase 6 – Validation Severity
-Not every issue should have the same impact:
-- **Critical (Reject immediately):** Missing required columns, wrong data types, negative prices, corrupt timestamps.
-- **Warning (Accept with reduced quality):** Missing optional fields, minor stale data, low coverage.
-- **Info (Log only):** New optional column added, unused metadata.
-
-### Phase 7 – Historical Validation
-This is where most systems fail. Every dataset should compare against previous versions:
-- **Price**: History shrink, duplicate timestamps, rollback, split anomalies.
-- **Bhavcopy**: Symbol count drops, missing sectors, unexpected series changes.
-- **Fundamentals**: Market cap collapse, ROE jump, missing companies.
-- **Constituents**: Unexpected additions/removals, Weight total ≈100%.
-
-### Phase 8 – Data Provenance
-Every validated dataset should carry metadata for debugging:
-`Source`, `Provider`, `Validator`, `Validator Version`, `Timestamp`, `Checksum`, `Quality Score`, `Validation Time`
-
-### Phase 9 – Cache Protection
-Generalize the cache protection decision engine. Every dataset can reuse this logic:
-**KEEP_CACHE** Reasons:
-- `HISTORY_SHRINK`
-- `SCHEMA_REGRESSION`
-- `QUALITY_REGRESSION`
-- `TIMESTAMP_ROLLBACK`
-- `DUPLICATE_EXPLOSION`
-
-### Phase 10 – Golden Validation Tests
-For every validator, maintain static fixtures:
-`valid_dataset.csv`, `missing_column.csv`, `duplicate_rows.csv`, `negative_prices.csv`, `future_timestamp.csv`, `history_shrink.csv`, `unknown_optional_column.csv`
-
-### Phase 11 – Validation Dashboard
-Track validation quality over time to spot upstream issues before they affect trading:
-- Provider Success Rate, Validation Failures, Quality Score Trend, Historical Rejections, Cache Protections Triggered, Schema Changes, Unknown Columns, Dataset Coverage.
-
-### Phase 12 – Onboarding Checklist for New APIs
-Any new external API should satisfy a standard checklist before integration:
-1. **Source Assessment:** Reliability, update frequency, rate limits, authentication.
-2. **Parser:** Convert raw response to canonical format.
-3. **Dataset Contract:** Define required/optional fields, types, business rules, keys.
-4. **Validator:** Implement schema, business, historical, and dataset-specific validation.
-5. **Score Calculator:** Define quality metrics if applicable.
-6. **Cache Strategy:** Decide KEEP_CACHE, APPEND, REPLACE, or NO_CACHE.
-7. **Golden Test Suite:** Include valid, corrupt, partial, stale, edge-cases.
-8. **Monitoring:** Emit structured validation logs and quality metrics.
-
-### Phase 13 – Architectural Governance & Freeze (Completed Phase 0)
-The data validation framework is considered **feature-frozen**. No new architectural concepts or framework layers may be introduced. Future work must only consist of implementing new dataset validators conforming to this architecture, fixing defects, or expanding test coverage.
-
-#### Frozen Architectural Core
-The following APIs and classes are considered architectural platform code and **must not be changed casually**:
-- `ValidationEngine`
-- `BaseValidator`
-- `BaseScoreCalculator`
-- `ValidationContext`
-- `ValidationMetrics`
-- `ValidationResult`
-- `DataQualityReport`
-- `ValidationRegistry`
-- `ValidationCode` / `ValidationFailure` / `DatasetType`
-
-*Changing any of these components requires an explicit architecture review.*
-
-#### Flexible Business Rules
-The freeze applies to the framework structure, not the domain logic. The following should continue to evolve dynamically as production experience is gained:
-- Dataset-specific validation thresholds (e.g., Price validation heuristics).
-- Business rules (e.g., Bhavcopy logic, Corporate action rules).
-- Quality score weights.
-
-#### Architecture Freeze Rule
-The core validation framework may only be modified if one of the following is explicitly proven:
-1. A production defect demonstrates that the framework cannot correctly validate or protect data.
-2. A new dataset cannot be implemented within the existing framework without modifying core interfaces.
-3. A verification test proves that an architectural invariant is violated.
-
-Otherwise, all changes belong in the dataset-specific validators, contracts, or scoring logic—not in the framework.
-
-**Strict Governance Rule for External APIs:**
-A new external data source cannot be merged into the codebase unless:
-1. It has an explicit `DatasetType` mapped in the `ValidationRegistry`.
-2. It has a documented, complete contract (`contract_template.md`).
-3. It has a registered `BaseValidator` instance.
-4. It has a registered `BaseScoreCalculator` (if applicable).
-5. It passes the standard validation test suite (`test_registry.py` will automatically fail if the dataset is not properly registered).
-
-#### PR Guidelines for Behavior and Snapshot Changes
-To prevent subtle regressions, any Pull Request (PR) that alters the validation logic, cache merging logic, or scanner conditions must adhere to the following:
-1. **Explain the Behavior Change**: The PR description must explicitly state *why* the behavior is changing, not just *what* code is changing.
-2. **Snapshot Updates Require Justification**: If a change causes `test_regression_snapshots.py` to fail due to a changed snapshot output, the developer MUST review the diff. The snapshot file may only be updated if the change in output is fully understood, intended, and documented in the PR.
-3. **No Unintended Downgrades**: If a validation score changes for a specific dataset, the PR must explain whether the change reflects a stricter constraint or a bug fix. Stricter constraints are allowed; accidental bypasses are not.
-
-#### Engineering Rule for Defect Resolution
-**Any bug discovered in production MUST first be reproduced as an automated test before the fix is merged.**
-Every production issue strengthens the verification suite, transforming it into a permanent record of real-world failures to prevent future regressions.
-
-### End-State Architecture
-The long-term goal is simple: the trading system no longer depends on the behavior of Yahoo, NSE, Fyers, or any other provider—it depends on internal validation contracts. If a provider changes its schema or returns partial data, the issue is detected and contained at the boundary.
-
-```mermaid
-flowchart TD
-    A[Any External API] --> B[Adapter / Parser]
-    B --> C[Dataset Contract]
-    C --> D[Validation Engine]
-    D --> E[Score Calculator]
-    E --> F[Cache Decision Engine]
-    F --> G[Validated Domain Object]
-    G --> H[Application]
-```
-
-## 42. Fault Injection & Chaos Engineering (V1)
-
-To ensure the Validation Engine and system ingestion pipelines behave deterministically under duress, a dedicated Chaos Engineering test suite (`test_fault_injection.py`) validates system resilience against real-world failures.
-
-### 42.1 Transport & Network Failures
-* **Network Timeouts & API Drops:** Simulates `requests.exceptions.Timeout` to verify that consumers correctly abort and write structured observability logs instead of raising unhandled exceptions.
-* **Corrupted Payloads (Cloudflare Blocks):** External providers frequently return HTML pages instead of expected CSV/JSON payloads. The system gracefully blocks parser failures before they reach the validation engine to prevent pipeline corruption.
-* **Truncated Responses:** By mocking extremely small or partial byte responses, the engine's `HIS001` (Symbol Count Drop) successfully intercepts the corrupted payload, marking it `INVALID`.
-
-### 42.2 Deep Data Corruption & Schema Mismatches
-* **Schema Violations:** Simulating missing mandatory columns (e.g., `SYMBOL`) verifies that `SCH001` is actively engaged to quarantine the dataset.
-* **Corrupted OHLCV Invariants:** Simulating impossible market data (e.g., Negative Prices or `High < Low`). 
-  - **Improvement & Bug Fix:** The system previously dropped severely corrupted dataframes for safety, but failed to record the Validation Failure onto the dashboard because the dataframe was discarded too early. 
-  - **The Fix:** The engine now strictly extracts the `ValidationStatus.INVALID` report and permanently records the failure in the `validation_history` ledger *before* securely destroying the corrupted dataframe.
-
-### 42.3 Database Offline Resilience
-* **Simulated Postgres Outage:** The suite mocks a complete `DATABASE_URL=offline` failure via `psycopg2.OperationalError` during live caching and data ingestion.
-* **Resilience Goal:** The system's primary directive is to **always serve price data**, regardless of monitoring database health.
-  - **Improvement & Bug Fix:** The test exposed a vulnerability where a telemetry/success callback (`delete_fetch_error_on_success`) crashed the entire price fetcher if the database was offline.
-  - **The Fix:** We implemented strict exception firewalls around all database telemetry bounds. If the DB is unreachable, the system will silently catch the errors and seamlessly route data locally from the `.parquet` file caching tier, ensuring zero downtime for trading operations.
-
-## 43. Bhavcopy Fallback & Admin Notifications (MANDATORY)
-- **Zero-to-4 Day Lookback:** Scanners (EOD and Reversal) MUST NOT fail if today's Bhavcopy is delayed (often published ~19:30 IST). They employ a 0-to-4 day fallback loop to find the most recent valid delivery data.
-- **Cache Integrity (skip_db_save):** When a scanner successfully uses a fallback Bhavcopy (i.e., data from a previous day), it MUST pass `skip_db_save=True` to `fetch_delivery_data`. This prevents old data from overwriting the database cache for the current date.
-- **Admin Awareness:** If scanners resort to using stale Bhavcopy (fallback active), they MUST trigger an immediate in-app portal notification (`insert_notification`) and a web push notification (`send_push_to_all`, bypassing throttles) to alert the admin that the scan is running with degraded data.
-**Version:** `BHAVCOPY_FALLBACK_v1.0` applied 2026-07-21
-
-## 44. Pipeline Observability & Funnel Logging (MANDATORY)
-- **Pipeline Summaries:** All scanners (`eod_scanner.py`, `reversal_scanner.py`, `multi_tf_scanner.py`, `wealth_engine.py`) MUST track discrete rejection reasons (e.g., `rejection_counts` or `lower_funnel` dicts) and explicitly print a `[PIPELINE SUMMARY]` at the end of every scan cycle.
-- **Purpose:** This transitions the system from "black box" 0-alert cycles to empirically measurable funnels, ensuring we know exactly which quality gate (Fundamentals vs Technical vs Momentum) is rejecting stocks during different market regimes.
-**Version:** `PIPELINE_OBSERVABILITY_v1.0` applied 2026-07-21
-
-## 45. Financial vs. Non-Financial Profitability Gates (MANDATORY)
-- **Core Rule:** Non-financial stocks are evaluated using Return on Capital Employed (`ROCE`). However, Financial stocks (Banks, NBFCs) structurally do not use ROCE because their "debt" is their raw material. Financial stocks MUST be evaluated using Return on Equity (`ROE`).
-- **Implementation:** Any fundamental profitability gate (such as in `wealth_engine.py` or `multibagger.py`) MUST use a helper like `passes_profitability_gate(record)` that conditionally checks `ROE >= 15` if the sector is "Financial Services", and `ROCE >= 15` otherwise.
-**Version:** `FINANCIAL_PROFITABILITY_GATE_v1.0` applied 2026-07-21
-
-## 46. Breakout Quality Gates & Volume Confirmation
-- **Anti-Fake-Breakout Logic:** `detect_breakouts` in `breakout_engine.py` requires three strict conditions for all breakouts:
-  1. `close > prev_high` (Closing price confirmation, not just wick).
-  2. `close > prev_high * (1 + min_margin)` (Meaningful breakout margin, e.g. 0.5%).
-  3. `vol_now >= min_ratio * vol_avg` (Volume confirmation, avoiding z-score bias).
-- **PULLBACK_TRIGGER_MODE:** The Phase D pullback trigger in `multi_tf_scanner.py` is fully configurable via `MULTI_TF_CONFIG["PULLBACK_TRIGGER_MODE"]` (`PREVIOUS_HIGH`, `PREVIOUS_OPEN`, `INSIDE_BAR`, etc.). This isolates experimental strategy changes from production risk.
-**Version:** `BREAKOUT_QUALITY_GATES_v2.0` applied 2026-07-21
-
-## 47. Memory Profiling & DataFrame Tracking
-- **Object Identity:** To diagnose memory leaks and object retention in high-frequency loops (like Intraday Multi-TF), `memory_profiler.py` MUST track the memory identity `id()` of the largest `pd.DataFrame`.
-- **Efficiency Metric:** The profiler computes `RSS Delta` over `Rows Processed` and `Symbols Processed` to normalize memory cost evaluations across batches of different sizes.
-**Version:** `MEMORY_PROFILER_V3.0` applied 2026-07-21
-## 48. Configuration Constants & Tuning Parameters (`config.py`)
-This section documents the explicit configurations used across all engines. Implementation dictates that these values are strictly pulled from `config.py`.
-
-### 48.1 Score Thresholds & AI
-- `ENABLE_AI_SENTIMENT_SCORE` (bool): Enables experimental AI sentiment scoring for audits. If false, skips AI daemon checks.
-- `SCORE_THRESHOLDS`: Minimum composite scores required for alerts.
-  - `15m`: 78
-  - `1h`: 80
-  - `1d`: 82
-- `ACTIVE_ALGO_VERSION`: `"SL_ENGINE_V7.1"` (Target Engine v7 Pipeline, Institutional S/R Clustering).
-
-### 48.2 Scanner-Specific Algorithm Parameters
-- **`MULTI_TF_CONFIG`**: Controls Phase D multi-timeframe breakout execution.
-  - `MIN_SIGNALS`: 2
-  - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
-  - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
-  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
-  - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
-  - `MIN_RSI`: 52 / `MAX_RSI`: 87.
-  - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
-- **`LIVE_1H_CONFIG`**: 
-  - `MIN_SIGNALS`: 3
-  - `MIN_BODY_RATIO`: 0.55
-  - `MIN_VOLUME_RATIO`: 2.0
-- **`EOD_CONFIG`**: Standard end-of-day momentum filters.
-  - `MIN_SIGNALS`: 1
-  - `MIN_BODY_RATIO`: 0.45
-  - `MIN_VOLUME_RATIO`: 1.8
-- **`EOD_ADVANCED_CONFIG`**:
-  - `MAX_DISTANCE_FROM_52W_HIGH_PCT`: 15.0%
-  - `MAX_SINGLE_DAY_MOVE_PCT`: 15.0% (Prevents gap-and-go traps).
-  - `MAX_GAP_FROM_PRIOR_HIGH_PCT`: 3.0%
-  - `GAP_LOOKBACK_BARS`: 10
-  - `MIN_ATR_EXPANSION_RATIO`: 0.9 (Relaxed to allow steady uptrends).
-  - `MAX_BB_WIDTH_PCTILE`: 0.80 (Bollinger band expansion limit).
-- **`REVERSAL_CONFIG`**: 
-  - `MIN_DROP_FROM_52W_HIGH`: 20.0%
-  - `MAX_DROP_FROM_52W_HIGH`: 45.0%
-  - `RSI_OVERSOLD_THRESHOLD`: 45
-  - `RSI_CURL_MIN`: 50
-  - `MIN_ROE`: 12.0
-  - `MIN_YOY_REVENUE_GROWTH`: 8.0
-  - `REVERSAL_COOLDOWN_TRADING_DAYS`: 30 (Fallen knife defense).
-
-### 48.3 Data Quality & Execution Parameters
-- `QUALITY_VALIDATOR_VERSION`: `"V8.0"`
-- `QUALITY_SCORE_WEIGHTS`:
-  - `row_completeness`: 40, `missing`: 20, `price_sanity`: 20, `continuity`: 10, `freshness`: 10.
-- `MAX_HISTORY_SHRINK`: 0.30 (Max % row loss before logging warning).
-- `SOURCE_RELIABILITY`: `NSE` (1.0), `Fyers` (1.0), `Cache` (0.95), `BSE` (0.70).
-- `ADX_MIN_THRESHOLD`: 18 (Lowered from 25 to capture developing phases).
-- `MIN_STOCK_PRICE`: 100.0 (No penny stocks).
-
-### 48.4 Liquidity & Timing Parameters
-- `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`: ₹15 Cr/day.
-- `MIN_DAILY_LIQUIDITY_RUPEES_WEALTH`: ₹1 Cr/day.
-- `ALERT_COOLDOWN_MINUTES`: EOD and Reversal use `5760` (96 hours).
-- `PRICE_CACHE_TTL_SECONDS`: `60` (Intraday support).
-
-### 48.5 Anti-Fake-Breakout & Anti-Trap Parameters
-- `MIN_BREAKOUT_MARGIN`: `15m` (0.3%), `1h` (0.5%), `1d` (0.7%).
-- `MIN_BREAKOUT_VOLUME_RATIO`: 1.5.
-- `CLIMAX_VOLUME_LOOKBACK`: 20.
-- `LOWER_HIGH_LOOKBACK`: 6.
-- `MIN_CANDLE_RANGE_PCT`: 0.003 (0.3%).
-
-### 48.6 SL/Target Caps & Institutional Weights
-- `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
-- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
-- `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
-- `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
-- `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
-- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
-
-### 48.7 Market Regimes (`REGIME_POLICIES`)
-- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
-- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
-- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
-- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
-
-
-
-## 48. Configuration Constants & Tuning Parameters (`config.py`)
-This section documents the explicit configurations used across all engines. Implementation dictates that these values are strictly pulled from `config.py`.
-
-### 48.1 Score Thresholds & AI
-- `ENABLE_AI_SENTIMENT_SCORE` (bool): Enables experimental AI sentiment scoring for audits. If false, skips AI daemon checks.
-- `SCORE_THRESHOLDS`: Minimum composite scores required for alerts.
-  - `15m`: 78
-  - `1h`: 80
-  - `1d`: 82
-- `ACTIVE_ALGO_VERSION`: `"SL_ENGINE_V7.1"` (Target Engine v7 Pipeline, Institutional S/R Clustering).
-
-### 48.2 Scanner-Specific Algorithm Parameters
-- **`MULTI_TF_CONFIG`**: Controls Phase D multi-timeframe breakout execution.
-  - `MIN_SIGNALS`: 2
-  - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
-  - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
-  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
-  - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
-  - `MIN_RSI`: 52 / `MAX_RSI`: 87.
-  - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
-- **`LIVE_1H_CONFIG`**: 
-  - `MIN_SIGNALS`: 3
-  - `MIN_BODY_RATIO`: 0.55
-  - `MIN_VOLUME_RATIO`: 2.0
-- **`EOD_CONFIG`**: Standard end-of-day momentum filters.
-  - `MIN_SIGNALS`: 1
-  - `MIN_BODY_RATIO`: 0.45
-  - `MIN_VOLUME_RATIO`: 1.8
-- **`EOD_ADVANCED_CONFIG`**:
-  - `MAX_DISTANCE_FROM_52W_HIGH_PCT`: 15.0%
-  - `MAX_SINGLE_DAY_MOVE_PCT`: 15.0% (Prevents gap-and-go traps).
-  - `MAX_GAP_FROM_PRIOR_HIGH_PCT`: 3.0%
-  - `GAP_LOOKBACK_BARS`: 10
-  - `MIN_ATR_EXPANSION_RATIO`: 0.9 (Relaxed to allow steady uptrends).
-  - `MAX_BB_WIDTH_PCTILE`: 0.80 (Bollinger band expansion limit).
-- **`REVERSAL_CONFIG`**: 
-  - `MIN_DROP_FROM_52W_HIGH`: 20.0%
-  - `MAX_DROP_FROM_52W_HIGH`: 45.0%
-  - `RSI_OVERSOLD_THRESHOLD`: 45
-  - `RSI_CURL_MIN`: 50
-  - `MIN_ROE`: 12.0
-  - `MIN_YOY_REVENUE_GROWTH`: 8.0
-  - `REVERSAL_COOLDOWN_TRADING_DAYS`: 30 (Fallen knife defense).
-
-### 48.3 Data Quality & Execution Parameters
-- `QUALITY_VALIDATOR_VERSION`: `"V8.0"`
-- `QUALITY_SCORE_WEIGHTS`:
-  - `row_completeness`: 40, `missing`: 20, `price_sanity`: 20, `continuity`: 10, `freshness`: 10.
-- `MAX_HISTORY_SHRINK`: 0.30 (Max % row loss before logging warning).
-- `SOURCE_RELIABILITY`: `NSE` (1.0), `Fyers` (1.0), `Cache` (0.95), `BSE` (0.70).
-- `ADX_MIN_THRESHOLD`: 18 (Lowered from 25 to capture developing phases).
-- `MIN_STOCK_PRICE`: 100.0 (No penny stocks).
-
-### 48.4 Liquidity & Timing Parameters
-- `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`: ₹15 Cr/day.
-- `MIN_DAILY_LIQUIDITY_RUPEES_WEALTH`: ₹1 Cr/day.
-- `ALERT_COOLDOWN_MINUTES`: EOD and Reversal use `5760` (96 hours).
-- `PRICE_CACHE_TTL_SECONDS`: `60` (Intraday support).
-
-### 48.5 Anti-Fake-Breakout & Anti-Trap Parameters
-- `MIN_BREAKOUT_MARGIN`: `15m` (0.3%), `1h` (0.5%), `1d` (0.7%).
-- `MIN_BREAKOUT_VOLUME_RATIO`: 1.5.
-- `CLIMAX_VOLUME_LOOKBACK`: 20.
-- `LOWER_HIGH_LOOKBACK`: 6.
-- `MIN_CANDLE_RANGE_PCT`: 0.003 (0.3%).
-
-### 48.6 SL/Target Caps & Institutional Weights
-- `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
-- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
-- `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
-- `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
-- `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
-- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
-
-### 48.7 Market Regimes (`REGIME_POLICIES`)
-- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
-- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
-- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
-- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
-
-
-
-## 49. Core Modular Engines (`app/core/`)
-The `app/core/` directory contains the deeply modularized scoring and validation engines used primarily by the `Wealth Engine` and `Multibagger Pipeline`. These engines are designed as stateless evaluators that accept raw metric dictionaries and return scored dataclasses.
-
-### 49.1 Multibagger Pipeline (`multibagger_pipeline.py`)
-- **Purpose**: The orchestration layer for long-term investments.
-- **Workflow**:
-  1. `gate_engine.evaluate()`: Checks Hard Gates (e.g., Debt-to-Equity, Minimum Promoter Holding).
-  2. `financial_strength_engine.evaluate()`: Checks ROCE/ROE and Piotroski F-Score.
-  3. `valuation_engine.evaluate()`: Calculates Graham Intrinsic Value, DCF, and Margin of Safety.
-  4. `growth_engine.evaluate()`: Checks YoY Revenue and Profit growth.
-  5. `quality_engine.evaluate()`: Evaluates earnings consistency and operational cash flow vs PAT.
-  6. `technical_engine.evaluate()`: Confirms long-term trend (Price > 200 DMA).
-- **Invariants**: Validated via `pipeline_invariants.py` to ensure scores do not exceed maximum bounds and that rejected stocks never receive a "BUY" status.
-
-### 49.2 Snapshot & Audit System (`snapshot_collector.py`, `audit_engine.py`)
-- **Purpose**: Point-in-time traceability.
-- **Implementation**: Before any score is mutated or finalized, the `SnapshotCollector` captures the exact inputs (e.g., raw PE ratio, raw ROCE). The `AuditEngine` can replay these snapshots to verify that the scoring math was correct and deterministic, providing a verifiable "audit trail" for every BUY signal.
-
-### 49.3 Invariant & Event Engines (`invariant_engine.py`, `events.py`)
-- **Purpose**: Chaos prevention and pub/sub architecture.
-- **Implementation**: The `InvariantEngine` is tightly coupled with `invariants.py` to enforce strict mathematical rules (e.g., `Margin of Safety <= 100%`, `Final Score <= 100`). The `events.py` module dispatches asynchronous events (e.g., `OnSignalGenerated`, `OnQualityGateFailed`) to decouple logging and notifications from the core scoring loop.
-
-
-## 50. Data Providers, Caches, & Registry
-The data ingestion layer is designed to be highly resilient against API rate limits and network outages.
-
-### 50.1 `data_provider.py` (Unified Fetcher Routing)
-- **Purpose**: The central factory for market data routing.
-- **Workflow**: All OHLCV queries pass through `get_fetcher()`. It prefers the `FyersFetcher` if the token is valid, otherwise downgrades to `YFinanceFetcher`.
-- **Error Handling**: `ProviderResult` enums enforce that missing data returns `NOT_FOUND` or `RATE_LIMIT` rather than generic `None`.
-- **Mappings**: Integrates with `BSE_FALLBACK_MAPPING` to seamlessly route `.NS` misses to `.BO` equivalents without redundant rate limits.
-
-### 50.2 `price_cache.py` (Delta-Fetching Engine)
-- **Purpose**: The local `.parquet` caching tier.
-- **Workflow**:
-  1. `_is_cache_up_to_date()` checks if the parquet file contains data up to the last 15:30 IST market close.
-  2. If up to date, it skips the network fetch.
-  3. If missing recent days, it executes a `DELTA` fetch (only fetching the missing dates).
-  4. If `first_dt == earliest_dates[sym]`, it aborts infinite historical `FULL` fetch loops on IPOs.
-- **Concurrency**: Uses `_fetch_lock` (Threading Lock) to serialize cache writes and prevent corruption.
-
-### 50.3 `fundamentals_cache.py` & `watchlist_cache.py`
-- **Fundamentals**: Uses a local SQLite dictionary or JSON store. Enforces a 48-hour retry cooldown (`is_stale(days_old > 2)`) for failed metrics to protect API limits.
-- **Watchlist**: Caches the TradingView API results. Generates an MD5 fingerprint hash of the final universe to guarantee cross-scanner determinism.
-
-### 50.4 `data_registry.py` & `data_quality.py`
-- **Purpose**: Tracks dataset lineage.
-- **Workflow**: Logs the exact timestamp, provider, and checksum of fetched data. If `data_quality.py` detects a `MAX_HISTORY_SHRINK` violation (>30% row loss), it actively quarantines the new dataset and forces the system to serve from the cache.
-
-
-## 51. The Scanner Pipelines
-The system uses 5 independent scanner pipelines.
-
-### 51.1 `eod_scanner.py` (End of Day Breakouts)
-- **Purpose**: Detect standard daily timeframe breakouts with high institutional conviction.
-- **Workflow**:
-  1. Filters by `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`.
-  2. Applies `EOD_ADVANCED_CONFIG` (Max distance from 52W High < 15%, No gap-and-go traps > 15%).
-  3. `technical_indicators.py` calculates RSI, MACD, ATR, ADX, Bollinger Bands.
-  4. `breakout_engine.detect_breakouts()` confirms price > prior high and volume > 1.5x avg.
-  5. `scoring_engine.calculate_score()` assigns a 0-100 score. Requires `>= SCORE_THRESHOLDS["1d"]` (82).
-- **Execution Timing**: Runs post-market close (15:30+ IST). Uses EOD Bhavcopy fallback if delayed.
-
-### 51.2 `reversal_scanner.py` (Fallen Angels / Reversals)
-- **Purpose**: Detect structurally sound companies undergoing temporary oversold conditions.
-- **Workflow**:
-  1. Checks `REVERSAL_CONFIG` (Drop from 52W high between 20-45%).
-  2. Rejects if not strictly recovering above SMA50, or if RSI isn't curling up from oversold.
-  3. Rejects if recent ROE < 12% or Revenue Growth < 8% (Fundamental safety).
-  4. Rejects if `(macd_hist / close) * 100` normalization fails to show momentum divergence.
-  5. Enforces `REVERSAL_COOLDOWN_TRADING_DAYS` (30 days) to prevent fallen-knife spam.
-
-### 51.3 `multi_tf_scanner.py` (Intraday Multi-Timeframe)
-- **Purpose**: Align 1H, 30m, 15m, and 5m trends for precision entries.
-- **Workflow**:
-  - **Phase A (1H Approval)**: MACD > 0, ADX > 25, Price > VWAP. Sets `HOURLY_APPROVED`.
-  - **Phase B (30m Filter)**: Confirm 30m structure matches 1H.
-  - **Phase C (15m Coiling)**: RSI > 52, Bollinger Bands tightening. Sets `ENTRY_READY`.
-  - **Phase D (5m Execution)**: `PULLBACK_TRIGGER_MODE` dynamically routes to either `thrust` (breaking highs with volume) or `pullback` (defending EMA9/Breakout level with strong engulfing).
-- **Execution Timing**: Runs continuously every 5 minutes during market hours (09:15 - 15:30 IST).
-
-### 51.4 `wealth_engine.py` (Medium-Term Quality)
-- **Purpose**: Identify highly profitable, fairly valued companies crossing above 200-DMA.
+### 3.2 V8 Validation Engine (`app/validation/engine.py`)
+- **Strict Contracts**: All data is subjected to strict schema verification (`SCH001`). If a mandatory column (e.g., `SYMBOL`) is missing, the dataframe is destroyed immediately.
+- **Data Quality Score**: `price_validator.py` calculates a dynamic score based on `QUALITY_SCORE_WEIGHTS`:
+  - 40% Row Completeness.
+  - 20% Missing Values (NaN wicks).
+  - 20% Price Sanity (`High >= Low`).
+  - 10% Continuity.
+  - 10% Freshness.
+- **Cache Protection**: If an incoming dataframe drops more than `MAX_HISTORY_SHRINK` (30%) of historical rows compared to the existing cache, the system invokes cache protection (`HIS001`). It drops the new API fetch, serves the cached `.parquet` data, and flags an administrative warning.
+
+### 3.3 Price Cache (`price_cache.py`)
+- **Delta-Fetching mechanism**: To minimize API hits, the system fetches only the exact number of days missing from the local `.parquet` file.
+- **IPO Infinite Loop Fix**: If the earliest timestamp in the API matches the earliest timestamp in the cache, the system identifies the stock as an IPO. It flags the first date locally and avoids executing useless full historical fetches.
+
+---
+
+## 4. The Algorithmic Scanners
+
+The system employs multiple concurrent scanners targeting different institutional market patterns.
+
+### 4.1 EOD Scanner (`eod_scanner.py`)
+- **Focus**: High-probability end-of-day momentum breakouts.
+- **Execution**: Daily at 21:00 IST (utilizes Bhavcopy fallback if delayed).
+- **Core Filters**: 
+  - `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST` ensures only highly liquid stocks are processed.
+  - `EOD_ADVANCED_CONFIG`: Rejects gap-and-go traps (>15% single-day move), checks distance from 52W high (<15%), and requires tight bases.
+- **Confirmation**: Relies on `breakout_engine.detect_breakouts()` to enforce that volume on the breakout day exceeds `MIN_BREAKOUT_VOLUME_RATIO` (1.5x of 20-period average).
+
+### 4.2 Reversal Scanner (`reversal_scanner.py`)
+- **Focus**: Fundamentally strong stocks currently undergoing an oversold reversion.
+- **Execution**: Daily at 21:00 IST.
+- **Core Filters**:
+  - Requires a 20% to 45% drop from the 52-week high (`MIN_DROP_FROM_52W_HIGH`).
+  - `passes_profitability_gate()` ensures the stock isn't structurally doomed (Requires ROE/ROCE >= 15%).
+  - RSI must be curling upwards out of oversold territory (Current RSI > `RSI_OVERSOLD_THRESHOLD`).
+  - MACD Histogram is normalized (`(macd_hist / close) * 100`) to confirm positive momentum divergence regardless of absolute stock price.
+- **Fallen-Knife Defense**: A strict 30-day `REVERSAL_COOLDOWN_TRADING_DAYS` is applied to any stock that generated a reversal signal to avoid spamming alerts on continuous downtrends.
+
+### 4.3 Multi-TF Intraday Scanner (`multi_tf_scanner.py`)
+- **Focus**: Precision entries by aligning 1-Hour, 30-Min, 15-Min, and 5-Min trend architectures.
+- **Execution**: Continuous background daemon loop every 5 minutes during market hours.
+- **Phase A (Hourly Filter)**: Ensures MACD is positive, ADX > 25 (strong trend), and Price > VWAP.
+- **Phase B & C**: Verifies 30m and 15m structure, specifically looking for Bollinger Band squeezing or RSI coiling.
+- **Phase D (5-Min Trigger)**: Configurable via `PULLBACK_TRIGGER_MODE`. 
+  - Standard trigger: `close > previous_high`.
+  - Also configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, or `ENGULFING` depending on market regime.
+
+### 4.4 Wealth Engine & Multibagger Pipeline
+- **Focus**: Long-term structural holds and deep valuation discounts.
+- **Execution**: Scheduled asynchronously via `main.py` cron jobs.
 - **Workflow**: 
-  - Passes `passes_profitability_gate()` (ROE >= 15 for Financials, ROCE >= 15 for non-Financials).
-  - Uses `scoring_engine` to assess fundamental quality. Must pass `TARGET_CONFIDENCE_BASELINE`.
-- **Alert Creation**: Directly invokes `save_alert_if_new` under `WEALTH` mode.
-
-### 51.5 `multibagger.py` (Long-Term Structural Holds)
-- **Purpose**: The deepest fundamental screener using `app/core/` engines.
-- **Workflow**: Uses `multibagger_pipeline.py` to route through Gate, Valuation, Quality, and Growth engines. Rejects if Promoter Pledge > 20% (with `None` tolerance). Uses `bayesian_updater` to weight macro-regime probabilities.
+  - Routes through the core pipeline (`gate_engine` -> `financial_strength_engine` -> `valuation_engine`).
+  - `bayesian_updater.py` applies macro-market probability weights to fundamental scores.
+  - If a company passes the `TARGET_CONFIDENCE_BASELINE` (85+), it is persisted into `alerts.db` strictly under the `WEALTH` or `MULTIBAGGER` scanner tags.
 
 
-## 52. SL, Target & Risk Engine (`sl_target_helper.py`)
-This engine defines the asymmetric risk profiling for all scanners (excluding Multibagger, which uses fundamental holds).
+---
 
-### 52.1 Anti-Trap Mechanics
-- **Core Concept**: Stop losses are anchored *below* structural support zones to avoid institutional wick-hunting.
-- **Dynamic Buffering**: `max(mode_atr_fraction * ATR, mode_pct * price)`.
-- **ADX-Aware Scaling**: If ADX > 35 (strong trend), the SL buffer is expanded by 30% to survive deeper natural pullbacks without false stop-outs.
+## 5. Core Valuation & Scoring Engines (`app/core/`)
 
-### 52.2 Support Discovery Cascade (`_pick_support`)
-1. **Swing Low Cluster**: If 2+ of the last 3 swing lows are within 1% of each other, this forms a high-conviction institutional base.
-2. **Pivot Swing Low**: Nearest true structural low.
-3. **Pivot S1**: Floor pivot support.
-4. **Rolling Swing Low**: Fallback n-period low.
-5. **EMA20 / SMA50 / VWAP**: Dynamic technical support lines.
+The fundamental valuation framework is completely modularized. It operates on a pipeline pattern where `SnapshotCollector` and `AuditEngine` wrap the inputs to guarantee deterministic replayability and auditing.
 
-### 52.3 Resistance Discovery & Target Anchoring (`_pick_resistance`)
-1. **Pivot Swing High / R1 / R2**: Technical ceilings.
-2. **Bollinger Upper Band**: Volatility containment ceiling.
-3. **Fibonacci Extensions**: `FIB_EXTENSIONS` (1.272, 1.618, 2.0).
-- Targets are dynamically anchored to these levels. If a structural resistance is *too close* to entry, `Target Quality` fails (Minimum `NATURAL_RR`), and the alert is aborted.
+### 5.1 Pipeline Stages
+1. **Gate Engine (`gate_engine.py`)**: Filters out fundamentally toxic structures (e.g., Debt to Equity > 2.0). 
+2. **Financial Engine (`financial_strength_engine.py`)**: Calculates Piotroski F-Scores. Identifies whether the stock is Financial (uses ROE) or Non-Financial (uses ROCE).
+3. **Valuation Engine (`valuation_engine.py`)**: Computes Graham Number and Margin of Safety.
+4. **Growth Engine (`growth_engine.py`)**: Analyzes YoY historical revenue and profit margins.
 
-### 52.4 Partial Exit Scaling (`performance_tracker.py`)
-- Executes strict partial exits upon target hits.
-  - `EOD` Profile (BALANCED): 40% at T1, 30% at T2, 30% at T3.
-  - `MULTI_TF` Profile (AGGRESSIVE): 20% at T1, 30% at T2, 50% at T3 (Runner).
-  - `REVERSAL` Profile (CONSERVATIVE): 30% at T1, 30% at T2, 40% at T3.
-- Modifying `stop_loss` in the database aborts if `remaining_shares <= 0`, preserving the visual integrity of fully closed trades.
+### 5.2 Mathematical Invariants (`invariant_engine.py`)
+To prevent infinite loops or scoring hallucinations, the system relies on strict invariants:
+- `MAX_SCORE_CAP`: A stock can never exceed a composite score of 100.
+- `MARGIN_OF_SAFETY_CAP`: MoS is strictly bounded; negative values trigger pipeline rejection rather than returning illogical integers.
+- `REJECT_STATE_LOCK`: Once an engine returns `Status = REJECTED`, no downstream engine is permitted to override it to `BUY`.
 
+---
 
-## 53. Infrastructure, Schedulers, & Diagnostics
-This section covers the underlying orchestrators, persistence, and telemetry layers.
+## 6. Target, SL & Risk Management Engine
 
-### 53.1 Main Orchestrator (`main.py`)
-- **Purpose**: The master `SystemScheduler` process.
-- **Workflow**: Sets up `schedule` tasks for EOD, Reversal, Multibagger, and Daily Builder jobs. Spawns `RESTARTABLE_THREADS` for Intraday Scanners (`run_live_scanner`), `ai_worker`, and `performance_tracker`.
-- **Fault Tolerance**: Implements a `_run` wrapper with aggressive `try/except Exception` blocks. Background threads are infinitely restarted via the `restartable_thread_wrapper` on fatal crashes.
+Institutional algorithms wick-hunt standard retail stop losses. The Elite Breakout System anchors risk dynamically using structural support clusters rather than arbitrary percentages.
 
-### 53.2 Persistence Layer (`database.py`)
-- **Purpose**: Global SQLite data store (`alerts.db`).
-- **Data Integrity Constraints**:
-  - `alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date)` prevents cross-scanner DB collisions.
-  - JSON strings (like `bayesian_weights` or `context`) undergo strict `sanitize()` preprocessing to strip `NaN` and `Infinity` floats before SQL insertion.
-- **Connection Management**: Employs `ThreadedConnectionPool` guarded by `_conn_semaphore` to prevent SQLite `database is locked` concurrency crashes across 5 parallel scanners.
+### 6.1 Structural Support Discovery (`sl_target_helper.py`)
+- **Support Cluster Mechanics**: The engine analyzes the last 20 periods. If it identifies 2 or more pivot swing lows within `TARGET_CLUSTER_WINDOW_PCT` (0.75%) of each other, it assigns a `Swing Low Cluster` weight (40 pts) and places the Stop Loss immediately below that cluster.
+- **Fallback Supports**: If no tight cluster is found, it traverses a hierarchy: Pivot S1 -> 50 DMA -> VWAP -> Intraday Low.
+- **ADX Penalty Buffer**: If ADX indicates an extremely volatile trending market (ADX > 35), the Stop Loss buffer is widened algorithmically to avoid being shaken out during natural retracements.
 
-### 53.3 Dashboard Server (`dashboard_server.py`)
-- **Purpose**: The Flask backend serving the Admin Dashboard.
-- **Architecture**: Contains modular REST endpoints (`/api/scanner_status`, `/api/alerts`).
-- **Security & UX**: Implements COOP `target="_blank" rel="noopener noreferrer"` for all external TradingView links to prevent browser tab-isolation freezing. Dynamic sliding queues (`QUEUED-1`) are generated on-the-fly from database timestamps.
+### 6.2 Structural Resistance & Exit Profiling
+- Targets (T1, T2, T3) are strictly mapped to overhead structural resistances (Swing Highs, R1, R2, Bollinger Bands, Fibonacci Extensions).
+- **Target Confidence Scoring**: Every target is scored against `TARGET_SOURCE_WEIGHTS`. If a target is mapped to a minor timeframe high, it receives a lower confidence score than a major 52W high.
+- **Exit Profiles**:
+  - `AGGRESSIVE` (Multi-TF): T1=20%, T2=30%, T3=50% (Rides runners).
+  - `BALANCED` (EOD): T1=40%, T2=30%, T3=30%.
+  - `CONSERVATIVE` (Reversal): T1=30%, T2=30%, T3=40%.
 
-### 53.4 Telemetry & Profiling (`memory_profiler.py`)
-- **Purpose**: Production V3 memory tracking and loop isolation.
-- **Implementation**: The `@profile_function` wrapper calculates exact memory allocation churn (`transient_mb = max(0, peak_rss - end_rss)`). It leverages `get_dataframe_inventory()` to trace the memory `id()` of the largest dataframe, explicitly revealing whether high-frequency intraday loops are reusing pandas objects or leaking them.
+---
 
-### 53.5 Macro Utilities (`macro_utils.py`)
-- **Purpose**: Centralized NIFTY environment tracking.
-- **Workflow**: `get_macro_regime()` calculates NIFTY's 20-day returns and cross-references ADX trend strength. If it fails due to network outage, it strictly defaults to `NEUTRAL` to prevent scan freezing.
+## 7. Persistence, Telemetry & Observability
 
-### 53.6 AI Worker Daemon (`ai_worker.py`)
-- **Purpose**: Asynchronous parsing of concall transcripts.
-- **Workflow**: Uses a `_scan_lock` to ensure manual dashboard triggers do not overlap with scheduled nighttime (7 PM - 7 AM) daemon loops.
-- **Caching Policy**: Valid transcripts are cached for 60 days. Hard failures (or "error" responses) are cached for exactly 1 day to allow automatic retries on the next execution cycle without infinitely hammering the API.
+### 7.1 The Database Schema (`database.py`)
+- **`alerts` table**: The primary output payload. Utilizes a strict unique index `alerts_dedup_idx (symbol, breakout_type, scanner, alert_date)` to prevent pipeline duplicates.
+- **`scanner_health` table**: Driven by `main.py` watchdog. Reports UP/DOWN, execution time, and error traces directly to the Web UI.
+- **`validation_history`**: Permanent ledger of every dataset rejection and schema failure.
+
+### 7.2 Memory Profiling (`memory_profiler.py`)
+- Every high-frequency operation (especially in `Multi-TF`) is wrapped in `@profile_function`.
+- The system captures:
+  - `Peak RSS` vs `End RSS` to isolate exact Transient Memory Allocation.
+  - `id(largest_df)` to verify if Pandas dataframes are being correctly reused or continuously reallocated.
+  - `RSS Delta / Rows Processed` efficiency metrics.
+
+### 7.3 Pipeline Summaries (Funnel Tracking)
+- To eliminate "Black Box" debugging, every scanner maintains a `lower_funnel` dictionary mapping exact rejection causes (e.g., `REJECTED_BY_VOLUME`, `REJECTED_BY_RSI`, `REJECTED_BY_PREV_HIGH`).
+- A `[PIPELINE SUMMARY]` block is printed to standard output at the completion of every run, which is ingested by the dashboard logger.
+
+---
+
+## 8. Centralized Configuration (`config.py`)
+
+Every hyperparameter and heuristic threshold is strictly decoupled from algorithm logic and isolated in `config.py`.
+
+### 8.1 Key Configuration Vectors
+- `REGIME_POLICIES`: Controls scanner behavior dynamically based on the NIFTY macro environment. 
+  - `STRONG_BEAR`: Breakouts = False, Max Positions = 0.
+  - `WEAK_BULL`: Mean Reversion = True, Breakouts = True, Max Positions = 3.
+- `ADAPTIVE_TARGET_CAPS`: Caps the maximum permissible Target 3 distance based on regime (`BULL` = 12%, `BEAR` = 8%).
+- `ALERT_COOLDOWN_MINUTES`: EOD/Reversals use `5760` (96 hours) to prevent double-firing alerts over long holiday weekends when utilizing Bhavcopy fallback data.
+- `MIN_NATURAL_RR`: The Minimum Risk-Reward acceptable by the Risk Engine. `MULTI_TF` = 1.5, `EOD` = 2.5, `REVERSAL` = 2.0. If `sl_target_helper.py` cannot mathematically align structural resistance with this RR, the alert is aborted.
 
 
 </textarea>
