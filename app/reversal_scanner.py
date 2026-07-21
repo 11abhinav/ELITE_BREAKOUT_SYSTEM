@@ -131,6 +131,7 @@ def _score_reversal(
         close_price: Optional[float] = None,
         symbol: Optional[str] = None,
         promoter_pledge_pct: Optional[float] = None,
+        atr_val: Optional[float] = None,
         weights: Optional[dict] = None,
 ) -> int:
     """Score a reversal setup from 0-100 based on quality dimensions (v6 weights)."""
@@ -169,21 +170,21 @@ def _score_reversal(
     # < MIN_VOLUME_RATIO never reaches here (hard gate), but guarded for safety.
 
     # ── MACD momentum (15 pts) ──
-    # [VERSION: REVERSAL_MACD_NORM_v1.0] Express macd_hist as percentage of close price to eliminate large-cap bias
-    if macd_hist is not None and close_price is not None and close_price > 0:
+    # [VERSION: REVERSAL_MACD_NORM_v2.0] Normalize macd_hist using intrinsic volatility (ATR) rather than nominal price
+    if macd_hist is not None and atr_val is not None and atr_val > 0:
         try:
-            mh_pct = (float(macd_hist) / float(close_price)) * 100.0
-            if mh_pct >= 0.10:   score += 15   # strong bullish momentum (10+ basis points)
-            elif mh_pct >= 0.03: score += 10   # moderate bullish momentum (3+ basis points)
-            elif mh_pct > 0.0:   score += 5    # turning positive
+            mh_atr = float(macd_hist) / float(atr_val)
+            if mh_atr >= 0.15:   score += 15   # strong bullish momentum (>15% of daily ATR)
+            elif mh_atr >= 0.05: score += 10   # moderate bullish momentum (>5% of daily ATR)
+            elif mh_atr > 0.0:   score += 5    # turning positive
         except (TypeError, ValueError):
             pass
     elif macd_hist is not None:
         try:
             mh = float(macd_hist)
-            if mh > 0.3:   score += 15   # strong bullish histogram
+            if mh > 0.3:   score += 15   # fallback for legacy mode
             elif mh > 0.1: score += 10
-            elif mh > 0:   score += 5    # just turned positive
+            elif mh > 0:   score += 5
         except (TypeError, ValueError):
             pass
 
@@ -827,6 +828,7 @@ def _run_scan(force: bool = False):
                         close_price=close_price,       # [VERSION: REVERSAL_MACD_NORM_v1.0]
                         symbol=symbol,
                         promoter_pledge_pct=pledge_map.get(symbol),
+                        atr_val=atr_val,
                         weights=bayesian_weights,
                     )
 
@@ -999,9 +1001,9 @@ def _run_scan(force: bool = False):
             f"no_macd_cross={rejected.get('no_macd_cross', 0)}, "
             f"low_score={rejected.get('low_score', 0)}, "
             f"climax_top={rejected.get('climax_top', 0)}, "
-            f"thin_spread={rejected.get('thin_spread', 0)}"
+            f"thin_spread={rejected.get('thin_spread', 0)}, "
+            f"low_rr={rejected.get('low_rr', 0)}"
         )
-
         # ── VALIDATION COMPLETE ──
 
         # ── PERSISTENCE ───────────────────────────────────────────────────────────

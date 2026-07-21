@@ -111,7 +111,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     import gc, time
     BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "50"))
     
-    stale_count = 0
+    stale_1h = 0
     fetched_count = 0
     
     # ── FUNNEL STATS: measure how many stocks pass each gate ──────────────
@@ -151,7 +151,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                 
                 if getattr(df, 'attrs', {}).get('is_stale') == True:
                     logger.debug(f"⏭️ Skipping {symbol} (1H scan) due to stale data.")
-                    stale_count += 1
+                    stale_1h += 1
                     continue
     
                 df = strip_forming_candle(df, 60, datetime.now(IST))
@@ -273,7 +273,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         f"approved={funnel['approved']}"
     )
 
-    return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_count, "save_failures": 0}
+    if stale_1h > 0:
+        logger.info(f"📊 Stale data summary | 1H: {stale_1h}")
+    return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_1h, "save_failures": 0}
 def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.
@@ -349,7 +351,9 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     ok_30m = _check_fetch(data_30m, needs_30m, "30m")
     ok_15m = _check_fetch(data_15m, needs_15m, "15m")
     ok_5m  = _check_fetch(data_5m, needs_5m, "5m")
-    stale_count = 0
+    stale_30m = 0
+    stale_15m = 0
+    stale_5m = 0
     db_save_failures = 0
     ist_now = datetime.now(IST)
 
@@ -363,7 +367,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     # Funnel stats for Phase B/C/D
     lower_funnel = {"armed_candidates": 0, "bb_pass": 0, "armed": 0,
                     "entry_candidates": 0, "ema15_pass": 0, "entry_ready": 0,
-                    "trigger_candidates": 0, "triggered": 0, "demoted": 0}
+                    "trigger_candidates": 0, "pb_fail_engulf": 0, "pb_fail_vol": 0, 
+                    "rr_rejections": 0, "triggered": 0, "demoted": 0}
 
     profiler_proc2 = MemoryProfiler("MTF Process Symbols")
     profiler_proc2.__enter__()
@@ -410,7 +415,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (30m decay check) due to stale data.")
-                        stale_count += 1
+                        stale_30m += 1
                         continue
 
                     df = strip_forming_candle(df, 30, ist_now)
@@ -448,7 +453,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (30m upgrade check) due to stale data.")
-                        stale_count += 1
+                        stale_30m += 1
                         continue
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Added defensive checks on strip_forming_candle return value
@@ -519,7 +524,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (15m entry check) due to stale data.")
-                        stale_count += 1
+                        stale_15m += 1
                         continue
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
@@ -578,7 +583,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (5m trigger check) due to stale data.")
-                        stale_count += 1
+                        stale_5m += 1
                         continue
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
@@ -667,8 +672,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             reasons = []
                             if not c_engulf:
                                 reasons.append("PD02")
+                                lower_funnel["pb_fail_engulf"] += 1
                             if not c_vol:
                                 reasons.append("PD03")
+                                lower_funnel["pb_fail_vol"] += 1
                             if not c_close_pos:
                                 reasons.append("PD04")
                             if not reasons:
@@ -731,6 +738,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             calc_target = sl_result["target_1"]
 
                             if sl_result.get("is_rejected"):
+                                lower_funnel["rr_rejections"] += 1
                                 from database import save_rejected_alert
                                 if not is_test_mode:
                                     save_rejected_alert(
@@ -853,9 +861,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             continue
     # ── Log the funnel so we can see exactly where stocks drop off ────────
     logger.info(f"📊 Phase B/C/D Funnel: "
-                f"30m_candidates={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "
-                f"15m_candidates={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
-                f"5m_candidates={lower_funnel['trigger_candidates']} → triggered={lower_funnel['triggered']}")
+                f"30m_cands={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "
+                f"15m_cands={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
+                f"5m_cands={lower_funnel['trigger_candidates']} → pb_fail_engulf={lower_funnel['pb_fail_engulf']} → pb_fail_vol={lower_funnel['pb_fail_vol']} → "
+                f"rr_rejects={lower_funnel['rr_rejections']} → triggered={lower_funnel['triggered']}")
 
     # ── Global Ranking & Allocation (end-of-sweep, in-memory) ─────────────
     if not is_test_mode:
@@ -888,7 +897,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     except Exception as e:
         logger.debug(f"Memory cleanup logging failed: {e}")
 
-    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_count, "save_failures": db_save_failures}
+    unique_needed = set(needs_30m + needs_15m + needs_5m)
+    
+    if any([stale_30m, stale_15m, stale_5m]):
+        logger.info(
+            f"📊 Stale data summary\n"
+            f"30m: {stale_30m}\n"
+            f"15m: {stale_15m}\n"
+            f"5m : {stale_5m}"
+        )
+    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures}
 
 def run_sweeper(is_test_mode=False):
     if is_test_mode:

@@ -81,6 +81,7 @@ class StockPriceData:
     close_yesterday: float
     sma_200_yesterday: float
     closes_below_sma200_count: int = 0
+    last_trade_date: str = ""
 
 @dataclass
 class ExitPriceData:
@@ -329,6 +330,8 @@ def batch_download_market_data(symbols: list) -> dict:
                 if len(ticker_df) < 50:
                     continue
                 
+                last_trade_date = str(ticker_df.index[-1].date())
+                
                 close_series = ticker_df["Close"]
                 vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
                 
@@ -412,7 +415,8 @@ def batch_download_market_data(symbols: list) -> dict:
                     sma_200_yesterday=sma_200_yesterday,
                     atr_14=atr_14,
                     ema_20=ema_20,
-                    closes_below_sma200_count=closes_below_sma200_count
+                    closes_below_sma200_count=closes_below_sma200_count,
+                    last_trade_date=last_trade_date
                 )
             except Exception as e:
                 logger.debug(f"Error parsing market data for {sym}: {e}")
@@ -860,9 +864,9 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
         "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
         
-        "debt_equity": (info.get("debtToEquity") or 0.0) / 100.0,
-        # [FIX #5] ICR: wrap with abs() to handle yfinance sign convention, fix zero ebit giving 100.0
-        "interest_coverage_ratio": (lambda ie: (abs(ebit) / abs(ie)) if (ebit is not None and ie and abs(ie) > 1) else (100.0 if ebit is not None and ebit > 0 else 0.0))(safe_extract(fin, 'Interest Expense')),
+        "debt_equity": info.get("debtToEquity") / 100.0 if info.get("debtToEquity") is not None else None,
+        # [FIX] ICR: do not use abs() on EBIT to preserve negative earnings signal.
+        "interest_coverage_ratio": (lambda ie: (ebit / abs(ie)) if (ebit is not None and ie and abs(ie) > 1) else (100.0 if ebit is not None and ebit >= 0 else (-100.0 if ebit is not None else None)))(safe_extract(fin, 'Interest Expense')),
         "debt_yoy_growth": 0.0, # Dummy for now
         "altman_z": altman_z,
         "current_ratio": info.get("currentRatio"),
@@ -1050,8 +1054,25 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 
                 # Try exit_prices first, then fall back to price_data_map
                 price_data = exit_prices.get(symbol) or price_data_map.get(symbol)
+                
+                # Check for temporary provider outage vs permanent stale data
                 if not price_data:
-                    logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Stock might be suspended/delisted. Skipping exit check to avoid closing at zero.")
+                    logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Stock might be suspended/delisted. Triggering REVIEW.")
+                    # Trigger a review alert since we have zero price data (could be delisted/purged)
+                    try:
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""
+                                    UPDATE alerts 
+                                    SET status = 'SELL_REVIEW', 
+                                        exit_reason = 'Review Alert: No price data returned by provider. Stock may be delisted or suspended.',
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = %s
+                                """, (alert_id,))
+                            conn.commit()
+                        logger.warning(f"🚨 SELL_REVIEW TRIGGERED for {symbol}: No price data returned by provider.")
+                    except Exception as e:
+                        logger.exception(f"Failed to update alert for {symbol} due to missing price data.")
                     continue
                     
                 current_price = price_data.price
@@ -1094,14 +1115,47 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 exit_triggered = False
                 exit_reason = ""
                 
-                # Rule 1: Catastrophic Stop (Drawdown >= 25% from entry price)
-                if entry_price <= 0:
+                # Watchdog: Stale Data Check (Suspension / Trading Halt)
+                if hasattr(price_data, "last_trade_date") and price_data.last_trade_date:
+                    import numpy as np
+                    try:
+                        start_date = np.datetime64(price_data.last_trade_date)
+                        end_date = np.datetime64(datetime.now(IST).date())
+                        bus_days = np.busday_count(start_date, end_date)
+                        if bus_days >= 10:
+                            exit_triggered = True
+                            exit_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {price_data.last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
+                    except Exception as e:
+                        logger.warning(f"Stale data check failed for {symbol}: {e}")
+                
+                # Rule 1: Dynamic Catastrophic Stop (Market Cap & Trend Health)
+                if not exit_triggered and entry_price <= 0:
                     logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Invalid entry_price ({entry_price}). Skipping drawdown check.")
-                else:
+                elif not exit_triggered:
                     drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
-                    if drawdown_pct >= 25.0:
+                    
+                    # Base threshold by market cap
+                    mcap_cr = fund.get("market_cap", 0) / 10000000.0 if fund else 0
+                    if mcap_cr > 20000:
+                        max_loss_pct = 20.0  # Large Cap
+                        cap_tier = "Large Cap"
+                    elif mcap_cr > 5000:
+                        max_loss_pct = 25.0  # Mid Cap
+                        cap_tier = "Mid Cap"
+                    else:
+                        max_loss_pct = 30.0  # Small/Micro Cap
+                        cap_tier = "Small Cap"
+                        
+                    # Adjust for trend health (if price is deep below 200-DMA, tighten the stop)
+                    if price_data.sma_200 > 0 and current_price < 0.90 * price_data.sma_200:
+                        max_loss_pct -= 2.0  # Tighten stop by 2% if deeply bearish trend
+                        trend_health = "Weak Trend"
+                    else:
+                        trend_health = "Strong/Neutral Trend"
+                        
+                    if drawdown_pct >= max_loss_pct:
                         exit_triggered = True
-                        exit_reason = f"Catastrophic Stop: Drawdown >= 25% ({drawdown_pct:.1f}% loss)"
+                        exit_reason = f"Catastrophic Stop [{cap_tier}, {trend_health}]: Drawdown >= {max_loss_pct:.1f}% ({drawdown_pct:.1f}% loss)"
                     
                 # Rule 2: Anti-Whipsaw 200-DMA exit
                 if not exit_triggered and price_data.sma_200 > 0:

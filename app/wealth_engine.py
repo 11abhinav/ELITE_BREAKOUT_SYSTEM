@@ -224,18 +224,23 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
     pe = _safe_float(raw_data.get('PE Ratio', raw_data.get('Price to Earning')))
     pb = _safe_float(raw_data.get('Price to Book', raw_data.get('Price to book value')))
     
+    def _safe_float_allow_missing(val):
+        if val is None or pd.isna(val) or val == "": return None
+        try: return float(val)
+        except Exception: return None
+
     # [VERSION: V5_VALUATION_FIX] The V5 Valuation Engine requires absolute numbers (EPS, BVPS, Shares) 
     # which aren't in the raw screener ratios. We must reconstruct them mathematically.
     shares = (market_cap / price) if price > 0 else 0.0
-    eps = (price / pe) if pe > 0 else 0.0
-    bvps = (price / pb) if pb > 0 else 0.0
+    eps = (price / pe) if pe is not None and pe != 0 else 0.0
+    bvps = (price / pb) if pb is not None and pb != 0 else 0.0
         
     return {
         'market_cap': market_cap,
         'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))) / 100.0,
         'roe': _safe_float(raw_data.get('ROE %', raw_data.get('ROE'))) / 100.0,
-        'debt_to_equity': _safe_float(raw_data.get('Debt/Equity', raw_data.get('Debt to equity')), default=0.5),
-        'interest_coverage': _safe_float(raw_data.get('Interest Coverage', raw_data.get('Interest coverage')), default=5.0),
+        'debt_to_equity': _safe_float_allow_missing(raw_data.get('Debt/Equity', raw_data.get('Debt to equity'))),
+        'interest_coverage': _safe_float_allow_missing(raw_data.get('Interest Coverage', raw_data.get('Interest coverage'))),
         'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))) / 100.0,
         'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))) / 100.0,
         'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))) / 100.0,
@@ -258,7 +263,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'book_value_per_share': bvps,
         'shares_outstanding': shares,
         'tt_indpe': pe,  # Proxy industry PE with trailing PE if missing
-        'ebit': eps * shares * 1.33,  # Proxy NOPAT assuming 25% tax
+        'ebit': (eps * shares * 1.33) if eps is not None and shares is not None else 0.0,  # Proxy NOPAT assuming 25% tax
         
         # Technical fields that might be passed from wealth_technicals
         'pct_from_52w_high': _safe_float(raw_data.get('dist_52w_high', 0.0)) / -100.0,
@@ -325,13 +330,13 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         return None
 
     # Helper for missing data bypass
-    def _is_ok(val, threshold, is_lower_bound=True):
+    def _is_ok(val, threshold, is_lower_bound=True, require_data=True):
         if pd.isna(val) or val == "":
-            return True
+            return not require_data
         try:
             v = float(val)
         except (ValueError, TypeError):
-            return True
+            return not require_data
         
         if is_lower_bound:
             return v >= threshold
@@ -483,7 +488,7 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
         return {"bonus": 0, "reason": "Already LTCG — no penalty for selling", "harvest_signal": harvest_signal}
     
     if 0 < days_to_ltcg <= LTCG_BONUS_WINDOW:
-        bonus = round(10 * (days_to_ltcg / LTCG_BONUS_WINDOW), 1)
+        bonus = round(10 * ((LTCG_BONUS_WINDOW - days_to_ltcg + 1) / LTCG_BONUS_WINDOW), 1)
         return {
             "bonus": bonus,
             "reason": f"LTCG in {days_to_ltcg}d",
@@ -755,13 +760,34 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             r["Exit_Reason"] = ""
             return r
             
+        # Fetch Macro Regime for RS Exit scaling
+        from macro_utils import get_macro_regime
+        macro_regime = get_macro_regime()
+        
+        rs_threshold = -40
+        if macro_regime in ("BEAR", "WEAK_BEAR", "RANGEBOUND"):
+            rs_threshold = -55
+        elif macro_regime == "STRONG_BEAR":
+            rs_threshold = -60
+            
+        rs_exit_triggered = False
+        rs_exit_reason = ""
+        if rs < rs_threshold:
+            if macro_regime in ("BEAR", "WEAK_BEAR", "STRONG_BEAR", "RANGEBOUND"):
+                if final_hold_score < 50 or (sma > 0 and cmp < sma):
+                    rs_exit_triggered = True
+                    rs_exit_reason = f"Catastrophic RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold}) + Confirmed Weakness"
+            else:
+                rs_exit_triggered = True
+                rs_exit_reason = f"Catastrophic RS Breakdown (RS: {rs:.1f} < {rs_threshold})"
+            
         if cmp > 0 and data_quality not in ["MISSING_PARTIAL", "CACHED_PREV_DAY"]:
             if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
                 exit_code, exit_reason = "SELL_REVIEW", hold_trend
             elif final_hold_score < 45:
                 exit_code, exit_reason = "SELL_REVIEW", f"Hold Score: {final_hold_score}/100"
-            elif rs < -40:
-                exit_code, exit_reason = "SELL", "Catastrophic RS Breakdown"
+            elif rs_exit_triggered:
+                exit_code, exit_reason = "SELL", rs_exit_reason
             elif sma > 0 and cmp < (0.75 * sma):
                 exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse"
                 

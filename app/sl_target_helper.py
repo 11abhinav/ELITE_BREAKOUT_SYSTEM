@@ -142,18 +142,38 @@ class RoundNumberEngine:
         return 1000.0
 
     @staticmethod
-    def detect_and_boost(clusters: List[ClusteredTarget]) -> None:
+    def _get_weight_multiplier(tick: float) -> float:
+        if tick >= 1000.0: return 2.5 # Extreme
+        if tick >= 50.0: return 2.0   # Very High
+        if tick >= 10.0: return 1.5   # High
+        return 1.0                    # Medium
+
+    @staticmethod
+    def detect_and_boost(clusters: List[ClusteredTarget], eff_atr: float = 0.0) -> None:
         for c in clusters:
             tick = RoundNumberEngine._get_tick(c.consensus_price)
+            if tick <= 0: continue
             nearest = round(c.consensus_price / tick) * tick
-            pct_diff = abs(c.consensus_price - nearest) / c.consensus_price
+            pct_diff = abs(c.consensus_price - nearest) / max(c.consensus_price, 1e-5)
             if pct_diff <= ROUND_NUMBER_PCT:
                 c.is_round_number = True
-                c.score += ROUND_NUMBER_BOOST
+                
+                weight_mult = RoundNumberEngine._get_weight_multiplier(tick)
+                c.score += int(ROUND_NUMBER_BOOST * weight_mult)
+                
+                # Adaptive Front-running offset
+                tick_offset = tick if tick <= 5.0 else (tick * 0.2)
+                if eff_atr > 0:
+                    offset = min(0.25 * eff_atr, 0.003 * nearest, tick_offset)
+                else:
+                    offset = min(0.003 * nearest, tick_offset)
+                    
+                front_run_target = round(nearest - offset, 2)
+                
                 c.candidates.append(TargetCandidate(
-                    price=nearest, source=TargetSource.ROUND_NUM,
+                    price=front_run_target, source=TargetSource.ROUND_NUM,
                     timeframe="any", scanner="any", strength="NORMAL",
-                    anchor_points={}, generated_from="RoundNumberEngine",
+                    anchor_points={"offset": round(offset, 2), "base_round": nearest}, generated_from="RoundNumberEngine",
                     cluster_id=c.cluster_id, score=0, is_round_number=True
                 ))
 
@@ -878,7 +898,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     candidates = strategy.pre_filter(candidates, {"vwap": kwargs.get("vwap")})
     
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters)
+    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
     clusters = ConflictResolver.resolve(clusters, "MULTI_TF", entry, macro_regime)
     
     targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
@@ -948,7 +968,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     
     strategy = ClusterConsensusStrategy()
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters)
+    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
     clusters = ConflictResolver.resolve(clusters, "EOD", entry, macro_regime)
     targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
     
@@ -1040,7 +1060,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     cands = valid_cands
     
     clusters = ClusterEngine.cluster(cands, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters)
+    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
     clusters = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"))
     
     t1_cluster = clusters[0] if clusters else None
