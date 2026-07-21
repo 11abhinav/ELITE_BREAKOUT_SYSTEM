@@ -16,11 +16,15 @@ class ProfilerState:
     last_deep_diagnostic_time = 0
     consecutive_anomalies = 0
     last_snapshot = None
+    last_rss = None
+    rolling_gains = []
     
     @classmethod
     def init_session(cls):
         if cls.session_start_rss is None:
-            cls.session_start_rss = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+            current_rss = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+            cls.session_start_rss = current_rss
+            cls.last_rss = current_rss
             
     @classmethod
     def increment_loop(cls):
@@ -30,9 +34,17 @@ class ProfilerState:
     def get_session_stats(cls):
         cls.init_session()
         current_rss = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+        
+        loop_gain = current_rss - cls.last_rss
+        cls.last_rss = current_rss
+        
+        cls.rolling_gains.append(loop_gain)
+        if len(cls.rolling_gains) > 10:
+            cls.rolling_gains.pop(0)
+            
         gain = current_rss - cls.session_start_rss
-        gain_per_loop = gain / cls.loop_count if cls.loop_count > 0 else 0
-        return gain, gain_per_loop
+        rolling_gain_per_loop = sum(cls.rolling_gains) / len(cls.rolling_gains) if cls.rolling_gains else 0
+        return gain, rolling_gain_per_loop
 
 
 logger = logging.getLogger(__name__)
@@ -121,7 +133,7 @@ class MemoryProfiler:
             ProfilerState.increment_loop()
             session_gain, gain_per_loop = ProfilerState.get_session_stats()
             logger.debug(f"  Session Gain    : {session_gain:+.1f} MB")
-            logger.debug(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
+            logger.debug(f"  Rolling Gain/Lp : {gain_per_loop:+.2f} MB/loop (last 10)")
                 
         logger.debug("=================================")
         
@@ -331,6 +343,7 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
     target_df_delta = MEMORY_PROFILER_CONFIG.get("MIN_DF_DELTA_MB", 1.0)
     target_peak = MEMORY_PROFILER_CONFIG.get("MAX_TRACEMALLOC_PEAK_MB", 20.0)
     
+    # Trigger if RSS spikes but DataFrame/Tracemalloc stay low
     if rss_delta_mb > target_rss_delta and df_delta_mb < target_df_delta and tracemalloc_peak_mb < target_peak:
         ProfilerState.consecutive_anomalies += 1
         ProfilerState.last_deep_diagnostic_time = now
@@ -338,6 +351,14 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
         logger.warning(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}' (Anomaly #{ProfilerState.consecutive_anomalies})")
         logger.warning(f"🚨 RSS grew by {rss_delta_mb:.1f} MB, DF changed by {df_delta_mb:+.1f} MB, Tracemalloc Peak: {tracemalloc_peak_mb:.1f} MB.")
         
+        logger.warning("=== Python Object Population (gc.get_objects) ===")
+        import collections
+        objs = gc.get_objects()
+        type_counts = collections.Counter(type(o).__name__ for o in objs)
+        top_types = type_counts.most_common(10)
+        for obj_type, count in top_types:
+            logger.warning(f"  {obj_type}: {count} instances")
+            
         # LEVEL 1: Tracemalloc and Memory Maps
         if tracemalloc.is_tracing():
             snapshot = tracemalloc.take_snapshot()
@@ -368,6 +389,8 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
                 rss_mb = rss_bytes / (1024 * 1024)
                 if rss_mb > 1.0:
                     logger.warning(f"  {base}: {rss_mb:.1f} MB")
+        except Exception as e:
+            logger.warning(f"Could not read memory maps: {e}")
         except Exception as e:
             logger.warning(f"  Native memory map unavailable: {e}")
             
@@ -467,7 +490,7 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 ProfilerState.increment_loop()
                 session_gain, gain_per_loop = ProfilerState.get_session_stats()
                 logger.debug(f"  Session Gain    : {session_gain:+.1f} MB")
-                logger.debug(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
+                logger.debug(f"  Rolling Gain/Lp : {gain_per_loop:+.2f} MB/loop (last 10)")
                     
                 logger.debug("=================================")
         return wrapper
