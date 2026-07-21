@@ -9,7 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from zoneinfo import ZoneInfo
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from technical_indicators import apply_indicators
 from memory_profiler import MemoryProfiler
@@ -172,12 +172,23 @@ def _start_wrapper(force: bool = False):
             logger.exception("Failed to fetch pledge map")
             pledge_map = {}
 
-        # [VERSION: EOD_CHUNK_FIX] Removed ThreadPoolExecutor for price fetch. Fetch delivery synchronously.
-        try:
-            delivery_map = fetch_delivery_data(ist_now.date())
-        except Exception as e:
-            logger.error(f"❌ Delivery fetch failed: {e}")
-            delivery_map = {}
+        # [VERSION: EOD_DELIVERY_FALLBACK_v1.0] Try today first, fallback to previous days if not available
+        delivery_map = {}
+        for days_back in range(0, 5):
+            candidate = ist_now.date() - timedelta(days=days_back)
+            while candidate.weekday() >= 5:
+                candidate -= timedelta(days=1)
+            
+            try:
+                delivery_map = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
+                if delivery_map:
+                    if days_back > 0:
+                        logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
+                    else:
+                        logger.info(f"✅ EOD Scanner using TODAY'S Bhavcopy from: {candidate}")
+                    break
+            except Exception as e:
+                logger.error(f"❌ Delivery fetch failed for {candidate}: {e}")
 
         # today_str already computed above
 

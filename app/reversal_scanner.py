@@ -20,7 +20,7 @@ import pandas as pd
 import logging
 import os
 from zoneinfo import ZoneInfo
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from technical_indicators import apply_indicators
@@ -292,9 +292,29 @@ def _run_scan(force: bool = False):
 
     try:
         from delivery_data import fetch_delivery_data
-        prev_delivery_map = fetch_delivery_data(datetime.now(IST).date())
+        # [VERSION: REVERSAL_DELIVERY_FALLBACK_v1.0] Try today first, fallback to previous days if not available
+        prev_delivery_map = {}
+        today_date = datetime.now(IST).date()
+        for days_back in range(0, 5):
+            candidate = today_date - timedelta(days=days_back)
+            while candidate.weekday() >= 5:
+                candidate -= timedelta(days=1)
+                
+            try:
+                prev_delivery_map = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
+                if prev_delivery_map:
+                    if days_back > 0:
+                        logger.info(f"✅ Reversal Scanner using FALLBACK Bhavcopy from: {candidate}")
+                    else:
+                        logger.info(f"✅ Reversal Scanner using TODAY'S Bhavcopy from: {candidate}")
+                    break
+            except Exception as e:
+                logger.error(f"❌ Delivery fetch failed for {candidate}: {e}")
+                
+        if not prev_delivery_map:
+            logger.warning("⚠️ Failed to fetch delivery data for all recent days. Reverting to empty map (no delivery bonus).")
     except Exception as e:
-        logger.warning(f"⚠️ Failed to fetch delivery data: {e}. Reverting to empty map (no delivery bonus).")
+        logger.warning(f"⚠️ Critical failure in delivery data fetch loop: {e}")
         prev_delivery_map = {}
         
     try:

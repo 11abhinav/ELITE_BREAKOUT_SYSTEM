@@ -85,7 +85,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             
     return {}
 
-def fetch_delivery_data(trading_date: date) -> dict[str, float]:
+def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[str, float]:
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     from database import get_bhavcopy_cache, save_bhavcopy_cache
     
@@ -214,7 +214,10 @@ def fetch_delivery_data(trading_date: date) -> dict[str, float]:
                 final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
                 
                 # 2. Save to database cache
-                save_bhavcopy_cache(trading_date, final_dict)
+                if not skip_db_save:
+                    save_bhavcopy_cache(trading_date, final_dict)
+                else:
+                    logger.info(f"⏭️ Skipping DB save for {trading_date} (fallback fetching mode).")
                 
                 if final_dict:
                     try:
