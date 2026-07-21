@@ -1059,7 +1059,7 @@ def _run_scan(force: bool = False):
                     status = "DEGRADED"
                     error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
                     
-                fetched_count = total_fetched_count if all_ticker_data else 0
+                fetched_count = total_fetched_count
                 if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
                     status = "DEGRADED"
                     error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"

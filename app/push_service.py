@@ -73,9 +73,9 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
             )
         except WebPushException as ex:
             logger.error(f"WebPush error: {repr(ex)}")
-            # If the subscription expired or the user revoked permission
-            if ex.response and ex.response.status_code in (404, 410):
-                logger.info(f"Removing expired subscription: {sub['endpoint']}")
+            # If the subscription expired, user revoked permission, or VAPID keys changed (400/403)
+            if ex.response and ex.response.status_code in (400, 403, 404, 410):
+                logger.info(f"Removing invalid/expired subscription: {sub['endpoint']}")
                 database.remove_push_subscription(sub['endpoint'])
         except Exception as e:
             logger.exception(f"Failed to send push")

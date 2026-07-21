@@ -1579,8 +1579,13 @@ To ensure the Validation Engine and system ingestion pipelines behave determinis
 * **Resilience Goal:** The system's primary directive is to **always serve price data**, regardless of monitoring database health.
   - **Improvement & Bug Fix:** The test exposed a vulnerability where a telemetry/success callback (`delete_fetch_error_on_success`) crashed the entire price fetcher if the database was offline.
   - **The Fix:** We implemented strict exception firewalls around all database telemetry bounds. If the DB is unreachable, the system will silently catch the errors and seamlessly route data locally from the `.parquet` file caching tier, ensuring zero downtime for trading operations.
-</textarea>
 
+## 43. Bhavcopy Fallback & Admin Notifications (MANDATORY)
+- **Zero-to-4 Day Lookback:** Scanners (EOD and Reversal) MUST NOT fail if today's Bhavcopy is delayed (often published ~19:30 IST). They employ a 0-to-4 day fallback loop to find the most recent valid delivery data.
+- **Cache Integrity (skip_db_save):** When a scanner successfully uses a fallback Bhavcopy (i.e., data from a previous day), it MUST pass `skip_db_save=True` to `fetch_delivery_data`. This prevents old data from overwriting the database cache for the current date.
+- **Admin Awareness:** If scanners resort to using stale Bhavcopy (fallback active), they MUST trigger an immediate in-app portal notification (`insert_notification`) and a web push notification (`send_push_to_all`, bypassing throttles) to alert the admin that the scan is running with degraded data.
+**Version:** `BHAVCOPY_FALLBACK_v1.0` applied 2026-07-21
+</textarea>
 
     <!-- Rendering Script -->
     <script>
