@@ -43,6 +43,18 @@ WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
 DB_PATH = os.path.join(DATA_DIR, "alerts.db")
 
 # =====================================================================================
+# SYSTEM & PROFILING CONFIGURATION
+# =====================================================================================
+
+MEMORY_PROFILER_CONFIG = {
+    "DEEP_DIAGNOSTIC_RSS_MB": 5.0,
+    "MIN_DF_DELTA_MB": 1.0,
+    "MAX_TRACEMALLOC_PEAK_MB": 20.0,
+    "CONSECUTIVE_TRIGGER_COUNT": 3,
+    "RATE_LIMIT_MINUTES": 30
+}
+
+# =====================================================================================
 # API / FETCH CONFIGURATION
 # =====================================================================================
 

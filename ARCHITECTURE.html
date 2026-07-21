@@ -1,4 +1,4 @@
-    <textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
+<textarea id="markdown-content" style="display: none;"># Scanner Architecture and Design Principles
 
 # ELITE BREAKOUT SYSTEM: V8 DEVELOPER REFERENCE MANUAL
 *(Last Updated: 2026-07-21 | System Version: V8.0 / Target Engine v7.1)*
@@ -2008,55 +2008,56 @@ This section covers the underlying orchestrators, persistence, and telemetry lay
 
 </textarea>
 
-    <!-- Rendering Script -->
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            // Configure marked options
-            marked.setOptions({
-                gfm: true,
-                breaks: true,
-                headerIds: true,
-                mangle: false
-            });
-
-            // Read raw markdown and render it as HTML
-            const markdownText = document.getElementById("markdown-content").value;
-            const contentDiv = document.getElementById("content");
-            contentDiv.innerHTML = marked.parse(markdownText);
-
-            // Initialize Mermaid with Dark theme settings
-            mermaid.initialize({
-                startOnLoad: false,
-                theme: 'dark',
-                themeVariables: {
-                    background: '#111827',
-                    primaryColor: '#00d4a1',
-                    secondaryColor: '#00b4d8',
-                    lineColor: '#374151',
-                    textColor: '#f1f5f9'
-                },
-                flowchart: {
-                    useMaxWidth: true,
-                    htmlLabels: true
-                }
-            });
-
-            // Find all blocks of mermaid tags and convert them into interactive SVG elements
-            const codeBlocks = contentDiv.querySelectorAll("pre code");
-            codeBlocks.forEach(function (block) {
-                const codeText = block.textContent.trim();
-                if (codeText.startsWith("sequenceDiagram") || codeText.startsWith("graph") || codeText.startsWith("flowchart")) {
-                    const preElement = block.parentNode;
-                    const mermaidDiv = document.createElement("div");
-                    mermaidDiv.className = "mermaid";
-                    mermaidDiv.textContent = codeText;
-                    preElement.parentNode.replaceChild(mermaidDiv, preElement);
-                }
-            });
-
-            // Perform final Mermaid render
-            mermaid.init(undefined, document.querySelectorAll(".mermaid"));
+<!-- Rendering Script -->
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        // Configure marked options
+        marked.setOptions({
+            gfm: true,
+            breaks: true,
+            headerIds: true,
+            mangle: false
         });
-    </script>
+
+        // Read raw markdown and render it as HTML
+        const markdownText = document.getElementById("markdown-content").value;
+        const contentDiv = document.getElementById("content");
+        contentDiv.innerHTML = marked.parse(markdownText);
+
+        // Initialize Mermaid with Dark theme settings
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            themeVariables: {
+                background: '#111827',
+                primaryColor: '#00d4a1',
+                secondaryColor: '#00b4d8',
+                lineColor: '#374151',
+                textColor: '#f1f5f9'
+            },
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true
+            }
+        });
+
+        // Find all blocks of mermaid tags and convert them into interactive SVG elements
+        const codeBlocks = contentDiv.querySelectorAll("pre code");
+        codeBlocks.forEach(function (block) {
+            const codeText = block.textContent.trim();
+            if (codeText.startsWith("sequenceDiagram") || codeText.startsWith("graph") || codeText.startsWith("flowchart")) {
+                const preElement = block.parentNode;
+                const mermaidDiv = document.createElement("div");
+                mermaidDiv.className = "mermaid";
+                mermaidDiv.textContent = codeText;
+                preElement.parentNode.replaceChild(mermaidDiv, preElement);
+            }
+        });
+
+        // Perform final Mermaid render
+        mermaid.init(undefined, document.querySelectorAll(".mermaid"));
+    });
+</script>
 </body>
+
 </html>

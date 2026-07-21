@@ -6,7 +6,34 @@ import logging
 import psutil
 import tracemalloc
 import pandas as pd
+
 import numpy as np
+from config import MEMORY_PROFILER_CONFIG
+
+class ProfilerState:
+    session_start_rss = None
+    loop_count = 0
+    last_deep_diagnostic_time = 0
+    consecutive_anomalies = 0
+    last_snapshot = None
+    
+    @classmethod
+    def init_session(cls):
+        if cls.session_start_rss is None:
+            cls.session_start_rss = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+            
+    @classmethod
+    def increment_loop(cls):
+        cls.loop_count += 1
+        
+    @classmethod
+    def get_session_stats(cls):
+        cls.init_session()
+        current_rss = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+        gain = current_rss - cls.session_start_rss
+        gain_per_loop = gain / cls.loop_count if cls.loop_count > 0 else 0
+        return gain, gain_per_loop
+
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +115,13 @@ class MemoryProfiler:
                 logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
                 
             df_delta_mb = df_end['memory_mb'] - self.df_start['memory_mb']
-            if delta_mb > 5.0 and df_delta_mb < 1.0:
-                _trigger_deep_diagnostic(delta_mb, df_delta_mb, self.stage_name)
+            _trigger_deep_diagnostic(delta_mb, df_delta_mb, self.stage_name, peak_alloc_mb)
+            
+            # Session Stats
+            ProfilerState.increment_loop()
+            session_gain, gain_per_loop = ProfilerState.get_session_stats()
+            logger.info(f"  Session Gain    : {session_gain:+.1f} MB")
+            logger.info(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
                 
         logger.info("=================================")
         
@@ -285,46 +317,78 @@ def get_dataframe_inventory():
         "largest_id": largest_df_id
     }
 
-def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name: str):
-    logger.warning(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}'")
-    logger.warning(f"🚨 RSS grew by {rss_delta_mb:.1f} MB but DF memory changed by {df_delta_mb:+.1f} MB.")
+def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name: str, tracemalloc_peak_mb: float):
+    now = time.monotonic()
+    rate_limit = MEMORY_PROFILER_CONFIG.get("RATE_LIMIT_MINUTES", 30) * 60
+    if now - ProfilerState.last_deep_diagnostic_time < rate_limit:
+        return # Silently rate limit
+        
+    # Check bounds
+    target_rss_delta = MEMORY_PROFILER_CONFIG.get("DEEP_DIAGNOSTIC_RSS_MB", 5.0)
+    target_df_delta = MEMORY_PROFILER_CONFIG.get("MIN_DF_DELTA_MB", 1.0)
+    target_peak = MEMORY_PROFILER_CONFIG.get("MAX_TRACEMALLOC_PEAK_MB", 20.0)
     
-    if tracemalloc.is_tracing():
-        snapshot = tracemalloc.take_snapshot()
-        top_stats = snapshot.statistics('lineno')
-        logger.warning("=== Top 5 Python Allocations (tracemalloc) ===")
-        for stat in top_stats[:5]:
-            logger.warning(f"  {stat}")
-            
-    try:
-        from collections import Counter
-        logger.warning("=== GC Object Type Counts ===")
-        objs = gc.get_objects()
-        type_counts = Counter(type(o).__name__ for o in objs)
-        for t_name, count in type_counts.most_common(5):
-            logger.warning(f"  {t_name}: {count} objects")
-    except Exception as e:
-        logger.warning(f"  Failed to get GC object counts: {e}")
+    if rss_delta_mb > target_rss_delta and df_delta_mb < target_df_delta and tracemalloc_peak_mb < target_peak:
+        ProfilerState.consecutive_anomalies += 1
+        ProfilerState.last_deep_diagnostic_time = now
         
-    try:
-        logger.warning("=== Process Memory Maps (Native Shared Libraries) ===")
-        process = psutil.Process(os.getpid())
-        maps = process.memory_maps()
-        lib_rss = {}
-        for m in maps:
-            path = m.path
-            base = os.path.basename(path) if path else "[anonymous]"
-            lib_rss[base] = lib_rss.get(base, 0) + m.rss
-            
-        sorted_libs = sorted(lib_rss.items(), key=lambda x: x[1], reverse=True)
-        for base, rss_bytes in sorted_libs[:10]:
-            rss_mb = rss_bytes / (1024 * 1024)
-            if rss_mb > 1.0:
-                logger.warning(f"  {base}: {rss_mb:.1f} MB")
-    except Exception as e:
-        logger.warning(f"  Failed to read memory_maps (possibly restricted in container): {e}")
+        logger.warning(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}' (Anomaly #{ProfilerState.consecutive_anomalies})")
+        logger.warning(f"🚨 RSS grew by {rss_delta_mb:.1f} MB, DF changed by {df_delta_mb:+.1f} MB, Tracemalloc Peak: {tracemalloc_peak_mb:.1f} MB.")
         
-    logger.warning("==================================================")
+        # LEVEL 1: Tracemalloc and Memory Maps
+        if tracemalloc.is_tracing():
+            snapshot = tracemalloc.take_snapshot()
+            if ProfilerState.last_snapshot is not None:
+                top_stats = snapshot.compare_to(ProfilerState.last_snapshot, 'lineno')
+                logger.warning("=== Top 5 Python Allocations (Delta since last snapshot) ===")
+                for stat in top_stats[:5]:
+                    logger.warning(f"  {stat}")
+            else:
+                top_stats = snapshot.statistics('lineno')
+                logger.warning("=== Top 5 Python Allocations (Absolute) ===")
+                for stat in top_stats[:5]:
+                    logger.warning(f"  {stat}")
+            ProfilerState.last_snapshot = snapshot
+            
+        try:
+            logger.warning("=== Process Memory Maps (Native Shared Libraries) ===")
+            process = psutil.Process(os.getpid())
+            maps = process.memory_maps()
+            lib_rss = {}
+            for m in maps:
+                path = m.path
+                base = os.path.basename(path) if path else "[anonymous]"
+                lib_rss[base] = lib_rss.get(base, 0) + m.rss
+                
+            sorted_libs = sorted(lib_rss.items(), key=lambda x: x[1], reverse=True)
+            for base, rss_bytes in sorted_libs[:10]:
+                rss_mb = rss_bytes / (1024 * 1024)
+                if rss_mb > 1.0:
+                    logger.warning(f"  {base}: {rss_mb:.1f} MB")
+        except Exception as e:
+            logger.warning(f"  Native memory map unavailable: {e}")
+            
+        # LEVEL 2: GC Objects
+        if ProfilerState.consecutive_anomalies >= MEMORY_PROFILER_CONFIG.get("CONSECUTIVE_TRIGGER_COUNT", 3):
+            logger.warning("🚨 [LEVEL 2 DIAGNOSTIC] Repeated anomalies detected. Running GC Object Histogram...")
+            try:
+                from collections import Counter
+                logger.warning("=== GC Object Type Counts ===")
+                objs = gc.get_objects()
+                type_counts = Counter(type(o).__name__ for o in objs)
+                for t_name, count in type_counts.most_common(5):
+                    logger.warning(f"  {t_name}: {count} objects")
+            except Exception as e:
+                logger.warning(f"  Failed to get GC object counts: {e}")
+                
+            ProfilerState.consecutive_anomalies = 0 # Reset after level 2
+            
+        logger.warning("==================================================")
+    else:
+        # Reset if the anomaly is broken
+        if ProfilerState.consecutive_anomalies > 0:
+            ProfilerState.consecutive_anomalies = 0
+
 
 def profile_function(stage_name: str, budget_mb: float = None):
     """Decorator for function-level profiling (tracemalloc, RSS, DF counts)."""
@@ -394,8 +458,13 @@ def profile_function(stage_name: str, budget_mb: float = None):
                     
                 rss_delta_mb = end_rss - start_rss
                 df_delta_mb = df_end['memory_mb'] - df_start['memory_mb']
-                if rss_delta_mb > 5.0 and df_delta_mb < 1.0:
-                    _trigger_deep_diagnostic(rss_delta_mb, df_delta_mb, stage_name)
+                _trigger_deep_diagnostic(rss_delta_mb, df_delta_mb, stage_name, peak_alloc_mb)
+                
+                # Session Stats
+                ProfilerState.increment_loop()
+                session_gain, gain_per_loop = ProfilerState.get_session_stats()
+                logger.info(f"  Session Gain    : {session_gain:+.1f} MB")
+                logger.info(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
                     
                 logger.info("=================================")
         return wrapper
