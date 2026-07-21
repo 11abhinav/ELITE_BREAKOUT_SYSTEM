@@ -247,9 +247,10 @@ def get_dataframe_inventory():
     largest_df_mem = 0
     largest_df_rows = 0
     largest_df_cols = 0
+    largest_df_id = None
     
     if not ENABLE_PROFILING:
-        return {"count": 0, "rows": 0, "cols": 0, "memory_mb": 0.0, "largest_mb": 0.0, "largest_rows": 0, "largest_cols": 0}
+        return {"count": 0, "rows": 0, "cols": 0, "memory_mb": 0.0, "largest_mb": 0.0, "largest_rows": 0, "largest_cols": 0, "largest_id": None}
 
     for obj in gc.get_objects():
         if isinstance(obj, pd.DataFrame):
@@ -265,6 +266,7 @@ def get_dataframe_inventory():
                     largest_df_mem = mem
                     largest_df_rows = r
                     largest_df_cols = c
+                    largest_df_id = id(obj)
             except Exception:
                 pass
                 
@@ -275,7 +277,8 @@ def get_dataframe_inventory():
         "memory_mb": total_bytes / (1024 * 1024),
         "largest_mb": largest_df_mem / (1024 * 1024),
         "largest_rows": largest_df_rows,
-        "largest_cols": largest_df_cols
+        "largest_cols": largest_df_cols,
+        "largest_id": largest_df_id
     }
 
 def profile_function(stage_name: str, budget_mb: float = None):
