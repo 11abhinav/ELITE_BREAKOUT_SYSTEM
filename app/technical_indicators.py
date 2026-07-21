@@ -16,6 +16,13 @@
 
 import pandas as pd
 import ta
+import gc
+from memory_profiler import profile_function
+
+try:
+    import pandas_ta as ta
+except ImportError:
+    pass
 
 
 def _find_swing_lows(low: pd.Series, n: int = 3) -> pd.Series:
@@ -39,6 +46,7 @@ def _find_swing_highs(high: pd.Series, n: int = 3) -> pd.Series:
     return result.ffill()
 
 
+@profile_function("Indicators", budget_mb=400.0)
 def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.DataFrame = None) -> pd.DataFrame:
     # [VERSION: MEMORY_OPTIMIZATION_v1.0] Fix block manager fragmentation by using dict for column assignment
     """

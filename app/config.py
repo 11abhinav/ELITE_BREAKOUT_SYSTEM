@@ -479,3 +479,5 @@ _MODE_CONFIG = {
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
 }
 
+
+SCANNER_MULTI_TF = "MULTI_TF"

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class MemoryProfiler:
     """
     A context manager to profile memory and execution time for a block of code.
-    Logs Current RSS, Peak RSS, Elapsed Time, and optional GC statistics.
+    Logs Current RSS, Peak RSS, Transient Alloc, Tracemalloc Peak, and GC statistics.
     """
     def __init__(self, stage_name: str, force_gc_cleanup: bool = False):
         self.stage_name = stage_name
@@ -23,25 +23,31 @@ class MemoryProfiler:
         self.start_time = 0
         self.start_rss = 0
         self.start_peak = 0
+        self.df_start = None
         
     def __enter__(self):
         self.start_time = time.monotonic()
         mem = self.process.memory_info()
         self.start_rss = mem.rss
         
-        # Cross-platform peak tracking
-        if hasattr(mem, 'peak_wset'):  # Windows
+        if hasattr(mem, 'peak_wset'):
             self.start_peak = mem.peak_wset
         else:
-            self.start_peak = self.start_rss  # Will approximate for Linux/macOS
+            self.start_peak = self.start_rss
             
         current_mb = self.start_rss / (1024 * 1024)
         logger.info(f"[MEMORY] 🟢 STARTING: {self.stage_name:<15} | Current RSS: {current_mb:>6.1f} MB")
+        
+        if ENABLE_PROFILING:
+            self.df_start = get_dataframe_inventory()
+            if not tracemalloc.is_tracing():
+                tracemalloc.start()
+            tracemalloc.clear_traces()
+            
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.force_gc_cleanup:
-            # Force GC to see if memory is actually retained or just pending collection
             collected = gc.collect()
             logger.info(f"[MEMORY GC] Stage: {self.stage_name} | Reclaimed: {collected} objects")
 
@@ -51,25 +57,37 @@ class MemoryProfiler:
         if hasattr(mem, 'peak_wset'):
             peak_rss = mem.peak_wset
         else:
-            # Approximation: If end > start_peak, end is new peak. Otherwise assume start_peak.
             peak_rss = max(self.start_peak, end_rss)
             
         elapsed = time.monotonic() - self.start_time
         delta_rss = end_rss - self.start_rss
+        transient_mb = max(0, (peak_rss - end_rss) / (1024 * 1024))
         
         current_mb = end_rss / (1024 * 1024)
         peak_mb = peak_rss / (1024 * 1024)
         delta_mb = delta_rss / (1024 * 1024)
+        start_mb = self.start_rss / (1024 * 1024)
         
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
-        logger.info(
-            f"[MEMORY] 🔴 FINISHED: {self.stage_name:<15} | "
-            f"Time: {elapsed:>5.1f}s | "
-            f"Current: {current_mb:>6.1f} MB | "
-            f"Peak: {peak_mb:>6.1f} MB | "
-            f"Delta: {delta_str:>6} MB"
-        )
+        logger.info(f"=== [PROFILE] {self.stage_name} ===")
+        logger.info(f"  Time            : {elapsed:.2f}s")
+        logger.info(f"  RSS Before      : {start_mb:.1f} MB")
+        logger.info(f"  RSS After       : {current_mb:.1f} MB")
+        logger.info(f"  RSS Delta       : {delta_str} MB")
+        logger.info(f"  RSS Peak        : {peak_mb:.1f} MB")
+        logger.info(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
+        
+        if ENABLE_PROFILING and self.df_start:
+            df_end = get_dataframe_inventory()
+            peak_alloc_mb = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
+            logger.info(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
+            logger.info(f"  Live DF Count   : {self.df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - self.df_start['count']:+d})")
+            logger.info(f"  Total DF Memory : {self.df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
+            if df_end['largest_mb'] > 0:
+                logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB ({df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                
+        logger.info("=================================")
         
         # Budget Alerts
         current_gb = current_mb / 1024
@@ -213,3 +231,155 @@ class BatchMemoryTracker:
             f"RSS After Cleanup: {rss_after_cleanup:.1f} MB | "
             f"Elapsed: {elapsed:.1f}s"
         )
+
+# =======================================================
+# NEW V3 PRODUCTION PROFILING FEATURES
+# =======================================================
+
+ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", "True").lower() in ("true", "1", "yes")
+
+def get_dataframe_inventory():
+    """Counts live DataFrames, rows, cols, and memory."""
+    total_bytes = 0
+    total_rows = 0
+    total_cols = 0
+    count = 0
+    largest_df_mem = 0
+    largest_df_rows = 0
+    largest_df_cols = 0
+    
+    if not ENABLE_PROFILING:
+        return {"count": 0, "rows": 0, "cols": 0, "memory_mb": 0.0, "largest_mb": 0.0, "largest_rows": 0, "largest_cols": 0}
+
+    for obj in gc.get_objects():
+        if isinstance(obj, pd.DataFrame):
+            try:
+                mem = obj.memory_usage(deep=True).sum()
+                r = len(obj)
+                c = len(obj.columns)
+                total_bytes += mem
+                total_rows += r
+                total_cols += c
+                count += 1
+                if mem > largest_df_mem:
+                    largest_df_mem = mem
+                    largest_df_rows = r
+                    largest_df_cols = c
+            except Exception:
+                pass
+                
+    return {
+        "count": count,
+        "rows": total_rows,
+        "cols": total_cols,
+        "memory_mb": total_bytes / (1024 * 1024),
+        "largest_mb": largest_df_mem / (1024 * 1024),
+        "largest_rows": largest_df_rows,
+        "largest_cols": largest_df_cols
+    }
+
+def profile_function(stage_name: str, budget_mb: float = None):
+    """Decorator for function-level profiling (tracemalloc, RSS, DF counts)."""
+    from functools import wraps
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if not ENABLE_PROFILING:
+                return func(*args, **kwargs)
+                
+            process = psutil.Process(os.getpid())
+            
+            # Start peak tracker if available, otherwise just use RSS
+            if hasattr(process.memory_info(), 'peak_wset'):
+                start_peak = process.memory_info().peak_wset
+            else:
+                start_peak = process.memory_info().rss
+                
+            start_rss = process.memory_info().rss / (1024 * 1024)
+            df_start = get_dataframe_inventory()
+            
+            if not tracemalloc.is_tracing():
+                tracemalloc.start()
+            
+            tracemalloc.clear_traces()
+            start_time = time.monotonic()
+            
+            try:
+                result = func(*args, **kwargs)
+                return result
+            finally:
+                elapsed = time.monotonic() - start_time
+                mem = process.memory_info()
+                end_rss = mem.rss / (1024 * 1024)
+                
+                if hasattr(mem, 'peak_wset'):
+                    sys_peak = mem.peak_wset
+                else:
+                    sys_peak = max(start_peak, mem.rss)
+                
+                peak_rss = sys_peak / (1024 * 1024)
+                transient_mb = max(0, peak_rss - end_rss)
+                
+                df_end = get_dataframe_inventory()
+                
+                peak_alloc_bytes = tracemalloc.get_traced_memory()[1]
+                peak_alloc_mb = peak_alloc_bytes / (1024 * 1024)
+                
+                logger.info(f"=== [PROFILE] {stage_name} ===")
+                logger.info(f"  Time            : {elapsed:.2f}s")
+                logger.info(f"  RSS Before      : {start_rss:.1f} MB")
+                logger.info(f"  RSS After       : {end_rss:.1f} MB")
+                logger.info(f"  RSS Delta       : {end_rss - start_rss:+.1f} MB")
+                logger.info(f"  RSS Peak        : {peak_rss:.1f} MB")
+                logger.info(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
+                
+                if budget_mb and end_rss > budget_mb:
+                    logger.warning(f"  ⚠️ BUDGET EXCEEDED: {end_rss:.1f} MB > {budget_mb:.1f} MB")
+                
+                logger.info(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
+                
+                logger.info(f"  Live DF Count   : {df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - df_start['count']:+d})")
+                logger.info(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
+                
+                if df_end['largest_mb'] > 0:
+                    logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB ({df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                    
+                logger.info("=================================")
+        return wrapper
+    return decorator
+
+class CacheProfiler:
+    """Singleton tracker for cache efficiency."""
+    hits = 0
+    misses = 0
+    evictions = 0
+    current_items = 0
+    cache_memory_mb = 0.0
+    
+    @classmethod
+    def record_hit(cls):
+        cls.hits += 1
+        
+    @classmethod
+    def record_miss(cls):
+        cls.misses += 1
+        
+    @classmethod
+    def record_eviction(cls):
+        cls.evictions += 1
+        
+    @classmethod
+    def update_inventory(cls, items: int, memory_mb: float):
+        cls.current_items = items
+        cls.cache_memory_mb = memory_mb
+        
+    @classmethod
+    def log_stats(cls, cache_name: str, largest_symbol: str = "N/A", oldest_entry: str = "N/A", newest_entry: str = "N/A"):
+        total = cls.hits + cls.misses
+        hit_pct = (cls.hits / total * 100) if total > 0 else 0
+        logger.info(f"[{cache_name} CACHE INVENTORY]")
+        logger.info(f"  Items: {cls.current_items} | Memory: {cls.cache_memory_mb:.1f} MB")
+        logger.info(f"  Largest Symbol: {largest_symbol}")
+        logger.info(f"  Oldest: {oldest_entry} | Newest: {newest_entry}")
+        logger.info(f"  Hits: {cls.hits} | Misses: {cls.misses} | Hit%: {hit_pct:.1f}% | Evictions: {cls.evictions}")
+        logger.info("----------------------------------")

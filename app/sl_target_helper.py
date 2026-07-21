@@ -48,6 +48,7 @@
 
 from __future__ import annotations
 import pandas as pd
+from memory_profiler import profile_function
 from typing import Optional
 import math
 
@@ -763,7 +764,7 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         "min_stop_pct": min_stop_pct
     }
 
-def _compute_disaster_stop(primary_sl: float, entry: float, eff_atr: float, lower_supports: list) -> float:
+def _compute_structural_failure_stop(primary_sl: float, eff_atr: float, lower_supports: list) -> float:
 
     """
     v6.2.1: Nearest Lower Major Support -> Exists? -> YES -> Use it -> NO -> Primary - ATR
@@ -1486,6 +1487,7 @@ class ReversalAdapter(BaseRiskEngine):
 
 
 
+@profile_function("SL Target", budget_mb=450.0)
 def compute_sl_and_target(
     entry_price:    float,
     atr:            Optional[float],

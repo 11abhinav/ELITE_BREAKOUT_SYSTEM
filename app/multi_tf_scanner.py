@@ -19,7 +19,7 @@ from database import (
     upsert_scanner_health
 )
 import json
-from config import MIN_STOCK_PRICE, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
+from config import MIN_STOCK_PRICE, SCANNER_MULTI_TF, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -124,7 +124,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
     for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
-        with BatchMemoryTracker("MULTI_TF", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
+        with BatchMemoryTracker(SCANNER_MULTI_TF, batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
             
             # 1. Fetch chunk
             ticker_data = fetch_watchlist_data(chunk_df, period="1mo", interval="1h")
@@ -693,7 +693,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             logger.info(f"Skipping buy alert for {symbol} because data is stale")
                             continue
                         # Idempotency check before alert
-                        if not check_recent_alert(symbol, scanner="multi_tf_scanner", breakout_type="MULTI_TF", lookback_minutes=390):
+                        if not check_recent_alert(symbol, scanner=SCANNER_MULTI_TF, breakout_type=SCANNER_MULTI_TF, lookback_minutes=390):
                             from sl_target_helper import compute_sl_and_target
                             
                             # [VERSION: MTF_VWAP_FALLBACK_FIX] Fallback to EMA20 if VWAP is missing due to lack of intraday volume
@@ -705,7 +705,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 entry_price=close,
                                 atr=atr20,
                                 candle_range=_safe_float(latest.get("High")) - _safe_float(latest.get("Low")),
-                                mode="MULTI_TF",
+                                mode=SCANNER_MULTI_TF,
                                 adx=latest.get("ADX"),
                                 rsi=_safe_float(latest.get("RSI", 0)),
                                 macd_hist=latest.get("MACD_HIST"),
@@ -743,7 +743,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 if not is_test_mode:
                                     save_rejected_alert(
                                         symbol=symbol,
-                                        scanner="MULTI_TF",
+                                        scanner=SCANNER_MULTI_TF,
                                         rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
                                         engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.1"),
                                         context={"category": cat, "score": 0, "sl_result": sl_result}
@@ -801,8 +801,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 opportunity_manager.add({
 
                                     "symbol": symbol,
-                                    "breakout_type": "MULTI_TF",
-                                    "scanner": "MULTI_TF",
+                                    "breakout_type": SCANNER_MULTI_TF,
+                                    "scanner": SCANNER_MULTI_TF,
                                     "category": cat,
                                     "technical_score": final_score,
                                     "volume_ratio": vol_ratio,
@@ -957,7 +957,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                     try:
                         from database import upsert_scanner_health
                         upsert_scanner_health(
-                            scanner_name="MULTI_TF",
+                            scanner_name=SCANNER_MULTI_TF,
                             status="IDLE",
                             scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
                         )
@@ -971,7 +971,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             
             try:
                 from database import upsert_scanner_health
-                upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF Scan in progress...")
+                upsert_scanner_health(SCANNER_MULTI_TF, "RUNNING", error_msg="Multi-TF Scan in progress...")
             except Exception:
                 pass
                 
@@ -980,7 +980,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             try:
                 nifty_ret = get_nifty_20d_return()
                 regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret)
-                policy = StrategyPolicyEngine.get_policy(regime_ctx, "MULTI_TF")
+                policy = StrategyPolicyEngine.get_policy(regime_ctx, SCANNER_MULTI_TF)
                 regime_ctx["policy"] = policy
             except Exception as e:
                 logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
@@ -1037,7 +1037,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 try:
                     from database import upsert_scanner_health
                     upsert_scanner_health(
-                        scanner_name="MULTI_TF",
+                        scanner_name=SCANNER_MULTI_TF,
                         status=status if outcome != "FAILED" else "DEGRADED",
                         last_success=datetime.now(IST).isoformat() if outcome != "FAILED" else None,
                         total_count=metrics_a.get("total", 0),
@@ -1074,7 +1074,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 try:
                     from database import upsert_scanner_health
                     upsert_scanner_health(
-                        scanner_name="MULTI_TF",
+                        scanner_name=SCANNER_MULTI_TF,
                         status="DOWN",
                         error_msg=str(e)[:500],
                         scheduled_for="Every 5min (9:15 AM - 3:30 PM)"

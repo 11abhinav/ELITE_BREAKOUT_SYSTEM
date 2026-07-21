@@ -6,6 +6,8 @@ import logging
 import threading
 import time
 import random
+import gc
+from memory_profiler import profile_function
 from datetime import time as dt_time
 import pandas as pd
 import re
@@ -147,6 +149,7 @@ def get_dynamic_cadence(interval: str) -> int:
     return max(5, int(secs) + 5)
 
 
+@profile_function("Price Fetch", budget_mb=350.0)
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits
     global _cache_misses
@@ -680,6 +683,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     
     return all_data
 
+@profile_function("Hist Fetch", budget_mb=400.0)
 def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d", requester: str = None) -> dict[str, pd.DataFrame]:
     """
     Unified data fetcher for wealth_engine, eod_scanner, and reversal_scanner.

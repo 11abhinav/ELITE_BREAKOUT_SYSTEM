@@ -27,6 +27,10 @@
 # =====================================================================================
 
 import pandas as pd
+import numpy as np
+import logging
+from memory_profiler import profile_function
+from typing import Dict, Any
 
 from config import (
     MIN_BREAKOUT_MARGIN,
@@ -184,7 +188,8 @@ def _get_obv_trend(df: pd.DataFrame) -> int:
         return 0
 
 
-def detect_breakouts(df: pd.DataFrame, timeframe: str = "15m") -> dict[str, float]:
+@profile_function("Scanner", budget_mb=450.0)
+def detect_breakouts(df: pd.DataFrame, timeframe: str = "1d") -> Dict[str, Any]:
     """
     Detects breakout signals on the latest completed candle.
 
