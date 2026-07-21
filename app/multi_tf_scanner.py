@@ -653,7 +653,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     # [VERSION: MULTI_TF_PATCH_v1.1] Decoupled Pullback Trigger from Thrust Trigger
                     # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
                     if not is_ready and low <= max(trigger_level, e9):
-                        if close >= trigger_level and close > float(prev["High"]) and close > open_px and vol_ratio > 1.0:
+                        # PULLBACK_TRIGGER_MODE Logic
+                        trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
+                        
+                        if trigger_mode == "PREVIOUS_HIGH":
+                            c_engulf = close > float(prev["High"])
+                        elif trigger_mode == "PREVIOUS_OPEN":
+                            c_engulf = close > float(prev["Open"])
+                        elif trigger_mode == "INSIDE_BAR":
+                            c_engulf = close > float(prev["High"]) or (float(prev["High"]) < float(df.iloc[-3]["High"]) and close > float(prev["High"])) # simplistic inside bar
+                        else:
+                            c_engulf = close > float(prev["High"])
+                            
+                        if close >= trigger_level and c_engulf and close > open_px and vol_ratio > 1.0:
                             if close_position >= 0.6:  # strong interaction/engulfing
                                 is_ready = True
                                 trigger_type = "pullback"
@@ -662,7 +674,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         # Log reasons only if stock has touched/entered the trigger zone
                         if close >= (trigger_level - buffer_val) or low <= max(trigger_level, e9):
                             # Boolean evaluations for decision trace
-                            c_engulf = close > float(prev["High"])
+                            trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
+                            if trigger_mode == "PREVIOUS_HIGH":
+                                c_engulf = close > float(prev["High"])
+                            elif trigger_mode == "PREVIOUS_OPEN":
+                                c_engulf = close > float(prev["Open"])
+                            else:
+                                c_engulf = close > float(prev["High"])
+                            
                             c_vol = vol_ratio > 1.0
                             c_close_pos = close_position >= 0.6
                             c_bull_body = close > open_px
