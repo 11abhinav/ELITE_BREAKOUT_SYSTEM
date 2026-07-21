@@ -430,7 +430,8 @@ def _run_eod_with_retries(today_str):
             upsert_scanner_health("EOD", status="QUEUED", error_msg="Waiting for global execution lock...")
             import eod_scanner
             with scanner_execution_lock:
-                total = eod_scanner.start()   # returns int
+                with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
+                    total = eod_scanner.start()   # returns int
                 time.sleep(15)
             if total == 0:
                 logger.info("📊 EOD | Zero alerts — no Telegram notification")
@@ -519,7 +520,8 @@ def _run_reversal_with_retries(today_str):
             upsert_scanner_health("REVERSAL", status="QUEUED", error_msg="Waiting for global execution lock...")
             import reversal_scanner
             with scanner_execution_lock:
-                total = reversal_scanner.start()   # returns int
+                with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
+                    total = reversal_scanner.start()   # returns int
                 time.sleep(15)
             if total == 0:
                 logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification")
@@ -657,7 +659,8 @@ def run_system_scheduler():
             else:
                 logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
                 from daily_builder import main as build_watchlist
-                build_watchlist()
+                with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
+                    build_watchlist()
             
             # Update memory cache
             from watchlist_cache import get_watchlist
@@ -699,7 +702,8 @@ def run_system_scheduler():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         try:
             logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
-            run_wealth_scan()
+            with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
+                run_wealth_scan()
             
             # Mark success
             now_str = datetime.now(IST).isoformat()
@@ -736,7 +740,8 @@ def run_system_scheduler():
                 return False
             
             logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
-            run_wealth_scan()
+            with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
+                run_wealth_scan()
             
             # Run exit monitor in isolated try/except so a crash here
             # does NOT mark Wealth Engine as DOWN (Issue #5 from audit)
@@ -1004,7 +1009,8 @@ def run_multibagger_scanner():
                 upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
                 import multibagger
                 with scanner_execution_lock:
-                    stats = multibagger.start() or {}
+                    with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
+                        stats = multibagger.start() or {}
                     time.sleep(15)
                 multibagger_ran = True
                 

@@ -72,10 +72,11 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
                 vapid_claims={"sub": "mailto:admin@elitebreakout.com"}
             )
         except WebPushException as ex:
-            logger.error(f"WebPush error: {repr(ex)}")
             # If the subscription expired, user revoked permission, or VAPID keys changed (400/403)
             if ex.response and ex.response.status_code in (400, 403, 404, 410):
-                logger.info(f"Removing invalid/expired subscription: {sub['endpoint']}")
+                logger.info(f"🧹 Removing invalid/expired subscription: {sub['endpoint']} (Status: {ex.response.status_code})")
                 database.remove_push_subscription(sub['endpoint'])
+            else:
+                logger.error(f"WebPush error: {repr(ex)}")
         except Exception as e:
             logger.exception(f"Failed to send push")

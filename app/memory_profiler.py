@@ -35,6 +35,8 @@ class MemoryProfiler:
         else:
             self.start_peak = self.start_rss  # Will approximate for Linux/macOS
             
+        current_mb = self.start_rss / (1024 * 1024)
+        logger.info(f"[MEMORY] 🟢 STARTING: {self.stage_name:<15} | Current RSS: {current_mb:>6.1f} MB")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -62,7 +64,7 @@ class MemoryProfiler:
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
         logger.info(
-            f"[MEMORY] Stage: {self.stage_name:<15} | "
+            f"[MEMORY] 🔴 FINISHED: {self.stage_name:<15} | "
             f"Time: {elapsed:>5.1f}s | "
             f"Current: {current_mb:>6.1f} MB | "
             f"Peak: {peak_mb:>6.1f} MB | "
@@ -81,6 +83,12 @@ def start_tracemalloc():
     """Starts tracemalloc for object tracking."""
     if not tracemalloc.is_tracing():
         tracemalloc.start(10)
+
+def log_hourly_memory():
+    """Logs the current raw RSS memory footprint."""
+    process = psutil.Process(os.getpid())
+    current_mb = process.memory_info().rss / (1024 * 1024)
+    logger.info(f"[MEMORY] 🕒 HOURLY TICK | Current RSS: {current_mb:.1f} MB")
 
 def log_object_inventory():
     """
@@ -139,9 +147,11 @@ def _inventory_worker():
     while True:
         time.sleep(3600)  # Log every 1 hour
         try:
-            log_object_inventory()
+            log_hourly_memory()
+            # We skip log_object_inventory() hourly because gc.get_objects() causes massive latency spikes.
+            # It can be called manually during debugging.
         except Exception as e:
-            logger.warning(f"Failed to log object inventory: {e}")
+            logger.warning(f"Failed to log hourly memory: {e}")
 
 # Start tracemalloc immediately on module load
 start_tracemalloc()

@@ -968,14 +968,16 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
                 regime_ctx = {"trend": "NEUTRAL", "biases": {}}
             
-            # 1. Sweep old states
-            run_sweeper(is_test_mode=is_test_mode)
-            
-            # 2. Hourly phase (could be scheduled to only run top/bottom of hour, but we run it to keep it simple or wrapper handles scheduling)
-            metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
-            
-            # 3. Lower TF updater
-            metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
+            from memory_profiler import MemoryProfiler
+            with MemoryProfiler("MULTI_TF_SCANNER", force_gc_cleanup=True):
+                # 1. Sweep old states
+                run_sweeper(is_test_mode=is_test_mode)
+                
+                # 2. Hourly phase (could be scheduled to only run top/bottom of hour, but we run it to keep it simple or wrapper handles scheduling)
+                metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
+                
+                # 3. Lower TF updater
+                metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
             logger.info("=========================================")
