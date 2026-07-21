@@ -92,6 +92,18 @@ class MemoryProfiler:
         if self.force_gc_cleanup:
             collected = gc.collect()
             logger.info(f"[MEMORY GC] Stage: {self.stage_name} | Reclaimed: {collected} objects")
+            
+            try:
+                import sys
+                if sys.platform == "linux":
+                    import ctypes
+                    trim_rss_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                    trim_rss_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+                    if trim_rss_before - trim_rss_after > 5.0:
+                        logger.warning(f"🧹 [MALLOC_TRIM] Reclaimed {(trim_rss_before - trim_rss_after):.1f} MB of native arena fragmentation in {self.stage_name}!")
+            except Exception as e:
+                pass
 
         mem = self.process.memory_info()
         end_rss = mem.rss
@@ -112,12 +124,12 @@ class MemoryProfiler:
         
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
-        logger.debug(f"=== [PROFILE] {self.stage_name} ===")
-        logger.debug(f"  Time            : {elapsed:.2f}s")
-        logger.debug(f"  RSS Before      : {start_mb:.1f} MB")
-        logger.debug(f"  RSS After       : {current_mb:.1f} MB")
-        logger.debug(f"  RSS Delta       : {delta_str} MB")
-        logger.debug(f"  RSS Peak        : {peak_mb:.1f} MB")
+        logger.info(f"=== [PROFILE] {self.stage_name} ===")
+        logger.info(f"  Time            : {elapsed:.2f}s")
+        logger.info(f"  RSS Before      : {start_mb:.1f} MB")
+        logger.info(f"  RSS After       : {current_mb:.1f} MB")
+        logger.info(f"  RSS Delta       : {delta_str} MB")
+        logger.info(f"  RSS Peak        : {peak_mb:.1f} MB")
         logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
         
         if ENABLE_PROFILING and self.df_start:
@@ -270,6 +282,17 @@ class BatchMemoryTracker:
         if self.collect_gc:
             gc.collect()
             
+            try:
+                import sys
+                if sys.platform == "linux":
+                    import ctypes
+                    trim_rss_before = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                    trim_rss_after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+                    if trim_rss_before - trim_rss_after > 5.0:
+                        logger.warning(f"🧹 [MALLOC_TRIM] Reclaimed {(trim_rss_before - trim_rss_after):.1f} MB of native arena fragmentation in Batch {self.batch_num}!")
+            except Exception as e:
+                pass
         rss_after_cleanup = self.process.memory_info().rss / (1024 * 1024)
         elapsed = time.monotonic() - self.start_time
         
@@ -279,7 +302,7 @@ class BatchMemoryTracker:
             
         _check_rss_thresholds(self.rss_before, rss_after_cleanup)
             
-        logger.debug(
+        logger.info(
             f"[{self.stage_name} Batch {self.batch_num}/{self.total_batches}] "
             f"Symbols: {self.item_count} | Rows: {self.row_count} | "
             f"RSS Before: {self.rss_before:.1f} MB | "
