@@ -979,6 +979,7 @@ def _run_scan(force: bool = False):
 
             del all_ticker_data
             locals().pop('ticker', None)
+            gc.collect()
         
         if total_fetched_count < len(watchlist) * 0.70:
             logger.warning(f"⚠️ REVERSAL data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). Results may be incomplete.")

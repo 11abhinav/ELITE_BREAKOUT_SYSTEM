@@ -225,6 +225,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                     except Exception as sym_err:
                         logger.error(f"❌ Error processing symbol {symbol} in Pullback Scanner: {sym_err}")
                         continue
+            del all_ticker_data
+            import gc; gc.collect()
 
     logger.info(f"📊 Pullback Candidates Discovered: {len(candidates)}")
 
@@ -330,4 +332,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         logger.info(f"✅ Pullback Scanner completed successfully ({alert_count} alerts persisted).")
     else:
         logger.info(f"✅ Pullback Scanner historical fallback completed cleanly ({len(candidates)} candidates evaluated on {dataset_date}). No database updates written.")
+
+    try:
+        from price_cache import clear_price_cache
+        clear_price_cache()
+    except Exception as ce:
+        logger.warning(f"Could not clear price cache post Pullback: {ce}")
+
     return alert_count

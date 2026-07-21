@@ -904,3 +904,19 @@ def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d", re
             result["sma_200"][sym] = None
 
     return result
+
+
+def clear_price_cache():
+    """Explicitly release all in-memory price dataframes and trim heap allocation."""
+    global _cache, _cache_hits, _cache_misses
+    with _lock:
+        keys_count = len(_cache)
+        _cache.clear()
+        logger.info(f"🧹 [CACHE CLEAR] Purged {keys_count} price cache keys from memory.")
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
