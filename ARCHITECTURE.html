@@ -1585,6 +1585,29 @@ To ensure the Validation Engine and system ingestion pipelines behave determinis
 - **Cache Integrity (skip_db_save):** When a scanner successfully uses a fallback Bhavcopy (i.e., data from a previous day), it MUST pass `skip_db_save=True` to `fetch_delivery_data`. This prevents old data from overwriting the database cache for the current date.
 - **Admin Awareness:** If scanners resort to using stale Bhavcopy (fallback active), they MUST trigger an immediate in-app portal notification (`insert_notification`) and a web push notification (`send_push_to_all`, bypassing throttles) to alert the admin that the scan is running with degraded data.
 **Version:** `BHAVCOPY_FALLBACK_v1.0` applied 2026-07-21
+
+## 44. Pipeline Observability & Funnel Logging (MANDATORY)
+- **Pipeline Summaries:** All scanners (`eod_scanner.py`, `reversal_scanner.py`, `multi_tf_scanner.py`, `wealth_engine.py`) MUST track discrete rejection reasons (e.g., `rejection_counts` or `lower_funnel` dicts) and explicitly print a `[PIPELINE SUMMARY]` at the end of every scan cycle.
+- **Purpose:** This transitions the system from "black box" 0-alert cycles to empirically measurable funnels, ensuring we know exactly which quality gate (Fundamentals vs Technical vs Momentum) is rejecting stocks during different market regimes.
+**Version:** `PIPELINE_OBSERVABILITY_v1.0` applied 2026-07-21
+
+## 45. Financial vs. Non-Financial Profitability Gates (MANDATORY)
+- **Core Rule:** Non-financial stocks are evaluated using Return on Capital Employed (`ROCE`). However, Financial stocks (Banks, NBFCs) structurally do not use ROCE because their "debt" is their raw material. Financial stocks MUST be evaluated using Return on Equity (`ROE`).
+- **Implementation:** Any fundamental profitability gate (such as in `wealth_engine.py` or `multibagger.py`) MUST use a helper like `passes_profitability_gate(record)` that conditionally checks `ROE >= 15` if the sector is "Financial Services", and `ROCE >= 15` otherwise.
+**Version:** `FINANCIAL_PROFITABILITY_GATE_v1.0` applied 2026-07-21
+
+## 46. Breakout Quality Gates & Volume Confirmation
+- **Anti-Fake-Breakout Logic:** `detect_breakouts` in `breakout_engine.py` requires three strict conditions for all breakouts:
+  1. `close > prev_high` (Closing price confirmation, not just wick).
+  2. `close > prev_high * (1 + min_margin)` (Meaningful breakout margin, e.g. 0.5%).
+  3. `vol_now >= min_ratio * vol_avg` (Volume confirmation, avoiding z-score bias).
+- **PULLBACK_TRIGGER_MODE:** The Phase D pullback trigger in `multi_tf_scanner.py` is fully configurable via `MULTI_TF_CONFIG["PULLBACK_TRIGGER_MODE"]` (`PREVIOUS_HIGH`, `PREVIOUS_OPEN`, `INSIDE_BAR`, etc.). This isolates experimental strategy changes from production risk.
+**Version:** `BREAKOUT_QUALITY_GATES_v2.0` applied 2026-07-21
+
+## 47. Memory Profiling & DataFrame Tracking
+- **Object Identity:** To diagnose memory leaks and object retention in high-frequency loops (like Intraday Multi-TF), `memory_profiler.py` MUST track the memory identity `id()` of the largest `pd.DataFrame`.
+- **Efficiency Metric:** The profiler computes `RSS Delta` over `Rows Processed` and `Symbols Processed` to normalize memory cost evaluations across batches of different sizes.
+**Version:** `MEMORY_PROFILER_V3.0` applied 2026-07-21
 </textarea>
 
     <!-- Rendering Script -->
