@@ -184,6 +184,13 @@ def _start_wrapper(force: bool = False):
                 if delivery_map:
                     if days_back > 0:
                         logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
+                        try:
+                            from push_service import send_push_to_all
+                            msg = f"EOD Scanner is using stale Bhavcopy (fallback from {candidate}) because today's data is not yet published."
+                            insert_notification("warning", "⚠️ Stale Bhavcopy Used", msg)
+                            send_push_to_all("⚠️ Stale Bhavcopy Used", msg, bypass_throttle=True)
+                        except Exception as ne:
+                            logger.error(f"Failed to send stale Bhavcopy notification: {ne}")
                     else:
                         logger.info(f"✅ EOD Scanner using TODAY'S Bhavcopy from: {candidate}")
                     break
