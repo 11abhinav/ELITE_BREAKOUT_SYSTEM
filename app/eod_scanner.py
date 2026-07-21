@@ -3,6 +3,7 @@
 # EOD BREAKOUT SCANNER WITH CONSOLIDATED MAIL AUTOMATION
 # =====================================================================================
 
+import os
 import pandas as pd
 import logging
 import threading

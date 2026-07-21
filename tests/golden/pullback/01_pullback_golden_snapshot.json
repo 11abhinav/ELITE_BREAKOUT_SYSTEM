@@ -1,0 +1,11 @@
+{
+  "symbol": "TEST_GOLDEN",
+  "pivots_count": 1,
+  "impulse_gain_pct": 47.3684,
+  "impulse_atr_mult": 9.0,
+  "pullback_valid": false,
+  "pullback_duration": 28,
+  "pullback_depth_pct": 12.1429,
+  "trigger_valid": false,
+  "trigger_entry": "162.00"
+}

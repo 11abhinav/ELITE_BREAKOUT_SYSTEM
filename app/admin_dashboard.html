@@ -2211,6 +2211,7 @@
       'MULTI_TF': { label: 'MULTI_TF', desc: 'Live 4-stage ladder · 10:17-15:30' },
       'EOD': { label: 'EOD', desc: 'Daily breakout · runs at 21:00' },
       'REVERSAL': { label: 'Reversal', desc: 'Mean reversion · runs at 21:00' },
+      'PULLBACK': { label: 'Pullback', desc: 'Pullback continuation · runs at 21:00' },
       'AI Worker': { label: 'Ai Worker', desc: 'Concall caching background worker' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Continuous background scrape' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop' },
@@ -2262,7 +2263,7 @@
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL', 'Wealth Engine', 'MULTIBAGGER', 'Pledge Worker', 'AI Worker', 'PERFORMANCE_TRACKER'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'Pledge Worker', 'AI Worker', 'PERFORMANCE_TRACKER'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 

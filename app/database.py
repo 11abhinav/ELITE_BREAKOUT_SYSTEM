@@ -480,6 +480,25 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_scan_id_idx ON scan_failures (scan_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_failed_at_idx ON scan_failures (failed_at)")
 
+                # ── Funnel Telemetry Table (for Pullback / Scanner Funnel Analytics) ──
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS funnel_telemetry (
+                        id SERIAL PRIMARY KEY,
+                        scanner TEXT NOT NULL,
+                        run_date TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        stage TEXT NOT NULL,
+                        gate TEXT NOT NULL,
+                        passed BOOLEAN NOT NULL,
+                        observed_value REAL,
+                        threshold_value REAL,
+                        comparator TEXT,
+                        message TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_funnel_telemetry_lookup ON funnel_telemetry(scanner, run_date, symbol)")
+
 
                 # ── System state table for dashboard metrics / state caching ───────
                 cur.execute("""
@@ -3244,6 +3263,51 @@ def check_data_exists_for_today() -> bool:
         return False
 
 # ── Checkpoint persistence (audit trail) ──────────────────────────────────────────────
+
+def get_latest_bhavcopy_cache():
+    """Retrieve the delivery data dict from the most recent cached bhavcopy entry."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('''
+                    SELECT delivery_data FROM bhavcopy_cache
+                    ORDER BY trading_date DESC LIMIT 1
+                ''')
+                row = cur.fetchone()
+                if row and row['delivery_data']:
+                    return row['delivery_data']
+    except Exception as e:
+        logger.error(f"Failed to fetch latest bhavcopy cache from DB: {e}")
+    return {}
+
+def save_funnel_telemetry(scanner: str, run_date: str, symbol: str, stage_results: list):
+    """
+    Persists stage results and gate telemetry to PostgreSQL for cohort analysis.
+    """
+    if not stage_results:
+        return
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for res in stage_results:
+                    cur.execute("""
+                        INSERT INTO funnel_telemetry (scanner, run_date, symbol, stage, gate, passed, observed_value, threshold_value, comparator, message)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        scanner,
+                        run_date,
+                        symbol,
+                        getattr(res, 'stage', 'UNKNOWN'),
+                        getattr(res, 'gate', 'UNKNOWN'),
+                        getattr(res, 'passed', False),
+                        getattr(res, 'observed_value', None),
+                        getattr(res, 'threshold', None),
+                        getattr(res, 'comparator', None),
+                        getattr(res, 'message', None)
+                    ))
+                conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to save funnel telemetry for {symbol}: {e}")
 
 def save_checkpoint(checkpoint_name: str, content: str, reason: str = '') -> bool:
     """Save system checkpoint to persistent database."""

@@ -61,6 +61,7 @@ _MODE_CONFIG = {
     "EOD":      (2.00,    0.80,       0.0075,     3.0),   # Balanced
     "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),   # Aggressive
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),   # Wide
+    "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
 }
 _DEFAULT_CONFIG = (1.50, 0.50, 0.0050, 3.0)
 

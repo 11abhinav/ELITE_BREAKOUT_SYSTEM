@@ -152,7 +152,23 @@ REVERSAL_CONFIG = {
 
 ALERT_COOLDOWN_MINUTES = {
     "EOD": 5760,       # 96 hours (Prevents duplicate alert generation on market holidays via fallback data)
-    "REVERSAL": 5760   # 96 hours
+    "REVERSAL": 5760,  # 96 hours
+    "PULLBACK": 1440   # 24 hours
+}
+
+PULLBACK_CONFIG = {
+    "VERSION": "pb-1.0.0",
+    "LOOKBACK": 10, "CONFIRM": 3,
+    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0,
+    "MIN_DEPTH_PCT": 5.0, "MAX_DEPTH_PCT": 15.0,
+    "MIN_DURATION": 3, "MAX_DURATION": 20,
+    "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
+    "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.6,
+    "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.4, "MAX_ENTRY_GAP_PCT": 3.0,
+    "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
+    "OUTAGE_THRESHOLD_BUMP": 3,
+    "MIN_HISTORY": 260,
+    "MODE": "LIVE", "DEBUG_SWINGS": False,
 }
 
 # ── Data Quality Framework (V8.0) ──
@@ -497,6 +513,7 @@ SCANNER_EXIT_PROFILE = {
     "EOD":      "BALANCED",
     "MULTI_TF": "AGGRESSIVE",
     "REVERSAL": "CONSERVATIVE",
+    "PULLBACK": "BALANCED",
 }
 
 FIB_EXTENSIONS   = [1.272, 1.618, 2.0]

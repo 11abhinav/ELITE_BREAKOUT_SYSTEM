@@ -61,6 +61,7 @@ except Exception as e:
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
     "EODScanner":         "EOD",
+    "PullbackScanner":    "PULLBACK",
     "ReversalScanner":    "REVERSAL",
     "MultiTFScanner":     "MULTI_TF",
     "PerformanceTracker": "PERFORMANCE_TRACKER",
@@ -111,7 +112,7 @@ def _cleanup_old_scanner_names():
                 cur.execute("""
                     UPDATE scanner_health 
                     SET status='IDLE', error_msg=NULL, is_acknowledged=TRUE
-                    WHERE scanner_name IN ('EOD', 'REVERSAL', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
+                    WHERE scanner_name IN ('EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
                       AND (status IN ('DOWN', 'RUNNING') OR status LIKE 'QUEUED%');
                 """)
             conn.commit()
@@ -162,8 +163,8 @@ def wait_for_bhavcopy_or_fallback(name: str):
         logger.info(f"[{name}] ⏳ Today's Bhavcopy not yet available. Waiting 5 mins...")
         
         # [VERSION: BHAVCOPY_UI_STATUS] Expose the blocking state to the UI so users don't think the scanner is dead
-        if first_wait and name == "EVENING_SCANNERS":
-            for scanner_name in ["EOD", "REVERSAL"]:
+        if first_wait and name in ("EVENING_SCANNERS", "PULLBACK"):
+            for scanner_name in ["EOD", "REVERSAL", "PULLBACK"]:
                 upsert_scanner_health(
                     scanner_name, 
                     status="IDLE", 
@@ -573,6 +574,61 @@ def _run_reversal_with_retries(today_str):
             time.sleep(wait_time)
 
 
+def _run_pullback_with_retries(today_str):
+    retry_count = 0
+    while True:
+        try:
+            from database import get_all_scanner_health
+            health_records = get_all_scanner_health()
+            already_ran = False
+            for rec in health_records:
+                if rec.get("scanner_name") == "PULLBACK" and rec.get("status") == "OK" and rec.get("last_success"):
+                    last_success_str = str(rec["last_success"])
+                    if last_success_str.startswith(today_str):
+                        already_ran = True
+                        break
+            if already_ran:
+                logger.info("📊 PULLBACK SCAN | Already successfully executed today.")
+                return
+        except Exception as e:
+            logger.warning(f"Could not verify PULLBACK previous run status: {e}")
+        
+        try:
+            logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
+            from database import upsert_scanner_health
+            upsert_scanner_health("PULLBACK", status="QUEUED", error_msg="Waiting for global execution lock...")
+            import pullback_pipeline
+            with scanner_execution_lock:
+                with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
+                    total = pullback_pipeline.start()
+                time.sleep(5)
+            logger.info(f"📊 PULLBACK | Completed — {total} alert(s) generated")
+            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="21:00 IST")
+            return
+        except Exception as exc:
+            if "actively running" in str(exc).lower():
+                logger.info("⏳ PULLBACK scanner is already running in another process. Waiting...")
+                time.sleep(60)
+                continue
+            retry_count += 1
+            now = datetime.now(IST)
+            if 0 <= now.hour < 6:
+                logger.critical(f"⏰ MIDNIGHT PASSED — PULLBACK scanner force-stopping after {retry_count} retries")
+                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="21:00 IST")
+                return
+            logger.critical(f"💀 PULLBACK scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
+            from database import upsert_scanner_health
+            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="21:00 IST")
+            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
+            time.sleep(wait_time)
+
+def _trigger_pullback():
+    import pullback_pipeline
+    with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
+        return pullback_pipeline.start()
+
+
+
 def run_evening_scanners():
     while True:
         block_until_watchlist_ready()
@@ -581,17 +637,22 @@ def run_evening_scanners():
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
         
-        logger.info("🚀 Bhavcopy is ready! Spawning EOD and Reversal threads in parallel.")
+        logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback threads.")
         eod_thread = threading.Thread(target=_run_eod_with_retries, args=(today_str,), name="EODWorker")
         rev_thread = threading.Thread(target=_run_reversal_with_retries, args=(today_str,), name="ReversalWorker")
+        pb_thread  = threading.Thread(target=_run_pullback_with_retries, args=(today_str,), name="PullbackWorker")
         
         eod_thread.start()
         rev_thread.start()
         
         eod_thread.join()
         rev_thread.join()
+
+        # Run Pullback Scanner strictly 6th in the batch (after EOD & Reversal finish)
+        pb_thread.start()
+        pb_thread.join()
         
-        logger.info("✅ Both Evening Scanners (EOD & Reversal) have finished execution for today.")
+        logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) have finished execution for today.")
         # Sleep for a few hours to avoid retriggering until the window closes
         time.sleep(3600 * 6)
 
@@ -1161,6 +1222,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "MULTI_TF":      lambda: __import__('multi_tf_scanner')._scan_lock,
         "EOD":           lambda: __import__('eod_scanner')._scan_lock,
         "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
+        "PULLBACK":      lambda: __import__('pullback_pipeline')._scan_lock,
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
