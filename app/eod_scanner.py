@@ -288,11 +288,15 @@ def _start_wrapper(force: bool = False):
         BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
         global_min_score = BASE_SCORE_THRESHOLD
 
-        if market_regime == "BEAR":
-            logger.info("🛑 BEAR regime detected — raising score threshold by +5 (high-conviction only).")
-            # [FIX P1] Instead of killing the entire scan, raise the bar.
-            # Only the highest-conviction breakouts should fire in bear markets.
-            global_min_score += 5
+        # Wire the threshold increase to read dynamically from the config.py regime modifiers
+        try:
+            from config import REGIME_POLICIES
+            modifier = REGIME_POLICIES.get(market_regime, {}).get("score_modifier", 0)
+            if modifier > 0:
+                logger.info(f"🛑 {market_regime} regime detected — raising score threshold by +{modifier}.")
+                global_min_score += modifier
+        except Exception as e:
+            logger.warning(f"Failed to fetch REGIME_POLICIES: {e}")
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
@@ -980,6 +984,12 @@ def _start_wrapper(force: bool = False):
                         send_push_to_all("⚠️ EOD Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
                     except Exception:
                         pass
+
+            try:
+                from funnel_telemetry import log_funnel_metrics
+                log_funnel_metrics("EOD", market_regime, len(watchlist), rejection_counts, total_alerts)
+            except Exception as e:
+                logger.warning(f"Failed to log funnel telemetry: {e}")
 
             elapsed_time = (datetime.now(IST) - start_time).total_seconds()
             logger.info("\n" + "=" * 80)

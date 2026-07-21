@@ -696,8 +696,9 @@ def bonus_modifiers(
         try:
             from block_deal_detector import compute_inst_bonus
             inst_bonus = compute_inst_bonus(symbol)
-            if inst_bonus > 0:
-                logger.info(f"  +{inst_bonus} {tag}Institutional/Insider Footprint Detected")
+            if inst_bonus != 0:
+                sign = "+" if inst_bonus > 0 else ""
+                logger.info(f"  {sign}{inst_bonus} {tag}Institutional/Insider Footprint")
                 bonus += inst_bonus
         except Exception as e:
             logger.warning(f"Error checking institutional footprints: {e}")

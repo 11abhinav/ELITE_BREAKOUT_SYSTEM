@@ -1134,6 +1134,14 @@ def _run_scan(force: bool = False):
                 except Exception:
                     pass
                 
+    try:
+        from funnel_telemetry import log_funnel_metrics
+        # regime_ctx might be a dictionary here, grab the string trend
+        regime_str = regime_ctx.get("trend", "NEUTRAL") if isinstance(regime_ctx, dict) else "NEUTRAL"
+        log_funnel_metrics("REVERSAL", regime_str, len(watchlist), rejected, total_alerts)
+    except Exception as e:
+        logger.warning(f"Failed to log funnel telemetry: {e}")
+
     elapsed_time_final = (datetime.now(IST) - scan_start).total_seconds()
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time_final:.2f}s | Found {total_alerts} bottoming stocks.")
     return total_alerts

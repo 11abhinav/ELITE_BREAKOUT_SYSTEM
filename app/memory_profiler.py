@@ -440,24 +440,24 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 peak_alloc_bytes = tracemalloc.get_traced_memory()[1]
                 peak_alloc_mb = peak_alloc_bytes / (1024 * 1024)
                 
-                logger.info(f"=== [PROFILE] {stage_name} ===")
-                logger.info(f"  Time            : {elapsed:.2f}s")
-                logger.info(f"  RSS Before      : {start_rss:.1f} MB")
-                logger.info(f"  RSS After       : {end_rss:.1f} MB")
-                logger.info(f"  RSS Delta       : {end_rss - start_rss:+.1f} MB")
-                logger.info(f"  RSS Peak        : {peak_rss:.1f} MB")
-                logger.info(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
+                logger.debug(f"=== [PROFILE] {stage_name} ===")
+                logger.debug(f"  Time            : {elapsed:.2f}s")
+                logger.debug(f"  RSS Before      : {start_rss:.1f} MB")
+                logger.debug(f"  RSS After       : {end_rss:.1f} MB")
+                logger.debug(f"  RSS Delta       : {end_rss - start_rss:+.1f} MB")
+                logger.debug(f"  RSS Peak        : {peak_rss:.1f} MB")
+                logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
                 
                 if budget_mb and end_rss > budget_mb:
                     logger.warning(f"  ⚠️ BUDGET EXCEEDED: {end_rss:.1f} MB > {budget_mb:.1f} MB")
                 
-                logger.info(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
+                logger.debug(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
                 
-                logger.info(f"  Live DF Count   : {df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - df_start['count']:+d})")
-                logger.info(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
+                logger.debug(f"  Live DF Count   : {df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - df_start['count']:+d})")
+                logger.debug(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
                 
                 if df_end['largest_mb'] > 0:
-                    logger.info(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
+                    logger.debug(f"  Largest DF      : {df_end['largest_mb']:.1f} MB (id={df_end['largest_id']}, {df_end['largest_rows']} rows, {df_end['largest_cols']} cols)")
                     
                 rss_delta_mb = end_rss - start_rss
                 df_delta_mb = df_end['memory_mb'] - df_start['memory_mb']
@@ -466,10 +466,10 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 # Session Stats
                 ProfilerState.increment_loop()
                 session_gain, gain_per_loop = ProfilerState.get_session_stats()
-                logger.info(f"  Session Gain    : {session_gain:+.1f} MB")
-                logger.info(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
+                logger.debug(f"  Session Gain    : {session_gain:+.1f} MB")
+                logger.debug(f"  Gain/Loop       : {gain_per_loop:+.2f} MB/loop")
                     
-                logger.info("=================================")
+                logger.debug("=================================")
         return wrapper
     return decorator
 

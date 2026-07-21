@@ -157,7 +157,10 @@ def load_cache_if_needed():
                             normalized_deals[k.upper()] = {
                                 "fii": list(v.get("fii", [])),
                                 "dii_super": list(v.get("dii_super", [])),
-                                "promoter": list(v.get("promoter", []))
+                                "promoter": list(v.get("promoter", [])),
+                                "fii_sell": list(v.get("fii_sell", [])),
+                                "dii_super_sell": list(v.get("dii_super_sell", [])),
+                                "promoter_sell": list(v.get("promoter_sell", []))
                             }
                         _CACHE = {
                             "date": today,
@@ -180,25 +183,38 @@ def get_inst_footprints(symbol: str) -> dict[str, list[str]]:
     return {
         "fii": list(deals.get("fii", [])),
         "dii_super": list(deals.get("dii_super", [])),
-        "promoter": list(deals.get("promoter", []))
+        "promoter": list(deals.get("promoter", [])),
+        "fii_sell": list(deals.get("fii_sell", [])),
+        "dii_super_sell": list(deals.get("dii_super_sell", [])),
+        "promoter_sell": list(deals.get("promoter_sell", []))
     }
 
 def compute_inst_bonus(symbol: str, base_score: Optional[int] = None) -> int:
-    """Unified scoring helper to add FII, DII, and Promoter bonuses with score ceiling enforcements."""
+    """Unified scoring helper to add FII, DII, and Promoter bonuses/penalties with score ceiling enforcements."""
     footprints = get_inst_footprints(symbol)
     bonus = 0
     if footprints["fii"]:
-        bonus += 8
+        bonus += 6
     if footprints["dii_super"]:
-        bonus += 6
+        bonus += 4
     if footprints["promoter"]:
-        bonus += 6
+        bonus += 8
+
+    if footprints["fii_sell"]:
+        bonus -= 4
+    if footprints["dii_super_sell"]:
+        bonus -= 2
+    if footprints["promoter_sell"]:
+        bonus -= 8
 
     if base_score is None:
         return bonus
 
     base = max(0, min(100, int(base_score)))
-    return min(100 - base, bonus)
+    # We want to cap the upward bonus, but allow negative penalties to drop score fully
+    if bonus > 0:
+        return min(100 - base, bonus)
+    return bonus
 
 def get_fii_buyers(symbol: str) -> list:
     """Thin backward compatibility wrapper."""
@@ -246,8 +262,10 @@ def detect_all_deals() -> dict:
         symbol = str(deal.get("symbol", "")).upper()
         buy_sell = str(deal.get("buyOrSell", deal.get("remarks", ""))).upper()
         
-        # Accept 'BUY' or 'B'
-        if "BUY" not in buy_sell and buy_sell != "B":
+        is_buy = ("BUY" in buy_sell or buy_sell == "B")
+        is_sell = ("SELL" in buy_sell or buy_sell == "S")
+        
+        if not is_buy and not is_sell:
             continue
             
         sym = symbol.strip().upper()
@@ -259,17 +277,23 @@ def detect_all_deals() -> dict:
         
         if fii_matches or dii_super_matches or is_prom:
             if sym not in results:
-                results[sym] = {"fii": [], "dii_super": [], "promoter": []}
+                results[sym] = {
+                    "fii": [], "dii_super": [], "promoter": [],
+                    "fii_sell": [], "dii_super_sell": [], "promoter_sell": []
+                }
             
             for match in fii_matches:
-                if match not in results[sym]["fii"]:
-                    results[sym]["fii"].append(match)
+                target_list = results[sym]["fii"] if is_buy else results[sym]["fii_sell"]
+                if match not in target_list:
+                    target_list.append(match)
             for match in dii_super_matches:
-                if match not in results[sym]["dii_super"]:
-                    results[sym]["dii_super"].append(match)
+                target_list = results[sym]["dii_super"] if is_buy else results[sym]["dii_super_sell"]
+                if match not in target_list:
+                    target_list.append(match)
             if is_prom:
-                if client not in results[sym]["promoter"]:
-                    results[sym]["promoter"].append(client)
+                target_list = results[sym]["promoter"] if is_buy else results[sym]["promoter_sell"]
+                if client not in target_list:
+                    target_list.append(client)
                     
     return results
 

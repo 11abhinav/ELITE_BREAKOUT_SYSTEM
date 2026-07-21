@@ -884,6 +884,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 f"15m_cands={lower_funnel['entry_candidates']} → ema15_pass={lower_funnel['ema15_pass']} → entry_ready={lower_funnel['entry_ready']} | "
                 f"5m_cands={lower_funnel['trigger_candidates']} → pb_fail_engulf={lower_funnel['pb_fail_engulf']} → pb_fail_vol={lower_funnel['pb_fail_vol']} → "
                 f"rr_rejects={lower_funnel['rr_rejections']} → triggered={lower_funnel['triggered']}")
+    
+    try:
+        from funnel_telemetry import log_funnel_metrics
+        # Calculate unique needed size for the universe count
+        unique_needed_size = len(set(needs_30m + needs_15m + needs_5m))
+        log_funnel_metrics("MULTI_TF", regime_str, unique_needed_size, lower_funnel, lower_funnel['triggered'])
+    except Exception as e:
+        logger.warning(f"Failed to log funnel telemetry: {e}")
 
     # ── Global Ranking & Allocation (end-of-sweep, in-memory) ─────────────
     if not is_test_mode:

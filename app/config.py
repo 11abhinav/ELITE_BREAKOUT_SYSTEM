@@ -350,7 +350,7 @@ FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
 REGIME_POLICIES = {
     "STRONG_BULL": {
-        "allow_breakouts": True,
+        "score_modifier": 0,
         "allow_mean_reversion": False,
         "max_new_positions_per_day": 5,
         "min_target_quality_override": 60,
@@ -358,15 +358,40 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 1.0
     },
     "WEAK_BULL": {
-        "allow_breakouts": True,
+        "score_modifier": 0,
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 3,
         "min_target_quality_override": 65,
         "min_reward_potential_mult": 1.0,
         "capital_allocation_mult": 1.0
     },
+    
+    "BULL": {
+        "score_modifier": 0,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    },
+    "BEAR": {
+        "score_modifier": 5,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 1,
+        "min_target_quality_override": 80,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "SIDEWAYS": {
+        "score_modifier": 8,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 2,
+        "min_target_quality_override": 75,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
     "RANGEBOUND": {
-        "allow_breakouts": False,
+        "score_modifier": 8,
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 2,
         "min_target_quality_override": 75,
@@ -374,7 +399,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "WEAK_BEAR": {
-        "allow_breakouts": False,
+        "score_modifier": 10,
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 1,
         "min_target_quality_override": 80,
@@ -382,7 +407,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "STRONG_BEAR": {
-        "allow_breakouts": False,
+        "score_modifier": 10,
         "allow_mean_reversion": False,
         "max_new_positions_per_day": 0,
         "min_target_quality_override": 100,
@@ -390,7 +415,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.0
     },
     "NEUTRAL": {
-        "allow_breakouts": True,
+        "score_modifier": 0,
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 3,
         "min_target_quality_override": 65,

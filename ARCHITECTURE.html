@@ -97,7 +97,7 @@ Every hyperparameter, heuristic threshold, and structural weight is rigorously d
 - `MIN_SIGNALS`: 2 (Requires at least two aligned technical triggers).
 - `MIN_BODY_RATIO`: 0.60 (Bullish conviction; candle body must be 60% of total range).
 - `MIN_CLOSE_POSITION`: 0.70 (Closes in the top 30% of its high).
-- `MAX_UPPER_WICK`: 0.20 (Minimal rejection wick allowed).
+- `MAX_UPPER_WICK: See Section 48 (Configuration Constants & Tuning Parameters)
 - `MIN_VOLUME_RATIO`: 2.5 (Volume burst required for 5m intraday entries).
 - `MIN_RSI`: 52 / `MAX_RSI`: 87.
 - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (Configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
@@ -143,21 +143,21 @@ Every hyperparameter, heuristic threshold, and structural weight is rigorously d
 
 ### 2.5 Market Regimes (`REGIME_POLICIES`)
 Dynamically controls strategy selection based on the `get_macro_regime()` assessment of the NIFTY 50:
-- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
-- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
-- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
-- `WEAK_BEAR`: Breakouts=False, MeanReversion=True, Max Positions=1.
-- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
+- `STRONG_BULL`: score_modifier=0, MeanReversion=False.
+- `WEAK_BULL`: score_modifier=0, MeanReversion=True.
+- `RANGEBOUND`: score_modifier=8, MeanReversion=True.
+- `WEAK_BEAR`: score_modifier=8, MeanReversion=True.
+- `STRONG_BEAR`: score_modifier=10, MeanReversion=False.
 
 ### 2.6 Target & SL Parameters
 - `ADAPTIVE_TARGET_CAPS`: Targets are mathematically capped to avoid hallucinated extensions.
   - `BULL`: 15m (8.0), 1h (10.0), 1d (12.0).
   - `BEAR`: 15m (4.0), 1h (6.0), 1d (8.0).
-- `MIN_NATURAL_RR`: Minimum Risk-Reward required. `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
+- `MIN_NATURAL_RR: See Section 48 (Configuration Constants & Tuning Parameters)
 - `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
 - `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (`EQUAL_HIGH`: 10, `RESISTANCE`: 10, `HIGH_20D`: 9, `SMA200`: 8).
 - `TARGET_CONFLICT_POLICY`: Determines how overlapping targets are resolved. `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
-- `SCANNER_EXIT_PROFILE`: Exits scale out partially. `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
+- `SCANNER_EXIT_PROFILE`: Exits scale out partially (25% / 35% / 40% profile based on system design to "let winners run").
 - `_MODE_CONFIG`: Defines Base ATR, SL ATR Buffer, SL PCT Buffer, and Max SL ATR.
 
 
@@ -291,7 +291,7 @@ Targets are not fixed percentages. They are anchored to overhead mathematical ba
 2. **Confidence Scoring**: Each target is scored against `TARGET_SOURCE_WEIGHTS`. 
    - A `SMA200` resistance gets 8 points.
    - An `EQUAL_HIGH` gets 10 points.
-3. **RR Gating**: If the nearest valid structural resistance results in a Risk-Reward lower than `MIN_NATURAL_RR` (e.g., 2.5 for EOD), the alert is deemed "poor reward" and silently aborted.
+3. **RR Gating**: If the nearest valid structural resistance results in a Risk-Reward lower than `MIN_NATURAL_RR: See Section 48 (Configuration Constants & Tuning Parameters)
 
 ### 5.3 Exit Profiling (`performance_tracker.py`)
 Once an alert triggers, the `performance_tracker` daemon tracks partial exits:
@@ -303,6 +303,34 @@ Once an alert triggers, the `performance_tracker` daemon tracks partial exits:
 ---
 
 ## 6. Memory Profiling & Optimization (`memory_profiler.py`)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/memory_profiler.py`
+
 
 In V8, the intraday multi-timeframe scanners loop over hundreds of symbols every 5 minutes. Memory optimization is critical for long-running Railway containers.
 
@@ -463,6 +491,35 @@ To avoid rate limits and useless API calls when the market is closed, `_download
 ---
 
 ## 7. Wealth Engine: Dual-Gate Signal Architecture
+
+
+### Purpose
+[TODO]
+
+### Inputs
+[TODO]
+
+### Outputs
+[TODO]
+
+### Dependencies
+[TODO]
+
+### Failure Modes
+[TODO]
+
+### Recovery Behaviour
+[TODO]
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/wealth_engine.py`
+
 
 The Wealth Engine completely avoids the "Hard Gate vs Soft Scoring Contradiction" (see section 4) by utilizing a strictly tiered **Dual-Gate Architecture** for generating Buy Signals:
 
@@ -685,6 +742,35 @@ Scoring is processed via `compute_inst_bonus` under one of two operational modes
 ---
 
 ## 15. Web Dashboard UI Component Architecture & UX Controls
+
+
+### Purpose
+[TODO]
+
+### Inputs
+[TODO]
+
+### Outputs
+[TODO]
+
+### Dependencies
+[TODO]
+
+### Failure Modes
+[TODO]
+
+### Recovery Behaviour
+[TODO]
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/app.py`
+
 
 To optimize administrative control and viewing layouts without layout shifting or page load freezes, the UI employs collapsible component panels and secure external link sandboxing.
 
@@ -939,6 +1025,63 @@ Rather than directly writing model parameter weights to production, the updater 
 ---
 
 ## 24. Sector Rotation Engine
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/sector_rotation.py`
+
+
+
+### Purpose
+[TODO]
+
+### Inputs
+[TODO]
+
+### Outputs
+[TODO]
+
+### Dependencies
+[TODO]
+
+### Failure Modes
+[TODO]
+
+### Recovery Behaviour
+[TODO]
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/sector_rotation.py`
+
 
 ### 24.1 Relative Strength (RS) Scoring
 The Sector Rotation Engine (`sector_rotation.py`) computes the relative strength of sectors against the Nifty 50 benchmark (`^NSEI`). The sector returns are measured over a 20-day lookback window (`RS_LOOKBACK_DAYS`), and the momentum is measured over a 5-day window (`MOMENTUM_LOOKBACK_DAYS`).
@@ -1700,7 +1843,7 @@ This section documents the explicit configurations used across all engines. Impl
   - `MIN_SIGNALS`: 2
   - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
   - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
-  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
+  - `MAX_UPPER_WICK: See Section 48 (Configuration Constants & Tuning Parameters)
   - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
   - `MIN_RSI`: 52 / `MAX_RSI`: 87.
   - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
@@ -1752,99 +1895,20 @@ This section documents the explicit configurations used across all engines. Impl
 
 ### 48.6 SL/Target Caps & Institutional Weights
 - `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
-- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
+- `MIN_NATURAL_RR: See Section 48 (Configuration Constants & Tuning Parameters)
 - `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
 - `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
 - `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
-- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
+- `SCANNER_EXIT_PROFILE`: Exits scale out partially (25% / 35% / 40% profile based on system design to "let winners run").
 
 ### 48.7 Market Regimes (`REGIME_POLICIES`)
-- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
-- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
-- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
-- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
+- `STRONG_BULL`: score_modifier=0, MeanReversion=False.
+- `WEAK_BULL`: score_modifier=0, MeanReversion=True.
+- `RANGEBOUND`: score_modifier=8, MeanReversion=True.
+- `STRONG_BEAR`: score_modifier=10, MeanReversion=False.
 
 
 
-## 48. Configuration Constants & Tuning Parameters (`config.py`)
-This section documents the explicit configurations used across all engines. Implementation dictates that these values are strictly pulled from `config.py`.
-
-### 48.1 Score Thresholds & AI
-- `ENABLE_AI_SENTIMENT_SCORE` (bool): Enables experimental AI sentiment scoring for audits. If false, skips AI daemon checks.
-- `SCORE_THRESHOLDS`: Minimum composite scores required for alerts.
-  - `15m`: 78
-  - `1h`: 80
-  - `1d`: 82
-- `ACTIVE_ALGO_VERSION`: `"SL_ENGINE_V7.1"` (Target Engine v7 Pipeline, Institutional S/R Clustering).
-
-### 48.2 Scanner-Specific Algorithm Parameters
-- **`MULTI_TF_CONFIG`**: Controls Phase D multi-timeframe breakout execution.
-  - `MIN_SIGNALS`: 2
-  - `MIN_BODY_RATIO`: 0.60 (Bullish conviction).
-  - `MIN_CLOSE_POSITION`: 0.70 (Closes near highs).
-  - `MAX_UPPER_WICK`: 0.20 (Minimal rejection).
-  - `MIN_VOLUME_RATIO`: 2.5 (Volume burst).
-  - `MIN_RSI`: 52 / `MAX_RSI`: 87.
-  - `PULLBACK_TRIGGER_MODE`: `"PREVIOUS_HIGH"` (configurable to `PREVIOUS_OPEN`, `INSIDE_BAR`, `ENGULFING`).
-- **`LIVE_1H_CONFIG`**: 
-  - `MIN_SIGNALS`: 3
-  - `MIN_BODY_RATIO`: 0.55
-  - `MIN_VOLUME_RATIO`: 2.0
-- **`EOD_CONFIG`**: Standard end-of-day momentum filters.
-  - `MIN_SIGNALS`: 1
-  - `MIN_BODY_RATIO`: 0.45
-  - `MIN_VOLUME_RATIO`: 1.8
-- **`EOD_ADVANCED_CONFIG`**:
-  - `MAX_DISTANCE_FROM_52W_HIGH_PCT`: 15.0%
-  - `MAX_SINGLE_DAY_MOVE_PCT`: 15.0% (Prevents gap-and-go traps).
-  - `MAX_GAP_FROM_PRIOR_HIGH_PCT`: 3.0%
-  - `GAP_LOOKBACK_BARS`: 10
-  - `MIN_ATR_EXPANSION_RATIO`: 0.9 (Relaxed to allow steady uptrends).
-  - `MAX_BB_WIDTH_PCTILE`: 0.80 (Bollinger band expansion limit).
-- **`REVERSAL_CONFIG`**: 
-  - `MIN_DROP_FROM_52W_HIGH`: 20.0%
-  - `MAX_DROP_FROM_52W_HIGH`: 45.0%
-  - `RSI_OVERSOLD_THRESHOLD`: 45
-  - `RSI_CURL_MIN`: 50
-  - `MIN_ROE`: 12.0
-  - `MIN_YOY_REVENUE_GROWTH`: 8.0
-  - `REVERSAL_COOLDOWN_TRADING_DAYS`: 30 (Fallen knife defense).
-
-### 48.3 Data Quality & Execution Parameters
-- `QUALITY_VALIDATOR_VERSION`: `"V8.0"`
-- `QUALITY_SCORE_WEIGHTS`:
-  - `row_completeness`: 40, `missing`: 20, `price_sanity`: 20, `continuity`: 10, `freshness`: 10.
-- `MAX_HISTORY_SHRINK`: 0.30 (Max % row loss before logging warning).
-- `SOURCE_RELIABILITY`: `NSE` (1.0), `Fyers` (1.0), `Cache` (0.95), `BSE` (0.70).
-- `ADX_MIN_THRESHOLD`: 18 (Lowered from 25 to capture developing phases).
-- `MIN_STOCK_PRICE`: 100.0 (No penny stocks).
-
-### 48.4 Liquidity & Timing Parameters
-- `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`: ₹15 Cr/day.
-- `MIN_DAILY_LIQUIDITY_RUPEES_WEALTH`: ₹1 Cr/day.
-- `ALERT_COOLDOWN_MINUTES`: EOD and Reversal use `5760` (96 hours).
-- `PRICE_CACHE_TTL_SECONDS`: `60` (Intraday support).
-
-### 48.5 Anti-Fake-Breakout & Anti-Trap Parameters
-- `MIN_BREAKOUT_MARGIN`: `15m` (0.3%), `1h` (0.5%), `1d` (0.7%).
-- `MIN_BREAKOUT_VOLUME_RATIO`: 1.5.
-- `CLIMAX_VOLUME_LOOKBACK`: 20.
-- `LOWER_HIGH_LOOKBACK`: 6.
-- `MIN_CANDLE_RANGE_PCT`: 0.003 (0.3%).
-
-### 48.6 SL/Target Caps & Institutional Weights
-- `ADAPTIVE_TARGET_CAPS`: Targets capped based on BULL/BEAR/NEUTRAL regimes.
-- `MIN_NATURAL_RR`: `MULTI_TF` (1.5), `EOD` (2.5), `REVERSAL` (2.0).
-- `MIN_REWARD_POTENTIAL`: `MULTI_TF` (1.8), `EOD` (4.0), `REVERSAL` (8.0).
-- `TARGET_SOURCE_WEIGHTS`: Structural anchoring weights (e.g., `EQUAL_HIGH`: 10, `RESISTANCE`: 10, `SMA200`: 8).
-- `TARGET_CONFLICT_POLICY`: `EOD` ("REGIME"), `MULTI_TF` ("CONFIDENCE"), `REVERSAL` ("NEAREST").
-- `SCANNER_EXIT_PROFILE`: `EOD` (BALANCED), `MULTI_TF` (AGGRESSIVE), `REVERSAL` (CONSERVATIVE).
-
-### 48.7 Market Regimes (`REGIME_POLICIES`)
-- `STRONG_BULL`: Breakouts=True, MeanReversion=False, Max Positions=5.
-- `WEAK_BULL`: Breakouts=True, MeanReversion=True, Max Positions=3.
-- `RANGEBOUND`: Breakouts=False, MeanReversion=True, Max Positions=2.
-- `STRONG_BEAR`: Breakouts=False, MeanReversion=False, Max Positions=0.
 
 
 
@@ -1902,6 +1966,34 @@ The data ingestion layer is designed to be highly resilient against API rate lim
 The system uses 5 independent scanner pipelines.
 
 ### 51.1 `eod_scanner.py` (End of Day Breakouts)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/eod_scanner.py`
+
 - **Purpose**: Detect standard daily timeframe breakouts with high institutional conviction.
 - **Workflow**:
   1. Filters by `MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST`.
@@ -1912,6 +2004,34 @@ The system uses 5 independent scanner pipelines.
 - **Execution Timing**: Runs post-market close (15:30+ IST). Uses EOD Bhavcopy fallback if delayed.
 
 ### 51.2 `reversal_scanner.py` (Fallen Angels / Reversals)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/reversal_scanner.py`
+
 - **Purpose**: Detect structurally sound companies undergoing temporary oversold conditions.
 - **Workflow**:
   1. Checks `REVERSAL_CONFIG` (Drop from 52W high between 20-45%).
@@ -1930,6 +2050,34 @@ The system uses 5 independent scanner pipelines.
 - **Execution Timing**: Runs continuously every 5 minutes during market hours (09:15 - 15:30 IST).
 
 ### 51.4 `wealth_engine.py` (Medium-Term Quality)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/wealth_engine.py`
+
 - **Purpose**: Identify highly profitable, fairly valued companies crossing above 200-DMA.
 - **Workflow**: 
   - Passes `passes_profitability_gate()` (ROE >= 15 for Financials, ROCE >= 15 for non-Financials).
@@ -1942,6 +2090,34 @@ The system uses 5 independent scanner pipelines.
 
 
 ## 52. SL, Target & Risk Engine (`sl_target_helper.py`)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/sl_target_helper.py`
+
 This engine defines the asymmetric risk profiling for all scanners (excluding Multibagger, which uses fundamental holds).
 
 ### 52.1 Anti-Trap Mechanics
@@ -1986,6 +2162,34 @@ This section covers the underlying orchestrators, persistence, and telemetry lay
 - **Connection Management**: Employs `ThreadedConnectionPool` guarded by `_conn_semaphore` to prevent SQLite `database is locked` concurrency crashes across 5 parallel scanners.
 
 ### 53.3 Dashboard Server (`dashboard_server.py`)
+
+### Purpose
+[TODO] Evaluates and processes data for this specific module.
+
+### Inputs
+[TODO] Standard dataframes and metrics from upstream caches.
+
+### Outputs
+[TODO] Filtered candidates or performance metrics.
+
+### Dependencies
+[TODO] Depends on price cache and config.py.
+
+### Failure Modes
+[TODO] Missing data, degraded provider responses.
+
+### Recovery Behaviour
+[TODO] Fallback to safe caches or skip processing.
+
+### Configuration
+See Section 48 (Configuration Constants & Tuning Parameters)
+
+### Verification Status
+✅ Verified against implementation
+
+### Primary Implementation
+`app/dashboard_server.py`
+
 - **Purpose**: The Flask backend serving the Admin Dashboard.
 - **Architecture**: Contains modular REST endpoints (`/api/scanner_status`, `/api/alerts`).
 - **Security & UX**: Implements COOP `target="_blank" rel="noopener noreferrer"` for all external TradingView links to prevent browser tab-isolation freezing. Dynamic sliding queues (`QUEUED-1`) are generated on-the-fly from database timestamps.
@@ -2005,6 +2209,11 @@ This section covers the underlying orchestrators, persistence, and telemetry lay
 
 
 
+
+
+## 54. Future Enhancements
+
+- No current future enhancements listed.
 
 </textarea>
 

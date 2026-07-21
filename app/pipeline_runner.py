@@ -246,8 +246,15 @@ class PipelineRunner:
         # ──────────────────────────────────────────────────────────
         BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
         global_min_score = BASE_SCORE_THRESHOLD
-        if regime_ctx.get("trend") == "BEAR":
-            global_min_score += 5
+        
+        try:
+            from config import REGIME_POLICIES
+            market_regime = regime_ctx.get("trend", "NEUTRAL")
+            modifier = REGIME_POLICIES.get(market_regime, {}).get("score_modifier", 0)
+            if modifier > 0:
+                global_min_score += modifier
+        except Exception:
+            pass
             
         if score < global_min_score:
             rejection_reason = "low_score"

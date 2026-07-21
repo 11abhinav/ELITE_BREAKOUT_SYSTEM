@@ -78,17 +78,34 @@ def test_bonus_modifiers_and_caps(monkeypatch):
         "RELIANCE": {
             "fii": ["NOMURA"],
             "dii_super": ["HDFC MUTUAL FUND"],
-            "promoter": ["RELIANCE INDUSTRIES"]
+            "promoter": ["RELIANCE INDUSTRIES"],
+            "fii_sell": [],
+            "dii_super_sell": [],
+            "promoter_sell": []
         },
         "ADANIENT": {
             "fii": [],
             "dii_super": [],
-            "promoter": ["ADANI FAMILY TRUST"]
+            "promoter": ["ADANI FAMILY TRUST"],
+            "fii_sell": [],
+            "dii_super_sell": [],
+            "promoter_sell": []
         },
         "TCS": {
             "fii": ["MORGAN STANLEY"],
             "dii_super": ["SBI MUTUAL FUND"],
-            "promoter": []
+            "promoter": [],
+            "fii_sell": [],
+            "dii_super_sell": [],
+            "promoter_sell": []
+        },
+        "HDFCBANK": {
+            "fii": [],
+            "dii_super": [],
+            "promoter": [],
+            "fii_sell": ["NOMURA"],
+            "dii_super_sell": ["SBI MUTUAL FUND"],
+            "promoter_sell": ["HDFC INVESTMENTS"]
         }
     }
     
@@ -107,12 +124,14 @@ def test_bonus_modifiers_and_caps(monkeypatch):
     assert footprints["promoter"] == ["RELIANCE INDUSTRIES"]
     
     # Test compute_inst_bonus - Raw Mode (base_score = None)
-    # RELIANCE has FII (+8), DII (+6), Promoter (+6) = 20 pts
-    assert compute_inst_bonus("RELIANCE") == 20
-    # ADANIENT has Promoter only (+6) = 6 pts
-    assert compute_inst_bonus("ADANIENT") == 6
-    # TCS has FII (+8), DII (+6) = 14 pts
-    assert compute_inst_bonus("TCS") == 14
+    # RELIANCE has FII (+6), DII (+4), Promoter (+8) = 18 pts
+    assert compute_inst_bonus("RELIANCE") == 18
+    # ADANIENT has Promoter only (+8) = 8 pts
+    assert compute_inst_bonus("ADANIENT") == 8
+    # TCS has FII (+6), DII (+4) = 10 pts
+    assert compute_inst_bonus("TCS") == 10
+    # HDFCBANK has FII_sell (-4), DII_sell (-2), Promoter_sell (-8) = -14 pts
+    assert compute_inst_bonus("HDFCBANK") == -14
     
     # Test compute_inst_bonus - Capped Mode
     # RELIANCE with base_score = 90. Capped at 100 - 90 = 10 pts
@@ -121,13 +140,17 @@ def test_bonus_modifiers_and_caps(monkeypatch):
     assert compute_inst_bonus("RELIANCE", base_score=100) == 0
     # RELIANCE with base_score = 95. Capped at 100 - 95 = 5 pts
     assert compute_inst_bonus("RELIANCE", base_score=95) == 5
-    # RELIANCE with base_score = 40. Full 20 pts (40 + 20 = 60 <= 100)
-    assert compute_inst_bonus("RELIANCE", base_score=40) == 20
-    # TCS with base_score = 90. TCS has 14 pts raw. Capped to 10
-    assert compute_inst_bonus("TCS", base_score=90) == 10
-    # TCS with base_score = 80. TCS has 14 pts raw. Full 14 pts (80 + 14 = 94)
-    assert compute_inst_bonus("TCS", base_score=80) == 14
+    # RELIANCE with base_score = 40. Full 18 pts (40 + 18 = 58 <= 100)
+    assert compute_inst_bonus("RELIANCE", base_score=40) == 18
+    
+    # Negative penalties should fully apply
+    assert compute_inst_bonus("HDFCBANK", base_score=80) == -14
+    
+    # TCS with base_score = 95. TCS has 10 pts raw. Capped to 5
+    assert compute_inst_bonus("TCS", base_score=95) == 5
+    # TCS with base_score = 80. TCS has 10 pts raw. Full 10 pts (80 + 10 = 90)
+    assert compute_inst_bonus("TCS", base_score=80) == 10
     
     # Test edge case base score boundaries (defensive clamping)
-    assert compute_inst_bonus("RELIANCE", base_score=-5) == 20 # Base clamped to 0
+    assert compute_inst_bonus("RELIANCE", base_score=-5) == 18 # Base clamped to 0
     assert compute_inst_bonus("RELIANCE", base_score=150) == 0 # Base clamped to 100
