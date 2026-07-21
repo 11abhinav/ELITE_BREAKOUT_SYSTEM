@@ -69,4 +69,7 @@ def test_validation_report_snapshot():
         "metrics": dataclasses.asdict(result.metrics)
     }
     
+    # Force stale_days to a constant because it depends on the current date and causes flaky tests
+    report["metrics"]["stale_days"] = 0
+    
     assert_snapshot_match("price_healthy_validation_report", report)
