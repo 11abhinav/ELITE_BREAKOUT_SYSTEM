@@ -93,6 +93,7 @@
 # =====================================================================================
 
 import logging
+from memory_profiler import profile_function
 
 # FIX 1: Import ADX_MIN_THRESHOLD from config instead of hardcoding
 from config import (
