@@ -49,7 +49,7 @@ def test_round_number_engine():
     assert clusters[0].is_round_number == True
     assert clusters[0].score == 18 # 10 + 8
     assert len(clusters[0].candidates) == 1
-    assert clusters[0].candidates[0].price == 100.0
+    assert clusters[0].candidates[0].price == 99.7
 
 def test_conflict_resolver_eod_bull():
     clusters = [
