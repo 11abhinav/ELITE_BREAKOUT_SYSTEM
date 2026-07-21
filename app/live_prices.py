@@ -180,8 +180,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                         
                         missing_chunk = [s for s in chunk if s in missing]
                         if len(missing_chunk) > 0:
-                            # Some were missing. Log the raw response so we can RCA.
-                            logger.warning(f"⚠️ Fyers quote returned 'ok' but missing data/prices for {missing_chunk}. Raw Fyers response: {response}")
+                            # Some were missing. Log missing symbols without dumping raw response to avoid log bloat.
+                            logger.warning(f"⚠️ Fyers quote returned 'ok' but missing {len(missing_chunk)} symbols (batch size {len(chunk)}). Missing: {missing_chunk}")
+                            logger.debug(f"Raw Fyers response for missing batch: {response}")
                     else:
                         is_auth_error = False
                         if isinstance(response, dict):
