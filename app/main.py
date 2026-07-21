@@ -585,8 +585,19 @@ def _run_pullback_with_retries(today_str):
                 if rec.get("scanner_name") == "PULLBACK" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("📊 PULLBACK SCAN | Previous run today was BEFORE 21:00 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             if already_ran:
                 logger.info("📊 PULLBACK SCAN | Already successfully executed today.")
                 return
