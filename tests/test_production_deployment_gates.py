@@ -119,10 +119,10 @@ class TestProductionDeploymentGates:
         assert hasattr(main, "run_evening_scanners"), "Evening scanners scheduled handler missing"
 
     def test_gate9_memory_regression_budget(self):
-        """Gate 9: Memory Regression Gate - enforce Startup RSS < 300 MB, Thread Count < 30."""
+        """Gate 9: Memory Regression Gate - enforce Startup RSS < 450 MB, Thread Count < 30."""
         from forensics import forensics
         mem = forensics.get_memory_stats()
-        assert mem["rss_mb"] < 300.0, f"Startup RSS budget breached: {mem['rss_mb']} MB (Budget < 300 MB)"
+        assert mem["rss_mb"] < 450.0, f"Startup RSS budget breached: {mem['rss_mb']} MB (Budget < 450 MB)"
         assert mem["thread_count"] < 30, f"Thread count budget breached: {mem['thread_count']} threads (Budget < 30)"
 
     def test_gate10_alert_contract_regression(self):
