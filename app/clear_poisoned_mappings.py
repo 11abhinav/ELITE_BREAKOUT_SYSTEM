@@ -22,13 +22,13 @@ def clear_poisoned_mappings():
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Delete empty or corrupted symbol master mappings
+                # Delete empty or corrupted symbol mappings
                 cur.execute("""
-                    DELETE FROM symbol_master 
-                    WHERE yahoo_ticker IS NULL 
-                       OR yahoo_ticker = '' 
-                       OR symbol IS NULL 
-                       OR symbol = ''
+                    DELETE FROM symbol_mappings 
+                    WHERE mapped_sym IS NULL 
+                       OR mapped_sym = '' 
+                       OR original_sym IS NULL 
+                       OR original_sym = ''
                 """)
                 deleted_count = cur.rowcount
                 conn.commit()
