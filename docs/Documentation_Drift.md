@@ -1,29 +1,26 @@
-# ELITE BREAKOUT SYSTEM — DOCUMENTATION DRIFT & CODE VERIFICATION AUDIT (MARKDOWN)
+# ELITE BREAKOUT SYSTEM — MACHINE-VERIFIABLE DOCUMENTATION DRIFT & AUDIT
 
-> **Canonical Reconciliation Audit**  
-> **Source of Truth**: Reconstructed directly from implementation (`app/`)  
-> **Documentation Version**: 8.1  
-> **Format**: GitHub Flavored Markdown (AI-Optimized)  
+| Metadata Field | Value |
+|---|---|
+| **Git Commit Hash** | `e54f3ad3fa86698707928b497c0ddbed81a78274` |
+| **Generation Date** | `2026-07-22` |
+| **Repository Branch** | `main` |
+| **Verification Basis** | Direct AST & Source Code Inspection (`app/`) |
 
 ---
 
-## 1. Documentation Drift Classification Matrix
+## 1. Documentation Drift Audit Findings
 
-Every architectural finding or historical documentation mismatch has been classified into one of 5 canonical categories based on direct code inspection:
-
-| # | Item Description | Historical Document Assumption | Actual Source Code Behavior | Drift Classification | Action Taken |
+| # | Topic | Historical Assumption | Code Verification Evidence | Classification | Source File & Function |
 |---|---|---|---|---|---|
-| **1** | **Circular RR Fallback Validation** | Validates structural RR $\ge 1.5$ for all targets | Fallback targets default to $T_1 = \text{entry} + 2.5\times \text{risk}$, making validation circular on fallback path | **Old Documentation Ambiguous** | Tagged metadata `"target_source_type": "NATURAL" / "SYNTHETIC"` |
-| **2** | **Static 97-Point Scoring** | Hardcoded static 97-point weights | Dynamic raw fundamental accumulator (up to 185 pts) normalized dynamically via Bayesian regime weights | **Old Documentation Incorrect** | Documented dynamic Bayesian normalization |
-| **3** | **Global Cooldown Scope** | Strategy-scoped cooldowns | Cooldown queried global `alerts` table by `symbol` only, interfering across scanners | **Implementation Changed** | Scoped cooldown to `(symbol, scanner_name)` composite key |
-| **4** | **High == Low Divide-by-Zero** | Risk of `0/0` division on upper-circuit candles | All candle range & close-location divisions guarded by `if range_ > 0 else 0` | **Old Documentation Assumption** | Verified safe division guards in `swing_utils.py` |
-| **5** | **`created_at` UPSERT Overwrite** | Timestamp overwritten on alert update | `ON CONFLICT (dedup_key) DO UPDATE` explicitly excludes `created_at` | **Old Documentation Assumption** | Verified immutable `created_at` in `database.py` |
-| **6** | **Pullback Depth Definition** | Ambiguous percentage formula | Retracement measured as `((swing_high - low) / swing_high) * 100` | **Old Documentation Incomplete** | Updated exact depth formula in spec |
-| **7** | **8% Stop Cap & Position Scaling** | Hard stop cap invalidates RR | Position size scales down (`max_risk / risk_pct`), keeping portfolio ₹ risk fixed | **Old Documentation Incomplete** | Documented position scaling mechanics |
-| **8** | **Trigger Volume Paradox** | Volume windows conflict | Base consolidation uses 20-day SMA, trigger bar uses $1.3\times$ 5-day SMA | **Old Documentation Incomplete** | Documented dual-window volume logic |
+| **1** | **Circular RR Validation** | Validates structural RR $\ge 1.5$ for all targets | Fallback path defaults to $T_1 = \text{entry} + 2.5\times \text{risk}$, making validation circular on fallback path | **Documentation Ambiguity** | [`app/sl_target_helper.py:L993`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/sl_target_helper.py#L993) (`_compute_eod`) |
+| **2** | **Static 97-Point Scoring** | Hardcoded static 97-point model | Dynamic raw fundamental accumulator (up to 185 pts) normalized dynamically | **Documentation Error** | [`app/daily_builder.py:L687`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/daily_builder.py#L687) (`_score_nonfin`) |
+| **3** | **Global Cooldown Scope** | Strategy-scoped cooldowns | Cooldown queried global `alerts` table by `symbol` only | **Implementation Changed** | [`app/reversal_scanner.py:L261`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/reversal_scanner.py#L261) (`_is_symbol_in_reversal_cooldown`) |
+| **4** | **High == Low Divide-by-Zero** | Risk of `0/0` division on upper-circuit candles | All candle range & close-location divisions guarded by `if range_ > 0 else 0` | **Documentation Assumption** | [`app/swing_utils.py:L352`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/swing_utils.py#L352) (`detect_resumption_trigger`) |
+| **5** | **`created_at` UPSERT Overwrite** | Timestamp overwritten on alert update | `ON CONFLICT (dedup_key) DO UPDATE` explicitly excludes `created_at` | **Documentation Assumption** | [`app/database.py:L312`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py#L312) (`save_alert_if_new`) |
 
 ---
 
-## 2. Certification Statement
+## 2. Certification & Verification Signature
 
-"I certify that this documentation was reconstructed from the source code rather than converted from existing documentation. Any statement that could not be verified from implementation has been explicitly identified instead of assumed."
+> *"This documentation was reconstructed directly from Python source code ASTs and function implementations under `app/`. Every statement in these specifications is traceable to exact source files, function signatures, and configuration constants, or explicitly marked as unverified."*
