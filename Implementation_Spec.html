@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ELITE BREAKOUT SYSTEM — Technical Implementation Specification (V8.0)</title>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #1f2937;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-purple: #8b5cf6;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --border-color: #374151;
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding-bottom: 80px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+            border-bottom: 1px solid var(--border-color);
+            padding: 24px 40px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            backdrop-filter: blur(12px);
+        }
+
+        .header-title {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .badge {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+
+        nav {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            overflow-x: auto;
+            padding-bottom: 6px;
+        }
+
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        nav a:hover, nav a.active {
+            color: var(--text-primary);
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .container {
+            max-width: 1550px;
+            margin: 40px auto;
+            padding: 0 40px;
+        }
+
+        section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 40px;
+            scroll-margin-top: 140px;
+        }
+
+        h2 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--accent-green);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h3 {
+            font-size: 17px;
+            font-weight: 600;
+            margin: 24px 0 12px 0;
+            color: var(--accent-blue);
+        }
+
+        code {
+            font-family: var(--font-mono);
+            background: rgba(255, 255, 255, 0.08);
+            color: #ec4899;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        pre {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: #e5e7eb;
+            margin: 16px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--bg-card);
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        tr:nth-child(even) { background-color: rgba(255, 255, 255, 0.02); }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-title">
+        ELITE BREAKOUT SYSTEM
+        <span class="badge">IMPLEMENTATION SPECIFICATION</span>
+    </div>
+    <div class="header-subtitle">
+        Low-Level Code Reference, Class Defs, Function Signatures, AST Metrics & SQL Queries
+    </div>
+    <nav>
+        <a href="Architecture.html">← Back to Architecture.html</a>
+        <a href="#class-index">Class Index</a>
+        <a href="#function-signatures">Function Signatures</a>
+        <a href="#sql-queries">SQL Queries</a>
+        <a href="#dataclass-schemas">Dataclass Schemas</a>
+        <a href="#ast-metrics">AST Code Metrics</a>
+    </nav>
+</header>
+
+<div class="container">
+    <a href="Architecture.html" class="back-link">← Return to Master Architecture Specification (Architecture.html)</a>
+
+    <!-- ================= CLASS INDEX ================= -->
+    <section id="class-index">
+        <h2>1. Class Index & Definitions (164 Classes)</h2>
+        <p>Complete manifest of public Python classes across all subpackages in the system:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Class Name</th>
+                    <th>Source Module</th>
+                    <th>Base Class</th>
+                    <th>Responsibility</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>PullbackCandidate</code></td>
+                    <td><code>app/core_models.py:12</code></td>
+                    <td><code>dataclass</code></td>
+                    <td>V8-PB candidate state DTO container.</td>
+                </tr>
+                <tr>
+                    <td><code>TriggerSignal</code></td>
+                    <td><code>app/core_models.py:35</code></td>
+                    <td><code>dataclass</code></td>
+                    <td>Resumption trigger signal DTO.</td>
+                </tr>
+                <tr>
+                    <td><code>PullbackStructure</code></td>
+                    <td><code>app/core_models.py:50</code></td>
+                    <td><code>dataclass</code></td>
+                    <td>Measured pullback structure DTO.</td>
+                </tr>
+                <tr>
+                    <td><code>ImpulseLeg</code></td>
+                    <td><code>app/core_models.py:70</code></td>
+                    <td><code>dataclass</code></td>
+                    <td>Identified impulse leg origin DTO.</td>
+                </tr>
+                <tr>
+                    <td><code>SwingPoint</code></td>
+                    <td><code>app/core_models.py:85</code></td>
+                    <td><code>dataclass</code></td>
+                    <td>Swing high / low pivot DTO.</td>
+                </tr>
+                <tr>
+                    <td><code>StageTimelineTracker</code></td>
+                    <td><code>app/memory_profiler.py:453</code></td>
+                    <td><code>object</code></td>
+                    <td>Stage-level memory and runtime telemetry profiler.</td>
+                </tr>
+                <tr>
+                    <td><code>DataQualityValidator</code></td>
+                    <td><code>app/data_quality.py:25</code></td>
+                    <td><code>object</code></td>
+                    <td>V8.0 Data Quality validation engine.</td>
+                </tr>
+                <tr>
+                    <td><code>FyersFetcher</code></td>
+                    <td><code>app/data_providers/fyers_fetcher.py:30</code></td>
+                    <td><code>object</code></td>
+                    <td>Fyers batch historical data provider wrapper.</td>
+                </tr>
+                <tr>
+                    <td><code>BhavcopyValidator</code></td>
+                    <td><code>app/validation/validators/bhavcopy_validator.py:15</code></td>
+                    <td><code>BaseValidator</code></td>
+                    <td>NSE Bhavcopy delivery data validator.</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- ================= FUNCTION SIGNATURES ================= -->
+    <section id="function-signatures">
+        <h2>2. Public Function Signatures & Implementation Specs (894 Functions)</h2>
+        <p>Low-level code signatures for key functions:</p>
+
+        <pre><code># app/swing_utils.py
+def detect_confirmed_pivots(df: pd.DataFrame, lookback: int = 10, confirmation_bars: int = 3) -> list[SwingPoint]: ...
+
+def select_pullback_origin(pivots: list[SwingPoint], df: pd.DataFrame, config: dict) -> Optional[ImpulseLeg]: ...
+
+def measure_pullback(df: pd.DataFrame, impulse: ImpulseLeg, config: dict) -> Optional[PullbackStructure]: ...
+
+def detect_resumption_trigger(df: pd.DataFrame, structure: PullbackStructure, config: dict) -> Optional[TriggerSignal]: ...
+
+# app/database.py
+def save_alert_if_new(symbol: str, alert_date: date, scanner: str, score: float, close_price: float, entry_price: float, stop_loss: float, target_price: float, risk_reward: float, sector: str, metadata: dict) -> bool: ...
+
+def upsert_scanner_health(scanner_name: str, status: str, last_success: str = None, today_alerts: int = 0, processed_count: int = 0, total_count: int = 0, error_msg: str = None) -> None: ...
+
+# app/memory_profiler.py
+def run_purge_with_telemetry(stage_name: str) -> dict: ...</code></pre>
+    </section>
+
+    <!-- ================= SQL QUERIES ================= -->
+    <section id="sql-queries">
+        <h2>3. Complete SQL Query Reference</h2>
+        
+        <h3>Alert Insertion & Deduplication Query</h3>
+        <pre><code>INSERT INTO alerts (symbol, alert_date, scanner, score, close_price, entry_price, stop_loss, target_price, risk_reward, sector, metadata)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (symbol, alert_date, scanner) 
+DO UPDATE SET 
+    score = EXCLUDED.score,
+    close_price = EXCLUDED.close_price,
+    entry_price = EXCLUDED.entry_price,
+    stop_loss = EXCLUDED.stop_loss,
+    target_price = EXCLUDED.target_price,
+    risk_reward = EXCLUDED.risk_reward,
+    metadata = EXCLUDED.metadata,
+    created_at = NOW();</code></pre>
+
+        <h3>Scanner Health Heartbeat Query</h3>
+        <pre><code>INSERT INTO scanner_health (scanner_name, status, last_success, today_alerts, processed_count, total_count, error_msg, updated_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+ON CONFLICT (scanner_name)
+DO UPDATE SET
+    status = EXCLUDED.status,
+    last_success = COALESCE(EXCLUDED.last_success, scanner_health.last_success),
+    today_alerts = EXCLUDED.today_alerts,
+    processed_count = EXCLUDED.processed_count,
+    total_count = EXCLUDED.total_count,
+    error_msg = EXCLUDED.error_msg,
+    updated_at = NOW();</code></pre>
+    </section>
+
+    <!-- ================= AST METRICS ================= -->
+    <section id="ast-metrics">
+        <h2>4. Repository AST Code Metrics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric Category</th>
+                    <th>Exact Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Python Files</td>
+                    <td><code>144 Files</code></td>
+                </tr>
+                <tr>
+                    <td>Total Classes</td>
+                    <td><code>164 Classes</code></td>
+                </tr>
+                <tr>
+                    <td>Total Functions</td>
+                    <td><code>894 Functions</code></td>
+                </tr>
+                <tr>
+                    <td>Configuration Keys</td>
+                    <td><code>38 Constants</code></td>
+                </tr>
+                <tr>
+                    <td>SQL Migration Statements</td>
+                    <td><code>18 Statements</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+</div>
+
+</body>
+</html>
