@@ -166,6 +166,18 @@ Data readiness in scanner executions MUST enforce strict severity segregation ac
 
 ---
 
+## 🚨 RULE 16 — Mandatory Exception Transparency & Non-Swallowing Policy
+1. **No Silent Exception Swallowing**: No error or exception may ever be silently swallowed using empty `except: pass` blocks or unlogged try/except wrappers.
+2. **Explicit Error Categorization**: Every exception must be explicitly logged (`logger.exception` / `logger.error`) and recorded in PostgreSQL tracking tables (`system_logs`, `scan_failures`, or `fetch_errors`).
+
+---
+
+## 🚨 RULE 17 — Dual-Tier Scanner Impact Classification & Admin Notification Policy
+1. **Critical System Impact**: If an error affects overall scanner functionality (e.g. $>25\%$ unfetched data, database connection loss, missing watchlist), the scanner status MUST be set to `status = "DOWN"` and `outcome = "FAILED"`, triggering an emergency Telegram dispatch.
+2. **Partial Item Failures**: If a few individual symbols fail (e.g. 1-5 items fail indicator calculation or historical fetch), item failures MUST be surfaced as `status = "DEGRADED"` on the Admin Dashboard, AND an explicit **Admin Notification** (`insert_notification("admin", ...)` / `upsert_scanner_health`) MUST be generated to alert admins without needing log inspection.
+
+---
+
 ## ✅ RULE 11 — Definition of Done
 A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Root cause identified

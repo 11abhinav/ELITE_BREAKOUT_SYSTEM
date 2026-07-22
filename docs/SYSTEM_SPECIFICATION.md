@@ -197,5 +197,13 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
   - Sets scanner health status to `status = "DEGRADED"` and `outcome = "PARTIAL"`.
   - Signals data freshness degradation while allowing fallback evaluation.
 
+## 1.6 Exception Transparency & Non-Swallowing Policy (RULE 16)
+- **No Silent Exception Swallowing**: No error or exception may ever be silently swallowed using empty `except: pass` blocks or unlogged try/except wrappers.
+- **Explicit Tracking**: Every exception must be logged (`logger.exception`) and tracked in PostgreSQL (`system_logs`, `scan_failures`, `fetch_errors`).
+
+## 1.7 Dual-Tier Scanner Impact Classification & Admin Notification Policy (RULE 17)
+- **Critical System Impact**: Major data or systemic failures set status to `status = "DOWN"` and `outcome = "FAILED"`, triggering an emergency Telegram dispatch.
+- **Partial Item Failures**: Individual item failures (e.g. 1-5 symbols) set status to `status = "DEGRADED"` on Admin Dashboard AND generate an explicit Admin Notification (`insert_notification("admin", ...)`).
+
 
 
