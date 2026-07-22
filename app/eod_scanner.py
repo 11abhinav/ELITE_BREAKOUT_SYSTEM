@@ -216,7 +216,7 @@ def _start_wrapper(force: bool = False):
         scan_failures = []
 
         rejection_counts = {k: 0 for k in [
-            "no_data", "missing_col", "insufficient_bars", "indicator_fail", "weak_signals",
+            "no_data", "missing_col", "indicator_nan", "insufficient_bars", "indicator_fail", "weak_signals",
             "weak_body", "bearish_candle", "weak_close_pos", "upper_wick", "low_volume",
             "low_avg_volume", "penny_stock", "rsi_range", "below_ema20",
             "below_sma50", "weak_adx", "far_from_52w_high",
@@ -283,14 +283,15 @@ def _start_wrapper(force: bool = False):
         with MemoryProfiler("Process Symbols"):
             for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
                 with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
+                    import pandas as pd
                     all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
                     if not all_ticker_data:
                         continue
                     
-                    valid_fetches = sum(1 for v in all_ticker_data.values() if v is not None and getattr(v, "empty", False) is False)
+                    valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                     total_fetched_count += valid_fetches
                     from core_enums import ProviderResult
-                    rows_fetched = sum(len(df) for df in all_ticker_data.values() if df is not None and not isinstance(df, ProviderResult))
+                    rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                     tracker.mark_fetch_complete(row_count=rows_fetched)
                 
                 for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
@@ -376,6 +377,8 @@ def _start_wrapper(force: bool = False):
                         latest = ticker.iloc[-1]
 
                         if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
+                            logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
+                            rejection_counts["indicator_nan"] += 1
                             continue
 
                         # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing

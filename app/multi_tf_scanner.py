@@ -131,8 +131,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             if not ticker_data:
                 continue
                 
-            from core_enums import ProviderResult
-            valid_fetches = sum(1 for v in ticker_data.values() if v is not None and getattr(v, "empty", False) is False)
+            import pandas as pd
+            valid_fetches = sum(1 for v in ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
             fetched_count += valid_fetches
             rows_fetched = sum(len(df) for df in ticker_data.values() if df is not None and not isinstance(df, ProviderResult))
             tracker.mark_fetch_complete(row_count=rows_fetched)

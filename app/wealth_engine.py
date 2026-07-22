@@ -988,9 +988,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 if chunk_historical_data is None:
                     chunk_historical_data = {}
                     
-                valid_fetches = sum(1 for v in chunk_historical_data.values() if v is not None and not v.empty)
+                valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 global_fetched_count += valid_fetches
-                rows_fetched = sum(len(df) for df in chunk_historical_data.values() if df is not None)
+                rows_fetched = sum(len(df) for df in chunk_historical_data.values() if isinstance(df, pd.DataFrame))
                 
                 tracker.mark_fetch_complete(row_count=rows_fetched)
                 

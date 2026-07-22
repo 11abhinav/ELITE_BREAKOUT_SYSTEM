@@ -165,11 +165,18 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         category = row.get("Category", "MIDCAP")
                         sector = row.get("Sector", None)
 
+                        from core_enums import ProviderResult
                         if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
+                            logger.debug(f"[PULLBACK] {symbol} rejected: missing historical data")
+                            continue
+
+                        if isinstance(all_ticker_data[symbol], ProviderResult):
+                            logger.debug(f"[PULLBACK] {symbol} rejected: Provider error ({all_ticker_data[symbol].name})")
                             continue
 
                         df = all_ticker_data[symbol].copy()
                         if df.empty or len(df) < effective_config.get("MIN_HISTORY", 260):
+                            logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 260)})")
                             continue
 
                         df.attrs['adjusted'] = True

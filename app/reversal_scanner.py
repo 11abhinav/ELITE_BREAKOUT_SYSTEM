@@ -401,6 +401,9 @@ def _run_scan(force: bool = False):
     shortlisted_alerts = []
     rejected = {
         "no_data": 0,
+        "missing_col": 0,
+        "indicator_nan": 0,
+        "zero_52w_high": 0,
         "insufficient_bars": 0,
         "stale_data": 0,
         "cooldown": 0,
@@ -472,9 +475,10 @@ def _run_scan(force: bool = False):
                     continue
                     
                 from core_enums import ProviderResult
-                valid_fetches = sum(1 for v in all_ticker_data.values() if v is not None and getattr(v, "empty", False) is False)
+                import pandas as pd
+                valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 total_fetched_count += valid_fetches
-                rows_fetched = sum(len(df) for df in all_ticker_data.values() if df is not None and not isinstance(df, ProviderResult))
+                rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                 tracker.mark_fetch_complete(row_count=rows_fetched)
 
             for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
@@ -534,23 +538,29 @@ def _run_scan(force: bool = False):
 
                     ticker = apply_indicators(ticker, timeframe="1d")
                     if ticker is None or ticker.empty:
+                        logger.debug(f"[REVERSAL] {symbol} rejected: apply_indicators returned empty/None")
                         rejected["no_data"] += 1
                         continue
 
                     latest   = ticker.iloc[-1]
                     required = ["Close", "High", "Low", "Open", "Volume", "RSI", "EMA20", "EMA50", "SMA50", "SMA200", "MACD", "MACD_SIGNAL", "MACD_HIST", "HIGH_52W", "ATR", "ATR_PCT", "SWING_LOW", "SWING_HIGH"]
-                    if not all(col in ticker.columns for col in required):
-                        rejected["no_data"] += 1
+                    missing_cols = [col for col in required if col not in ticker.columns]
+                    if missing_cols:
+                        logger.debug(f"[REVERSAL] {symbol} rejected: missing required indicator columns {missing_cols}")
+                        rejected["missing_col"] += 1
                         continue
+
                     if pd.isna(latest["RSI"]) or pd.isna(latest["MACD"]):
-                        rejected["no_data"] += 1
+                        logger.debug(f"[REVERSAL] {symbol} rejected: latest RSI or MACD is NaN (RSI={latest.get('RSI')}, MACD={latest.get('MACD')})")
+                        rejected["indicator_nan"] += 1
                         continue
 
                     close_price = float(latest["Close"])
                     high_52w    = float(latest["HIGH_52W"])
 
-                    if high_52w <= 0:
-                        rejected["no_data"] += 1
+                    if high_52w <= 0 or pd.isna(high_52w):
+                        logger.debug(f"[REVERSAL] {symbol} rejected: invalid 52-week high ({high_52w})")
+                        rejected["zero_52w_high"] += 1
                         continue
                     drop_pct = ((high_52w - close_price) / high_52w) * 100
 
@@ -995,6 +1005,9 @@ def _run_scan(force: bool = False):
         logger.info(
             f"[REVERSAL] rejection summary: "
             f"no_data={rejected.get('no_data', 0)}, "
+            f"missing_col={rejected.get('missing_col', 0)}, "
+            f"indicator_nan={rejected.get('indicator_nan', 0)}, "
+            f"zero_52w_high={rejected.get('zero_52w_high', 0)}, "
             f"insufficient_bars={rejected.get('insufficient_bars', 0)}, "
             f"stale_data={rejected.get('stale_data', 0)}, "
             f"cooldown={rejected.get('cooldown', 0)}, "
