@@ -1959,6 +1959,77 @@ ightarrow$ Scanner ingestion input.</td>
         </table>
     </section>
 
+
+
+    <!-- ================= SECTION 35 — FULL SYSTEM FORENSIC TELEMETRY SYSTEM ================= -->
+    <section id="s35-forensics">
+        <h2>35. Full System Forensic Telemetry Architecture (Single-Pass 1-Day Capture Subsystem)</h2>
+        <p>Production forensic telemetry module (<code>app/forensics.py</code>) enabling a single-pass 24-hour market execution capture without piecemeal debugging logs:</p>
+
+        <h3>1. Structured Forensics Log Directory (<code>app/data/forensics/</code>)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Log Stream File</th>
+                    <th>Format</th>
+                    <th>Captured Production Evidence</th>
+                    <th>Analysis Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>system_metrics.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>RSS (MB), VMS (MB), Open FDs, Thread Count, GC Generation Counts</td>
+                    <td>Process-level memory leak & FD exhaustion RCA</td>
+                </tr>
+                <tr>
+                    <td><code>scanner_metrics.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>Execution Duration, Symbols, Candidates, Alerts, RSS Delta, DataFrame Counts</td>
+                    <td>Scanner runtime & memory growth RCA</td>
+                </tr>
+                <tr>
+                    <td><code>memory_snapshots.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>Explicit stage RSS snapshots (Startup, Daily Builder, Scanners, Purges)</td>
+                    <td>Heap expansion & purge efficiency tracking</td>
+                </tr>
+                <tr>
+                    <td><code>cache_metrics.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>Cache Entry Count, Size (MB), Hits, Misses, Hit Ratio</td>
+                    <td>Cache growth & eviction efficiency analysis</td>
+                </tr>
+                <tr>
+                    <td><code>db_metrics.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>Query Latency (ms), Rows Affected, Pool Active Connections, Slow Queries</td>
+                    <td>PostgreSQL query latency & connection pool RCA</td>
+                </tr>
+                <tr>
+                    <td><code>api_metrics.jsonl</code></td>
+                    <td>JSONL</td>
+                    <td>Endpoint Latency, Payload Bytes, HTTP Status, Retries</td>
+                    <td>External API rate limit & latency bottleneck RCA</td>
+                </tr>
+                <tr>
+                    <td><code>daily_summary.json</code></td>
+                    <td>JSON</td>
+                    <td>Auto-generated EOD summary report (Peak RSS, Top Growth Events, Slow Scanners)</td>
+                    <td>Single-pass EOD executive forensic report</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="alert-box success">
+            <strong>Single-Pass Production Forensics Operational Sign-Off:</strong><br>
+            • Centralized in <code>app/forensics.py</code> with zero performance impact on core scanner execution.<br>
+            • Thread-safe JSON Lines structured logging allows immediate multi-stream event correlation by timestamp.<br>
+            • Enables full 24-hour market execution root-cause analysis (RCA) in a single trading day run.
+        </div>
+    </section>
+
 </div>
 </body>
 </html>

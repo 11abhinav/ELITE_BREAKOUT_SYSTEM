@@ -481,6 +481,15 @@ class StageTimelineTracker:
         logger.info(f"   RSS After    : {rss_after:>7.1f} MB (Delta: {delta:>+6.1f} MB)")
         logger.info("=" * 70)
         
+        try:
+            from forensics import forensics
+            forensics.take_snapshot(f"{self.pipeline_name}:{self.stage_name}", {
+                "duration_sec": round(elapsed, 2),
+                "rss_delta_mb": round(delta, 2)
+            })
+        except Exception:
+            pass
+        
         if self.inspect_objects and (delta > 20.0 or rss_after > 500.0):
             inspect_largest_global_objects(top_n=5)
 

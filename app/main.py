@@ -20,6 +20,7 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 import random
 from memory_profiler import MemoryProfiler
+from forensics import forensics
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if APP_DIR not in sys.path:
@@ -1407,6 +1408,7 @@ def _trigger_performance_tracker():
 # =====================================================================================
 
 if __name__ == "__main__":
+    forensics.take_snapshot("startup")
     _cleanup_old_scanner_names()
     def handle_sigterm(*args):
         logger.info("🛑 SIGTERM received — container shutting down. Closing gracefuly...")
