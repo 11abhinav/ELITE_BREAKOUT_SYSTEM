@@ -456,7 +456,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             if batch_results:
                 batch_validation_items = []
                 for sym in batch:
+                    # Ingestion Boundary Canonical Symbol Lookup: Try sym, sym.NS, sym.BO, and base symbol
                     md = batch_results.get(sym)
+                    if md is None:
+                        md = batch_results.get(f"{sym}.NS") or batch_results.get(f"{sym}.BO") or batch_results.get(sym.split('.')[0])
+                    
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
                     if md is None:
