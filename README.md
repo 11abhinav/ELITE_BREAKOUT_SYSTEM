@@ -1,4 +1,4 @@
-# ELITE BREAKOUT SYSTEM — QUANTITATIVE TRADING ENGINE (V8.1)
+# ELITE BREAKOUT SYSTEM — QUANTITATIVE TRADING ENGINE
 
 An enterprise-grade, automated quantitative trading engine and real-time market scanner optimized for National Stock Exchange (NSE) equity securities.
 
@@ -6,12 +6,10 @@ An enterprise-grade, automated quantitative trading engine and real-time market 
 
 ## 📚 Canonical System Documentation
 
-The Elite Breakout System maintains a single, authoritative documentation set reconstructed directly from source implementation under `app/`:
+The Elite Breakout System maintains a single, authoritative documentation set consisting of **exactly two canonical Markdown files** reconstructed directly from source implementation under `app/`:
 
-- **[System Architecture Specification](docs/Architecture.md)** (`docs/Architecture.md`) — System overview, execution lifecycle, scheduler, scanner architecture, data flow, DB schema, threading, and Mermaid diagrams.
-- **[Implementation Specification](docs/Implementation_Spec.md)** (`docs/Implementation_Spec.md`) — Comprehensive module inventory, public interfaces, dataclasses, enums, business rules, and helper functions.
-- **[Deployment Verification & Release Pipeline](docs/Deployment_Verification.md)** (`docs/Deployment_Verification.md`) — 10-Stage Release Approval Pipeline, 13 Automated Deployment Gates, and Pre-Push Readiness Checklist.
-- **[Documentation Drift & Audit Report](docs/Documentation_Drift.md)** (`docs/Documentation_Drift.md`) — Verified reconciliation audit comparing actual code behavior against historical assumptions.
+- **[SYSTEM ARCHITECTURE](docs/SYSTEM_ARCHITECTURE.md)** (`docs/SYSTEM_ARCHITECTURE.md`) — Answers *"What exists and how does it work?"* (High-level architecture, repository structure, startup lifecycle, scheduler, scanner pipelines, database schema, threading, and Mermaid diagrams).
+- **[SYSTEM SPECIFICATION](docs/SYSTEM_SPECIFICATION.md)** (`docs/SYSTEM_SPECIFICATION.md`) — Answers *"Exactly how is it implemented?"* (Complete engineering implementation contract detailing public/private APIs, algorithms, business rules, mathematical formulas, configuration constants, database queries, and unit test mappings).
 
 ---
 
