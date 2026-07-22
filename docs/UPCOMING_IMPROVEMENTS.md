@@ -2,14 +2,14 @@
 
 > **Canonical Roadmap Document**: This document outlines the prioritized roadmap of remaining upcoming architectural, quantitative, risk management, and analytics enhancements for the **Elite Breakout System**.
 >
-> **Status Summary**: Features **F-01, F-03, F-04, F-05, and F-07** are **100% IMPLEMENTED & VERIFIED** in commit `400382c0` with 276 passing tests.
+> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-07, and F-13** are **100% IMPLEMENTED & VERIFIED** in commit `2402baaf` with 280 passing tests.
 
 | Roadmap Metadata | Value |
 |---|---|
 | **Document Target** | Active & Remaining System Enhancement Blueprint |
 | **Primary Focus** | Backtesting, Portfolio Constraints, & Execution Risk |
 | **Governance Standard** | ANTIGRAVITY Rules 1-11 (Impact Analysis, RULE 10 Parameter Rationales) |
-| **Baseline Revision** | Commit [`400382c0`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/SYSTEM_RECONSTRUCTION_SPEC.md) (`origin/main`) |
+| **Baseline Revision** | Commit [`2402baaf`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/SYSTEM_RECONSTRUCTION_SPEC.md) (`origin/main`) |
 
 ---
 
@@ -24,12 +24,11 @@
 | **F-10** | **Gap-Aware Execution Risk** | **P2** | ⚠️ Investigate | Medium | `app/sl_target_helper.py` | Flags high-gap frequency stocks and adjusts risk budget for illiquidity slippage. |
 | **F-11** | **Trade Management & Trailing SL** | **P3** | Later | Medium | `app/trade_manager.py` | Moves SL to breakeven at $1R$ and trails stops below structural swing lows. |
 | **F-12** | **Regime-Adaptive Risk Scaling** | **P3** | ⚠️ Carefully | High | `app/config.py` | Dynamically scales `ACCOUNT_RISK_BUDGET_PCT` based on macro regime score. |
-| **F-13** | **Advanced Outcome Analytics & Attribution** | **P2** | ✅ Implement | Medium | `app/outcome_tracker.py` | Computes feature attribution, score band expectancy, calibration monitoring, and rolling validation. |
 
 
 ---
 
-# 2. Implemented & Verified Upgrades Log (Commit `400382c0`)
+# 2. Implemented & Verified Upgrades Log (Commit `2402baaf`)
 
 | Feature ID | Feature Name | Implementation Status | Target Module | Verified Capabilities |
 |---|---|---|---|---|
@@ -38,6 +37,8 @@
 | **F-04** | **Cross-Scanner Confluence Tier** | ✅ **COMPLETED** | `app/confluence_engine.py` | Independent 3-signal confluence (`FM_Score >= 75` + Signal + `RS >= 80%`) promoting trades to `ELITE_CONFLUENCE_ALERT`. |
 | **F-05** | **Financial-Sector Scorer (`_score_fin`)** | ✅ **COMPLETED** | `app/daily_builder.py` | Pure fundamental banking scorer evaluating Net NPA trend, Banded NIM (3.0-6.0%), CAR, and CASA ratio with safe fallbacks. |
 | **F-07** | **Sector & Industry Regime Layer** | ✅ **COMPLETED** | `app/macro_utils.py` | Ranks 14 NSE sector indices using blended 63d/21d lookback and 3-session hysteresis rule for +8 pt Tailwind bonus. |
+| **F-13** | **Advanced Outcome Analytics & Attribution** | ✅ **COMPLETED** | `app/outcome_tracker.py`<br>`app/admin_dashboard.html` | Preview Mode Analytics engine computing dual confidence badges, feature attribution, score band expectancy, capture efficiency %, and rolling validation. |
+
 
 ---
 

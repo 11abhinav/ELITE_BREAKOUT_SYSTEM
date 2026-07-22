@@ -1,14 +1,15 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Canonical System Contract**: This document defines the exact operational contract, parameter rationales (RULE 10), and technical specifications for the core architectural modules of the **Elite Breakout System** as of commit `400382c0`.
+> **Canonical System Contract**: This document defines the exact operational contract, parameter rationales (RULE 10), and technical specifications for the core architectural modules of the **Elite Breakout System** as of commit `2402baaf`.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
-| **Git Commit Hash** | `400382c0` |
+| **Git Commit Hash** | `2402baaf` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
-| **Verification Basis** | 276 Passing Pytest System Tests (`app/`) |
+| **Verification Basis** | 280 Passing Pytest System Tests (`app/`) |
+
 
 ---
 
@@ -86,6 +87,19 @@
 
 ---
 
+### 1.8 `app/outcome_tracker.py` (Advanced Outcome Analytics & Attribution F-13)
+- **Purpose**: Computes dual confidence levels, feature attribution breakdowns, score band expectancies, execution capture efficiency, and rolling performance validation.
+- **Source File**: [`app/outcome_tracker.py`](../app/outcome_tracker.py)
+- **Primary Function**: `compute_advanced_outcome_analytics()`
+- **API Route**: `GET /api/v1/analytics/outcomes/advanced` — [`app/dashboard_server.py`](../app/dashboard_server.py)
+- **Implementation & Business Rules**:
+  - **Overall & Per-Metric Dual Confidence**: `LOW` ($<100$ total / $<20$ metric), `MEDIUM` ($100\text{--}300$ total / $20\text{--}50$ metric), `HIGH` ($>300$ total / $>50$ metric).
+  - **Capture Efficiency**: Computes $\frac{\text{Avg Realized } R}{\text{Avg MFE } R} \times 100\%$.
+  - **Feature Attribution**: Compares $RS \ge 80$ vs $<80$, `sector_bonus > 0` vs $0$, and `BULL` vs `OTHER` regime.
+  - **Configurable Score Bands**: Reads `SCORE_BANDS` from [`app/config.py`](../app/config.py).
+
+---
+
 ## 2. Configuration Reference Appendix & Parameter Rationales (RULE 10)
 
 Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter in [`app/config.py`](../app/config.py) is documented with its technical purpose, baseline origin, evaluated alternatives, and behavioral impact:
@@ -114,7 +128,9 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
 | **Breakout Detection** | [`app/eod_scanner.py`](../app/eod_scanner.py) | [`tests/test_component_scanner.py`](../tests/test_component_scanner.py) |
 | **Pullback Retracement Detection** | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | [`tests/test_pullback_pipeline.py`](../tests/test_pullback_pipeline.py) |
 | **Outcome & Excursion Tracking** | [`app/outcome_tracker.py`](../app/outcome_tracker.py) | [`tests/test_f01_to_f07_quant_engine.py`](../tests/test_f01_to_f07_quant_engine.py) |
+| **Advanced Outcome Analytics & Attribution (F-13)** | [`app/outcome_tracker.py`](../app/outcome_tracker.py) | [`tests/test_f13_advanced_analytics.py`](../tests/test_f13_advanced_analytics.py) |
 | **Cross-Scanner Confluence Engine** | [`app/confluence_engine.py`](../app/confluence_engine.py) | [`tests/test_f01_to_f07_quant_engine.py`](../tests/test_f01_to_f07_quant_engine.py) |
 | **SL / Target Confluence Engine** | [`app/sl_target_helper.py`](../app/sl_target_helper.py) | [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py) |
 | **Dashboard REST API & Analytics** | [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_api.py`](../tests/test_api.py) |
 | **Deployment Release Gates** | [`app/main.py`](../app/main.py) / [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py) |
+

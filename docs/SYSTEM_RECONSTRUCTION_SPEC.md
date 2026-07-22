@@ -2,16 +2,16 @@
 
 > **AI Reconstruction Guarantee**: This document defines the exact architecture, data flows, core sub-engines, database schemas, and verification contracts required for an AI agent or software engineer to reconstruct the **Elite Breakout System** from scratch.
 >
-> **Canonical Basis**: Reflects commit `400382c0` (`origin/main`) with 276 passing Pytest system tests.
+> **Canonical Basis**: Reflects commit `2402baaf` (`origin/main`) with 280 passing Pytest system tests.
 
 | Specification Field | Value |
 |---|---|
 | **System Name** | Elite Breakout System |
 | **System Version** | V10.0 Production Master |
-| **Git Baseline Commit** | `400382c0` |
+| **Git Baseline Commit** | `2402baaf` |
 | **Target Runtime** | Python 3.9+ / PostgreSQL 14+ / Flask |
 | **Timezone Invariant** | `Asia/Kolkata` (IST strictly required) |
-| **Test Verification** | `python3 -m pytest` (276 / 276 tests passing) |
+| **Test Verification** | `python3 -m pytest` (280 / 280 tests passing) |
 
 ---
 
@@ -30,7 +30,7 @@ flowchart TD
     EOD & PB & REV --> Confluence[Confluence Engine 04:30 PM IST app/confluence_engine.py]
     Confluence --> Telegram[Telegram & WebPush Golden Alerts]
     DB --> OutcomeTracker[Outcome Tracker Worker 04:45 PM IST app/outcome_tracker.py]
-    OutcomeTracker --> Analytics[Admin Analytics UI & Expectancy Heatmap app/dashboard_server.py]
+    OutcomeTracker --> Analytics[Admin Analytics UI & Preview Analytics Engine app/dashboard_server.py]
 ```
 
 ---
@@ -63,6 +63,11 @@ flowchart TD
 - Applies conservative same-bar collision rule (`AMBIGUOUS_SL_HIT` = -1.0R loss).
 - Calculates gap-down slippage ($R = \frac{\text{Open} - \text{Entry}}{\text{Risk\_Dist}}$).
 
+### 2.6 Advanced Outcome Analytics & Attribution (`app/outcome_tracker.py` F-13)
+- Computes dual confidence levels (`overall_confidence` + per-metric `confidence`).
+- Renders **Preview Mode** card on Admin UI (`total_completed < 100`).
+- Computes Execution Capture Efficiency ($\frac{\text{Avg Realized } R}{\text{Avg MFE } R} \times 100\%$), Feature Attribution (RS, Sector, Regime), Score Band Expectancy (`SCORE_BANDS`), and Rolling Validation (30d, 90d, 180d).
+
 ---
 
 ## 3. Core Database Schemas
@@ -84,4 +89,5 @@ To verify an AI reconstruction of the system:
 1. Clone codebase and initialize PostgreSQL.
 2. Set `DATABASE_URL` environment variable.
 3. Run `python3 -m pytest`.
-4. Ensure all 276 system tests pass cleanly.
+4. Ensure all 280 system tests pass cleanly.
+
