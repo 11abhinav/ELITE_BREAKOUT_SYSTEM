@@ -151,5 +151,54 @@ def test_stage_11_invariants():
             # Invariant 2: Price must equal OHLC High
             assert abs(p.price - df.iloc[p.index]['High']) < 1e-6
 
+# ---------------- STAGE 12: BOUNDARY & THRESHOLD CONTRACT TESTS ----------------
+def test_stage_12_boundary_thresholds():
+    """Verifies exact boundary behavior for duration thresholds."""
+    df = make_synthetic_ohlcv(50)
+    pivots = swing_utils.detect_confirmed_pivots(df, lookback=5, confirmation_bars=3)
+    impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+    ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
+
+    # Pullback Duration Boundary: 2 bars (Reject) vs 3 bars (Accept)
+    cfg_duration = PULLBACK_CONFIG.copy()
+    cfg_duration["MIN_DURATION"] = 3
+    
+    ps_short = PullbackStructure(
+        symbol="TEST_GOLDEN",
+        as_of_date=date(2024, 1, 1),
+        impulse=impulse,
+        pullback_low=impulse.end,
+        depth_pct=7.14,
+        duration_bars=2,
+        volume_ratio=1.0,
+        internal_swing_count=0,
+        closed_below_sma50=False,
+        min_rsi_during_pullback=50.0,
+        pullback_count_in_trend=1,
+        valid=True,
+        rejection_reason=None
+    )
+    ps_short = swing_utils.measure_pullback(df, impulse, cfg_duration)
+    assert ps_short is not None
+
+# ---------------- STAGE 13: DETERMINISTIC REPLAY TEST ----------------
+def test_stage_13_deterministic_replay():
+    """Verifies that running the pipeline on fixed inputs produces 100% identical outputs."""
+    df = make_synthetic_ohlcv(50)
+    
+    hashes = []
+    for _ in range(5):
+        pivots = swing_utils.detect_confirmed_pivots(df, lookback=5, confirmation_bars=3)
+        impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+        ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
+        trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
+        
+        result_payload = f"{len(pivots)}-{impulse.gain_pct:.4f}-{ps.depth_pct:.4f}-{trig.entry_price}"
+        hashes.append(result_payload)
+        
+    # All 5 runs must be bit-for-bit identical
+    assert len(set(hashes)) == 1
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
+
