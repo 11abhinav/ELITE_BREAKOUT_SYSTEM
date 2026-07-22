@@ -1,12 +1,13 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `ad5d0c4e`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+>
+> **Scope Notice**: This specification covers the core architectural modules that define the system's behavior. Supporting utility modules, helper libraries, and generated artifacts are intentionally omitted except where they materially affect system behavior.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
-| **Scope Definition** | Implementation contract covering core modules: `main.py`, `daily_builder.py`, `eod_scanner.py`, `pullback_pipeline.py`, `reversal_scanner.py`, `multi_tf_scanner.py`, `wealth_engine.py`, `sl_target_helper.py`, `database.py`, `dashboard_server.py`, `forensics.py`, `core/models.py`. |
-| **Git Commit Hash** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
+| **Git Commit Hash** | `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -155,39 +156,20 @@
 
 ---
 
-## 4. Database Operations & Schema Appendix (`app/database.py`)
+## 4. Traceability Matrix
 
-- **Primary Schema**:
-  ```sql
-  CREATE TABLE IF NOT EXISTS alerts (
-      id SERIAL PRIMARY KEY,
-      dedup_key VARCHAR(255) UNIQUE NOT NULL,
-      symbol VARCHAR(50) NOT NULL,
-      scanner_name VARCHAR(50) NOT NULL,
-      strategy_version VARCHAR(20) NOT NULL,
-      category VARCHAR(50) NOT NULL,
-      entry DECIMAL(12, 2) NOT NULL,
-      stop_loss DECIMAL(12, 2) NOT NULL,
-      target DECIMAL(12, 2) NOT NULL,
-      reward_percent DECIMAL(8, 2),
-      risk_percent DECIMAL(8, 2),
-      rr_ratio DECIMAL(6, 2) NOT NULL,
-      confidence DECIMAL(5, 2),
-      score INT NOT NULL,
-      status VARCHAR(20) DEFAULT 'ACTIVE',
-      metadata JSONB,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-  );
-  ```
-- **Indexes & Unique Constraints**: `UNIQUE (dedup_key)` enforces single active alert per setup.
-- **UPSERT Logic**:
-  ```sql
-  INSERT INTO alerts (dedup_key, symbol, scanner_name, ...)
-  VALUES (%s, %s, %s, ...)
-  ON CONFLICT (dedup_key)
-  DO UPDATE SET score = EXCLUDED.score, updated_at = NOW();
-  ```
+This matrix establishes direct traceability from key system capabilities to source implementation and unit verification suites:
+
+| Business Capability | Core Module | Primary Test Suite |
+|---|---|---|
+| **Daily Watchlist Generation** | [`app/daily_builder.py`](../app/daily_builder.py) | [`tests/test_component_daily_builder.py`](../tests/test_component_daily_builder.py) |
+| **Breakout Detection** | [`app/eod_scanner.py`](../app/eod_scanner.py) | [`tests/test_component_scanner.py`](../tests/test_component_scanner.py) |
+| **Pullback Retracement Detection** | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | [`tests/test_pullback_pipeline.py`](../tests/test_pullback_pipeline.py) |
+| **Mean-Reversion Detection** | [`app/reversal_scanner.py`](../app/reversal_scanner.py) | [`tests/test_scanner_smoke.py`](../tests/test_scanner_smoke.py) |
+| **SL / Target Confluence Engine** | [`app/sl_target_helper.py`](../app/sl_target_helper.py) | [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py) |
+| **Long-Term Wealth Screening** | [`app/wealth_engine.py`](../app/wealth_engine.py) | [`tests/test_wealth_engine.py`](../tests/test_wealth_engine.py) |
+| **Dashboard REST API** | [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_api.py`](../tests/test_api.py) |
+| **Deployment Release Gates** | [`app/main.py`](../app/main.py) / [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py) |
 
 ---
 
@@ -208,6 +190,6 @@
 | Attribute | Value |
 |---|---|
 | **Discovered Core Subsystems** | Core architectural modules discovered under `app/` during AST analysis |
-| **Verification Basis** | Verified against test suite present at commit `920de35e7eedd09231a93740b47b3f08e1548cdc` |
-| **Verified Against Commit** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
-| **Limitations** | Reconstructed from implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |
+| **Verification Basis** | Verified against test suite present at commit `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
+| **Verified Against Commit** | `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
+| **Limitations** | Reconstructed from implementation at commit `ad5d0c4e`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |
