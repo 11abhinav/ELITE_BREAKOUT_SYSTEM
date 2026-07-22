@@ -261,6 +261,8 @@ def _is_financial(sector: str) -> bool:
     return sector in FINANCIAL_SECTORS
 
 def _anomaly_check(symbol: str, yoy_rev: float, yoy_profit: float) -> str:
+    if yoy_rev is None or yoy_profit is None or pd.isna(yoy_rev) or pd.isna(yoy_profit):
+        return f"Missing YoY metrics: YoY Revenue={yoy_rev}, YoY Profit={yoy_profit}"
     if yoy_rev < MIN_YOY or yoy_profit < MIN_YOY:
         return f"Structural collapse: YoY Revenue={yoy_rev:.1f}%, YoY Profit={yoy_profit:.1f}%"
     if yoy_rev > MAX_YOY or yoy_profit > MAX_YOY:

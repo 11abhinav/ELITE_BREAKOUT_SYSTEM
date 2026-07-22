@@ -1,11 +1,11 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM ARCHITECTURE SPECIFICATION
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `214f19ae`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `8df3c5a8`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Architecture & High-Level System Guide ("What exists and how does it work?") |
-| **Git Commit Hash** | `214f19aedbb592aad2a561edbdccba542519d4b8` |
+| **Git Commit Hash** | `8df3c5a8` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -97,103 +97,38 @@ app/main.py
 
 ---
 
-## 5. State Transition & Alert Lifecycle
-
-The following lifecycle details the exact state progression of an equity symbol through scanning, scoring, persistence, and dispatch:
-
-```mermaid
-flowchart TD
-    A[NSE Market Data Feeds] --> B[Watchlist Generation app/daily_builder.py]
-    B --> C[Pattern Recognition app/scanners]
-    C --> D[Candidate Evaluation]
-    D --> E[SL & Target Cluster Engine app/sl_target_helper.py]
-    E --> F{Quality Gate Filter}
-    F -->|Reject| G[Discard Candidate]
-    F -->|Pass| H{Deduplication & Per-Scanner Cooldown}
-    H -->|Duplicate/Cooldown| G
-    H -->|Valid| I[Persist to PostgreSQL alerts Table]
-    I --> J[Async Telegram Alert Dispatch]
-    I --> K[Flask Dashboard Server REST API]
-```
-
----
-
-## 6. Failure Handling & Error Recovery Flowchart
-
-The system implements multi-tiered fault recovery for external API rate limits, database drops, and data quality gaps:
-
-```mermaid
-flowchart TD
-    Data[Market Data Fetch app/data_provider.py] -->|API Rate Limit / Timeout| Retry[Exponential Backoff Retry 3x]
-    Retry -->|Success| Process[Process Candle Data]
-    Retry -->|Exhausted| Fallback[Fall Back to YFinance / Parquet Cache]
-    Fallback -->|Success| Process
-    Fallback -->|Failure| Skip[Log Warning & Skip Symbol]
-    Skip --> Cont[Continue Scanner Execution]
-```
-
----
-
-## 7. Scheduler Architecture
-
-Discovered job handlers registered in [`app/main.py`](../app/main.py):
-
-| Job Handler | Schedule Window (IST) | Target Subsystem | Architectural Purpose |
-|---|---|---|---|
-| `safe_run_daily_builder()` | 01:00 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Builds daily fundamental watchlist parquet file |
-| `run_pledge_loop()` | Continuous Background | [`app/pledge_worker.py`](../app/pledge_worker.py) | Fetches BSE promoter pledge percentage data continuously |
-| `verify_scans()` | 08:30 AM | [`app/main.py`](../app/main.py) | Verifies watchlist & wealth engine readiness before market open |
-| `multi_tf_scanner.start()` | 09:15 AM - 03:30 PM (Hourly) | [`app/multi_tf_scanner.py`](../app/multi_tf_scanner.py) | Scans intraday 15m/1h candle consolidations |
-| `pullback_pipeline.run_pullback_pipeline()` | 03:45 PM | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | Scans 3-20 day orderly retracements |
-| `reversal_scanner.start()` | 04:00 PM | [`app/reversal_scanner.py`](../app/reversal_scanner.py) | Scans RSI oversold & lower Bollinger dips |
-| `eod_scanner.start()` | 04:15 PM | [`app/eod_scanner.py`](../app/eod_scanner.py) | Scans EOD price breakouts & volume expansion |
-| `wealth_engine.run_wealth_scan()` | 04:30 PM | [`app/wealth_engine.py`](../app/wealth_engine.py) | Rebalances wealth portfolio candidates |
-
----
-
-## 8. Architecture Decision Records (ADR)
+## 5. Architecture Decision Records (ADR)
 
 - **ADR-01: PostgreSQL Storage Engine**  
-  *Decision*: Selected PostgreSQL via `psycopg2.pool.ThreadedConnectionPool` over SQLite.  
-  *Rationale*: ACID compliance, thread safety across concurrent Flask web threads and background scanner workers, and native `JSONB` support for alert metadata.
+  *Decision*: Selected PostgreSQL via `psycopg2.pool.ThreadedConnectionPool` over SQLite.
 
 - **ADR-02: Parquet Watchlist Caching**  
-  *Decision*: Store daily fundamental scoring matrices in Apache Parquet format (`data/elite_fundamental_watchlist.parquet`).  
-  *Rationale*: High compression ratio and instantaneous columnar read performance into Pandas DataFrames during active scanner runs.
+  *Decision*: Store daily fundamental scoring matrices in Apache Parquet format (`data/elite_fundamental_watchlist.parquet`).
 
 - **ADR-03: Dynamic Bayesian Regime Weighting**  
-  *Decision*: Use `bayesian_updater.py` to dynamically adjust technical and fundamental scoring weights based on market regime (`BULL`, `BEAR`, `SIDEWAYS`).  
-  *Rationale*: Fixed scoring models underperform during regime shifts. `SIDEWAYS` regime applies `score_modifier: +8`, prioritizing high-confluence consolidation breakouts.
+  *Decision*: Use `bayesian_updater.py` to dynamically adjust technical and fundamental scoring weights based on market regime (`BULL`, `BEAR`, `SIDEWAYS`).
 
-- **ADR-04: Per-Scanner Cooldown Isolation**  
-  *Decision*: Scope deduplication cooldowns by `(symbol, scanner_name)` composite key instead of global symbol keys.  
-  *Rationale*: Prevents EOD breakout alerts from suppressing subsequent 3–5 bar Pullback continuation signals for the same symbol.
+- **ADR-04: Multi-Layered Cooldown Architecture**  
+  *Decision*: Implement two complementary cooldown mechanisms:
+  1. *Raw Alert Deduplication*: 4-day (5760-min) window scoped by `(symbol, scanner_name)` composite key to suppress identical alert dispatches.
+  2. *Outcome-Aware Loss Cooldown*: 30-business-day database window (`is_symbol_in_failed_reversal_cooldown`) that suppresses re-alerting ONLY if a previous reversal trade closed as a LOSS.
 
 ---
 
-## 9. System Glossary
+## 6. System Glossary
 
-- **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
+- **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion lasting $\le 20$ bars forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
-- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$) and upper wick ratio $\le 0.25$. Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
+- **Resumption Trigger**: A bullish candle closing in the top of its range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$) and upper wick ratio $\le 0.25$. Zero-range candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$ ONLY if $Close > Prev\_Close$ (Upper Circuit lock).
+- **Position Sizing Formula**: $\text{position\_size\_pct} = \min\left(100.0,\ \frac{\text{ACCOUNT\_RISK\_BUDGET\_PCT}}{\text{risk\_pct} / 100.0}\right)$, separating account risk budget (`ACCOUNT_RISK_BUDGET_PCT = 1.0%`) from stop distance cap (`MAX_SL_DISTANCE_PCT = 8.0%`).
 - **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels. If a natural cluster exists with $RR < 1.5$, the setup is rejected (`REJ_LOW_RR`).
 - **Synthetic Target**: A fallback target generated ONLY when no structural resistance cluster exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
-- **Per-Scanner Cooldown**: A safety restriction preventing identical alerts for the same symbol within a scanner-specific window (EOD: 4 days, Reversal: 4 days, Pullback: 1 day), scoped by `(symbol, scanner_name)` composite key.
-- **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 
 ---
 
-## 10. Out of Scope
+## 7. Out of Scope
 
 The following capabilities are intentionally outside the scope of this core scanning engine:
 - **Broker Direct Auto-Execution**: Automatic order routing/execution to live brokerage accounts (Fyers/Zerodha).
 - **Crypto & Commodity Markets**: Scanning non-NSE instruments (Cryptocurrencies, Forex, MCX Commodities).
 - **High-Frequency Intraday Trading**: Sub-second tick-level order book processing.
-- **Backtesting Visual GUI**: Interactive web-based backtest strategy builder.
-
----
-
-## 11. Verification & Governance Limitations
-
-- **Coverage Status**: Verified against AST inventory generated from commit `214f19aedbb592aad2a561edbdccba542519d4b8`.
-- **Limitations**: This document is reconstructed from the implementation at commit `214f19ae`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.

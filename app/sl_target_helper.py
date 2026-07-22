@@ -1411,9 +1411,9 @@ class BaseRiskEngine:
             kelly_fraction = 0.15
             max_risk_pct = 0.5
             
-        # Hard cap Kelly limits
-        MAX_RISK_LIMIT = 2.0
-        max_risk_pct = min(max_risk_pct, MAX_RISK_LIMIT)
+        # Hard cap Kelly account risk limit using central ACCOUNT_RISK_BUDGET_PCT
+        from config import ACCOUNT_RISK_BUDGET_PCT
+        max_risk_pct = min(max_risk_pct, ACCOUNT_RISK_BUDGET_PCT)
             
         raw_position_size = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
         position_size_pct = min(100.0, raw_position_size)

@@ -120,6 +120,10 @@ def select_pullback_origin(pivots: List[SwingPoint], historical_view: pd.DataFra
         prev_pivots = [p for p in pivots if p.index < pivot.index]
         start_search_idx = prev_pivots[-1].index if prev_pivots else 0
         
+        # Bound search window to MAX_IMPULSE_BARS (default: 20 bars)
+        max_impulse_bars = config.get("MAX_IMPULSE_BARS", 20)
+        start_search_idx = max(start_search_idx, pivot.index - max_impulse_bars)
+        
         preceding_lows = lows[start_search_idx:pivot.index]
         if len(preceding_lows) == 0:
             continue
@@ -349,7 +353,7 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
     gap_pct = (t_open - prev_close) / prev_close * 100 if prev_close > 0 else 0
     body_atr_ratio = body / atr_val if atr_val > 0 else 0
     upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0
-    close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close >= t_open else 0.0)
+    close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close > prev_close else 0.0)
     
     pb = historical_view.iloc[ps.impulse.end.index + 1 : t_idx]
     pb_vols = pb['Volume'].values

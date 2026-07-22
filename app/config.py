@@ -156,10 +156,16 @@ ALERT_COOLDOWN_MINUTES = {
     "PULLBACK": 1440   # 24 hours
 }
 
+# =====================================================================================
+# POSITION SIZING & RISK BUDGETING CONFIGURATION
+# =====================================================================================
+MAX_SL_DISTANCE_PCT = 8.0         # Max allowed stop loss distance % from entry
+ACCOUNT_RISK_BUDGET_PCT = 1.0     # Max portfolio equity risk % per trade (Kelly / risk budget)
+
 PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
     "LOOKBACK": 10, "CONFIRM": 3,
-    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0,
+    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
     "MIN_DEPTH_PCT": 5.0, "MAX_DEPTH_PCT": 15.0,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
     "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
