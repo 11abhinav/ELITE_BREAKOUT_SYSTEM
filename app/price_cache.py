@@ -233,12 +233,19 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
-        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes
-        if len(_cache) > 8 and cache_key not in _cache:
+        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes (Max 2 active timeframes)
+        if len(_cache) > 2 and cache_key not in _cache:
             keys_purged = len(_cache)
+            for k, entry in list(_cache.items()):
+                if isinstance(entry, dict):
+                    data = entry.get("data")
+                    if isinstance(data, dict):
+                        data.clear()
+                    entry.clear()
             _cache.clear()
             gc.collect()
             logger.info(f"🧹 [CACHE BOUNDED GUARD] Purged {keys_purged} cache keys to prevent memory growth.")
+
 
         _cache[cache_key] = {
             "data": result,
@@ -941,11 +948,17 @@ def clear_price_cache():
     global _cache, _cache_hits, _cache_misses
     stats_before = get_price_cache_stats()
     with _lock:
+        for k, entry in list(_cache.items()):
+            if isinstance(entry, dict):
+                data = entry.get("data")
+                if isinstance(data, dict):
+                    data.clear()
+                entry.clear()
         _cache.clear()
     gc.collect()
     try:
         import sys
-        if sys.platform == "linux":
+        if sys.platform.startswith("linux"):
             import ctypes
             ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:
@@ -956,5 +969,6 @@ def clear_price_cache():
         f"After: keys={stats_after['keys']} | entries={stats_after['entries']} | memory={stats_after['memory_mb']} MB"
     )
     return stats_before, stats_after
+
 
 

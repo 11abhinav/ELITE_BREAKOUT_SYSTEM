@@ -123,6 +123,14 @@ For each parameter, documentation must specify:
 
 ---
 
+## 📢 RULE 12 — Mandatory Explanation of Changes (RCA & Rationale)
+For EVERY code modification, bug fix, refactoring, or optimization, the AI MUST explicitly provide a detailed technical explanation to the user in its response, covering:
+1. **Root Cause Analysis (RCA)**: Empirical evidence and technical reason for the issue.
+2. **Exact Implementation Details**: Specific code, files, or configuration changes made.
+3. **Behavioral Impact & Verification Proof**: Quantitative impact, test results, and validation proof.
+
+---
+
 ## ✅ RULE 11 — Definition of Done
 A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Root cause identified
@@ -133,11 +141,13 @@ A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Explicit user approval received
 - [ ] Implementation completed
 - [ ] Parameter rationale documented (Rule 10)
+- [ ] Detailed technical explanation of changes shared with user (Rule 12)
 - [ ] Similar issues searched globally across repository
 - [ ] All affected modules reviewed
 - [ ] Code compiles successfully
 - [ ] Application starts successfully
-- [ ] Tests pass (271 / 271)
+- [ ] Tests pass (280 / 280)
 - [ ] Documentation updated & synchronized
 - [ ] No regression introduced
 - [ ] Ready for Git push
+

@@ -12,6 +12,32 @@ from config import MEMORY_PROFILER_CONFIG
 
 TARGET_THRESHOLDS = [300, 400, 500, 600, 700, 800, 900]
 
+def configure_glibc_mmap_tuning():
+    """
+    Configures glibc allocator via mallopt(M_MMAP_THRESHOLD, 64KB) and
+    mallopt(M_TRIM_THRESHOLD, 64KB) on Linux.
+    Force-routes pandas/numpy/arrow memory allocations through mmap so that
+    munmap() instantly surrenders physical RAM pages back to OS RSS when
+    DataFrames are freed, preventing glibc arena heap fragmentation.
+    """
+    if sys.platform.startswith("linux"):
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            # M_MMAP_THRESHOLD = -3 (64 KB)
+            # M_TRIM_THRESHOLD = -1 (64 KB)
+            # M_TOP_PAD = -2 (0)
+            libc.mallopt(-3, 64 * 1024)
+            libc.mallopt(-1, 64 * 1024)
+            libc.mallopt(-2, 0)
+            logging.getLogger(__name__).info("⚡ [GLIBC ALLOCATOR TUNER] M_MMAP_THRESHOLD=64KB, M_TRIM_THRESHOLD=64KB enabled for instant RSS release.")
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Glibc mallopt tuning skipped: {e}")
+
+# Run glibc tuning on module load
+configure_glibc_mmap_tuning()
+
+
 class ProfilerState:
     session_start_rss = None
     loop_count = 0
