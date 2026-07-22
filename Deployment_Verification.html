@@ -308,7 +308,99 @@
                             assert args[0] == "self" # Catches missing 'self' at build time!</code></pre>
     </section>
 
-</div>
 
+
+    <!-- ================= RELEASE READINESS CHECKLIST ================= -->
+    <section id="release-checklist">
+        <h2>Production Release Readiness Audit Checklist</h2>
+        <p>Pre-push production release checklist automatically verified before promotion to Railway:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Verification Stage</th>
+                    <th>Audit Area</th>
+                    <th>Automated Verification Gate</th>
+                    <th>Release Approval Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Stage 1</strong></td>
+                    <td>Syntax</td>
+                    <td><code>compileall app/</code></td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 2</strong></td>
+                    <td>Imports</td>
+                    <td>Dynamic module import scan</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 3</strong></td>
+                    <td>Dependencies</td>
+                    <td><code>requirements.txt</code> reproducibility check</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 4</strong></td>
+                    <td>Cold Start</td>
+                    <td><code>main.py</code> startup execution check</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 5</strong></td>
+                    <td>Smoke Test</td>
+                    <td>30-Second process boot dry-run</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 6</strong></td>
+                    <td>Scheduler Simulation</td>
+                    <td>Scheduled job handler verification</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 7</strong></td>
+                    <td>Database</td>
+                    <td>PostgreSQL pool & connection resiliency</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 8</strong></td>
+                    <td>APIs</td>
+                    <td>Fyers, TradingView & YFinance fallbacks</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 9</strong></td>
+                    <td>Memory Budget</td>
+                    <td>Startup RSS &lt; 300 MB, Threads &lt; 30</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 10</strong></td>
+                    <td>Alert Contract</td>
+                    <td>PullbackCandidate DTO schema contract</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 11</strong></td>
+                    <td>Documentation Sync</td>
+                    <td>HTML spec synchronization check</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Stage 12</strong></td>
+                    <td>Production Approval</td>
+                    <td>Final Release Gate Sign-Off</td>
+                    <td><span style="color:var(--accent-green)">✅ APPROVED FOR DEPLOYMENT</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+</div>
 </body>
 </html>

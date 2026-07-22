@@ -102,3 +102,32 @@ class TestProductionDeploymentGates:
         from forensics import forensics
         mem = forensics.get_memory_stats()
         assert mem["rss_mb"] < 400.0, f"Memory threshold breached: {mem['rss_mb']} MB"
+
+    def test_gate7_dependency_reproducibility(self):
+        """Gate 7: Dependency Reproducibility - verify requirements.txt exists."""
+        req_path = os.path.join(APP_DIR, "..", "requirements.txt")
+        assert os.path.exists(req_path), "requirements.txt missing"
+        with open(req_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            assert "psycopg2" in content or "psycopg2-binary" in content, "psycopg2 missing from requirements.txt"
+            assert "pandas" in content, "pandas missing from requirements.txt"
+
+    def test_gate8_scheduled_execution_simulation(self):
+        """Gate 8: Scheduled Execution Simulation - verify scheduler jobs."""
+        import main
+        assert hasattr(main, "_build_watchlist_background"), "Daily builder background handler missing"
+        assert hasattr(main, "run_evening_scanners"), "Evening scanners scheduled handler missing"
+
+    def test_gate9_memory_regression_budget(self):
+        """Gate 9: Memory Regression Gate - enforce Startup RSS < 300 MB, Thread Count < 30."""
+        from forensics import forensics
+        mem = forensics.get_memory_stats()
+        assert mem["rss_mb"] < 300.0, f"Startup RSS budget breached: {mem['rss_mb']} MB (Budget < 300 MB)"
+        assert mem["thread_count"] < 30, f"Thread count budget breached: {mem['thread_count']} threads (Budget < 30)"
+
+    def test_gate10_alert_contract_regression(self):
+        """Gate 10: Alert Contract Regression - verify mandatory payload fields."""
+        from core_models import PullbackCandidate
+        annotations = PullbackCandidate.__annotations__
+        assert "entry_price" in annotations, "PullbackCandidate DTO missing entry_price annotation"
+        assert "as_of_date" in annotations, "PullbackCandidate DTO missing as_of_date annotation"
