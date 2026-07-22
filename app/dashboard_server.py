@@ -2038,7 +2038,7 @@ _indices_lock = threading.Lock()
 def api_indices():
     """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching using Fyers API."""
     with _indices_lock:
-        if _indices_cache["data"] and (time.time() - _indices_cache["timestamp"] < 60):
+        if _indices_cache.get("data") and (time.time() - _indices_cache.get("timestamp", 0) < 60):
             return jsonify(_indices_cache["data"])
         
     try:
@@ -2107,7 +2107,7 @@ def api_indices():
         return jsonify(data)
     except Exception as e:
         logger.warning(f"Failed to fetch indices: {e}")
-        return jsonify(_indices_cache["data"] or {})
+        return jsonify(_indices_cache.get("data") or {})
 
 _news_cache = {}
 _news_lock = threading.Lock()
