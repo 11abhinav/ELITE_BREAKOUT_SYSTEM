@@ -154,6 +154,18 @@ Whenever any feature, rule, schema, or configuration is added, modified, or repl
 
 ---
 
+## 🚨 RULE 15 — Mandatory Data Readiness Classification Policy (Blocker vs. Warning)
+Data readiness in scanner executions MUST enforce strict severity segregation across all scanner modules (`EOD`, `Reversal`, `Pullback`, `Multi-TF`, `Wealth Engine`, `Daily Builder`, `Multibagger`):
+1. **Unfetched / Missing Data ($\ge 25\%$ `no_data`) is a MANDATORY CRITICAL BLOCKER**:
+   - MUST set scanner status to `status = "DOWN"` and `outcome = "FAILED"`.
+   - MUST NEVER report `Status=OK` or `outcome=SUCCESS` when data is unfetched or missing.
+   - MUST dispatch an immediate emergency Telegram notification (`🚨 CRITICAL BLOCKER`).
+2. **Stale Data (>30% Stale Data) is a WARNING**:
+   - Sets scanner status to `status = "DEGRADED"` and `outcome = "PARTIAL"`.
+   - Signals data freshness degradation while permitting fallback evaluation.
+
+---
+
 ## ✅ RULE 11 — Definition of Done
 A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Root cause identified

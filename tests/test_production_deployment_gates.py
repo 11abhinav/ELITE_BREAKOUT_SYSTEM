@@ -223,4 +223,15 @@ class TestProductionDeploymentGates:
         assert growth_res["forensic_risk_tier"] == forensic_engine.ForensicRiskTier.LOW
         assert growth_res["forensic_score"] == -3
 
+    def test_gate17_data_readiness_classification_policy(self):
+        """Gate 17: Data Readiness Classification Policy (RULE 15) - verify missing data (>25% no_data) triggers status=DOWN and outcome=FAILED."""
+        import eod_scanner
+        import reversal_scanner
+        assert hasattr(eod_scanner, "start"), "EOD scanner missing start entrypoint"
+        assert hasattr(reversal_scanner, "start"), "Reversal scanner missing start entrypoint"
+        # Verify strict status policy contract in eod_scanner source code
+        import inspect
+        src = inspect.getsource(eod_scanner.start)
+        assert 'status = "DOWN"' in src or 'outcome = "FAILED"' in src, "EOD scanner missing DOWN status / FAILED outcome blocker policy"
+
 

@@ -187,5 +187,15 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
 | **Dashboard REST API & Analytics** | [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_api.py`](../tests/test_api.py) |
 | **Deployment Release Gates** | [`app/main.py`](../app/main.py) / [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py) |
 
+---
+
+## 1.5 Data Readiness & Telemetry Classification Policy (RULE 15)
+- **Unfetched / Missing Data ($\ge 25\%$ `no_data`) — MANDATORY CRITICAL BLOCKER**:
+  - Sets scanner health status to `status = "DOWN"` and `outcome = "FAILED"`.
+  - Dispatches emergency Telegram alert: `🚨 CRITICAL BLOCKER: SCANNER FAILED`.
+- **Stale Data (>30% Stale) — WARNING**:
+  - Sets scanner health status to `status = "DEGRADED"` and `outcome = "PARTIAL"`.
+  - Signals data freshness degradation while allowing fallback evaluation.
+
 
 
