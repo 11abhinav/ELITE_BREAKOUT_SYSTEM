@@ -74,11 +74,13 @@ flowchart TD
 - **Quality Trajectory Engine (`app/quality_trajectory.py`)**: Multi-quarter linear regression trend slope & variance scoring across 6 fundamental pillars (0-20 pts), graduated CFO/PAT scoring, Trajectory Grade (A/B/C/D), and JSON breakdown storage.
 
 ### 2.8 Forensic Risk Engine & Dynamic Growth Investment Mode Subsystem (`app/forensic_engine.py`)
+- ~~Legacy Binary FCF < 0 Hard Filter~~ *(Replaced on 2026-07-22 by 3Y Cumulative CFO / PAT < 0.6 Primary Hard Gate)*.
 - Primary 3Y Cumulative CFO / PAT hard gate ($<0.6 \rightarrow \text{REJECT}$).
 - 0–100 Weighted Growth Investment Score (`Capex/Sales` 40%, `Revenue CAGR 3Y` 30%, `ROCE` 30%). Activates `Growth_Investment_Mode = TRUE` when score $\ge 60$.
 - Scaled & Capped FCF Penalty: Reduces FCF penalties in Growth Mode ($-3$, $-5$ pts) vs Normal Mode ($-10$, $-20$ pts).
 - Explicit `UNKNOWN` risk tier for incomplete fundamental data.
 - Purely evaluative architecture returning `{score, tier, flags, details}`; scanner policies check `Forensic_Risk_Tier != 'REJECT'`.
+
 
 ---
 

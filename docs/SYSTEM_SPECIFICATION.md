@@ -123,11 +123,13 @@
 
 #### Architecture Overview
 1. **Forensic Risk Evaluator (`app/forensic_engine.py`)**:
+   - ~~Legacy Binary FCF < 0 Hard Filter~~ *(Replaced on 2026-07-22 by 3Y Cumulative CFO / PAT < 0.6 Primary Hard Gate)*.
    - Primary hard gate: `3-Year Cumulative CFO / PAT < 0.6` $\rightarrow$ `REJECT`.
    - 0–100 Weighted Growth Investment Score: `Capex / Sales` (40%), `Revenue CAGR 3Y` (30%), `ROCE` (30%).
    - Activates `Growth_Investment_Mode = TRUE` when `Growth_Investment_Score >= 60`.
    - Scaled FCF Penalty: Capped/reduced in Growth Mode ($-3$, $-5$ pts) vs Normal Mode ($-10$, $-20$ pts).
    - Supports explicit `UNKNOWN` risk tier for missing fundamental data.
+
 2. **Scanner Policy Deciders**:
    - `ForensicEngine` operates as a pure evaluator returning `{score, tier, flags, details}`. Scanners check `Forensic_Risk_Tier != 'REJECT'` policy gate.
 3. **F-13 Performance Attribution**:

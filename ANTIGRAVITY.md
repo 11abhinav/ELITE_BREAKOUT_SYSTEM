@@ -4,9 +4,17 @@ This file defines the mandatory engineering policies and workflow rules for all 
 
 Violation of any rule means the task is **INCOMPLETE** and constitutes a process failure.
 
+## 🚨 RULE 0 — Mandatory First Step: Check Rules & Create Implementation Plan (MANDATORY)
+
+Before starting any analysis, code investigation, research, or code edit:
+1. **Check & Read Workspace Rules Knowledge Item**: Always review the Knowledge Item summaries and read `/knowledge/workspace_rules/artifacts/rules.md`.
+2. **Always Create / Update Implementation Plan First**: Create or update `implementation_plan.md` artifact detailing findings, root cause, and proposed changes, setting `request_feedback: true`.
+3. **Obtain Explicit User Approval**: STOP and wait for the user's explicit approval before executing any code changes or modifying commands.
+
 ---
 
 ## 🚨 HIGHEST-PRIORITY RULE — Review First, Implement Later (MANDATORY)
+
 
 ### Purpose
 Any review, audit report, bug report, optimization suggestion, AI-generated analysis, or user-provided recommendation is **NOT an implementation instruction**.
@@ -135,6 +143,14 @@ For EVERY code modification, bug fix, refactoring, or optimization, the AI MUST 
 Whenever adding any new feature, subsystem, quantitative engine, or architectural component, it **MUST** be fully covered by:
 1. **Dedicated Unit & Integration Test Suites**: High-coverage test suite under `tests/` testing valid, invalid, boundary, and fallback conditions.
 2. **Golden Gate & Production Deployment Gates**: Direct integration into `tests/test_production_deployment_gates.py` (Release Gates) and `tests/test_golden_rules.py` so that any future code modification or regression impacting the feature is automatically blocked at CI level.
+
+---
+
+## 📝 RULE 14 — Mandatory Documentation Synchronization & Deprecation Protocol (MANDATORY)
+Whenever any feature, rule, schema, or configuration is added, modified, or replaced:
+1. **All 4 Canonical Documents Updated**: Update `docs/UPCOMING_IMPROVEMENTS.md`, `docs/SYSTEM_SPECIFICATION.md`, `docs/SYSTEM_RECONSTRUCTION_SPEC.md`, and `ANTIGRAVITY.md` in lockstep.
+2. **Deprecation Protocol (Markdown Strike-Through `~~`)**: Replaced or deprecated rules/features MUST NOT be silently deleted. They MUST use Markdown strike-through formatting (`~~old rule/feature~~`) accompanied by an explicit deprecation annotation: `*(Replaced on YYYY-MM-DD by <new_feature>)*`.
+
 
 ---
 
