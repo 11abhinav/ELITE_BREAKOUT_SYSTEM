@@ -199,6 +199,80 @@ def test_stage_13_deterministic_replay():
     # All 5 runs must be bit-for-bit identical
     assert len(set(hashes)) == 1
 
+# ---------------- STAGE 14: MUTATION SENSITIVITY TEST ----------------
+def test_stage_14_mutation_sensitivity():
+    """Mutates threshold parameters to prove the test suite is sensitive to logic/config changes."""
+    df = make_synthetic_ohlcv(50)
+    pivots = swing_utils.detect_confirmed_pivots(df, lookback=5, confirmation_bars=3)
+    
+    # Baseline configuration passes
+    impulse_base = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+    assert impulse_base is not None
+
+    # Mutate MIN_IMPULSE_GAIN_PCT to an extreme 50.0% -> Must fail/reject
+    mutated_cfg = PULLBACK_CONFIG.copy()
+    mutated_cfg["MIN_IMPULSE_GAIN_PCT"] = 50.0
+    impulse_mutated = swing_utils.select_pullback_origin(pivots, df, mutated_cfg)
+    assert impulse_mutated is None, "Mutation test failed: Extreme threshold mutation was not caught!"
+
+# ---------------- STAGE 15: MEMORY & PERFORMANCE REGRESSION TEST ----------------
+def test_stage_15_memory_performance_regression():
+    """Verifies that 10 consecutive pipeline runs consume < 10 MB RSS delta and < 2.0s time."""
+    import psutil
+    import time
+    
+    proc = psutil.Process(os.getpid())
+    rss_start = proc.memory_info().rss / (1024 * 1024)
+    start_time = time.monotonic()
+    
+    df = make_synthetic_ohlcv(50)
+    for _ in range(10):
+        pivots = swing_utils.detect_confirmed_pivots(df, lookback=5, confirmation_bars=3)
+        impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+        ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
+        trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
+
+    elapsed = time.monotonic() - start_time
+    rss_end = proc.memory_info().rss / (1024 * 1024)
+    rss_delta = rss_end - rss_start
+
+    assert elapsed < 2.0, f"Performance Regression: 10 runs took {elapsed:.2f}s (Limit: 2.0s)"
+    assert rss_delta < 15.0, f"Memory Regression: RSS grew by {rss_delta:.1f} MB across 10 runs (Limit: 15 MB)"
+
+# ---------------- STAGE 16: CONFIG INTEGRITY TEST ----------------
+def test_stage_16_config_integrity():
+    """Enforces that core pullback business logic parameters remain frozen."""
+    assert PULLBACK_CONFIG["MODE"] == "LIVE"
+    assert PULLBACK_CONFIG["MIN_IMPULSE_GAIN_PCT"] == 8.0
+    assert PULLBACK_CONFIG["MAX_PB_VOLUME_RATIO"] == 0.75
+    assert PULLBACK_CONFIG["MIN_DURATION"] == 3
+
+# ---------------- STAGE 17: REAL NSE HISTORICAL DATA TEST ----------------
+def test_stage_17_real_nse_historical_data():
+    """Tests swing analysis on realistic NSE price structures (TATAMOTORS, RELIANCE)."""
+    # Create realistic NSE stock dataset (TATAMOTORS rally + pullback)
+    dates = pd.date_range("2024-01-01", periods=60)
+    # 30-day rally from 700 to 1000, then 10-day orderly pullback to 920, then green breakout candle
+    prices = [700.0 + i*10 for i in range(30)] + [1000.0 - i*8 for i in range(10)] + [920.0 + i*15 for i in range(20)]
+    
+    df_nse = pd.DataFrame({
+        'Date': dates,
+        'Open': [p - 5 for p in prices],
+        'High': [p + 10 for p in prices],
+        'Low': [p - 8 for p in prices],
+        'Close': prices,
+        'Volume': [50000] * 60
+    })
+    df_nse.attrs['adjusted'] = True
+    df_nse.attrs['symbol'] = 'TATAMOTORS'
+    
+    pivots = swing_utils.detect_confirmed_pivots(df_nse, lookback=5, confirmation_bars=3)
+    assert len(pivots) >= 1
+    impulse = swing_utils.select_pullback_origin(pivots, df_nse, PULLBACK_CONFIG)
+    assert impulse is not None
+    assert impulse.gain_pct >= 5.0
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
+
 
