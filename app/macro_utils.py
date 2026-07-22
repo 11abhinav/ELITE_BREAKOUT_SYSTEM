@@ -8,6 +8,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
+from database import get_connection
 
 # TTL Cache settings
 MACRO_CACHE_TTL_SECONDS = 300  # 5 minutes
@@ -351,7 +352,7 @@ def compute_nifty_rs_rating(symbols: list = None) -> dict:
     try:
         from price_cache import fetch_unified_historical
         fetch_list = list(set(symbols + ["^NSEI"]))
-        historical_dict = fetch_unified_historical(fetch_list, period="6m", interval="1d", requester="rs_rating")
+        historical_dict = fetch_unified_historical(fetch_list, period="6mo", interval="1d", requester="rs_rating")
 
         nifty_df = historical_dict.get("^NSEI")
         if nifty_df is None or nifty_df.empty or len(nifty_df) < 20:
@@ -390,7 +391,6 @@ def compute_nifty_rs_rating_with_hysteresis(symbols: list = None) -> dict:
         return {}
 
     try:
-        from database import get_connection, IST
         from datetime import datetime
         today_str = datetime.now(IST).strftime('%Y-%m-%d')
 

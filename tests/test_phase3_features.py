@@ -97,10 +97,14 @@ def test_rs_hysteresis_smoothing(mocker):
     mock_cursor = mocker.MagicMock()
     mock_cursor.fetchall.return_value = [("RELIANCE", 81.0)]
     mock_conn = mocker.MagicMock()
-    mock_conn.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
     
-    mocker.patch("macro_utils.get_connection", return_value=mock_conn)
+    from contextlib import contextmanager
+    @contextmanager
+    def mock_get_conn():
+        yield mock_conn
+        
+    mocker.patch("macro_utils.get_connection", side_effect=mock_get_conn)
     from macro_utils import compute_nifty_rs_rating_with_hysteresis
     
     smoothed = compute_nifty_rs_rating_with_hysteresis(["RELIANCE"])
