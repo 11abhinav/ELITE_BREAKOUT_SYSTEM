@@ -27,3 +27,22 @@ def test_quality_trajectory_deteriorating():
     result = compute_trajectory_score(data)
     assert result["trajectory_score"] < 10
     assert result["trajectory_grade"] == "D"
+
+def test_quality_trajectory_missing_data():
+    result = compute_trajectory_score({})
+    assert result["trajectory_grade"] == "UNKNOWN"
+    assert result["trajectory_details"]["status"] == "MISSING_DATA"
+
+def test_quality_trajectory_with_none_values():
+    data = {
+        "roce_history": [None, 14.0, None, 22.0],
+        "roe_history": [12.0, None, 18.0, None],
+        "opm_history": [None],
+        "de_history": [None],
+        "icr_history": [None],
+        "cfo_pat": None
+    }
+    result = compute_trajectory_score(data)
+    assert "trajectory_grade" in result
+    assert result["trajectory_grade"] in ("A", "B", "C", "D", "UNKNOWN")
+

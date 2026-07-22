@@ -105,8 +105,8 @@ class EarningsCalendarService:
         # Batch insert/upsert into PostgreSQL
         if results:
             try:
-                from database import get_db_connection
-                with get_db_connection() as conn:
+                from database import get_connection
+                with get_connection() as conn:
                     with conn.cursor() as cur:
                         for sym, (ed, status) in results.items():
                             cur.execute("""
@@ -149,8 +149,8 @@ class EarningsCalendarService:
         }
 
         try:
-            from database import get_db_connection
-            with get_db_connection() as conn:
+            from database import get_connection
+            with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT earnings_date, date_status FROM earnings_calendar WHERE symbol = %s",
@@ -196,8 +196,9 @@ class EarningsCalendarService:
                         "warning_msg": warning_msg
                     }
         except Exception as e:
-            logger.debug(f"DB lookup failed for earnings_calendar: {e}")
+            logger.warning(f"⚠️ DB lookup failed for earnings_calendar: {e}")
             return default_response
+
 
 # Global Singleton
 earnings_calendar_service = EarningsCalendarService()

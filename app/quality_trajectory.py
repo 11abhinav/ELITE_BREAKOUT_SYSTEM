@@ -1,16 +1,26 @@
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
+
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+def safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
+    """Defensively casts value to float, handling None, NaN, and invalid strings gracefully."""
+    if val is None or pd.isna(val):
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
 def _calc_trend_and_consistency(series: List[float]) -> Tuple[float, float]:
     """
     Computes (slope, variance) across a 4-quarter fundamental series.
-    Returns (0.0, 0.0) if series is insufficient or invalid.
+    Returns (0.0, 999.0) if series is insufficient or invalid.
     """
-    valid = [float(v) for v in series if v is not None and not pd.isna(v)]
+    valid = [safe_float(v) for v in series if safe_float(v) is not None]
     if len(valid) < 2:
         return 0.0, 999.0
     x = np.arange(len(valid))
@@ -23,14 +33,15 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
     """
     Computes a 0-20 pt Quality Trajectory Score and Grade based on 4-quarter fundamental trends.
     Measures multi-quarter slope, consistency, and graduated CFO/PAT quality.
+    Returns UNKNOWN grade when fundamental data is missing/insufficient.
     """
     if not fundamental_data:
         return {
             "trajectory_score": 0,
-            "trajectory_grade": "D",
+            "trajectory_grade": "UNKNOWN",
             "trajectory_details": {
-                "roce": "N/A", "roe": "N/A", "opm": "N/A",
-                "debt": "N/A", "interest": "N/A", "cfo_pat": "N/A"
+                "status": "MISSING_DATA",
+                "reason": "No fundamental metrics provided"
             }
         }
 
@@ -90,7 +101,8 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
     if not de_history and "debt_to_equity" in fundamental_data:
         de_history = [fundamental_data["debt_to_equity"]]
     de_slope, _ = _calc_trend_and_consistency(de_history)
-    current_de = float(de_history[-1]) if de_history else 0.0
+    last_de = de_history[-1] if de_history else None
+    current_de = safe_float(last_de, default=0.0)
     if current_de < 0.2:
         score += 3
         details["debt"] = "Debt-Free / Very Low"
@@ -108,7 +120,8 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
     if not icr_history and "icr" in fundamental_data:
         icr_history = [fundamental_data["icr"]]
     icr_slope, _ = _calc_trend_and_consistency(icr_history)
-    current_icr = float(icr_history[-1]) if icr_history else 0.0
+    last_icr = icr_history[-1] if icr_history else None
+    current_icr = safe_float(last_icr, default=0.0)
     if current_icr > 10.0 or icr_slope > 0.5:
         score += 3
         details["interest"] = "Strong / Expanding"
@@ -119,7 +132,7 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
         details["interest"] = "Strained"
 
     # ── 6. Graduated CFO / PAT Quality (0-3 pts) ──────────────────────────────────────
-    cfo_pat = float(fundamental_data.get("cfo_pat", 0.0) or 0.0)
+    cfo_pat = safe_float(fundamental_data.get("cfo_pat"), default=0.0)
     details["cfo_pat"] = f"{cfo_pat:.2f}"
     if cfo_pat >= 1.0:
         score += 3
@@ -143,3 +156,4 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
         "trajectory_grade": grade,
         "trajectory_details": details
     }
+
