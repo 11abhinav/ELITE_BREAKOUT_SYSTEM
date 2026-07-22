@@ -73,18 +73,19 @@
 - **Primary Function**: `evaluate_confluence_shortlist()`
 - **Implementation & Business Rules**:
   - **Execution Timing**: Runs at `04:30 PM IST` after Daily Builder (`01:00 AM`) and Technical Scanners (`03:45–04:15 PM`).
-  - **Confluence Rule**: Requires $\text{FM\_Score} \ge 75 \quad \text{AND} \quad \text{Any Active Technical Signal} \quad \text{AND} \quad \text{rs\_percentile} \ge 80.0$. Promotes candidate to `ELITE_CONFLUENCE_ALERT` (Score 95+).
+  - **Confluence Rule**: Requires $\text{FM\_Score} \ge 70.0 \quad \text{AND} \quad \text{Any Active Technical Signal} \quad \text{AND} \quad \text{rs\_percentile} \ge 80.0$ (`PHASE3_CONFLUENCE_AND_TELEMETRY_v1.0`).
+  - ~~Legacy FM_Score >= 75.0~~ *(Recalibrated on 2026-07-22 following fundamental purification to prevent golden alert starvation)*.
+  - Promotes candidate to `ELITE_CONFLUENCE_ALERT` (Score 95+).
 
----
-
-### 1.6 `app/outcome_tracker.py` (Feature F-01)
-- **Purpose**: Post-market outcome, daily running excursion, and feature snapshot tracking worker.
-- **Source File**: [`app/outcome_tracker.py`](../app/outcome_tracker.py)
-- **Primary Function**: `run_outcome_tracker()`
+### 1.6 `app/outcome_tracker.py` & `app/near_miss_tracker.py` (Features F-01 & Near-Miss Tracker)
+- **Purpose**: Post-market outcome, daily running excursion, corporate action adjustments, and near-miss opportunity-cost tracking worker.
+- **Source Files**: [`app/outcome_tracker.py`](../app/outcome_tracker.py), [`app/near_miss_tracker.py`](../app/near_miss_tracker.py)
+- **Primary Function**: `run_outcome_tracker()`, `log_near_miss()`
 - **Implementation & Business Rules**:
   - **Daily Running MFE/MAE**: Accumulates running excursion daily while trade is OPEN.
-  - **Same-Bar SL Collision**: Records `AMBIGUOUS_SL_HIT` (-1.0R loss) if High $\ge T_1$ AND Low $\le SL$ on the same bar.
-  - **Gap-Down Slippage**: Uses actual open price if gap-down open below SL occurs.
+  - **Same-Bar SL Collision**: Records `AMBIGUOUS_SL_HIT` (-1.0R loss) for P&L, but excludes `AMBIGUOUS_SL_HIT` from triggering 30-day reversal loss cooldowns (`PHASE3_CONFLUENCE_AND_TELEMETRY_v1.0`).
+  - **Score-Upgrade Dedup Override**: Allows re-alerting within cooldown if `new_score >= old_score + 5`.
+  - **Near-Miss Opportunity-Cost Tracker**: Logs candidates rejected within 10% of gate thresholds to PostgreSQL table `near_misses` for empirical expectancy tracking.
 
 ---
 

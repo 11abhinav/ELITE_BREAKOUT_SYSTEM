@@ -22,7 +22,7 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
     Applies Staleness Guard: Verifies inputs are dated today.
     
     Confluence Rule (Independent 3-Signal Alignment):
-        1. FM_Score >= 75 (Fundamental Watchlist Tier 1)
+        1. FM_Score >= 70 (Fundamental Watchlist Tier 1 post-purification)
         2. Any active technical alert fired today (EOD, PULLBACK, REVERSAL)
         3. rs_percentile >= 80.0 (Top 20% RS rating relative to Nifty 50)
     
@@ -31,7 +31,7 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
     today_str = run_date or datetime.now(IST).strftime("%Y-%m-%d")
     logger.info(f"🌟 [START] Cross-Scanner Confluence Engine evaluation for {today_str}")
 
-    # 1. Load Fundamental Watchlist (FM_Score >= 75)
+    # 1. Load Fundamental Watchlist (FM_Score >= 70)
     if not os.path.exists(WATCHLIST_PATH):
         logger.warning("⚠️ Watchlist parquet file missing for Confluence Engine")
         return []
@@ -41,10 +41,10 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
         if df_wl.empty or "FM_Score" not in df_wl.columns:
             return []
         
-        # Filter Tier 1 Fundamental Stocks
-        tier1_df = df_wl[df_wl["FM_Score"] >= 75.0]
+        # Filter Tier 1 Fundamental Stocks (recabibrated for pure FM_Score without momentum bonuses)
+        tier1_df = df_wl[df_wl["FM_Score"] >= 70.0]
         if tier1_df.empty:
-            logger.info("ℹ️ No Tier 1 fundamental stocks (FM_Score >= 75) found today.")
+            logger.info("ℹ️ No Tier 1 fundamental stocks (FM_Score >= 70) found today.")
             return []
         
         tier1_map = dict(zip(tier1_df["Stock" if "Stock" in tier1_df.columns else "symbol"], tier1_df["FM_Score"]))
@@ -83,10 +83,10 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
         rs_pct = float(rs_dict.get(symbol, 50.0))
 
         # Check 3 Independent Conditions:
-        # Condition 1: High Fundamental Score (FM_Score >= 75)
+        # Condition 1: High Fundamental Score (FM_Score >= 70 post-purification)
         # Condition 2: Active Technical Signal Fired Today
         # Condition 3: Top Relative Strength (rs_percentile >= 80.0)
-        if fm_score is not None and fm_score >= 75.0 and rs_pct >= 80.0:
+        if fm_score is not None and fm_score >= 70.0 and rs_pct >= 80.0:
             match_item = {
                 "alert_id": alert_id,
                 "symbol": symbol,

@@ -55,14 +55,15 @@ flowchart TD
 
 ### 2.4 Cross-Scanner Confluence Engine (`app/confluence_engine.py`)
 - Runs at `04:30 PM IST` with Staleness Guard (`input_date == today_date`).
-- Evaluates: $\text{FM\_Score} \ge 75 \quad \text{AND} \quad \text{Any Active Technical Signal} \quad \text{AND} \quad \text{rs\_percentile} \ge 80.0$.
+- Evaluates: $\text{FM\_Score} \ge 70.0 \quad \text{AND} \quad \text{Any Active Technical Signal} \quad \text{AND} \quad \text{rs\_percentile} \ge 80.0$ (`PHASE3_CONFLUENCE_AND_TELEMETRY_v1.0`).
+- ~~Legacy FM_Score >= 75.0~~ *(Recalibrated on 2026-07-22 following fundamental purification)*.
 - Promotes setup to `ELITE_CONFLUENCE_ALERT` (Score 95+).
 
-### 2.5 Alert Outcome & Excursion Tracker (`app/outcome_tracker.py`)
+### 2.5 Alert Outcome & Excursion Tracker (`app/outcome_tracker.py` & `app/near_miss_tracker.py`)
 - Post-market worker (`04:45 PM IST` with `07:00 PM` retry).
 - Accumulates daily running excursion ($\text{MFE}_R$ and $\text{MAE}_R$).
-- Applies conservative same-bar collision rule (`AMBIGUOUS_SL_HIT` = -1.0R loss).
-- Calculates gap-down slippage ($R = \frac{\text{Open} - \text{Entry}}{\text{Risk\_Dist}}$).
+- Applies conservative same-bar collision rule (`AMBIGUOUS_SL_HIT` = -1.0R loss), but excludes `AMBIGUOUS_SL_HIT` from triggering 30-day reversal loss cooldowns.
+- Near-Miss Opportunity-Cost Tracker (`app/near_miss_tracker.py`): Logs candidates rejected within 10% of gate thresholds to `near_misses` PostgreSQL table.
 
 ### 2.6 Advanced Outcome Analytics & Attribution (`app/outcome_tracker.py` F-13)
 - Computes dual confidence levels (`overall_confidence` + per-metric `confidence`).

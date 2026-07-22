@@ -2,8 +2,8 @@
 
 > **Canonical Roadmap Document**: This document outlines the prioritized roadmap of remaining upcoming architectural, quantitative, risk management, and analytics enhancements for the **Elite Breakout System**.
 >
-> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-06, F-07, F-13, F-14, and F-15** are **100% IMPLEMENTED & VERIFIED** in commit `cc36f704` with 299+ passing tests.
-> **Phase 2 Safety & Memory Recalibration (`2026-07-22`)**: Implemented Growth Mode preconditions (Revenue CAGR $\ge 12\%$, ROCE $\ge 15\%$), `UNVERIFIED` earnings date severity, `max(level, trend)` Quality Trajectory scoring with 4Q TTM smoothing, Capture Efficiency $MFE \ge 0.5R$ filtering, `MAX_POSITION_PCT` single-stock concentration cap, next-cluster target fallback, 24-hour Fyers symbol degradation cache, process memory budget recalibration (500 MB), and `ScanFailure` DB schema alignment (`PHASE2_SAFETY_AND_MEMORY_RECALIBRATION_v1.0`).
+> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-06, F-07, F-13, F-14, and F-15** are **100% IMPLEMENTED & VERIFIED** in commit `8640f0d7` with 301+ passing tests.
+> **Phase 2 & 3 Upgrades (`2026-07-22`)**: Implemented Growth Mode preconditions, `UNVERIFIED` earnings date status, `max(level, trend)` Quality Trajectory scoring, Capture Efficiency filtering ($MFE \ge 0.5R$), `MAX_POSITION_PCT` (25% cap), next-cluster target fallback, 24h Fyers degradation cache, 500 MB memory budget recalibration, `ScanFailure` DB schema sync, `AMBIGUOUS_SL_HIT` cooldown exclusion, Confluence Engine gate recalibration (`FM_Score >= 70`), Score-Upgrade Dedup Override, Watchlist Parquet Freshness Guard, and Near-Miss Opportunity-Cost Tracker (`PHASE3_CONFLUENCE_AND_TELEMETRY_v1.0`).
 
 | Roadmap Metadata | Value |
 |---|---|

@@ -1314,17 +1314,22 @@ def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) 
             with conn.cursor() as cur:
                 # Most recent REVERSAL alert for this symbol (any status)
                 cur.execute("""
-                    SELECT status, alert_date
-                    FROM alerts
-                    WHERE symbol = %s AND scanner = 'REVERSAL'
-                    ORDER BY alert_date DESC, alert_time DESC
+                    SELECT a.status, a.alert_date, ao.exit_reason
+                    FROM alerts a
+                    LEFT JOIN alert_outcomes ao ON a.id = ao.alert_id
+                    WHERE a.symbol = %s AND a.scanner = 'REVERSAL'
+                    ORDER BY a.alert_date DESC, a.alert_time DESC
                     LIMIT 1
                 """, (symbol,))
                 row = cur.fetchone()
                 if not row:
                     return False
 
-                status, alert_date = row[0], row[1]
+                status, alert_date, exit_reason = row[0], row[1], row[2]
+
+                # AMBIGUOUS_SL_HIT (same-bar collision) is conservative for P&L but DOES NOT trigger loss cooldown
+                if exit_reason and str(exit_reason).upper() == "AMBIGUOUS_SL_HIT":
+                    return False
 
                 # Only LOSS triggers cooldown. WIN / OPEN / CLOSED do not suppress.
                 if str(status).upper() != "LOSS":
@@ -1920,21 +1925,35 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
                 if not success:
                     conn.rollback()
 
-def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int) -> bool:
-    """Returns True if a duplicate alert exists within the cooldown window."""
+def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int, new_score: int = 0) -> bool:
+    """
+    Returns True if a duplicate alert exists within the cooldown window.
+    Score-Upgrade Override: Returns False if new_score >= old_score + 5 (allowing upgraded setups to re-alert).
+    """
     from datetime import datetime, timedelta
     cutoff = datetime.now(IST) - timedelta(minutes=lookback_minutes)
     
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT 1 FROM alerts
+                SELECT score FROM alerts
                 WHERE symbol = %s
                 AND scanner = %s
                 AND breakout_type = %s
                 AND alert_time > %s
+                ORDER BY alert_time DESC
+                LIMIT 1
             """, (symbol, scanner, breakout_type, cutoff))
-            return cur.fetchone() is not None
+            row = cur.fetchone()
+            if not row:
+                return False
+                
+            old_score = row[0] or 0
+            if new_score > 0 and new_score >= old_score + 5:
+                logger.info(f"⚡ [DEDUP OVERRIDE] {symbol} ({scanner}) allowed re-alert: new score {new_score} >= old score {old_score} + 5")
+                return False
+                
+            return True
 
 def get_recent_alerts_for_scanner(scanner: str, lookback_minutes: int) -> set[tuple[str, str]]:
     """Returns a set of (symbol, breakout_type) tuples that fired within the cooldown window."""
