@@ -1,14 +1,14 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM ARCHITECTURE SPECIFICATION
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `82698379`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Architecture & High-Level System Guide ("What exists and how does it work?") |
-| **Git Commit Hash** | `826983794951c696cff607ed8f1802825ab4db95` |
+| **Git Commit Hash** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
-| **Verification Basis** | AST Analysis & Code Inspection (`app/`) |
+| **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
 
 ---
 
@@ -30,65 +30,79 @@ graph TD
 
 ---
 
-## 2. Repository Layout & Architecture Subsystems
+## 2. Component Catalog
 
-The codebase under `app/` is partitioned into distinct architectural layers:
+The following catalog defines every subsystem, its primary responsibility, dependencies, and consuming modules:
+
+| Component Module | Subsystem Responsibility | Primary Dependencies | Consumed By |
+|---|---|---|---|
+| [`app/main.py`](../app/main.py) | Master entrypoint, watchdog, and scheduled loop | `daily_builder`, `scanners`, `database` | System Init / Process Runner |
+| [`app/daily_builder.py`](../app/daily_builder.py) | Watchlist generator & fundamental scoring | `data_provider`, `ta`, `pandas` | `main.py`, `scanners` |
+| [`app/eod_scanner.py`](../app/eod_scanner.py) | EOD price breakout & volume expansion scanner | `daily_builder`, `sl_target_helper`, `database` | `main.py` scheduler |
+| [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | 3-15 bar orderly retracement scanner | `swing_utils`, `sl_target_helper`, `database` | `main.py` scheduler |
+| [`app/reversal_scanner.py`](../app/reversal_scanner.py) | Mean-reversion RSI oversold & Bollinger scanner | `daily_builder`, `sl_target_helper`, `database` | `main.py` scheduler |
+| [`app/multi_tf_scanner.py`](../app/multi_tf_scanner.py) | Dual-timeframe (1H/15m) intraday scanner | `data_provider`, `sl_target_helper`, `database` | `main.py` scheduler |
+| [`app/wealth_engine.py`](../app/wealth_engine.py) | Long-term fundamental wealth portfolio scanner | `daily_builder`, `database` | `main.py` scheduler |
+| [`app/multibagger.py`](../app/multibagger.py) | High-growth multibagger fundamental scanner | `daily_builder`, `database` | `main.py` scheduler |
+| [`app/sl_target_helper.py`](../app/sl_target_helper.py) | Structural SL & target cluster engine (V7/V2) | `swing_utils`, `ta`, `config` | All Scanner Engines |
+| [`app/database.py`](../app/database.py) | PostgreSQL thread-safe pool manager & DAO | `psycopg2.pool`, `config` | All Scanners & Dashboard |
+| [`app/dashboard_server.py`](../app/dashboard_server.py) | Flask REST API & version release server | `database`, `forensics`, `flask` | Admin UI, Railway Health Checks |
+| [`app/forensics.py`](../app/forensics.py) | Forensic telemetry & RSS memory profiler | `psutil`, `gc`, `sys` | `main.py`, `dashboard_server.py` |
+| [`app/bayesian_updater.py`](../app/bayesian_updater.py) | Dynamic Bayesian regime weighting engine | `numpy`, `scipy` | Scoring & Quality Gates |
+| [`app/telegram_engine.py`](../app/telegram_engine.py) | Asynchronous Telegram alert notification dispatch | `requests`, `database` | Alert Persistence DAO |
+| [`app/push_service.py`](../app/push_service.py) | WebPush VAPID browser notification engine | `pywebpush`, `database` | Alert Persistence DAO |
+| [`app/core/models.py`](../app/core/models.py) | Domain data models (`PullbackCandidate`, `SwingPoint`) | Python `dataclasses` | Entire Codebase |
+| [`app/core/enums.py`](../app/core/enums.py) | System domain enums (`PivotKind`, `RejectionReason`) | `enum.Enum` | Entire Codebase |
+
+---
+
+## 3. Module Import Hierarchy & Dependency Tree
 
 ```
-app/
-├── main.py                          # Master Application Entrypoint & Watchdog
-├── config.py                        # System Constants & Environment Configuration
-├── database.py                      # PostgreSQL Connection Pool & DAO
-├── forensics.py                     # Forensic Telemetry & Memory Profiler
-├── dashboard_server.py              # Flask Web API & Dashboard Server
-├── daily_builder.py                 # Watchlist Generator & Fundamental Scoring
-├── eod_scanner.py                   # EOD Breakout Scanner
-├── pullback_pipeline.py             # Pullback Pipeline Engine
-├── reversal_scanner.py             # Reversal & Mean-Reversion Scanner
-├── multi_tf_scanner.py              # Multi-Timeframe Intraday Scanner
-├── wealth_engine.py                 # Wealth Portfolio & Long-Term Engine
-├── multibagger.py                   # Multibagger Fundamental Scanner
-├── sl_target_helper.py              # Unified SL & Target Engine (V7 / V2)
-├── data_provider.py                 # Fyers, YFinance & TradingView Data Feeds
-├── bayesian_updater.py              # Bayesian Regime Weighting Engine
-├── push_service.py                  # WebPush VAPID Notification Engine
-├── telegram_engine.py               # Telegram Alert Dispatch Engine
-└── core/                            # Domain Models, Enums & Core Config
-    ├── models.py
-    ├── enums.py
-    └── config.py
+app/main.py
+├── app/daily_builder.py
+│   ├── app/data_provider.py
+│   └── app/core/models.py
+├── app/eod_scanner.py
+│   ├── app/sl_target_helper.py
+│   │   └── app/swing_utils.py
+│   └── app/database.py
+├── app/pullback_pipeline.py
+│   ├── app/swing_utils.py
+│   └── app/sl_target_helper.py
+├── app/reversal_scanner.py
+│   └── app/sl_target_helper.py
+├── app/dashboard_server.py
+│   ├── app/database.py
+│   └── app/forensics.py
+├── app/telegram_engine.py
+└── app/push_service.py
 ```
 
 ---
 
-## 3. Startup & Execution Lifecycle
+## 4. State Transition & Alert Lifecycle
+
+The following lifecycle details the exact state progression of an equity symbol through scanning, scoring, persistence, and dispatch:
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant Main as app/main.py
-    participant DB as app/database.py
-    participant Forensics as app/forensics.py
-    participant Watchlist as app/daily_builder.py
-    participant Web as app/dashboard_server.py
-    participant Sched as System Scheduler
-
-    Main->>Forensics: take_snapshot("startup")
-    Main->>DB: init_db() [Create Pool min=2 max=30]
-    Main->>Watchlist: Ensure elite_fundamental_watchlist.parquet exists
-    Main->>Web: Start Flask Web Server (Threaded, Port 8080)
-    Main->>Sched: run_system_scheduler() [Background Loop]
+flowchart TD
+    A[NSE Market Data Feeds] --> B[Watchlist Generation app/daily_builder.py]
+    B --> C[Pattern Recognition app/scanners]
+    C --> D[Candidate Evaluation]
+    D --> E[SL & Target Cluster Engine app/sl_target_helper.py]
+    E --> F{Quality Gate Filter}
+    F -->|Reject| G[Discard Candidate]
+    F -->|Pass| H{Deduplication & Cooldown}
+    H -->|Duplicate/Cooldown| G
+    H -->|Valid| I[Persist to PostgreSQL alerts Table]
+    I --> J[Async Telegram Alert Dispatch]
+    I --> K[Flask Dashboard Server REST API]
 ```
-
-1. **Forensic Telemetry Initialization**: `forensics.take_snapshot("startup")` captures initial RSS memory, Python heap, and thread count.
-2. **PostgreSQL Pool Creation**: `database.init_db()` initializes a thread-safe `ThreadedConnectionPool` (min 2, max 30 connections).
-3. **Watchlist Verification**: Checks for `data/elite_fundamental_watchlist.parquet`. If missing, executes `safe_run_daily_builder()`.
-4. **Flask Dashboard Server**: Spawns web dashboard and `/version` build metadata API in a daemon thread on `$PORT` (default 8080).
-5. **Scheduler Execution Loop**: Enters `run_system_scheduler()` executing scheduled job handlers on wall-clock market triggers.
 
 ---
 
-## 4. Scheduler Architecture
+## 5. Scheduler Architecture
 
 Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
@@ -104,57 +118,19 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 ---
 
-## 5. Scanner Pipelines Overview
+## 6. System Glossary
 
-```mermaid
-graph LR
-    Sub[Watchlist Parquet Universe] --> Quality[Data Quality & Regime Filter]
-    Quality --> Pattern[Scanner Pattern Engine]
-    Pattern --> SL[SL & Target Engine V7/V2]
-    SL --> Dedupe[Deduplication & Cooldown]
-    Dedupe --> DB[(PostgreSQL Pool)]
-    DB --> Web[Flask Dashboard API]
-```
+- **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
+- **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$).
+- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels.
+- **Synthetic Target**: A fallback target generated when no structural resistance exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
+- **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
+- **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 
 ---
 
-## 6. Database Schema & Pooling Architecture
-
-- **Pool Manager**: [`app/database.py`](../app/database.py) thread-safe `ThreadedConnectionPool`.
-- **Primary Schema**:
-  ```sql
-  CREATE TABLE IF NOT EXISTS alerts (
-      id SERIAL PRIMARY KEY,
-      dedup_key VARCHAR(255) UNIQUE NOT NULL,
-      symbol VARCHAR(50) NOT NULL,
-      scanner_name VARCHAR(50) NOT NULL,
-      strategy_version VARCHAR(20) NOT NULL,
-      category VARCHAR(50) NOT NULL,
-      entry DECIMAL(12, 2) NOT NULL,
-      stop_loss DECIMAL(12, 2) NOT NULL,
-      target DECIMAL(12, 2) NOT NULL,
-      reward_percent DECIMAL(8, 2),
-      risk_percent DECIMAL(8, 2),
-      rr_ratio DECIMAL(6, 2) NOT NULL,
-      confidence DECIMAL(5, 2),
-      score INT NOT NULL,
-      status VARCHAR(20) DEFAULT 'ACTIVE',
-      metadata JSONB,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-  );
-  ```
-
----
-
-## 7. Threading Model & Memory Profiling
-
-- **Process Model**: Single Python process executing main scheduler thread with dedicated background daemon threads for Flask HTTP API ([`app/dashboard_server.py`](../app/dashboard_server.py)), Telegram dispatch ([`app/telegram_engine.py`](../app/telegram_engine.py)), and WebPush VAPID notifications ([`app/push_service.py`](../app/push_service.py)).
-- **Memory Ownership**: Process RSS memory profiled via `ForensicTelemetry` ([`app/forensics.py`](../app/forensics.py)). Container threshold set to $< 450.0$ MB RSS with explicit `gc.collect()` memory reclamation cycles.
-
----
-
-## 8. Out of Scope
+## 7. Out of Scope
 
 The following capabilities are intentionally outside the scope of this core scanning engine:
 - **Broker Direct Auto-Execution**: Automatic order routing/execution to live brokerage accounts (Fyers/Zerodha).
@@ -164,7 +140,7 @@ The following capabilities are intentionally outside the scope of this core scan
 
 ---
 
-## 9. Verification & Governance Limitations
+## 8. Verification & Governance Limitations
 
-- **Coverage Status**: Verified against AST inventory generated from commit `826983794951c696cff607ed8f1802825ab4db95`.
-- **Limitations**: This document is reconstructed from the implementation at commit `826983794951c696cff607ed8f1802825ab4db95`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.
+- **Coverage Status**: Verified against AST inventory generated from commit `920de35e7eedd09231a93740b47b3f08e1548cdc`.
+- **Limitations**: This document is reconstructed from the implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.

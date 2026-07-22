@@ -1,18 +1,19 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `82698379`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
-| **Canonical Role** | Detailed Implementation Contract ("Exactly how is it implemented?") |
-| **Git Commit Hash** | `826983794951c696cff607ed8f1802825ab4db95` |
+| **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
+| **Scope Definition** | Implementation contract covering core modules: `main.py`, `daily_builder.py`, `eod_scanner.py`, `pullback_pipeline.py`, `reversal_scanner.py`, `multi_tf_scanner.py`, `wealth_engine.py`, `sl_target_helper.py`, `database.py`, `dashboard_server.py`, `forensics.py`, `core/models.py`. |
+| **Git Commit Hash** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
 
 ---
 
-## 1. Module Implementation Specifications
+## 1. Core Module Implementation Specifications
 
 ### 1.1 `app/sl_target_helper.py`
 - **Purpose**: Unified Stop Loss & Target calculation engine.
@@ -126,43 +127,87 @@
 
 ---
 
-## 2. 13 Production Deployment Verification Gates
+## 2. Configuration Reference Appendix (`app/config.py`)
 
-- **Source File**: [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py)
-
-```python
-class TestProductionDeploymentGates:
-    def test_gate1_cold_start_execution(self): ...
-    def test_gate2_import_all_modules(self): ...
-    def test_gate3_smoke_test(self): ...
-    def test_gate4_ast_method_signature_audit(self): ...
-    def test_gate5_runtime_railway_integration(self): ...
-    def test_gate6_production_readiness_checklist(self): ...
-    def test_gate7_dependency_reproducibility(self): ...
-    def test_gate8_scheduled_execution_simulation(self): ...
-    def test_gate9_memory_regression_budget(self): ...        # RSS < 450 MB
-    def test_gate10_alert_contract_regression(self): ...      # PullbackCandidate DTO
-    def test_gate11_all_scanners_execution(self): ...         # 6 Scanner Entrypoints
-    def test_gate12_database_contract(self): ...               # DAO contract checks
-    def test_gate13_version_endpoint(self): ...                # GET /version
-```
+| Constant Name | Default Value | Target Subsystem | Architectural Purpose |
+|---|---|---|---|
+| `MAX_RISK_PCT` | `8.0` | `sl_target_helper.py` | Caps maximum allowed stop loss distance from entry |
+| `MIN_NATURAL_RR` | `1.5` | `sl_target_helper.py` | Minimum natural reward-to-risk threshold for alerts |
+| `PULLBACK_MIN_DEPTH` | `3.0` | `pullback_pipeline.py` | Minimum pullback retracement percentage |
+| `PULLBACK_MAX_DEPTH` | `15.0` | `pullback_pipeline.py` | Maximum pullback retracement percentage |
+| `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
+| `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
+| `MIN_CLOSE_LOCATION` | `0.60` | `swing_utils.py` | Minimum trigger candle close location |
+| `DB_MIN_CONN` | `2` | `database.py` | Minimum PostgreSQL connection pool size |
+| `DB_MAX_CONN` | `30` | `database.py` | Maximum PostgreSQL connection pool size |
 
 ---
 
-## 3. Out of Scope
+## 3. REST API Reference Appendix (`app/dashboard_server.py`)
 
-The following capabilities are intentionally outside the scope of this implementation contract:
-- **Broker Order Execution APIs**: Real-time order placement, trailing stop order management, or broker margin calculations.
-- **Multi-Asset Class Support**: Options pricing models, Futures implied volatility skew, or Commodity trading contracts.
-- **GUI Desktop Client**: Native Windows/macOS desktop application wrappers.
+| Endpoint Path | HTTP Method | Auth Required | Purpose | Response Schema |
+|---|---|---|---|---|
+| `/health` | `GET` | No | Railway container health check | `{"status": "ok"}` |
+| `/version` | `GET` | No | Build release metadata | `{"git_commit": "...", "status": "RELEASE_GATE_APPROVED"}` |
+| `/api/version` | `GET` | No | Alias API release metadata | `{"git_commit": "...", "tests_passed": 271}` |
+| `/api/shortlist` | `GET` | Yes | Returns current fundamental watchlist | JSON array of symbol candidate objects |
+| `/api/summary` | `GET` | Yes | Returns system alert summary metrics | JSON summary stats object |
 
 ---
 
-## 4. Implementation Verification Summary & Governance
+## 4. Database Operations & Schema Appendix (`app/database.py`)
+
+- **Primary Schema**:
+  ```sql
+  CREATE TABLE IF NOT EXISTS alerts (
+      id SERIAL PRIMARY KEY,
+      dedup_key VARCHAR(255) UNIQUE NOT NULL,
+      symbol VARCHAR(50) NOT NULL,
+      scanner_name VARCHAR(50) NOT NULL,
+      strategy_version VARCHAR(20) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      entry DECIMAL(12, 2) NOT NULL,
+      stop_loss DECIMAL(12, 2) NOT NULL,
+      target DECIMAL(12, 2) NOT NULL,
+      reward_percent DECIMAL(8, 2),
+      risk_percent DECIMAL(8, 2),
+      rr_ratio DECIMAL(6, 2) NOT NULL,
+      confidence DECIMAL(5, 2),
+      score INT NOT NULL,
+      status VARCHAR(20) DEFAULT 'ACTIVE',
+      metadata JSONB,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+  ```
+- **Indexes & Unique Constraints**: `UNIQUE (dedup_key)` enforces single active alert per setup.
+- **UPSERT Logic**:
+  ```sql
+  INSERT INTO alerts (dedup_key, symbol, scanner_name, ...)
+  VALUES (%s, %s, %s, ...)
+  ON CONFLICT (dedup_key)
+  DO UPDATE SET score = EXCLUDED.score, updated_at = NOW();
+  ```
+
+---
+
+## 5. System Glossary
+
+- **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
+- **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$).
+- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels.
+- **Synthetic Target**: A fallback target generated when no structural resistance exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
+- **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
+- **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
+
+---
+
+## 6. Implementation Verification Summary & Governance
 
 | Attribute | Value |
 |---|---|
-| **Discovered Subsystems** | All Python modules discovered under `app/` during AST analysis |
-| **Verification Basis** | Verified against test suite present at commit `826983794951c696cff607ed8f1802825ab4db95` |
-| **Verified Against Commit** | `826983794951c696cff607ed8f1802825ab4db95` |
-| **Limitations** | Reconstructed from implementation at commit `82698379`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |
+| **Discovered Core Subsystems** | Core architectural modules discovered under `app/` during AST analysis |
+| **Verification Basis** | Verified against test suite present at commit `920de35e7eedd09231a93740b47b3f08e1548cdc` |
+| **Verified Against Commit** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
+| **Limitations** | Reconstructed from implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |
