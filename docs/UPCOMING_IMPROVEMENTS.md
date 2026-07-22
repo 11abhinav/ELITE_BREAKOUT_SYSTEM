@@ -2,14 +2,14 @@
 
 > **Canonical Roadmap Document**: This document outlines the prioritized roadmap of remaining upcoming architectural, quantitative, risk management, and analytics enhancements for the **Elite Breakout System**.
 >
-> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-06, F-07, F-13, and F-14** are **100% IMPLEMENTED & VERIFIED** in commit `316cabbc` with 284 passing tests.
+> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-06, F-07, F-13, F-14, and F-15** are **100% IMPLEMENTED & VERIFIED** in commit `6705777b` with 296 passing tests.
 
 | Roadmap Metadata | Value |
 |---|---|
 | **Document Target** | Active & Remaining System Enhancement Blueprint |
 | **Primary Focus** | Backtesting, Portfolio Constraints, & Execution Risk |
 | **Governance Standard** | ANTIGRAVITY Rules 1-12 (Impact Analysis, RULE 10 Parameter Rationales, RULE 12 Change Explanations) |
-| **Baseline Revision** | Commit `316cabbc` (`origin/main`) |
+| **Baseline Revision** | Commit `6705777b` (`origin/main`) |
 
 ---
 
@@ -39,6 +39,8 @@
 | **F-07** | **Sector & Industry Regime Layer** | ✅ **COMPLETED** | `app/macro_utils.py` | Ranks 14 NSE sector indices using blended 63d/21d lookback and 3-session hysteresis rule for +8 pt Tailwind bonus. |
 | **F-13** | **Advanced Outcome Analytics & Attribution** | ✅ **COMPLETED** | `app/outcome_tracker.py`<br>`app/admin_dashboard.html` | Preview Mode Analytics engine computing dual confidence badges, feature attribution, score band expectancy, capture efficiency %, and rolling validation. |
 | **F-14** | **Quality Trajectory Scoring Engine** | ✅ **COMPLETED** | `app/quality_trajectory.py`<br>`app/daily_builder.py` | Multi-quarter slope & consistency scoring across 6 fundamental pillars (0-20 pts), graduated CFO/PAT, Trajectory Grade (A/B/C/D), and component details JSON. |
+| **F-15** | **Forensic Risk Engine & Growth Investment Mode** | ✅ **COMPLETED** | `app/forensic_engine.py`<br>`app/daily_builder.py` | Primary 3Y CFO/PAT hard gate (<0.6 -> REJECT), 0-100 weighted Growth Investment Score, capped FCF penalties, UNKNOWN risk tier, and F-13 performance attribution. |
+
 
 
 

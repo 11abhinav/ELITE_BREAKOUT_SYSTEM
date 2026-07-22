@@ -567,6 +567,13 @@ def _run_scan(force: bool = False):
                         continue
 
                     # ── QUALITY FILTER 1: minimum price ─────────────────────────────────────
+                    # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
+                    forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
+                    if forensic_tier == "REJECT":
+                        rejected["forensic_reject"] = rejected.get("forensic_reject", 0) + 1
+                        logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
+                        continue
+
                     if close_price < MIN_STOCK_PRICE:
                         rejected["low_price"] += 1
                         continue

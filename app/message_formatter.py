@@ -18,19 +18,28 @@ def format_alert_payload(alert_data: Dict[str, Any]) -> str:
     warning_msg = alert_data.get("warning_msg", "")
     traj_grade = alert_data.get("trajectory_grade", "N/A")
     traj_score = alert_data.get("trajectory_score", 0)
+    
+    forensic_tier = alert_data.get("forensic_risk_tier", "UNKNOWN")
+    growth_mode = alert_data.get("growth_investment_mode", False)
+    growth_score = alert_data.get("growth_investment_score", 0)
 
     lines = [
         f"🟢 <b>ELITE BREAKOUT ALERT</b>: <b>#{symbol}</b>",
         f"Scanner: <code>{scanner}</code> | Score: <b>{score}</b>",
         f"Quality Trajectory: <b>Grade {traj_grade}</b> ({traj_score}/20 pts)",
+        f"Forensic Risk: <b>{forensic_tier} Risk</b>",
         f"Entry: ₹{entry:.2f} | SL: ₹{sl:.2f} | Target 1: ₹{t1:.2f}"
     ]
+
+    if growth_mode:
+        lines.append(f"🚀 <b>Growth Investment Mode Active</b> (Score: {growth_score}/100)")
 
     if warning_msg:
         lines.append("")
         lines.append(f"<b>{warning_msg}</b>")
 
     return "\n".join(lines)
+
 
 def format_alert(alert_dict: Dict[str, Any], scanner: str = "EOD") -> str:
     symbol = alert_dict.get("symbol", "N/A")

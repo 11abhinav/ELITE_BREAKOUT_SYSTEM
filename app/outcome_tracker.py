@@ -271,7 +271,8 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
                            o.rs_bonus, o.sector_bonus, o.rs_percentile, o.sector_name, o.rr_at_alert,
                            o.exit_reason, o.realized_rr, o.max_favorable_excursion_r, o.max_adverse_excursion_r,
                            o.exit_timestamp, o.alert_timestamp, a.score,
-                           o.earnings_flag, o.days_to_earnings, o.earnings_severity
+                           o.earnings_flag, o.days_to_earnings, o.earnings_severity,
+                           o.forensic_risk_tier, o.growth_investment_mode
                     FROM alert_outcomes o
                     LEFT JOIN alerts a ON o.alert_id = a.id
                     WHERE o.exit_timestamp IS NOT NULL
@@ -299,7 +300,9 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
                         "final_score": r[17] if r[17] is not None else ((r[5] or 0) + (r[6] or 0) + (r[7] or 0)),
                         "earnings_flag": bool(r[18]) if len(r) > 18 and r[18] is not None else False,
                         "days_to_earnings": r[19] if len(r) > 19 and r[19] is not None else 999,
-                        "earnings_severity": r[20] if len(r) > 20 and r[20] is not None else "NONE"
+                        "earnings_severity": r[20] if len(r) > 20 and r[20] is not None else "NONE",
+                        "forensic_risk_tier": r[21] if len(r) > 21 and r[21] is not None else "UNKNOWN",
+                        "growth_investment_mode": bool(r[22]) if len(r) > 22 and r[22] is not None else False
                     })
 
     except Exception as e:
@@ -343,6 +346,15 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
     ed_1d_after = [r for r in records if r["days_to_earnings"] == -1]
     ed_normal = [r for r in records if r["days_to_earnings"] > 5 or r["days_to_earnings"] < -1 or not r["earnings_flag"]]
 
+    # 4c. Forensic Risk Tier & Growth Mode Attribution Buckets
+    forensic_low = [r for r in records if r["forensic_risk_tier"] == "LOW"]
+    forensic_medium = [r for r in records if r["forensic_risk_tier"] == "MEDIUM"]
+    forensic_high = [r for r in records if r["forensic_risk_tier"] == "HIGH"]
+    forensic_unknown = [r for r in records if r["forensic_risk_tier"] == "UNKNOWN"]
+
+    growth_active = [r for r in records if r["growth_investment_mode"]]
+    growth_inactive = [r for r in records if not r["growth_investment_mode"]]
+
     feature_attribution = {
         "relative_strength": {
             "rs_ge_80": _compute_metrics_block(rs_ge_80),
@@ -363,8 +375,19 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
             "three_to_five_before": _compute_metrics_block(ed_3_5d_before),
             "one_day_after": _compute_metrics_block(ed_1d_after),
             "normal_trades": _compute_metrics_block(ed_normal),
+        },
+        "forensic_risk": {
+            "low_risk": _compute_metrics_block(forensic_low),
+            "medium_risk": _compute_metrics_block(forensic_medium),
+            "high_risk": _compute_metrics_block(forensic_high),
+            "unknown_risk": _compute_metrics_block(forensic_unknown),
+        },
+        "growth_investment_mode": {
+            "growth_mode_active": _compute_metrics_block(growth_active),
+            "growth_mode_inactive": _compute_metrics_block(growth_inactive),
         }
     }
+
 
 
     # 5. Score Band Expectancy

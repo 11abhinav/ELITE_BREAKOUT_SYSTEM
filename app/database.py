@@ -915,6 +915,11 @@ def init_db():
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_date DATE")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_severity VARCHAR(20) DEFAULT 'NONE'")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS date_status VARCHAR(20) DEFAULT 'UNKNOWN'")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_score INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN'")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS growth_investment_mode BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS growth_investment_score INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_details JSONB DEFAULT '{}'::jsonb")
 
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
@@ -925,6 +930,12 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_score INTEGER DEFAULT 0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_grade VARCHAR(5) DEFAULT 'N/A'")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_details JSONB DEFAULT '{}'::jsonb")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_score INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS growth_investment_mode BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS growth_investment_score INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_details JSONB DEFAULT '{}'::jsonb")
+
 
 
                 cur.execute("""

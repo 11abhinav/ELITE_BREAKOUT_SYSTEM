@@ -653,10 +653,18 @@ def _start_wrapper(force: bool = False):
                             except Exception:
                                 pass
 
+                        # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
+                        forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
+                        if forensic_tier == "REJECT":
+                            rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
+                            logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
+                            continue
+
                         # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                         if score < global_min_score:
                             rejection_counts["low_score"] += 1
                             continue
+
 
                         signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
                         dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"

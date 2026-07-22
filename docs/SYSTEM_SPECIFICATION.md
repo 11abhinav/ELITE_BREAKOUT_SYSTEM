@@ -118,6 +118,20 @@
 3. **F-13 Granular Attribution**:
    - Extends `compute_advanced_outcome_analytics()` to track trade counts, win rate %, average $R$, expectancy, and capture efficiency across 6 granular risk buckets: `results_today`, `one_day_before`, `two_days_before`, `three_to_five_before`, `one_day_after`, and `normal_trades`.
 
+### 1.10 Feature F-15: Forensic Risk Engine & Dynamic Growth Investment Mode
+
+#### Architecture Overview
+1. **Forensic Risk Evaluator (`app/forensic_engine.py`)**:
+   - Primary hard gate: `3-Year Cumulative CFO / PAT < 0.6` $\rightarrow$ `REJECT`.
+   - 0–100 Weighted Growth Investment Score: `Capex / Sales` (40%), `Revenue CAGR 3Y` (30%), `ROCE` (30%).
+   - Activates `Growth_Investment_Mode = TRUE` when `Growth_Investment_Score >= 60`.
+   - Scaled FCF Penalty: Capped/reduced in Growth Mode ($-3$, $-5$ pts) vs Normal Mode ($-10$, $-20$ pts).
+   - Supports explicit `UNKNOWN` risk tier for missing fundamental data.
+2. **Scanner Policy Deciders**:
+   - `ForensicEngine` operates as a pure evaluator returning `{score, tier, flags, details}`. Scanners check `Forensic_Risk_Tier != 'REJECT'` policy gate.
+3. **F-13 Performance Attribution**:
+   - Extends `compute_advanced_outcome_analytics()` to track trade counts, win rate %, average $R$, expectancy, and capture efficiency across forensic risk tiers (`low_risk`, `medium_risk`, `high_risk`, `unknown_risk`) and Growth Mode (`growth_mode_active` vs `growth_mode_inactive`).
+
 ---
 
 ## 2. Configuration Reference Appendix & Parameter Rationales (RULE 10)
@@ -151,9 +165,11 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
 | **Advanced Outcome Analytics & Attribution (F-13)** | [`app/outcome_tracker.py`](../app/outcome_tracker.py) | [`tests/test_f13_advanced_analytics.py`](../tests/test_f13_advanced_analytics.py) |
 | **Earnings Calendar Integration (F-06)** | [`app/earnings_calendar.py`](../app/earnings_calendar.py) | [`tests/test_earnings_calendar.py`](../tests/test_earnings_calendar.py) |
 | **Quality Trajectory Scorer (F-14)** | [`app/quality_trajectory.py`](../app/quality_trajectory.py) | [`tests/test_quality_trajectory.py`](../tests/test_quality_trajectory.py) |
+| **Forensic Risk Engine (F-15)** | [`app/forensic_engine.py`](../app/forensic_engine.py) | [`tests/test_forensic_engine.py`](../tests/test_forensic_engine.py) |
 | **Cross-Scanner Confluence Engine** | [`app/confluence_engine.py`](../app/confluence_engine.py) | [`tests/test_f01_to_f07_quant_engine.py`](../tests/test_f01_to_f07_quant_engine.py) |
 | **SL / Target Confluence Engine** | [`app/sl_target_helper.py`](../app/sl_target_helper.py) | [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py) |
 | **Dashboard REST API & Analytics** | [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_api.py`](../tests/test_api.py) |
 | **Deployment Release Gates** | [`app/main.py`](../app/main.py) / [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py) |
+
 
 

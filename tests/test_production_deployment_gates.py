@@ -200,3 +200,27 @@ class TestProductionDeploymentGates:
         assert missing_res["trajectory_grade"] == "UNKNOWN"
         assert missing_res["trajectory_details"]["status"] == "MISSING_DATA"
 
+    def test_gate16_forensic_engine_contract(self):
+        """Gate 16: Forensic Risk Engine Contract Verification."""
+        import forensic_engine
+        assert hasattr(forensic_engine, "ForensicEngine"), "Forensic engine missing ForensicEngine class"
+        assert hasattr(forensic_engine, "ForensicRiskTier"), "Forensic engine missing ForensicRiskTier enum"
+
+        # Hard Reject Contract Test
+        reject_res = forensic_engine.ForensicEngine.evaluate_symbol({"cfo_pat_3y": 0.45})
+        assert reject_res["forensic_risk_tier"] == forensic_engine.ForensicRiskTier.REJECT
+        assert reject_res["forensic_score"] == -30
+
+        # Growth Mode Contract Test
+        growth_res = forensic_engine.ForensicEngine.evaluate_symbol({
+            "cfo_pat_3y": 1.10,
+            "fcf_history": [-10.0, -20.0, -30.0],
+            "capex_sales_ratio": 0.22,
+            "revenue_cagr_3y": 0.25,
+            "roce": 0.24
+        })
+        assert growth_res["growth_investment_mode"] is True
+        assert growth_res["forensic_risk_tier"] == forensic_engine.ForensicRiskTier.LOW
+        assert growth_res["forensic_score"] == -3
+
+
