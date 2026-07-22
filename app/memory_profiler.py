@@ -450,6 +450,41 @@ def inspect_largest_global_objects(top_n: int = 10):
             logger.info(f"  {r['name']:<45} | Type: {r['type']:<12} | Items: {r['length']:>6} | Size: {r['mem_mb']:>6.2f} MB")
     logger.info("==========================================")
 
+class StageTimelineTracker:
+    """
+    Context manager to track execution time, RSS memory delta, and top object growth
+    for major pipeline stages (e.g. Universe Build, Pre-Scan, Batch Fetch, Technical Scanner, DB Persist).
+    """
+    def __init__(self, pipeline_name: str, stage_name: str, inspect_objects: bool = True):
+        self.pipeline_name = pipeline_name
+        self.stage_name = stage_name
+        self.inspect_objects = inspect_objects
+        self.proc = psutil.Process(os.getpid())
+        self.start_time = 0.0
+        self.rss_before = 0.0
+
+    def __enter__(self):
+        self.start_time = time.monotonic()
+        self.rss_before = self.proc.memory_info().rss / (1024 * 1024)
+        logger.info(f"▶️ [{self.pipeline_name} TIMELINE] START Stage: {self.stage_name} | Starting RSS: {self.rss_before:.1f} MB")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        elapsed = time.monotonic() - self.start_time
+        rss_after = self.proc.memory_info().rss / (1024 * 1024)
+        delta = rss_after - self.rss_before
+        
+        logger.info("=" * 70)
+        logger.info(f"📊 [{self.pipeline_name} TIMELINE] Stage: {self.stage_name}")
+        logger.info(f"   Time Taken   : {elapsed:>7.2f}s")
+        logger.info(f"   RSS Before   : {self.rss_before:>7.1f} MB")
+        logger.info(f"   RSS After    : {rss_after:>7.1f} MB (Delta: {delta:>+6.1f} MB)")
+        logger.info("=" * 70)
+        
+        if self.inspect_objects and (delta > 20.0 or rss_after > 500.0):
+            inspect_largest_global_objects(top_n=5)
+
+
 
 def get_dataframe_inventory():
     """Counts live DataFrames, rows, cols, and memory."""
