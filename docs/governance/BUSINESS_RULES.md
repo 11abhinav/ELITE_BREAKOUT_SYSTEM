@@ -63,3 +63,10 @@ This document is the authoritative specification for all business logic decision
 *   **Description:** If a fundamental fetch returns empty values for both Financials and Balance Sheet, the fetch MUST raise a `ValueError` and the stock must be marked `is_invalidated = True`. Silent progression is prohibited.
 *   **Lifecycle:** Frozen
 *   **Required Verification Types:** Unit Test, Invariant
+
+## 6. System Performance & Memory Rules
+
+### [SYS-001] Strict Performance Over Memory Policy
+*   **Description:** Memory saving and garbage collection optimizations MUST NEVER compromise or degrade performance, data accuracy, or scan results. Any memory tracker or profiler must correctly scope data cleanup *after* full processing logic is evaluated to prevent premature purges. This is a non-negotiable rule.
+*   **Lifecycle:** Frozen
+*   **Required Verification Types:** Unit Test, Invariant

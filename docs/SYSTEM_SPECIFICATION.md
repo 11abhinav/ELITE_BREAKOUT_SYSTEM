@@ -207,3 +207,7 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
 
 
 
+
+## 1.8 Strict Performance Over Memory Policy (RULE 18)
+- **Non-Negotiable Precedence**: Memory saving measures, garbage collection, and resource profiling MUST NEVER come at the cost of processing accuracy, performance, or correct scanner evaluation.
+- **Context Integrity**: Chunking logic and memory tracker blocks (e.g. `BatchMemoryTracker`) MUST strictly encapsulate the entire processing flow of the chunks they manage to guarantee that memory is not purged prematurely.
