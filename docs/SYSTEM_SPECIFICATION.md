@@ -17,19 +17,15 @@
 ## 1. Core Module Implementation Specifications
 
 ### 1.1 `app/sl_target_helper.py`
-- **Purpose**: Unified Stop Loss & Target calculation engine.
+- **Purpose**: Unified Stop Loss & Target calculation engine (V7 Structural + V2 Institutional).
 - **Source File**: [`app/sl_target_helper.py`](../app/sl_target_helper.py)
 - **Primary Function**: `compute_sl_and_target(entry_price, atr, candle_range, mode, engine_version="v1.0", **kwargs)`
 - **Configuration Consumed**:
   - `MAX_RISK_PCT` (Default: `8.0`) — [`app/config.py`](../app/config.py)
   - `MIN_NATURAL_RR` (Default: `1.5`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
-  - **Structural Stop**: Places stop loss $0.5\times ATR$ below nearest structural support (`SwingLow`, `S1`, `EMA20`).
-  - **Risk Distance Cap & Position Sizing**:
-    - *Implementation Threshold*: `8.0%`
-    - *Source*: [`app/sl_target_helper.py`](../app/sl_target_helper.py)
-    - *Configuration Constant*: `MAX_RISK_PCT`
-    - *Position Scaling*: Dynamically reduces position size (`position_size_pct = max_risk / risk_pct`) to maintain constant ₹ risk per trade.
+  - **V7 Structural Stop Validation**: `_compute_structural_stop(...)` ranks support anchors (`SwingLow`, `S1`, `S2`, `EMA20`). If no valid anchor exists or if structural stop violates minimum noise buffer, returns `is_valid: False` and explicitly REJECTS the setup (`NO_VALID_STRUCTURAL_STOP`).
+  - **V2 Institutional Sizing**: For valid structural stops, `calculate_position_size` dynamically scales down position size (`position_size_pct = round(max_risk_pct / (risk_pct / 100.0), 2)`) to maintain fixed ₹ risk per trade without raising stops inside structural consolidation noise.
   - **Target Cluster Selection**: Clusters target candidates (`SwingHigh`, `R1`, `R2`, `Fib1.618`) within $1.0\times ATR$ window. If a natural cluster exists with $RR \ge 1.5$, assigns cluster price to $T_1$. If a natural cluster exists with $RR < 1.5$, explicitly REJECTS the candidate (`REJ_LOW_RR`).
   - **Fallback Path**: If NO natural resistance cluster exists, synthesizes $T_1 = \text{entry\_price} + (2.5 \times \text{risk})$.
 - **Unit Tests**: [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py), [`tests/test_component_sl_target.py`](../tests/test_component_sl_target.py)
