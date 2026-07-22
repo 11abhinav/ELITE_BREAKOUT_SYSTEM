@@ -159,79 +159,79 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                 if not all_ticker_data:
                     continue
 
-                for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
-                    symbol = row.get("Stock", "UNKNOWN")
-                    try:
-                        category = row.get("Category", "MIDCAP")
-                        sector = row.get("Sector", None)
-
-                        from core_enums import ProviderResult
-                        if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
-                            logger.debug(f"[PULLBACK] {symbol} rejected: missing historical data")
-                            continue
-
-                        if isinstance(all_ticker_data[symbol], ProviderResult):
-                            logger.debug(f"[PULLBACK] {symbol} rejected: Provider error ({all_ticker_data[symbol].name})")
-                            continue
-
-                        df = all_ticker_data[symbol].copy()
-                        if df.empty or len(df) < effective_config.get("MIN_HISTORY", 260):
-                            logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 260)})")
-                            continue
-
-                        df.attrs['adjusted'] = True
-                        df.attrs['symbol'] = symbol
-                        as_of_index = len(df) - 1
-                        historical_view = df.iloc[:as_of_index + 1]
-
-                        # PHASE A: ELIGIBILITY & ESTABLISHED UPTREND
+                    for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
+                        symbol = row.get("Stock", "UNKNOWN")
                         try:
-                            swing_utils.check_data_quality(historical_view)
-                        except DataQualityError as dqe:
-                            logger.debug(f"⏭️ {symbol} failed data quality check: {dqe}")
-                            continue
+                            category = row.get("Category", "MIDCAP")
+                            sector = row.get("Sector", None)
 
-                        last_bar = historical_view.iloc[-1]
-                        sma50_val = historical_view['Close'].rolling(50).mean().iloc[-1] if len(historical_view) >= 50 else None
-                        sma200_val = historical_view['Close'].rolling(200).mean().iloc[-1] if len(historical_view) >= 200 else None
+                            from core_enums import ProviderResult
+                            if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
+                                logger.debug(f"[PULLBACK] {symbol} rejected: missing historical data")
+                                continue
 
-                        if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
-                            continue
+                            if isinstance(all_ticker_data[symbol], ProviderResult):
+                                logger.debug(f"[PULLBACK] {symbol} rejected: Provider error ({all_ticker_data[symbol].name})")
+                                continue
 
-                        # PHASE B: IMPULSE & ORDERLY PULLBACK STRUCTURE
-                        pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])
-                        if not pivots:
-                            continue
+                            df = all_ticker_data[symbol].copy()
+                            if df.empty or len(df) < effective_config.get("MIN_HISTORY", 260):
+                                logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 260)})")
+                                continue
 
-                        impulse = swing_utils.select_pullback_origin(pivots, historical_view, effective_config)
-                        if not impulse:
-                            continue
+                            df.attrs['adjusted'] = True
+                            df.attrs['symbol'] = symbol
+                            as_of_index = len(df) - 1
+                            historical_view = df.iloc[:as_of_index + 1]
 
-                        ps = swing_utils.measure_pullback(historical_view, impulse, effective_config, debug=effective_config.get("DEBUG_SWINGS", False))
-                        save_funnel_telemetry("PULLBACK", run_date, symbol, ps.stage_results)
+                            # PHASE A: ELIGIBILITY & ESTABLISHED UPTREND
+                            try:
+                                swing_utils.check_data_quality(historical_view)
+                            except DataQualityError as dqe:
+                                logger.debug(f"⏭️ {symbol} failed data quality check: {dqe}")
+                                continue
+
+                            last_bar = historical_view.iloc[-1]
+                            sma50_val = historical_view['Close'].rolling(50).mean().iloc[-1] if len(historical_view) >= 50 else None
+                            sma200_val = historical_view['Close'].rolling(200).mean().iloc[-1] if len(historical_view) >= 200 else None
+
+                            if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
+                                continue
+
+                            # PHASE B: IMPULSE & ORDERLY PULLBACK STRUCTURE
+                            pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])
+                            if not pivots:
+                                continue
+
+                            impulse = swing_utils.select_pullback_origin(pivots, historical_view, effective_config)
+                            if not impulse:
+                                continue
+
+                            ps = swing_utils.measure_pullback(historical_view, impulse, effective_config, debug=effective_config.get("DEBUG_SWINGS", False))
+                            save_funnel_telemetry("PULLBACK", run_date, symbol, ps.stage_results)
                         
-                        if not ps.valid:
-                            continue
+                            if not ps.valid:
+                                continue
 
-                        # PHASE C: RESUMPTION TRIGGER
-                        trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
-                        if not trig.valid:
-                            continue
+                            # PHASE C: RESUMPTION TRIGGER
+                            trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
+                            if not trig.valid:
+                                continue
 
-                        cand = PullbackCandidate(
-                            symbol=symbol,
-                            as_of_date=ist_now.date(),
-                            structure=ps,
-                            trigger=trig,
-                            entry_price=trig.entry_price,
-                            warnings=list(run_warnings),
-                            config_version=effective_config.get("VERSION", "pb-1.0.0"),
-                            status=CandidateState.NEW
-                        )
-                        candidates.append(cand)
-                    except Exception as sym_err:
-                        logger.error(f"❌ Error processing symbol {symbol} in Pullback Scanner: {sym_err}")
-                        continue
+                            cand = PullbackCandidate(
+                                symbol=symbol,
+                                as_of_date=ist_now.date(),
+                                structure=ps,
+                                trigger=trig,
+                                entry_price=trig.entry_price,
+                                warnings=list(run_warnings),
+                                config_version=effective_config.get("VERSION", "pb-1.0.0"),
+                                status=CandidateState.NEW
+                            )
+                            candidates.append(cand)
+                        except Exception as sym_err:
+                            logger.error(f"❌ Error processing symbol {symbol} in Pullback Scanner: {sym_err}")
+                            continue
             del all_ticker_data
             import gc; gc.collect()
 
