@@ -1076,16 +1076,29 @@ def _run_scan(force: bool = False):
                     
                 status = "OK"
                 error_msg = None
-                stale_count = rejected.get("stale_data", 0)
+                no_data_count = rejected.get("no_data", 0)
                 total_symbols = len(watchlist)
-                if total_symbols > 0 and (stale_count / total_symbols) > 0.05:
-                    status = "DEGRADED"
-                    error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
-                    
-                fetched_count = total_fetched_count
-                if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
-                    status = "DEGRADED"
-                    error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
+                
+                if total_symbols > 0 and no_data_count >= total_symbols * 0.25:
+                    status = "DOWN"
+                    outcome = "FAILED"
+                    error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{total_symbols} symbols unfetched (missing data)"
+                    logger.error(f"🚨 {error_msg}")
+                    try:
+                        from telegram_engine import send_telegram_message
+                        send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: REVERSAL SCANNER FAILED</b>\n{no_data_count}/{total_symbols} symbols were unfetched / missing data.")
+                    except Exception:
+                        pass
+                else:
+                    stale_count = rejected.get("stale_data", 0)
+                    if total_symbols > 0 and (stale_count / total_symbols) > 0.05:
+                        status = "DEGRADED"
+                        error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+                        
+                    fetched_count = total_fetched_count
+                    if total_symbols > 0 and fetched_count < (total_symbols * 0.95):
+                        status = "DEGRADED"
+                        error_msg = f"Partial Fetch: {fetched_count}/{total_symbols} symbols"
     
                 elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
                 

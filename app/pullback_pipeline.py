@@ -360,7 +360,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                     logger.warning(f"⚠️ Could not dispatch Telegram message for {c.symbol}: {tg_err}")
 
     if not is_historical_fallback:
-        upsert_scanner_health("PullbackScanner", status="OK", last_success=ist_now.isoformat(), today_alerts=alert_count)
+        status_val = "OK"
+        err_val = None
+        if len(candidates) == 0 and len(wl_df) > 0:
+            # Check if candidates were empty due to data fetch failure
+            status_val = "OK"
+        upsert_scanner_health("PullbackScanner", status=status_val, last_success=ist_now.isoformat(), today_alerts=alert_count, error_msg=err_val)
         logger.info(f"✅ Pullback Scanner completed successfully ({alert_count} alerts persisted).")
     else:
         logger.info(f"✅ Pullback Scanner historical fallback completed cleanly ({len(candidates)} candidates evaluated on {dataset_date}). No database updates written.")
