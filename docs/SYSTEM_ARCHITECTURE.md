@@ -109,7 +109,7 @@ flowchart TD
     D --> E[SL & Target Cluster Engine app/sl_target_helper.py]
     E --> F{Quality Gate Filter}
     F -->|Reject| G[Discard Candidate]
-    F -->|Pass| H{Deduplication & Cooldown}
+    F -->|Pass| H{Deduplication & Per-Scanner Cooldown}
     H -->|Duplicate/Cooldown| G
     H -->|Valid| I[Persist to PostgreSQL alerts Table]
     I --> J[Async Telegram Alert Dispatch]
@@ -163,7 +163,11 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 - **ADR-03: Dynamic Bayesian Regime Weighting**  
   *Decision*: Use `bayesian_updater.py` to dynamically adjust technical and fundamental scoring weights based on market regime (`BULL`, `BEAR`, `SIDEWAYS`).  
-  *Rationale*: Fixed scoring models underperform during regime shifts; Bayesian weighting prioritizes capital preservation during market pullbacks.
+  *Rationale*: Fixed scoring models underperform during regime shifts. `SIDEWAYS` regime applies `score_modifier: +8`, prioritizing high-confluence consolidation breakouts.
+
+- **ADR-04: Per-Scanner Cooldown Isolation**  
+  *Decision*: Scope deduplication cooldowns by `(symbol, scanner_name)` composite key instead of global symbol keys.  
+  *Rationale*: Prevents EOD breakout alerts from suppressing subsequent 3–5 bar Pullback continuation signals for the same symbol.
 
 ---
 
@@ -171,10 +175,10 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 - **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
-- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$). Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$) and upper wick ratio $\le 0.25$. Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
 - **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels. If a natural cluster exists with $RR < 1.5$, the setup is rejected (`REJ_LOW_RR`).
 - **Synthetic Target**: A fallback target generated ONLY when no structural resistance cluster exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
-- **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
+- **Per-Scanner Cooldown**: A safety restriction preventing identical alerts for the same symbol within a scanner-specific window (EOD: 4 days, Reversal: 4 days, Pullback: 1 day), scoped by `(symbol, scanner_name)` composite key.
 - **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 
 ---

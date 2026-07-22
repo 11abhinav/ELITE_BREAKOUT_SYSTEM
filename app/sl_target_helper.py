@@ -1415,7 +1415,8 @@ class BaseRiskEngine:
         MAX_RISK_LIMIT = 2.0
         max_risk_pct = min(max_risk_pct, MAX_RISK_LIMIT)
             
-        position_size_pct = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
+        raw_position_size = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
+        position_size_pct = min(100.0, raw_position_size)
         
         targets, target_cluster_vals = self.compute_targets(risk_dist, vol_regime)
         

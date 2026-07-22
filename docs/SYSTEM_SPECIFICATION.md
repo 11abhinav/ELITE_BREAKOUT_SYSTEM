@@ -25,7 +25,12 @@
   - `MIN_NATURAL_RR` (Default: `1.5`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
   - **V7 Structural Stop Validation**: `_compute_structural_stop(...)` ranks support anchors (`SwingLow`, `S1`, `S2`, `EMA20`). If no valid anchor exists or if structural stop violates minimum noise buffer, returns `is_valid: False` and explicitly REJECTS the setup (`NO_VALID_STRUCTURAL_STOP`).
-  - **V2 Institutional Sizing**: For valid structural stops, `calculate_position_size` dynamically scales down position size (`position_size_pct = round(max_risk_pct / (risk_pct / 100.0), 2)`) to maintain fixed ₹ risk per trade without raising stops inside structural consolidation noise.
+  - **V2 Institutional Sizing**: For valid structural stops, `calculate_position_size` dynamically calculates position size:
+    ```python
+    raw_position_size = round(max_risk_pct / (risk_pct / 100.0), 2)
+    position_size_pct = min(100.0, raw_position_size)
+    ```
+    This caps total equity allocation at `100.0%` max per trade to prevent un-capped leverage on tight stop loss setups.
   - **Target Cluster Selection**: Clusters target candidates (`SwingHigh`, `R1`, `R2`, `Fib1.618`) within $1.0\times ATR$ window. If a natural cluster exists with $RR \ge 1.5$, assigns cluster price to $T_1$. If a natural cluster exists with $RR < 1.5$, explicitly REJECTS the candidate (`REJ_LOW_RR`).
   - **Fallback Path**: If NO natural resistance cluster exists, synthesizes $T_1 = \text{entry\_price} + (2.5 \times \text{risk})$.
 - **Unit Tests**: [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py), [`tests/test_component_sl_target.py`](../tests/test_component_sl_target.py)
@@ -39,7 +44,7 @@
 - **Configuration Consumed**:
   - `MIN_IMPULSE_GAIN_PCT` (Default: `8.0`) — [`app/config.py`](../app/config.py)
   - `PULLBACK_MIN_DEPTH` (Default: `3.0`), `PULLBACK_MAX_DEPTH` (Default: `15.0`) — [`app/config.py`](../app/config.py)
-  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.60`), `MAX_UPPER_WICK` (Default: `0.40`) — [`app/config.py`](../app/config.py)
+  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.60`), `MAX_UPPER_WICK` (Default: `0.25`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
   - **Impulse Upleg**: `gain_pct = (pivot_price - min_price) / min_price * 100` $\ge 8.0\%$
   - **Pullback Retracement Depth**:
@@ -54,7 +59,7 @@
       ```python
       close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close >= t_open else 0.0)
       upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0.0
-      assert close_loc >= 0.60 and volume_mult >= 1.3 and upper_wick_ratio <= 0.40
+      assert close_loc >= 0.60 and volume_mult >= 1.3 and upper_wick_ratio <= 0.25
       ```
 - **Unit Tests**: [`tests/test_pullback_pipeline.py`](../tests/test_pullback_pipeline.py), [`tests/test_fort_knox_pullback.py`](../tests/test_fort_knox_pullback.py)
 
@@ -65,11 +70,13 @@
 - **Source File**: [`app/daily_builder.py`](../app/daily_builder.py)
 - **Primary Function**: `build_daily_watchlist()`
 - **Implementation & Business Rules**:
-  - `_score_nonfin(...)` — [`app/daily_builder.py`](../app/daily_builder.py):
-    - `yoy_sales >= 20%`: $+20$ pts | `yoy_sales >= 10%`: $+10$ pts
-    - `yoy_profit >= 25%`: $+25$ pts | `yoy_profit >= 10%`: $+12$ pts
-    - `debt_equity <= 0.1`: $+10$ pts | `debt_equity <= 0.5`: $+7$ pts | `debt_equity <= 1.0`: $+3$ pts
-    - `diamond_hold`: $+20$ pts
+  - `_score_nonfin(...)` — 180+ point fundamental scoring model:
+    - **YoY Growth**: `YoY Sales >= 20%` (+20 pts) / `>= 10%` (+10 pts) | `YoY Profit >= 25%` (+25 pts) / `>= 10%` (+12 pts)
+    - **QoQ Growth**: `QoQ Sales >= 10%` (+8 pts) / `>= 5%` (+4 pts) | `QoQ Profit >= 10%` (+12 pts) / `>= 5%` (+6 pts)
+    - **Return & Margins**: `ROE >= 25%` (+15 pts) / `>= 20%` (+10 pts) / `>= 15%` (+5 pts) | `OPM >= 20%` (+10 pts) / `>= 15%` (+7 pts) | YoY Margin (+5 pts), QoQ Margin (+3 pts)
+    - **Balance Sheet & Solvency**: `Debt/Equity <= 0.1` (+10 pts) / `<= 0.5` (+7 pts) / `<= 1.0` (+3 pts)
+    - **Sector & Qualitative**: Sector Tailwinds (+12 / +6 pts), Mature Quality (+10 pts), Elite Compounder (+5 pts), Turnaround (+3 pts)
+    - **Long-Term & FCF**: Diamond Hold (+20 pts), 5Y Rev Growth $\ge 15\%$ (+5 pts), 5Y EPS Growth $\ge 15\%$ (+5 pts), FCF Margin $\ge 15\%$ (+15 pts) / $\ge 8\%$ (+10 pts) / $\ge 3\%$ (+5 pts)
 - **Unit Tests**: [`tests/test_component_daily_builder.py`](../tests/test_component_daily_builder.py), [`tests/test_v5_financial.py`](../tests/test_v5_financial.py)
 
 ---
@@ -80,11 +87,13 @@
 - **Primary Function**: `start(force: bool = False)`
 - **Implementation & Business Rules**:
   - **Price Breakout Threshold**: `Close >= 20-day High` or `Close >= 52-week High`
-  - **Volume Expansion Threshold**:
-    - *Implementation Threshold*: `1.5`
-    - *Source File*: [`app/eod_scanner.py`](../app/eod_scanner.py)
-    - *Formula*: `Volume >= 1.5 * SMA(Volume, 20)`
-  - **Score Threshold**: `Score >= 65` (Bull Market), `Score >= 75` (Bear Market)
+  - **Volume Expansion Threshold**: `Volume >= 1.8 * SMA(Volume, 20)`
+  - **Score Threshold & Regime Modifiers**:
+    - Base Score Threshold: `82` (1d)
+    - `STRONG_BULL` / `BULL`: `82` (modifier = 0)
+    - `SIDEWAYS`: `90` (modifier = +8)
+    - `BEAR`: `87` (modifier = +5)
+    - `STRONG_BEAR`: `92` (modifier = +10)
 - **Unit Tests**: [`tests/test_component_scanner.py`](../tests/test_component_scanner.py)
 
 ---
@@ -94,8 +103,8 @@
 - **Source File**: [`app/reversal_scanner.py`](../app/reversal_scanner.py)
 - **Primary Function**: `start(force: bool = False)`
 - **Implementation & Business Rules**:
-  - `RSI(14) < 35.0` or `Close <= BB_Lower(20, 2.0)`
-  - `_is_symbol_in_reversal_cooldown(symbol, cooldown_days=5)`
+  - `RSI(14) < 45.0` or `Close <= BB_Lower(20, 2.0)`
+  - `_is_symbol_in_reversal_cooldown(symbol, cooldown_days=30)` (Outcome-aware cooldown on failed reversals)
 - **Unit Tests**: [`tests/test_scanner_smoke.py`](../tests/test_scanner_smoke.py)
 
 ---
@@ -137,7 +146,7 @@
 | `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
 | `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
 | `MIN_CLOSE_LOCATION` | `0.60` | `swing_utils.py` | Minimum trigger candle close location |
-| `MAX_UPPER_WICK` | `0.40` | `swing_utils.py` | Maximum upper wick ratio threshold |
+| `MAX_UPPER_WICK` | `0.25` | `swing_utils.py` | Maximum upper wick ratio threshold |
 
 ### 2.3 Database & Connection Pooling
 | Constant Name | Default Value | Target Subsystem | Architectural Purpose |
@@ -180,10 +189,10 @@ This matrix establishes direct traceability from key system capabilities to sour
 
 - **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
-- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$). Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$) and upper wick ratio $\le 0.25$. Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
 - **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels. If a natural cluster exists with $RR < 1.5$, the setup is rejected (`REJ_LOW_RR`).
 - **Synthetic Target**: A fallback target generated ONLY when no structural resistance cluster exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
-- **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
+- **Per-Scanner Cooldown**: A safety restriction preventing identical alerts for the same symbol within a scanner-specific window (EOD: 4 days, Reversal: 4 days, Pullback: 1 day), scoped by `(symbol, scanner_name)` composite key.
 - **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 
 ---
