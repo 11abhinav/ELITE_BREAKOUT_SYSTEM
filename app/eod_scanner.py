@@ -304,14 +304,19 @@ def _start_wrapper(force: bool = False):
                         if symbol in get_live_blacklist():
                             continue
 
-                        if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
+                        # Robust symbol resolution across .NS / .BO suffixes
+                        ticker_data = all_ticker_data.get(symbol)
+                        if ticker_data is None:
+                            ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
+
+                        if ticker_data is None:
                             rejection_counts["no_data"] += 1
                             provider_stats_counts["EMPTY_DATA"] += 1
                             scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
                             continue
 
-                        if isinstance(all_ticker_data[symbol], ProviderResult):
-                            res = all_ticker_data[symbol]
+                        if isinstance(ticker_data, ProviderResult):
+                            res = ticker_data
                             provider_stats_counts[res.name] += 1
                             if res != ProviderResult.SUCCESS:
                                 rejection_counts["no_data"] += 1
@@ -320,7 +325,7 @@ def _start_wrapper(force: bool = False):
                         else:
                             provider_stats_counts["SUCCESS"] += 1
 
-                        ticker = all_ticker_data[symbol].copy()
+                        ticker = ticker_data.copy()
 
                         if ticker.empty:
                             rejection_counts["no_data"] += 1
