@@ -270,7 +270,8 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
                     SELECT o.alert_id, o.symbol, o.scanner, o.regime, o.regime_score, o.base_score,
                            o.rs_bonus, o.sector_bonus, o.rs_percentile, o.sector_name, o.rr_at_alert,
                            o.exit_reason, o.realized_rr, o.max_favorable_excursion_r, o.max_adverse_excursion_r,
-                           o.exit_timestamp, o.alert_timestamp, a.score
+                           o.exit_timestamp, o.alert_timestamp, a.score,
+                           o.earnings_flag, o.days_to_earnings, o.earnings_severity
                     FROM alert_outcomes o
                     LEFT JOIN alerts a ON o.alert_id = a.id
                     WHERE o.exit_timestamp IS NOT NULL
@@ -295,8 +296,12 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
                         "max_adverse_excursion_r": float(r[14] or 0.0),
                         "exit_timestamp": r[15],
                         "alert_timestamp": r[16],
-                        "final_score": r[17] if r[17] is not None else ((r[5] or 0) + (r[6] or 0) + (r[7] or 0))
+                        "final_score": r[17] if r[17] is not None else ((r[5] or 0) + (r[6] or 0) + (r[7] or 0)),
+                        "earnings_flag": bool(r[18]) if len(r) > 18 and r[18] is not None else False,
+                        "days_to_earnings": r[19] if len(r) > 19 and r[19] is not None else 999,
+                        "earnings_severity": r[20] if len(r) > 20 and r[20] is not None else "NONE"
                     })
+
     except Exception as e:
         logger.exception(f"Error fetching alert_outcomes for analytics: {e}")
 
@@ -330,6 +335,14 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
     regime_bull = [r for r in records if r["regime"] in ("BULL", "STRONG_BULL")]
     regime_other = [r for r in records if r["regime"] not in ("BULL", "STRONG_BULL")]
 
+    # 4b. Granular Earnings Risk Attribution Buckets
+    ed_today = [r for r in records if r["days_to_earnings"] == 0]
+    ed_1d_before = [r for r in records if r["days_to_earnings"] == 1]
+    ed_2d_before = [r for r in records if r["days_to_earnings"] == 2]
+    ed_3_5d_before = [r for r in records if 3 <= r["days_to_earnings"] <= 5]
+    ed_1d_after = [r for r in records if r["days_to_earnings"] == -1]
+    ed_normal = [r for r in records if r["days_to_earnings"] > 5 or r["days_to_earnings"] < -1 or not r["earnings_flag"]]
+
     feature_attribution = {
         "relative_strength": {
             "rs_ge_80": _compute_metrics_block(rs_ge_80),
@@ -342,8 +355,17 @@ def compute_advanced_outcome_analytics() -> Dict[str, Any]:
         "macro_regime": {
             "bull_regime": _compute_metrics_block(regime_bull),
             "non_bull_regime": _compute_metrics_block(regime_other),
+        },
+        "earnings_window": {
+            "results_today": _compute_metrics_block(ed_today),
+            "one_day_before": _compute_metrics_block(ed_1d_before),
+            "two_days_before": _compute_metrics_block(ed_2d_before),
+            "three_to_five_before": _compute_metrics_block(ed_3_5d_before),
+            "one_day_after": _compute_metrics_block(ed_1d_after),
+            "normal_trades": _compute_metrics_block(ed_normal),
         }
     }
+
 
     # 5. Score Band Expectancy
     score_bands_result = []

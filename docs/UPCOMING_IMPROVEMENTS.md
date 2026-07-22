@@ -2,14 +2,14 @@
 
 > **Canonical Roadmap Document**: This document outlines the prioritized roadmap of remaining upcoming architectural, quantitative, risk management, and analytics enhancements for the **Elite Breakout System**.
 >
-> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-07, and F-13** are **100% IMPLEMENTED & VERIFIED** in commit `2402baaf` with 280 passing tests.
+> **Status Summary**: Features **F-01, F-03, F-04, F-05, F-06, F-07, F-13, and F-14** are **100% IMPLEMENTED & VERIFIED** in commit `316cabbc` with 284 passing tests.
 
 | Roadmap Metadata | Value |
 |---|---|
 | **Document Target** | Active & Remaining System Enhancement Blueprint |
 | **Primary Focus** | Backtesting, Portfolio Constraints, & Execution Risk |
-| **Governance Standard** | ANTIGRAVITY Rules 1-11 (Impact Analysis, RULE 10 Parameter Rationales) |
-| **Baseline Revision** | Commit [`2402baaf`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/SYSTEM_RECONSTRUCTION_SPEC.md) (`origin/main`) |
+| **Governance Standard** | ANTIGRAVITY Rules 1-12 (Impact Analysis, RULE 10 Parameter Rationales, RULE 12 Change Explanations) |
+| **Baseline Revision** | Commit `316cabbc` (`origin/main`) |
 
 ---
 
@@ -18,7 +18,6 @@
 | Feature ID | Category / Name | Priority | Recommendation | Complexity | Target Subsystem | Architectural Rationale |
 |---|---|---|---|---|---|---|
 | **F-02** | **Replay Backtest Harness** | **P0** | ⭐ Mandatory | High | `app/backtest/` | Allows replaying 2-3 years of historical NSE data through exact production code paths. |
-| **F-06** | **Earnings-Date Blackout Filter** | **P1** | ✅ Implement | Low | `app/scanners/` | Suppresses or flags new alerts $N$ days before earnings results to prevent gap-down losses. |
 | **F-08** | **Portfolio-Level Risk Constraints** | **P2** | ✅ Implement | Medium | `app/risk_engine.py` | Enforces `MAX_POSITION_PCT`, max open positions, sector concentration, and daily risk budgets. |
 | **F-09** | **Delivery % Institutional Conviction** | **P2** | ✅ Implement | Low | `app/daily_builder.py` | Awards quality scoring bonus for high NSE delivery % on breakout day. |
 | **F-10** | **Gap-Aware Execution Risk** | **P2** | ⚠️ Investigate | Medium | `app/sl_target_helper.py` | Flags high-gap frequency stocks and adjusts risk budget for illiquidity slippage. |
@@ -28,7 +27,7 @@
 
 ---
 
-# 2. Implemented & Verified Upgrades Log (Commit `2402baaf`)
+# 2. Implemented & Verified Upgrades Log
 
 | Feature ID | Feature Name | Implementation Status | Target Module | Verified Capabilities |
 |---|---|---|---|---|
@@ -36,8 +35,11 @@
 | **F-03** | **Relative Strength (RS) vs Nifty 50** | ✅ **COMPLETED** | `app/macro_utils.py`<br>`app/eod_scanner.py` | 63-day RS rating relative to Nifty 50 over active scan universe; awards +10 pt RS bonus when $RS \ge 80th$ percentile. |
 | **F-04** | **Cross-Scanner Confluence Tier** | ✅ **COMPLETED** | `app/confluence_engine.py` | Independent 3-signal confluence (`FM_Score >= 75` + Signal + `RS >= 80%`) promoting trades to `ELITE_CONFLUENCE_ALERT`. |
 | **F-05** | **Financial-Sector Scorer (`_score_fin`)** | ✅ **COMPLETED** | `app/daily_builder.py` | Pure fundamental banking scorer evaluating Net NPA trend, Banded NIM (3.0-6.0%), CAR, and CASA ratio with safe fallbacks. |
+| **F-06** | **Earnings Calendar Warning Integration** | ✅ **COMPLETED** | `app/earnings_calendar.py`<br>`app/message_formatter.py` | Provider abstraction, PostgreSQL caching, 08:00 AM IST refresh, graded risk warnings (🔴 Today, 🟠 1-2d, 🟡 3-5d), and F-13 granular attribution buckets. |
 | **F-07** | **Sector & Industry Regime Layer** | ✅ **COMPLETED** | `app/macro_utils.py` | Ranks 14 NSE sector indices using blended 63d/21d lookback and 3-session hysteresis rule for +8 pt Tailwind bonus. |
 | **F-13** | **Advanced Outcome Analytics & Attribution** | ✅ **COMPLETED** | `app/outcome_tracker.py`<br>`app/admin_dashboard.html` | Preview Mode Analytics engine computing dual confidence badges, feature attribution, score band expectancy, capture efficiency %, and rolling validation. |
+| **F-14** | **Quality Trajectory Scoring Engine** | ✅ **COMPLETED** | `app/quality_trajectory.py`<br>`app/daily_builder.py` | Multi-quarter slope & consistency scoring across 6 fundamental pillars (0-20 pts), graduated CFO/PAT, Trajectory Grade (A/B/C/D), and component details JSON. |
+
 
 
 ---

@@ -66,17 +66,24 @@ flowchart TD
 ### 2.6 Advanced Outcome Analytics & Attribution (`app/outcome_tracker.py` F-13)
 - Computes dual confidence levels (`overall_confidence` + per-metric `confidence`).
 - Renders **Preview Mode** card on Admin UI (`total_completed < 100`).
-- Computes Execution Capture Efficiency ($\frac{\text{Avg Realized } R}{\text{Avg MFE } R} \times 100\%$), Feature Attribution (RS, Sector, Regime), Score Band Expectancy (`SCORE_BANDS`), and Rolling Validation (30d, 90d, 180d).
+- Computes Execution Capture Efficiency ($\frac{\text{Avg Realized } R}{\text{Avg MFE } R} \times 100\%$), Feature Attribution (RS, Sector, Regime, Earnings Window), Score Band Expectancy (`SCORE_BANDS`), and Rolling Validation (30d, 90d, 180d).
+
+### 2.7 Earnings Calendar & Quality Trajectory Subsystems
+- **Earnings Calendar (`app/earnings_calendar.py`)**: `EarningsProvider` interface, `YahooEarningsProvider`, PostgreSQL `earnings_calendar` table, 08:00 AM IST refresh, graded risk classification (🔴 Today, 🟠 Soon 1-2d, 🟡 Medium 3-5d, 🟢 None), and gap-risk message formatters.
+- **Quality Trajectory Engine (`app/quality_trajectory.py`)**: Multi-quarter linear regression trend slope & variance scoring across 6 fundamental pillars (0-20 pts), graduated CFO/PAT scoring, Trajectory Grade (A/B/C/D), and JSON breakdown storage.
 
 ---
 
 ## 3. Core Database Schemas
 
 ### `alerts` Table
-Primary trade alerts table with composite key `(symbol, breakout_type, scanner, alert_date)`.
+Primary trade alerts table with composite key `(symbol, breakout_type, scanner, alert_date)`. Contains `earnings_flag`, `days_to_earnings`, `earnings_date`, `earnings_severity`, `warning_msg`, `trajectory_score`, `trajectory_grade`, and `trajectory_details`.
 
 ### `alert_outcomes` Table
-Composite key `(alert_id, leg)`. Stores feature snapshot (`base_score`, `rs_bonus`, `sector_bonus`, `rs_percentile`, `regime_score`, `sector_name`, `rr_at_alert`, `atr_pct_at_alert`), daily running MFE/MAE excursions, and trade exit classification (`T1_HIT`, `SL_HIT`, `AMBIGUOUS_SL_HIT`, `EXPIRED_POS`, `EXPIRED_NEG`).
+Composite key `(alert_id, leg)`. Stores feature snapshot (`base_score`, `rs_bonus`, `sector_bonus`, `rs_percentile`, `regime_score`, `sector_name`, `rr_at_alert`, `atr_pct_at_alert`, `earnings_flag`, `days_to_earnings`, `earnings_date`, `earnings_severity`), daily running MFE/MAE excursions, and trade exit classification (`T1_HIT`, `SL_HIT`, `AMBIGUOUS_SL_HIT`, `EXPIRED_POS`, `EXPIRED_NEG`).
+
+### `earnings_calendar` Table
+Primary key `symbol`. Stores `earnings_date`, `date_status`, and `updated_at`.
 
 ### `sector_rankings` Table
 Composite key `(sector_symbol, ranking_date)`. Stores blended scores, raw ranks, hysteresis counters (`consecutive_top3_days DEFAULT 0`), and `effective_status`.
@@ -89,5 +96,6 @@ To verify an AI reconstruction of the system:
 1. Clone codebase and initialize PostgreSQL.
 2. Set `DATABASE_URL` environment variable.
 3. Run `python3 -m pytest`.
-4. Ensure all 280 system tests pass cleanly.
+4. Ensure all 284 system tests pass cleanly.
+
 

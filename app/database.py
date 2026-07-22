@@ -865,6 +865,15 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
 
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS earnings_calendar (
+                        symbol VARCHAR(20) PRIMARY KEY,
+                        earnings_date DATE NOT NULL,
+                        date_status VARCHAR(20) DEFAULT 'ESTIMATED',
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS alert_outcomes (
                         alert_id INTEGER REFERENCES alerts(id),
                         leg INTEGER DEFAULT 1,
@@ -891,11 +900,32 @@ def init_db():
                         holding_period_bars INTEGER,
                         max_favorable_excursion_r NUMERIC(5, 2) DEFAULT 0.0,
                         max_adverse_excursion_r NUMERIC(5, 2) DEFAULT 0.0,
+                        earnings_flag BOOLEAN DEFAULT FALSE,
+                        days_to_earnings INTEGER DEFAULT 999,
+                        earnings_date DATE,
+                        earnings_severity VARCHAR(20) DEFAULT 'NONE',
+                        date_status VARCHAR(20) DEFAULT 'UNKNOWN',
                         PRIMARY KEY (alert_id, leg)
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_date DATE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_severity VARCHAR(20) DEFAULT 'NONE'")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS date_status VARCHAR(20) DEFAULT 'UNKNOWN'")
+
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_date DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_severity VARCHAR(20) DEFAULT 'NONE'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS date_status VARCHAR(20) DEFAULT 'UNKNOWN'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS warning_msg TEXT DEFAULT ''")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_score INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_grade VARCHAR(5) DEFAULT 'N/A'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_details JSONB DEFAULT '{}'::jsonb")
+
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS sector_rankings (
@@ -1548,20 +1578,43 @@ def save_alert_if_new(
                         rr_val = round((float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist, 2) if entry_price and target_1 else 1.5
                         atr_pct_val = round((risk_dist / float(entry_price or 1.0)) * 100.0, 2) if entry_price else 2.0
                         
+                        # Fetch earnings info for snapshot
+                        try:
+                            from earnings_calendar import earnings_calendar_service
+                            ed_info = earnings_calendar_service.get_earnings_info(symbol)
+                        except Exception:
+                            ed_info = {"earnings_flag": False, "days_to_earnings": 999, "earnings_date": None, "earnings_severity": "NONE", "date_status": "UNKNOWN", "warning_msg": ""}
+
+                        # Update alert table with earnings warning and metadata
+                        try:
+                            cur.execute("""
+                                UPDATE alerts
+                                SET earnings_flag = %s, days_to_earnings = %s, earnings_date = %s,
+                                    earnings_severity = %s, date_status = %s, warning_msg = %s
+                                WHERE id = %s
+                            """, (ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
+                                  ed_info["earnings_severity"], ed_info["date_status"], ed_info["warning_msg"], alert_id))
+                        except Exception:
+                            pass
+
                         try:
                             cur.execute("""
                                 INSERT INTO alert_outcomes
                                     (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
                                      rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2,
+                                     earnings_flag, days_to_earnings, earnings_date, earnings_severity, date_status,
                                      alert_timestamp)
-                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                 ON CONFLICT (alert_id, leg) DO NOTHING
                             """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
                                   base_score_val, rs_bonus_val, sector_bonus_val, rs_pct_val, sector_name_val,
-                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2))
+                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2,
+                                  ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
+                                  ed_info["earnings_severity"], ed_info["date_status"]))
                             conn.commit()
                         except Exception as oe:
                             logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
+
                         
                         msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
                         insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)

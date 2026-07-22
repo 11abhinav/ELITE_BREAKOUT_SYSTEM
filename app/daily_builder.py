@@ -830,6 +830,25 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
     desc_list = [CAT_DESCRIPTIONS.get(c, "") for c in cats]
     cat_desc = " | ".join(filter(None, desc_list))
 
+    try:
+        from quality_trajectory import compute_trajectory_score
+        import json
+        fund_dict = {
+            "roce": roce,
+            "roe": roe,
+            "opm": opm,
+            "debt_to_equity": debt_equity,
+            "cfo_pat": 0.90 if roe and roe >= 15 else 0.50
+        }
+        traj = compute_trajectory_score(fund_dict)
+    except Exception:
+        traj = {
+            "trajectory_score": 0,
+            "trajectory_grade": "D",
+            "trajectory_details": {}
+        }
+        import json
+
     return {
         "Stock":                symbol,
         "Category":             " + ".join(cats),
@@ -856,8 +875,12 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         "YOY Profit %":         round(yoy_profit, 2),
         "5Y EPS %":             round(eps_5y,     2) if eps_5y is not None else None,
         "Fundamental Score":    score,
+        "Trajectory_Score":     traj["trajectory_score"],
+        "Trajectory_Grade":     traj["trajectory_grade"],
+        "Trajectory_Details":   json.dumps(traj["trajectory_details"]),
         "Scan Time":            datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
     }
+
 
 # =====================================================================================
 # SYMBOL NORMALIZATION (Fix TradingView symbols for Yahoo Finance)

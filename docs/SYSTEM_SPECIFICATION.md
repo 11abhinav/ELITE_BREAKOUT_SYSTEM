@@ -98,6 +98,26 @@
   - **Feature Attribution**: Compares $RS \ge 80$ vs $<80$, `sector_bonus > 0` vs $0$, and `BULL` vs `OTHER` regime.
   - **Configurable Score Bands**: Reads `SCORE_BANDS` from [`app/config.py`](../app/config.py).
 
+### 1.9 Feature F-06 & F-14: Earnings Calendar Warning Integration & Quality Trajectory Engine
+
+#### Architecture Overview
+1. **Earnings Calendar Subsystem (`app/earnings_calendar.py`)**:
+   - `EarningsProvider` abstract base class with `YahooEarningsProvider` concrete implementation.
+   - Caches upcoming earnings dates in PostgreSQL table `earnings_calendar(symbol, earnings_date, date_status, updated_at)`.
+   - Daily 08:00 AM IST scheduled refresh (`refresh_earnings_calendar()`) decouples network fetch calls from scan execution.
+   - Non-blocking DB lookup (`get_earnings_info()`) classifies graded earnings risk severity:
+     - `HIGH_TODAY` (🔴 Results Today)
+     - `HIGH_SOON` (🟠 Results in 1-2 days)
+     - `MEDIUM_WEEK` (🟡 Results in 3-5 days)
+     - `NONE` (🟢 No Warning)
+   - Injects gap-risk warning banner into Telegram and WebPush payloads.
+2. **Quality Trajectory Scorer (`app/quality_trajectory.py`)**:
+   - Computes multi-quarter trend slope and variance across 6 fundamental pillars (0-20 pts): ROCE, ROE, OPM, Debt/Equity reduction, Interest Coverage expansion, and graduated CFO/PAT ratio.
+   - Maps total score to `Trajectory_Grade`: **A** (18-20), **B** (15-17), **C** (10-14), **D** (<10).
+   - Stores detailed component breakdown JSON (`trajectory_details`).
+3. **F-13 Granular Attribution**:
+   - Extends `compute_advanced_outcome_analytics()` to track trade counts, win rate %, average $R$, expectancy, and capture efficiency across 6 granular risk buckets: `results_today`, `one_day_before`, `two_days_before`, `three_to_five_before`, `one_day_after`, and `normal_trades`.
+
 ---
 
 ## 2. Configuration Reference Appendix & Parameter Rationales (RULE 10)
@@ -129,8 +149,11 @@ Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter 
 | **Pullback Retracement Detection** | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | [`tests/test_pullback_pipeline.py`](../tests/test_pullback_pipeline.py) |
 | **Outcome & Excursion Tracking** | [`app/outcome_tracker.py`](../app/outcome_tracker.py) | [`tests/test_f01_to_f07_quant_engine.py`](../tests/test_f01_to_f07_quant_engine.py) |
 | **Advanced Outcome Analytics & Attribution (F-13)** | [`app/outcome_tracker.py`](../app/outcome_tracker.py) | [`tests/test_f13_advanced_analytics.py`](../tests/test_f13_advanced_analytics.py) |
+| **Earnings Calendar Integration (F-06)** | [`app/earnings_calendar.py`](../app/earnings_calendar.py) | [`tests/test_earnings_calendar.py`](../tests/test_earnings_calendar.py) |
+| **Quality Trajectory Scorer (F-14)** | [`app/quality_trajectory.py`](../app/quality_trajectory.py) | [`tests/test_quality_trajectory.py`](../tests/test_quality_trajectory.py) |
 | **Cross-Scanner Confluence Engine** | [`app/confluence_engine.py`](../app/confluence_engine.py) | [`tests/test_f01_to_f07_quant_engine.py`](../tests/test_f01_to_f07_quant_engine.py) |
 | **SL / Target Confluence Engine** | [`app/sl_target_helper.py`](../app/sl_target_helper.py) | [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py) |
 | **Dashboard REST API & Analytics** | [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_api.py`](../tests/test_api.py) |
 | **Deployment Release Gates** | [`app/main.py`](../app/main.py) / [`app/dashboard_server.py`](../app/dashboard_server.py) | [`tests/test_production_deployment_gates.py`](../tests/test_production_deployment_gates.py) |
+
 
