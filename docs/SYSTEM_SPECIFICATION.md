@@ -1,13 +1,13 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `ad5d0c4e`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `214f19ae`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 >
 > **Scope Notice**: This specification covers the core architectural modules that define the system's behavior. Supporting utility modules, helper libraries, and generated artifacts are intentionally omitted except where they materially affect system behavior.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
-| **Git Commit Hash** | `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
+| **Git Commit Hash** | `214f19aedbb592aad2a561edbdccba542519d4b8` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -130,15 +130,24 @@
 
 ## 2. Configuration Reference Appendix (`app/config.py`)
 
+### 2.1 Risk Management & Target Configuration
 | Constant Name | Default Value | Target Subsystem | Architectural Purpose |
 |---|---|---|---|
 | `MAX_RISK_PCT` | `8.0` | `sl_target_helper.py` | Caps maximum allowed stop loss distance from entry |
 | `MIN_NATURAL_RR` | `1.5` | `sl_target_helper.py` | Minimum natural reward-to-risk threshold for alerts |
+
+### 2.2 Scanner & Trigger Thresholds
+| Constant Name | Default Value | Target Subsystem | Architectural Purpose |
+|---|---|---|---|
 | `PULLBACK_MIN_DEPTH` | `3.0` | `pullback_pipeline.py` | Minimum pullback retracement percentage |
 | `PULLBACK_MAX_DEPTH` | `15.0` | `pullback_pipeline.py` | Maximum pullback retracement percentage |
 | `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
 | `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
 | `MIN_CLOSE_LOCATION` | `0.60` | `swing_utils.py` | Minimum trigger candle close location |
+
+### 2.3 Database & Connection Pooling
+| Constant Name | Default Value | Target Subsystem | Architectural Purpose |
+|---|---|---|---|
 | `DB_MIN_CONN` | `2` | `database.py` | Minimum PostgreSQL connection pool size |
 | `DB_MAX_CONN` | `30` | `database.py` | Maximum PostgreSQL connection pool size |
 
@@ -190,6 +199,6 @@ This matrix establishes direct traceability from key system capabilities to sour
 | Attribute | Value |
 |---|---|
 | **Discovered Core Subsystems** | Core architectural modules discovered under `app/` during AST analysis |
-| **Verification Basis** | Verified against test suite present at commit `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
-| **Verified Against Commit** | `ad5d0c4ec498a2a6147a847c831c76e3bf908607` |
-| **Limitations** | Reconstructed from implementation at commit `ad5d0c4e`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |
+| **Verification Basis** | Verified against test suite present at commit `214f19aedbb592aad2a561edbdccba542519d4b8` |
+| **Verified Against Commit** | `214f19aedbb592aad2a561edbdccba542519d4b8` |
+| **Limitations** | Reconstructed from implementation at commit `214f19ae`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |

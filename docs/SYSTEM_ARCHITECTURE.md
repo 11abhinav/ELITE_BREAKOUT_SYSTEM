@@ -1,11 +1,11 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM ARCHITECTURE SPECIFICATION
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `214f19ae`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Architecture & High-Level System Guide ("What exists and how does it work?") |
-| **Git Commit Hash** | `920de35e7eedd09231a93740b47b3f08e1548cdc` |
+| **Git Commit Hash** | `214f19aedbb592aad2a561edbdccba542519d4b8` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -30,7 +30,23 @@ graph TD
 
 ---
 
-## 2. Component Catalog
+## 2. Deployment Architecture
+
+The production environment executes inside a containerized cloud runtime (Railway PaaS):
+
+```mermaid
+graph TD
+    Railway[Railway Cloud Container] --> Process[Python Main Process app/main.py]
+    Process --> Sched[Wall-Clock Scheduler Thread app/main.py]
+    Process --> Flask[Flask HTTP Web Server Thread app/dashboard_server.py]
+    Process --> DB[(PostgreSQL Connection Pool min=2, max=30 app/database.py)]
+    Process --> Telegram[Async Telegram Dispatch Engine app/telegram_engine.py]
+    Process --> Push[WebPush VAPID Notification Engine app/push_service.py]
+```
+
+---
+
+## 3. Component Catalog
 
 The following catalog defines every subsystem, its primary responsibility, dependencies, and consuming modules:
 
@@ -56,7 +72,7 @@ The following catalog defines every subsystem, its primary responsibility, depen
 
 ---
 
-## 3. Module Import Hierarchy & Dependency Tree
+## 4. Module Import Hierarchy & Dependency Tree
 
 ```
 app/main.py
@@ -81,7 +97,7 @@ app/main.py
 
 ---
 
-## 4. State Transition & Alert Lifecycle
+## 5. State Transition & Alert Lifecycle
 
 The following lifecycle details the exact state progression of an equity symbol through scanning, scoring, persistence, and dispatch:
 
@@ -102,7 +118,23 @@ flowchart TD
 
 ---
 
-## 5. Scheduler Architecture
+## 6. Failure Handling & Error Recovery Flowchart
+
+The system implements multi-tiered fault recovery for external API rate limits, database drops, and data quality gaps:
+
+```mermaid
+flowchart TD
+    Data[Market Data Fetch app/data_provider.py] -->|API Rate Limit / Timeout| Retry[Exponential Backoff Retry 3x]
+    Retry -->|Success| Process[Process Candle Data]
+    Retry -->|Exhausted| Fallback[Fall Back to YFinance / Parquet Cache]
+    Fallback -->|Success| Process
+    Fallback -->|Failure| Skip[Log Warning & Skip Symbol]
+    Skip --> Cont[Continue Scanner Execution]
+```
+
+---
+
+## 7. Scheduler Architecture
 
 Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
@@ -118,7 +150,23 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 ---
 
-## 6. System Glossary
+## 8. Architecture Decision Records (ADR)
+
+- **ADR-01: PostgreSQL Storage Engine**  
+  *Decision*: Selected PostgreSQL via `psycopg2.pool.ThreadedConnectionPool` over SQLite.  
+  *Rationale*: ACID compliance, thread safety across concurrent Flask web threads and background scanner workers, and native `JSONB` support for alert metadata.
+
+- **ADR-02: Parquet Watchlist Caching**  
+  *Decision*: Store daily fundamental scoring matrices in Apache Parquet format (`data/elite_fundamental_watchlist.parquet`).  
+  *Rationale*: High compression ratio and instantaneous columnar read performance into Pandas DataFrames during active scanner runs.
+
+- **ADR-03: Dynamic Bayesian Regime Weighting**  
+  *Decision*: Use `bayesian_updater.py` to dynamically adjust technical and fundamental scoring weights based on market regime (`BULL`, `BEAR`, `SIDEWAYS`).  
+  *Rationale*: Fixed scoring models underperform during regime shifts; Bayesian weighting prioritizes capital preservation during market pullbacks.
+
+---
+
+## 9. System Glossary
 
 - **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
@@ -130,7 +178,7 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 ---
 
-## 7. Out of Scope
+## 10. Out of Scope
 
 The following capabilities are intentionally outside the scope of this core scanning engine:
 - **Broker Direct Auto-Execution**: Automatic order routing/execution to live brokerage accounts (Fyers/Zerodha).
@@ -140,7 +188,7 @@ The following capabilities are intentionally outside the scope of this core scan
 
 ---
 
-## 8. Verification & Governance Limitations
+## 11. Verification & Governance Limitations
 
-- **Coverage Status**: Verified against AST inventory generated from commit `920de35e7eedd09231a93740b47b3f08e1548cdc`.
-- **Limitations**: This document is reconstructed from the implementation at commit `920de35e7eedd09231a93740b47b3f08e1548cdc`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.
+- **Coverage Status**: Verified against AST inventory generated from commit `214f19aedbb592aad2a561edbdccba542519d4b8`.
+- **Limitations**: This document is reconstructed from the implementation at commit `214f19ae`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.
