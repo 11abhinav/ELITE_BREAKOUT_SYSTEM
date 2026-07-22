@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 def clear_poisoned_mappings():
     """Cleans up corrupted, poisoned, or empty symbol mapping records from PostgreSQL."""
     try:
+        from database import init_db
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # Delete empty or corrupted symbol master mappings
