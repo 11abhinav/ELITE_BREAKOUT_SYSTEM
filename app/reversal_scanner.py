@@ -1145,7 +1145,15 @@ def _run_scan(force: bool = False):
 
     elapsed_time_final = (datetime.now(IST) - scan_start).total_seconds()
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time_final:.2f}s | Found {total_alerts} bottoming stocks.")
+
+    try:
+        from memory_profiler import run_purge_with_telemetry
+        run_purge_with_telemetry("Reversal Scanner Complete")
+    except Exception as me:
+        logger.debug(f"Reversal memory purge failed: {me}")
+
     return total_alerts
+
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("reversal_scanner")

@@ -910,6 +910,12 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         f"{len(winners)}W / {len(losers)}L / {len(open_p)} OPEN | "
         f"SL triggers={len(sl_closed)} | Target hits={len(target_closed)}"
     )
+    try:
+        from price_cache import clear_price_cache
+        clear_price_cache()
+    except Exception:
+        pass
+
 
 
 # =====================================================================================

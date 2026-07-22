@@ -280,6 +280,11 @@ class BatchMemoryTracker:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.collect_gc:
+            try:
+                from price_cache import clear_price_cache
+                clear_price_cache()
+            except Exception:
+                pass
             gc.collect()
             
             try:
@@ -293,6 +298,7 @@ class BatchMemoryTracker:
                         logger.warning(f"🧹 [MALLOC_TRIM] Reclaimed {(trim_rss_before - trim_rss_after):.1f} MB of native arena fragmentation in Batch {self.batch_num}!")
             except Exception as e:
                 pass
+
         rss_after_cleanup = self.process.memory_info().rss / (1024 * 1024)
         elapsed = time.monotonic() - self.start_time
         

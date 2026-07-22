@@ -275,7 +275,16 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
 
     if stale_1h > 0:
         logger.info(f"📊 Stale data summary | 1H: {stale_1h}")
+
+    # Defensive memory purge after Phase A execution
+    try:
+        from memory_profiler import run_purge_with_telemetry
+        run_purge_with_telemetry("MultiTF Phase A Complete")
+    except Exception as me:
+        logger.debug(f"Phase A memory purge failed: {me}")
+
     return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_1h, "save_failures": 0}
+
 def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.
@@ -901,31 +910,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             logger.error(f"OpportunityManager failed to process: {e}")
 
     # ── Memory Cleanup Phase ──────────────────────────────────────────────
-    unique_needed = set(needs_30m) | set(needs_15m) | set(needs_5m)
-    unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
-    
-    try:
-        import os, psutil, gc
-        process = psutil.Process(os.getpid())
-        rss_before = process.memory_info().rss / 1024 / 1024
-        
-        # Release large dictionaries holding many DataFrames
-        del data_30m
-        del data_15m
-        del data_5m
-        
-        rss_after_del = process.memory_info().rss / 1024 / 1024
-        
-        # Reclaim cyclic references
-        gc.collect()
-        
-        rss_after_gc = process.memory_info().rss / 1024 / 1024
-        logger.info(f"🧹 [MEMORY] Lower TF Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
-    except Exception as e:
-        logger.debug(f"Memory cleanup logging failed: {e}")
-
     unique_needed = set(needs_30m + needs_15m + needs_5m)
-    
+    unique_fetched = set(data_30m.keys()) | set(data_15m.keys()) | set(data_5m.keys())
+
+    try:
+        from memory_profiler import run_purge_with_telemetry
+        run_purge_with_telemetry("MultiTF Phase B/C/D Complete")
+    except Exception as e:
+        logger.debug(f"MultiTF lower TF memory purge failed: {e}")
+
     if any([stale_30m, stale_15m, stale_5m]):
         logger.info(
             f"📊 Stale data summary\n"
@@ -934,6 +927,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             f"5m : {stale_5m}"
         )
     return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures}
+
 
 def run_sweeper(is_test_mode=False):
     if is_test_mode:

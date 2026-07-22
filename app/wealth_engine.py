@@ -1285,7 +1285,14 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             
         _prof_l4.__exit__(None, None, None)
 
+        try:
+            from memory_profiler import run_purge_with_telemetry
+            run_purge_with_telemetry("Wealth Engine Complete")
+        except Exception as me:
+            logger.debug(f"Wealth Engine memory purge failed: {me}")
+
     except Exception as e:
+
         logger.exception("❌ CRITICAL ERROR in Wealth Engine")
         import database
         if not getattr(database, "DONT_SAVE_WEALTH", False):

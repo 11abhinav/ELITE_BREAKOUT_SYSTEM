@@ -993,7 +993,15 @@ def _start_wrapper(force: bool = False):
             logger.info("\n" + "=" * 80)
             logger.info(f"🛑🛑🛑 [COMPLETE] EOD SCANNER DONE | {elapsed_time:.2f}s | Alerts={total_alerts} | Status={status} 🛑🛑🛑")
             logger.info("=" * 80 + "\n")
+
+            try:
+                from memory_profiler import run_purge_with_telemetry
+                run_purge_with_telemetry("EOD Scanner Complete")
+            except Exception as me:
+                logger.debug(f"EOD memory purge failed: {me}")
+
         return total_alerts
+
 
     except Exception as e:
         logger.exception("❌ CRITICAL EOD SCAN ERROR")

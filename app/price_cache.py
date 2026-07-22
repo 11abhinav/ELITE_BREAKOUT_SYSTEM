@@ -233,6 +233,13 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
+        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes
+        if len(_cache) > 8 and cache_key not in _cache:
+            keys_purged = len(_cache)
+            _cache.clear()
+            gc.collect()
+            logger.info(f"🧹 [CACHE BOUNDED GUARD] Purged {keys_purged} cache keys to prevent memory growth.")
+
         _cache[cache_key] = {
             "data": result,
             "ts": time.monotonic(),
@@ -240,6 +247,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
         }
 
     return result
+
 
 import os
 from config import DATA_DIR
