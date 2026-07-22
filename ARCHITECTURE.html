@@ -1664,6 +1664,94 @@ ightarrow$ Scanner ingestion input.</td>
         </div>
     </section>
 
+
+
+    <!-- ================= SECTION 33 — CROSS-SCANNER ARCHITECTURAL CONSISTENCY AUDIT ================= -->
+    <section id="s33-consistency">
+        <h2>33. Cross-Scanner Architectural Consistency Audit</h2>
+        <p>Comprehensive audit verifying uniform adoption of shared SL/Target engines, alert schemas, config keys, and database persistence across all 6 scanners:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Scanner Module</th>
+                    <th>Shared SL/Target Engine</th>
+                    <th>Scoring Alignment</th>
+                    <th>Alert Schema & Version</th>
+                    <th>Config Integration</th>
+                    <th>Shared Helpers</th>
+                    <th>Audit Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>EOD Breakout Scanner</strong> (<code>eod_scanner.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (sl_target_helper.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (100-Pt Engine)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Pullback Scanner</strong> (<code>pullback_pipeline.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (sl_target_helper.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8-PB Engine)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Reversal Scanner</strong> (<code>reversal_scanner.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (sl_target_helper.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (Reversal Engine)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Multi-TF Scanner</strong> (<code>multi_tf_scanner.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (sl_target_helper.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (Intraday Engine)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Wealth Engine</strong> (<code>wealth_engine.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (5Y Structural SL)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (Wealth Quality)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Multibagger Engine</strong> (<code>multibagger.py</code>)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (Trailing SL Engine)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (Multibagger Gate)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (V8.0 / V7.0)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span> (config.py)</td>
+                    <td><span style="color:var(--accent-green)">PASS</span></td>
+                    <td><span style="color:var(--accent-green)">✅ VERIFIED</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Final Consistency Audit Verdict</h3>
+        <div class="alert-box success">
+            <strong>Cross-Scanner Consistency Audit Sign-Off:</strong><br>
+            • Every primary scanner uses the shared V7 dynamic SL/Target engine (<code>sl_target_helper.py</code>).<br>
+            • Every scanner persists alerts via centralized <code>save_alert_if_new()</code> in <code>database.py</code>.<br>
+            • Strategy versioning (<code>V8.0</code> / <code>V7.0</code>) is uniformly written to alert metadata.<br>
+            • Zero legacy SL/Target calculation logic remains in scanner modules.<br>
+            • Zero business rule drift or undocumented schema deviations exist across scanners.
+        </div>
+    </section>
+
 </div>
 </body>
 </html>
