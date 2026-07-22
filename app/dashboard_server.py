@@ -645,6 +645,50 @@ def api_admin_reset_password():
         return jsonify({"error": "Internal server error"}), 500
 
 
+@app.route("/api/near_misses", methods=["GET"])
+@app.route("/api/admin/near_misses", methods=["GET"])
+@login_required
+def api_get_near_misses():
+    """
+    Returns logged near-miss opportunity cost candidates for admin/user dashboard views.
+    Query parameters:
+      - days: Lookback window in days (default: 7)
+      - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL)
+    """
+    days = request.args.get("days", 7, type=int)
+    scanner = request.args.get("scanner", None)
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if scanner:
+                    cur.execute("""
+                        SELECT id, symbol, scanner, breakout_type, gate_name, observed_value,
+                               threshold_value, delta_pct, score, entry_price, stop_loss, target_1,
+                               logged_at, logged_date, status, realized_rr, max_mfe_r
+                        FROM near_misses
+                        WHERE logged_date >= CURRENT_DATE - INTERVAL '%s days' AND scanner = %s
+                        ORDER BY logged_at DESC
+                        LIMIT 200
+                    """, (days, scanner))
+                else:
+                    cur.execute("""
+                        SELECT id, symbol, scanner, breakout_type, gate_name, observed_value,
+                               threshold_value, delta_pct, score, entry_price, stop_loss, target_1,
+                               logged_at, logged_date, status, realized_rr, max_mfe_r
+                        FROM near_misses
+                        WHERE logged_date >= CURRENT_DATE - INTERVAL '%s days'
+                        ORDER BY logged_at DESC
+                        LIMIT 200
+                    """, (days,))
+                rows = [dict(r) for r in cur.fetchall()]
+                return jsonify(serialize_datetimes(rows))
+    except Exception as e:
+        logger.exception("Error fetching near_misses from DB")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
