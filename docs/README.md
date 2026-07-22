@@ -11,7 +11,13 @@
 
 ---
 
+## 📜 Engineering Policies & Governance
+
+- **[ANTIGRAVITY ENGINEERING POLICIES](../ANTIGRAVITY.md)** (`ANTIGRAVITY.md`) — Mandatory documentation synchronization rules, code comment requirements, pre-push checklists, and zero documentation drift policy.
+
+---
+
 ## 🔒 Verification Basis
-- **Git Commit Hash**: `920de35e7eedd09231a93740b47b3f08e1548cdc`
+- **Git Commit Hash**: `214f19aedbb592aad2a561edbdccba542519d4b8`
 - **Generation Date**: `2026-07-22`
 - **Repository Branch**: `main`
