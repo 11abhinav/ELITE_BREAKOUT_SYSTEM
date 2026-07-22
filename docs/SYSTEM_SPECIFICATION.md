@@ -1,14 +1,14 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation. Do not edit manually. Regenerate after architectural or behavioral changes. The implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `82698379`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract ("Exactly how is it implemented?") |
-| **Git Commit Hash** | `252aa7633ae099f400a59691b7e3f5b090100915` |
+| **Git Commit Hash** | `826983794951c696cff607ed8f1802825ab4db95` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
-| **Verification Basis** | Direct AST & Source Code Inspection (`app/`) |
+| **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
 
 ---
 
@@ -158,10 +158,11 @@ The following capabilities are intentionally outside the scope of this implement
 
 ---
 
-## 4. Implementation Verification Summary
+## 4. Implementation Verification Summary & Governance
 
 | Attribute | Value |
 |---|---|
-| **Modules Discovered During Generation** | All Python modules in `app/` and `app/core/` |
-| **Test Suite Verification Basis** | Verified against test suite at commit `252aa7633ae099f400a59691b7e3f5b090100915` |
-| **Verified Against Commit** | `252aa7633ae099f400a59691b7e3f5b090100915` |
+| **Discovered Subsystems** | All Python modules discovered under `app/` during AST analysis |
+| **Verification Basis** | Verified against test suite present at commit `826983794951c696cff607ed8f1802825ab4db95` |
+| **Verified Against Commit** | `826983794951c696cff607ed8f1802825ab4db95` |
+| **Limitations** | Reconstructed from implementation at commit `82698379`. Future code changes may invalidate portions of this specification. The source implementation under `app/` remains the ultimate source of truth. |

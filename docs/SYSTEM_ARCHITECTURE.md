@@ -1,14 +1,14 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM ARCHITECTURE SPECIFICATION
 
-> **Regeneration Notice**: This document is generated directly from source code implementation. Do not edit manually. Regenerate after architectural or behavioral changes. The implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `82698379`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Architecture & High-Level System Guide ("What exists and how does it work?") |
-| **Git Commit Hash** | `252aa7633ae099f400a59691b7e3f5b090100915` |
+| **Git Commit Hash** | `826983794951c696cff607ed8f1802825ab4db95` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
-| **Verification Basis** | Direct AST & Source Code Inspection (`app/`) |
+| **Verification Basis** | AST Analysis & Code Inspection (`app/`) |
 
 ---
 
@@ -164,7 +164,7 @@ The following capabilities are intentionally outside the scope of this core scan
 
 ---
 
-## 9. Verification & Traceability
+## 9. Verification & Governance Limitations
 
-- **Source Modules Discovered**: `app/main.py`, `app/database.py`, `app/sl_target_helper.py`, `app/daily_builder.py`, `app/eod_scanner.py`, `app/pullback_pipeline.py`, `app/reversal_scanner.py`, `app/wealth_engine.py`, `app/dashboard_server.py`.
-- **Verified Against Commit**: `252aa7633ae099f400a59691b7e3f5b090100915`
+- **Coverage Status**: Verified against AST inventory generated from commit `826983794951c696cff607ed8f1802825ab4db95`.
+- **Limitations**: This document is reconstructed from the implementation at commit `826983794951c696cff607ed8f1802825ab4db95`. Future code changes may invalidate portions of this documentation. The source implementation under `app/` remains the ultimate source of truth.
