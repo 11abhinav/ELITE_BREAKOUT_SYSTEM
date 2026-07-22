@@ -616,11 +616,15 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
         
     # Check bounds
     target_rss_delta = MEMORY_PROFILER_CONFIG.get("DEEP_DIAGNOSTIC_RSS_MB", 5.0)
+    if "startup" in stage_name.lower() or "init" in stage_name.lower():
+        target_rss_delta = 120.0  # Allow module imports and initial C-extension loading during boot
+
     target_df_delta = MEMORY_PROFILER_CONFIG.get("MIN_DF_DELTA_MB", 1.0)
     target_peak = MEMORY_PROFILER_CONFIG.get("MAX_TRACEMALLOC_PEAK_MB", 20.0)
     
     # Trigger if RSS spikes but DataFrame/Tracemalloc stay low
     if rss_delta_mb > target_rss_delta and df_delta_mb < target_df_delta and tracemalloc_peak_mb < target_peak:
+
         ProfilerState.consecutive_anomalies += 1
         ProfilerState.last_deep_diagnostic_time = now
         
