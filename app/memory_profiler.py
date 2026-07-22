@@ -401,11 +401,23 @@ def run_purge_with_telemetry(stage_name: str) -> float:
     collected = gc.collect()
     rss_after_gc = proc.memory_info().rss / (1024 * 1024)
     gc_released = max(0.0, rss_after_cache - rss_after_gc)
-    
+
+    # 2b. PyArrow C++ Memory Pool Release
+    pyarrow_released = 0.0
+    try:
+        import pyarrow as pa
+        pool = pa.default_memory_pool()
+        bytes_before = pool.bytes_allocated()
+        pool.release_unused()
+        bytes_after = pool.bytes_allocated()
+        pyarrow_released = max(0.0, (bytes_before - bytes_after) / (1024 * 1024))
+    except Exception:
+        pass
+
     # 3. Native arena trim
     trim_released = 0.0
     try:
-        if sys.platform == "linux":
+        if sys.platform.startswith("linux"):
             import ctypes
             ctypes.CDLL("libc.so.6").malloc_trim(0)
             rss_after_trim = proc.memory_info().rss / (1024 * 1024)
@@ -417,17 +429,15 @@ def run_purge_with_telemetry(stage_name: str) -> float:
 
     total_released = max(0.0, rss_start - rss_after_trim)
 
-    logger.info("=" * 60)
-    logger.info(f"[PURGE TELEMETRY] Stage: {stage_name}")
-    logger.info("=" * 60)
-    logger.info(f"  PRICE_CACHE Before      : keys={pc_before['keys']} | entries={pc_before['entries']} | memory={pc_before['memory_mb']:.1f} MB")
     logger.info(f"  PRICE_CACHE After       : keys={pc_after['keys']} | entries={pc_after['entries']} | memory={pc_after['memory_mb']:.1f} MB")
     logger.info(f"  RSS Before Purge        : {rss_start:>7.1f} MB")
     logger.info(f"  After Cache Clear       : {rss_after_cache:>7.1f} MB (Released: {cache_released:>5.1f} MB)")
     logger.info(f"  After gc.collect()      : {rss_after_gc:>7.1f} MB (Released: {gc_released:>5.1f} MB, Objects: {collected})")
+    logger.info(f"  After PyArrow Release   : Released {pyarrow_released:>5.1f} MB")
     logger.info(f"  After malloc_trim()     : {rss_after_trim:>7.1f} MB (Released: {trim_released:>5.1f} MB)")
     logger.info(f"  TOTAL MEMORY RELEASED   : {total_released:>7.1f} MB")
     logger.info("=" * 60)
+
 
 
     # If memory remains above 500 MB after purge, trigger global object inspection
