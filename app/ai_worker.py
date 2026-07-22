@@ -11,14 +11,14 @@ IST_ZONE = ZoneInfo("Asia/Kolkata")
 from constituent_service import fetch_constituents
 
 def is_in_window() -> bool:
-    """Check if current time is between 7 PM IST and 7 AM IST."""
+    """Check if current time is between 4 AM IST and 5 AM IST."""
     now = datetime.now(IST_ZONE)
-    return now.hour >= 19 or now.hour < 7
+    return 4 <= now.hour < 5
 
 def wait_until_next_window() -> float:
-    """Calculate seconds until the next 7 PM IST."""
+    """Calculate seconds until the next 4 AM IST."""
     now = datetime.now(IST_ZONE)
-    target = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    target = now.replace(hour=4, minute=0, second=0, microsecond=0)
     if now >= target:
         target += timedelta(days=1)
     return (target - now).total_seconds()
@@ -251,9 +251,9 @@ def run_worker_loop():
             
         if not is_in_window():
             sleep_secs = wait_until_next_window()
-            logger.info(f"🤖 [AI WORKER] Outside active window (7 PM - 7 AM IST). Sleeping {sleep_secs:.1f}s until 7 PM IST...")
-            upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Outside active window (7 PM - 7 AM IST)")
-            time.sleep(sleep_secs)
+            logger.info(f"🤖 [AI WORKER] Outside active window (04:00 - 05:00 IST). Sleeping {sleep_secs:.1f}s until 4 AM IST...")
+            upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Outside active window (04:00 - 05:00 IST)")
+            time.sleep(min(sleep_secs, 300))
             continue
 
         try:

@@ -201,8 +201,8 @@ def worker_loop():
             continue
             
         if mode == 'auto':
-            if not (6 <= now.hour < 8):
-                upsert_scanner_health("Pledge Worker", "IDLE", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Waiting for 06:00 - 08:00 IST Window")
+            if not (3 <= now.hour < 4):
+                upsert_scanner_health("Pledge Worker", "IDLE", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Waiting for 03:00 - 04:00 IST Window")
                 sleep_with_mode_check(300)
                 continue
 
