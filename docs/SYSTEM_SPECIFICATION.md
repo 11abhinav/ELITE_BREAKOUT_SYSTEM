@@ -25,29 +25,25 @@
   - `MIN_NATURAL_RR` (Default: `1.5`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
   - **Structural Stop**: Places stop loss $0.5\times ATR$ below nearest structural support (`SwingLow`, `S1`, `EMA20`).
-  - **Risk Distance Cap**:
+  - **Risk Distance Cap & Position Sizing**:
     - *Implementation Threshold*: `8.0%`
     - *Source*: [`app/sl_target_helper.py`](../app/sl_target_helper.py)
     - *Configuration Constant*: `MAX_RISK_PCT`
-    - *Code Path*:
-      ```python
-      min_allowed_sl = entry_price - (0.08 * entry_price)
-      raw_sl = max(raw_sl, min_allowed_sl)
-      ```
-  - **Target Cluster Selection**: Clusters target candidates (`SwingHigh`, `R1`, `R2`, `Fib1.618`) within $1.0\times ATR$ window. If natural cluster $RR \ge 1.5$ exists, assigns cluster price to $T_1$.
-  - **Fallback Path**: If no natural resistance cluster exists, synthesizes $T_1 = \text{entry\_price} + (2.5 \times \text{risk})$.
+    - *Position Scaling*: Dynamically reduces position size (`position_size_pct = max_risk / risk_pct`) to maintain constant ₹ risk per trade.
+  - **Target Cluster Selection**: Clusters target candidates (`SwingHigh`, `R1`, `R2`, `Fib1.618`) within $1.0\times ATR$ window. If a natural cluster exists with $RR \ge 1.5$, assigns cluster price to $T_1$. If a natural cluster exists with $RR < 1.5$, explicitly REJECTS the candidate (`REJ_LOW_RR`).
+  - **Fallback Path**: If NO natural resistance cluster exists, synthesizes $T_1 = \text{entry\_price} + (2.5 \times \text{risk})$.
 - **Unit Tests**: [`tests/test_v7_target_engine.py`](../tests/test_v7_target_engine.py), [`tests/test_component_sl_target.py`](../tests/test_component_sl_target.py)
 
 ---
 
 ### 1.2 `app/pullback_pipeline.py` & `app/swing_utils.py`
-- **Purpose**: Orderly 3–15 bar retracement scanner and resumption trigger engine.
+- **Purpose**: Orderly 3–20 bar retracement scanner and resumption trigger engine.
 - **Source Files**: [`app/pullback_pipeline.py`](../app/pullback_pipeline.py), [`app/swing_utils.py`](../app/swing_utils.py)
 - **Primary Functions**: `run_pullback_pipeline()`, `measure_pullback()`, `detect_resumption_trigger()`
 - **Configuration Consumed**:
   - `MIN_IMPULSE_GAIN_PCT` (Default: `8.0`) — [`app/config.py`](../app/config.py)
   - `PULLBACK_MIN_DEPTH` (Default: `3.0`), `PULLBACK_MAX_DEPTH` (Default: `15.0`) — [`app/config.py`](../app/config.py)
-  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.60`) — [`app/config.py`](../app/config.py)
+  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.60`), `MAX_UPPER_WICK` (Default: `0.40`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
   - **Impulse Upleg**: `gain_pct = (pivot_price - min_price) / min_price * 100` $\ge 8.0\%$
   - **Pullback Retracement Depth**:
@@ -56,12 +52,13 @@
       depth_pct = ((impulse_end_price - min_pullback_low) / impulse_end_price) * 100
       assert 3.0 <= depth_pct <= 15.0
       ```
+    - *Structure Preservation Floor*: `min_pullback_low >= impulse_start_price` (rejects full breakdown setups).
   - **Resumption Trigger Candle**:
     - *Implementation Formula*:
       ```python
-      close_loc = (t_close - t_low) / range_ if range_ > 0 else 0
-      upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0
-      assert close_loc >= 0.60 and volume_mult >= 1.3
+      close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close >= t_open else 0.0)
+      upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0.0
+      assert close_loc >= 0.60 and volume_mult >= 1.3 and upper_wick_ratio <= 0.40
       ```
 - **Unit Tests**: [`tests/test_pullback_pipeline.py`](../tests/test_pullback_pipeline.py), [`tests/test_fort_knox_pullback.py`](../tests/test_fort_knox_pullback.py)
 
@@ -144,6 +141,7 @@
 | `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
 | `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
 | `MIN_CLOSE_LOCATION` | `0.60` | `swing_utils.py` | Minimum trigger candle close location |
+| `MAX_UPPER_WICK` | `0.40` | `swing_utils.py` | Maximum upper wick ratio threshold |
 
 ### 2.3 Database & Connection Pooling
 | Constant Name | Default Value | Target Subsystem | Architectural Purpose |
@@ -186,9 +184,9 @@ This matrix establishes direct traceability from key system capabilities to sour
 
 - **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
-- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$).
-- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels.
-- **Synthetic Target**: A fallback target generated when no structural resistance exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$). Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
+- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels. If a natural cluster exists with $RR < 1.5$, the setup is rejected (`REJ_LOW_RR`).
+- **Synthetic Target**: A fallback target generated ONLY when no structural resistance cluster exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
 - **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
 - **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 

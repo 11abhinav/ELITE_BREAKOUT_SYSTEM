@@ -55,7 +55,7 @@ The following catalog defines every subsystem, its primary responsibility, depen
 | [`app/main.py`](../app/main.py) | Master entrypoint, watchdog, and scheduled loop | `daily_builder`, `scanners`, `database` | System Init / Process Runner |
 | [`app/daily_builder.py`](../app/daily_builder.py) | Watchlist generator & fundamental scoring | `data_provider`, `ta`, `pandas` | `main.py`, `scanners` |
 | [`app/eod_scanner.py`](../app/eod_scanner.py) | EOD price breakout & volume expansion scanner | `daily_builder`, `sl_target_helper`, `database` | `main.py` scheduler |
-| [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | 3-15 bar orderly retracement scanner | `swing_utils`, `sl_target_helper`, `database` | `main.py` scheduler |
+| [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | 3-20 bar orderly retracement scanner | `swing_utils`, `sl_target_helper`, `database` | `main.py` scheduler |
 | [`app/reversal_scanner.py`](../app/reversal_scanner.py) | Mean-reversion RSI oversold & Bollinger scanner | `daily_builder`, `sl_target_helper`, `database` | `main.py` scheduler |
 | [`app/multi_tf_scanner.py`](../app/multi_tf_scanner.py) | Dual-timeframe (1H/15m) intraday scanner | `data_provider`, `sl_target_helper`, `database` | `main.py` scheduler |
 | [`app/wealth_engine.py`](../app/wealth_engine.py) | Long-term fundamental wealth portfolio scanner | `daily_builder`, `database` | `main.py` scheduler |
@@ -140,10 +140,11 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 | Job Handler | Schedule Window (IST) | Target Subsystem | Architectural Purpose |
 |---|---|---|---|
-| `safe_run_daily_builder()` | 08:30 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Builds daily fundamental watchlist parquet file |
-| `run_pledge_worker()` | 09:00 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Fetches BSE promoter pledge percentage data |
+| `safe_run_daily_builder()` | 01:00 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Builds daily fundamental watchlist parquet file |
+| `run_pledge_loop()` | Continuous Background | [`app/pledge_worker.py`](../app/pledge_worker.py) | Fetches BSE promoter pledge percentage data continuously |
+| `verify_scans()` | 08:30 AM | [`app/main.py`](../app/main.py) | Verifies watchlist & wealth engine readiness before market open |
 | `multi_tf_scanner.start()` | 09:15 AM - 03:30 PM (Hourly) | [`app/multi_tf_scanner.py`](../app/multi_tf_scanner.py) | Scans intraday 15m/1h candle consolidations |
-| `pullback_pipeline.run_pullback_pipeline()` | 03:45 PM | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | Scans 3-15 day orderly retracements |
+| `pullback_pipeline.run_pullback_pipeline()` | 03:45 PM | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | Scans 3-20 day orderly retracements |
 | `reversal_scanner.start()` | 04:00 PM | [`app/reversal_scanner.py`](../app/reversal_scanner.py) | Scans RSI oversold & lower Bollinger dips |
 | `eod_scanner.start()` | 04:15 PM | [`app/eod_scanner.py`](../app/eod_scanner.py) | Scans EOD price breakouts & volume expansion |
 | `wealth_engine.run_wealth_scan()` | 04:30 PM | [`app/wealth_engine.py`](../app/wealth_engine.py) | Rebalances wealth portfolio candidates |
@@ -170,9 +171,9 @@ Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 - **Impulse Leg**: A strong directional price move exceeding $8.0\%$ gain and $3.0\times ATR$ expansion forming the anchor for pullback detection.
 - **Pullback Retracement**: An orderly $3.0\% - 15.0\%$ price decline lasting 3–20 bars following an impulse leg.
-- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$).
-- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels.
-- **Synthetic Target**: A fallback target generated when no structural resistance exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
+- **Resumption Trigger**: A bullish candle closing in the top $40\%$ of its high-low range ($Close\_Location \ge 0.60$) with volume expansion ($\ge 1.3\times$). Circuit-locked candles (`High == Low == Close`) evaluate $Close\_Location = 1.0$.
+- **Natural Target**: A structural resistance target derived from swing highs, pivot resistance, or Fibonacci confluence levels. If a natural cluster exists with $RR < 1.5$, the setup is rejected (`REJ_LOW_RR`).
+- **Synthetic Target**: A fallback target generated ONLY when no structural resistance cluster exists, calculated as $\text{entry} + (2.5 \times \text{risk})$.
 - **Cooldown**: A safety restriction preventing identical alerts for the same symbol within a 5-day window.
 - **Diamond Hold**: Fundamental equity classification scoring high YoY sales ($\ge 20\%$) and YoY profit ($\ge 25\%$) with $D/E \le 0.1$.
 

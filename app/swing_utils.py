@@ -349,7 +349,7 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
     gap_pct = (t_open - prev_close) / prev_close * 100 if prev_close > 0 else 0
     body_atr_ratio = body / atr_val if atr_val > 0 else 0
     upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0
-    close_loc = (t_close - t_low) / range_ if range_ > 0 else 0
+    close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close >= t_open else 0.0)
     
     pb = historical_view.iloc[ps.impulse.end.index + 1 : t_idx]
     pb_vols = pb['Volume'].values
