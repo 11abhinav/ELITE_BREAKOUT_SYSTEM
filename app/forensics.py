@@ -63,7 +63,7 @@ class ForensicTelemetry:
         except Exception as e:
             logger.debug(f"Forensics log write error: {e}")
 
-    def get_memory_stats() -> Dict[str, Any]:
+    def get_memory_stats(self) -> Dict[str, Any]:
         """Fetch current process RSS, VMS, open files, and thread count."""
         try:
             mem = psutil.Process(os.getpid()).memory_info()
