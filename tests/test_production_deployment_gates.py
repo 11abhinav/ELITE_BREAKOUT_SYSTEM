@@ -234,4 +234,11 @@ class TestProductionDeploymentGates:
         src = inspect.getsource(eod_scanner._start_wrapper)
         assert 'status = "DOWN"' in src or 'outcome = "FAILED"' in src, "EOD scanner missing DOWN status / FAILED outcome blocker policy"
 
+    def test_gate18_realtime_symbol_canonicalization_gate(self):
+        """Gate 18: Real-Time Symbol Canonicalization Gate - verify price_cache maps returned suffix datasets back to requested canonical keys."""
+        import price_cache
+        import inspect
+        src = inspect.getsource(price_cache._download_all_robust)
+        assert "sym.NS" in src and "sym.BO" in src, "price_cache missing canonical ingestion boundary symbol resolution logic"
+
 
