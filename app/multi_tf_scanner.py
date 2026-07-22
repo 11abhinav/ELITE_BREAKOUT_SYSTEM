@@ -1051,15 +1051,23 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             outcome = "SUCCESS"
             if total_expected_a > 0 and total_fetched_a < total_expected_a * 0.70:
                 outcome = "PARTIAL"
-            if total_fetched_a == 0 and total_fetched_b == 0:
+            if total_fetched_a == 0 and total_fetched_b == 0 and (total_expected_a > 0 or total_expected_b > 0):
                 outcome = "FAILED"
+                status = "DOWN"
+                error_msg = f"🚫 CRITICAL BLOCKER: Multi-TF scanner failed to fetch any data (0/{total_expected_a + total_expected_b})"
+                logger.error(f"🚨 {error_msg}")
+                try:
+                    from telegram_engine import send_telegram_message
+                    send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: MULTI-TF SCANNER FAILED</b>\n0/{total_expected_a + total_expected_b} symbols were unfetched / missing data.")
+                except Exception:
+                    pass
 
             if not getattr(database, "DONT_SAVE_ALERTS", False):
                 try:
                     from database import upsert_scanner_health
                     upsert_scanner_health(
                         scanner_name=SCANNER_MULTI_TF,
-                        status=status if outcome != "FAILED" else "DEGRADED",
+                        status=status,
                         last_success=datetime.now(IST).isoformat() if outcome != "FAILED" else None,
                         total_count=metrics_a.get("total", 0),
                         error_msg=error_msg,
