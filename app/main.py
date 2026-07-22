@@ -682,6 +682,13 @@ def run_evening_scanners():
             status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
             logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
 
+        # Execute 4-step defensive purge telemetry post evening batch
+        try:
+            from memory_profiler import run_purge_with_telemetry
+            run_purge_with_telemetry("Post-Evening Batch")
+        except Exception as pe:
+            logger.warning(f"Could not run purge telemetry post evening batch: {pe}")
+
         # Sleep for 6 hours to avoid retriggering until the window closes
         time.sleep(3600 * 6)
 
@@ -748,6 +755,12 @@ def run_system_scheduler():
                 logger.info("🕒 SCHEDULER | [1:00 AM] Watchlist already fresh for today. Skipping redundant build.")
             else:
                 logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
+                # Pre-Daily Builder 4-step defensive memory purge
+                try:
+                    from memory_profiler import run_purge_with_telemetry
+                    run_purge_with_telemetry("Pre-Daily Builder")
+                except Exception:
+                    pass
                 from daily_builder import main as build_watchlist
                 with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
                     build_watchlist()

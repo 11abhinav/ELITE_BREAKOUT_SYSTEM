@@ -317,6 +317,140 @@ class BatchMemoryTracker:
 
 ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", "True").lower() in ("true", "1", "yes")
 
+def run_purge_with_telemetry(stage_name: str) -> float:
+    """
+    Executes a 4-step defensive memory purge and logs stage-by-stage telemetry.
+    Step 1: Measure RSS Before
+    Step 2: Clear Application Caches
+    Step 3: Force gc.collect()
+    Step 4: Execute malloc_trim(0)
+    """
+    proc = psutil.Process(os.getpid())
+    rss_start = proc.memory_info().rss / (1024 * 1024)
+    
+    # 1. Clear application caches
+    cache_released = 0.0
+    try:
+        from price_cache import clear_price_cache
+        clear_price_cache()
+    except Exception as e:
+        logger.debug(f"Price cache clear skipped: {e}")
+        
+    for mod_name, attr_name in [
+        ("delivery_data", "_delivery_cache"),
+        ("watchlist_cache", "_watchlist_cache"),
+        ("surveillance", "_surveillance_cache"),
+        ("surveillance", "_blacklist_cache"),
+        ("block_deal_detector", "_CACHE"),
+        ("dashboard_server", "_wealth_cache"),
+        ("dashboard_server", "_indices_cache"),
+        ("dashboard_server", "_news_cache")
+    ]:
+        try:
+            mod = sys.modules.get(mod_name)
+            if mod and hasattr(mod, attr_name):
+                obj = getattr(mod, attr_name)
+                if isinstance(obj, dict):
+                    obj.clear()
+                elif isinstance(obj, set):
+                    obj.clear()
+                elif isinstance(obj, list):
+                    obj.clear()
+        except Exception:
+            pass
+            
+    rss_after_cache = proc.memory_info().rss / (1024 * 1024)
+    cache_released = max(0.0, rss_start - rss_after_cache)
+    
+    # 2. Force GC collect
+    collected = gc.collect()
+    rss_after_gc = proc.memory_info().rss / (1024 * 1024)
+    gc_released = max(0.0, rss_after_cache - rss_after_gc)
+    
+    # 3. Native arena trim
+    trim_released = 0.0
+    try:
+        if sys.platform == "linux":
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+            rss_after_trim = proc.memory_info().rss / (1024 * 1024)
+            trim_released = max(0.0, rss_after_gc - rss_after_trim)
+        else:
+            rss_after_trim = rss_after_gc
+    except Exception:
+        rss_after_trim = rss_after_gc
+
+    total_released = max(0.0, rss_start - rss_after_trim)
+
+    logger.info("=" * 60)
+    logger.info(f"[PURGE TELEMETRY] Stage: {stage_name}")
+    logger.info("=" * 60)
+    logger.info(f"  RSS Before Purge        : {rss_start:>7.1f} MB")
+    logger.info(f"  After Cache Clear       : {rss_after_cache:>7.1f} MB (Released: {cache_released:>5.1f} MB)")
+    logger.info(f"  After gc.collect()      : {rss_after_gc:>7.1f} MB (Released: {gc_released:>5.1f} MB, Objects: {collected})")
+    logger.info(f"  After malloc_trim()     : {rss_after_trim:>7.1f} MB (Released: {trim_released:>5.1f} MB)")
+    logger.info(f"  TOTAL MEMORY RELEASED   : {total_released:>7.1f} MB")
+    logger.info("=" * 60)
+
+    # If memory remains above 500 MB after purge, trigger global object inspection
+    if rss_after_trim > 500.0:
+        inspect_largest_global_objects(top_n=10)
+
+    return rss_after_trim
+
+def inspect_largest_global_objects(top_n: int = 10):
+    """Inspects all imported module global variables to identify largest retained objects."""
+    logger.info("=== [INVENTORY] Top Global Object Sizing ===")
+    records = []
+    
+    # Modules in the application namespace
+    target_mods = [m for name, m in sys.modules.items() if m and name and (name.startswith("app") or name in [
+        "price_cache", "delivery_data", "surveillance", "watchlist_cache", "block_deal_detector",
+        "dashboard_server", "eod_scanner", "reversal_scanner", "pullback_pipeline", "scoring_engine",
+        "sl_target_helper", "breakout_engine", "technical_indicators", "constituent_service"
+    ])]
+    
+    for mod in target_mods:
+        mod_name = getattr(mod, "__name__", "unknown")
+        for var_name, obj in getattr(mod, "__dict__", {}).items():
+            if var_name.startswith("__") or callable(obj) or isinstance(obj, type) or isinstance(obj, sys.modules.get("types", {}).get("ModuleType", ())):
+                continue
+                
+            obj_type = type(obj).__name__
+            mem_mb = 0.0
+            length = 0
+            
+            if isinstance(obj, pd.DataFrame):
+                try:
+                    mem_mb = obj.memory_usage(deep=True).sum() / (1024 * 1024)
+                    length = len(obj)
+                except Exception:
+                    pass
+            elif isinstance(obj, (dict, list, set, tuple)):
+                try:
+                    length = len(obj)
+                    mem_mb = sys.getsizeof(obj) / (1024 * 1024)
+                except Exception:
+                    pass
+                    
+            if mem_mb > 0.1 or length > 500:
+                records.append({
+                    "name": f"{mod_name}.{var_name}",
+                    "type": obj_type,
+                    "length": length,
+                    "mem_mb": mem_mb
+                })
+
+    records.sort(key=lambda x: (x["mem_mb"], x["length"]), reverse=True)
+    
+    if not records:
+        logger.info("  No large global objects (>0.1 MB or >500 items) detected in module namespaces.")
+    else:
+        for r in records[:top_n]:
+            logger.info(f"  {r['name']:<45} | Type: {r['type']:<12} | Items: {r['length']:>6} | Size: {r['mem_mb']:>6.2f} MB")
+    logger.info("==========================================")
+
+
 def get_dataframe_inventory():
     """Counts live DataFrames, rows, cols, and memory."""
     total_bytes = 0
