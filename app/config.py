@@ -199,8 +199,20 @@ QUALITY_SCORE_WEIGHTS = {
     "freshness": 10,
 }
 
+
+# Configurable Score Bands for Advanced Outcome Analytics (Feature F-13)
+SCORE_BANDS = [
+    (70, 75),
+    (75, 80),
+    (80, 85),
+    (85, 90),
+    (90, 101),
+]
+
+
 # Maximum percentage of row loss accepted before logging a regression warning
 MAX_HISTORY_SHRINK = 0.30
+
 
 # Source reliability multipliers (0.0 to 1.0). Used for fallback evaluation.
 SOURCE_RELIABILITY = {

@@ -1347,10 +1347,90 @@
             </tbody>
           </table>
         </div>
+      <!-- FEATURE F-13: PREVIEW ANALYTICS CARD -->
+      <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
+        <div id="preview-analytics-header"
+          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border);"
+          onclick="togglePreviewAnalytics()">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-weight: 700; color: var(--text); font-size:16px;">📊 Advanced Outcome Analytics <span style="font-size:11px; font-weight:700; background:rgba(217,119,6,0.15); color:var(--amber); padding:2px 8px; border-radius:12px; border:1px solid rgba(217,119,6,0.3);">PREVIEW</span></span>
+          </div>
+          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 12px;">
+            <span id="pa-confidence-badge" class="badge" style="background:rgba(220,38,38,0.1); color:#dc2626; border:1px solid rgba(220,38,38,0.3);">Confidence: LOW</span>
+            <span id="pa-trades-count" style="font-family:var(--font-mono); font-size:12px;">Completed Trades: 0 / 100</span>
+            <svg id="pa-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </div>
+        <div id="preview-analytics-body" style="padding: 20px; background: var(--bg);">
+          <div style="padding: 10px 14px; background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25); border-radius: 6px; margin-bottom: 20px; font-size: 12px; color: var(--amber); display: flex; align-items: center; gap: 10px;">
+            <span style="font-size:16px;">⚠️</span>
+            <div><strong>Informational / Preview Mode:</strong> Sample size is currently below 100 completed trades. Metrics are displayed for real-time pipeline verification only and must not be used for strategy auto-tuning.</div>
+          </div>
+
+          <!-- Capture Efficiency Diagnostic -->
+          <div class="card-title">1. Execution Capture Efficiency Diagnostic</div>
+          <div class="mini-stats" id="pa-capture-stats">
+            <div class="mini-stat"><span class="mini-stat-label">Snapshot Coverage</span><span class="mini-stat-value" id="pa-coverage-val">0.0%</span></div>
+            <div class="mini-stat"><span class="mini-stat-label">Avg MFE</span><span class="mini-stat-value" id="pa-mfe-val">0.0R</span></div>
+            <div class="mini-stat"><span class="mini-stat-label">Avg MAE</span><span class="mini-stat-value" id="pa-mae-val">0.0R</span></div>
+            <div class="mini-stat"><span class="mini-stat-label">Avg Realized</span><span class="mini-stat-value" id="pa-realized-val">0.0R</span></div>
+            <div class="mini-stat"><span class="mini-stat-label">Capture Efficiency</span><span class="mini-stat-value blue" id="pa-eff-val">0.0%</span></div>
+          </div>
+
+          <!-- Feature Attribution & Score Bands Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-top: 20px;">
+            <div>
+              <div class="card-title">2. Feature Attribution Breakdown</div>
+              <div class="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Feature</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
+                  </thead>
+                  <tbody id="pa-feature-table">
+                    <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <div class="card-title">3. Score Band Expectancy</div>
+              <div class="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Score Band</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
+                  </thead>
+                  <tbody id="pa-scoreband-table">
+                    <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rolling Window Validation -->
+          <div style="margin-top: 24px;">
+            <div class="card-title">4. Rolling Window Performance Validation</div>
+            <div class="tbl-wrap">
+              <table>
+                <thead>
+                  <tr><th>Window</th><th>Trades in Window</th><th>Win Rate %</th><th>Avg Realized R</th><th>Expectancy R</th><th>Confidence</th></tr>
+                </thead>
+                <tbody id="pa-rolling-table">
+                  <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
       </div>
 
       <!-- USER MANAGEMENT -->
       <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
+
         <div id="user-management-header"
           style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
           onclick="toggleUserManagement()">
@@ -4296,8 +4376,10 @@ async function initDashboard() {
   fetchSignalLadder();
   loadMultibaggerWatchlist();
   loadPendingUsers();
+  loadAdvancedOutcomeAnalytics();
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
+
   setInterval(async () => {
     if (diagnosticsLoaded) {
       const live = await loadScannerStatus();
@@ -4333,8 +4415,137 @@ async function initDashboard() {
   }, 180000);
 }
 
+function togglePreviewAnalytics() {
+  const body = document.getElementById('preview-analytics-body');
+  const icon = document.getElementById('pa-icon');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.style.transform = 'rotate(180deg)';
+  } else {
+    body.style.display = 'none';
+    icon.style.transform = 'rotate(0deg)';
+  }
+}
+
+async function loadAdvancedOutcomeAnalytics() {
+  try {
+    const res = await fetch('/api/v1/analytics/outcomes/advanced');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // 1. Header Confidence & Count
+    const badge = document.getElementById('pa-confidence-badge');
+    const countEl = document.getElementById('pa-trades-count');
+    const total = data.total_completed_trades || 0;
+    
+    countEl.textContent = `Completed Trades: ${total} / 100`;
+    badge.textContent = `Confidence: ${data.overall_confidence || 'LOW'}`;
+    
+    if (data.overall_confidence === 'HIGH') {
+      badge.style.background = 'rgba(5,150,105,0.1)';
+      badge.style.color = '#059669';
+      badge.style.borderColor = 'rgba(5,150,105,0.3)';
+    } else if (data.overall_confidence === 'MEDIUM') {
+      badge.style.background = 'rgba(217,119,6,0.1)';
+      badge.style.color = '#d97706';
+      badge.style.borderColor = 'rgba(217,119,6,0.3)';
+    } else {
+      badge.style.background = 'rgba(220,38,38,0.1)';
+      badge.style.color = '#dc2626';
+      badge.style.borderColor = 'rgba(220,38,38,0.3)';
+    }
+
+    // 2. Execution Capture Efficiency Diagnostic
+    const om = data.overall_metrics || {};
+    document.getElementById('pa-coverage-val').textContent = `${data.snapshot_coverage_pct || 0}%`;
+    document.getElementById('pa-mfe-val').textContent = `${om.avg_mfe_r || 0}R`;
+    document.getElementById('pa-mae-val').textContent = `${om.avg_mae_r || 0}R`;
+    document.getElementById('pa-realized-val').textContent = `${om.avg_realized_r || 0}R`;
+    document.getElementById('pa-eff-val').textContent = `${om.capture_efficiency_pct || 0}%`;
+
+    function _confBadge(conf) {
+      if (conf === 'HIGH') return `<span class="badge" style="background:rgba(5,150,105,0.1); color:#059669; border:1px solid rgba(5,150,105,0.3);">HIGH</span>`;
+      if (conf === 'MEDIUM') return `<span class="badge" style="background:rgba(217,119,6,0.1); color:#d97706; border:1px solid rgba(217,119,6,0.3);">MEDIUM</span>`;
+      return `<span class="badge" style="background:rgba(220,38,38,0.1); color:#dc2626; border:1px solid rgba(220,38,38,0.3);">LOW</span>`;
+    }
+
+    // 3. Feature Attribution Table
+    const fa = data.feature_attribution || {};
+    const ftBody = document.getElementById('pa-feature-table');
+    let ftHtml = '';
+
+    const featRows = [
+      { label: 'RS ≥ 80 (Leadership)', item: fa.relative_strength?.rs_ge_80 },
+      { label: 'RS < 80', item: fa.relative_strength?.rs_lt_80 },
+      { label: 'Sector Tailwind Active', item: fa.sector_tailwind?.tailwind_active },
+      { label: 'Sector Tailwind Inactive', item: fa.sector_tailwind?.tailwind_inactive },
+      { label: 'Macro Bull Regime', item: fa.macro_regime?.bull_regime },
+      { label: 'Macro Non-Bull Regime', item: fa.macro_regime?.non_bull_regime },
+    ];
+
+    featRows.forEach(r => {
+      if (!r.item) return;
+      const m = r.item;
+      const rColor = m.avg_realized_r >= 0 ? '#059669' : '#dc2626';
+      ftHtml += `<tr>
+        <td style="font-weight:600;">${r.label}</td>
+        <td>${m.trades}</td>
+        <td>${m.win_rate_pct}%</td>
+        <td style="color:${rColor}; font-weight:700;">${m.avg_realized_r >= 0 ? '+' : ''}${m.avg_realized_r}R</td>
+        <td style="font-weight:700;">${m.expectancy_r >= 0 ? '+' : ''}${m.expectancy_r}R</td>
+        <td>${_confBadge(m.confidence)}</td>
+      </tr>`;
+    });
+    ftBody.innerHTML = ftHtml || '<tr><td colspan="6" style="text-align:center; color:var(--muted)">No data accumulated yet.</td></tr>';
+
+    // 4. Score Band Table
+    const sbBody = document.getElementById('pa-scoreband-table');
+    let sbHtml = '';
+    (data.score_bands || []).forEach(b => {
+      const m = b.metrics || {};
+      const rColor = m.avg_realized_r >= 0 ? '#059669' : '#dc2626';
+      sbHtml += `<tr>
+        <td style="font-weight:600;">Score ${b.band_label}</td>
+        <td>${m.trades}</td>
+        <td>${m.win_rate_pct}%</td>
+        <td style="color:${rColor}; font-weight:700;">${m.avg_realized_r >= 0 ? '+' : ''}${m.avg_realized_r}R</td>
+        <td style="font-weight:700;">${m.expectancy_r >= 0 ? '+' : ''}${m.expectancy_r}R</td>
+        <td>${_confBadge(m.confidence)}</td>
+      </tr>`;
+    });
+    sbBody.innerHTML = sbHtml || '<tr><td colspan="6" style="text-align:center; color:var(--muted)">No data accumulated yet.</td></tr>';
+
+    // 5. Rolling Validation Table
+    const rv = data.rolling_validation || {};
+    const rvBody = document.getElementById('pa-rolling-table');
+    let rvHtml = '';
+    [
+      { label: 'Last 30 Days', item: rv['30d'] },
+      { label: 'Last 90 Days', item: rv['90d'] },
+      { label: 'Last 180 Days', item: rv['180d'] }
+    ].forEach(r => {
+      if (!r.item) return;
+      const m = r.item;
+      const rColor = m.avg_realized_r >= 0 ? '#059669' : '#dc2626';
+      rvHtml += `<tr>
+        <td style="font-weight:600;">${r.label}</td>
+        <td>${m.trades}</td>
+        <td>${m.win_rate_pct}%</td>
+        <td style="color:${rColor}; font-weight:700;">${m.avg_realized_r >= 0 ? '+' : ''}${m.avg_realized_r}R</td>
+        <td style="font-weight:700;">${m.expectancy_r >= 0 ? '+' : ''}${m.expectancy_r}R</td>
+        <td>${_confBadge(m.confidence)}</td>
+      </tr>`;
+    });
+    rvBody.innerHTML = rvHtml || '<tr><td colspan="6" style="text-align:center; color:var(--muted)">No data accumulated yet.</td></tr>';
+
+  } catch (e) {
+    console.error('Failed to load advanced outcome analytics:', e);
+  }
+}
+
 // Trigger check
 initDashboard();
+
 
 
       // Fetch indices

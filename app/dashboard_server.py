@@ -1247,10 +1247,24 @@ def api_expectancy_matrix():
                 })
     except Exception as e:
         logger.exception("❌ /api/analytics/expectancy_matrix failed")
-        return jsonify({"matrix": [], "ambiguous_collision_pct": 0, "ambiguous_warning_triggered": False}), 500
+@app.route("/api/v1/analytics/outcomes/advanced", methods=["GET"])
+@login_required
+def api_advanced_outcome_analytics():
+    """
+    Feature F-13: Advanced Outcome Analytics & Feature Attribution API.
+    Returns telemetry coverage, dual confidence levels, feature attributions, score bands, capture efficiency, and rolling performance.
+    """
+    try:
+        from outcome_tracker import compute_advanced_outcome_analytics
+        data = compute_advanced_outcome_analytics()
+        return jsonify(data)
+    except Exception as e:
+        logger.exception("❌ /api/v1/analytics/outcomes/advanced failed")
+        return jsonify({"error": str(e), "is_preview_mode": True, "overall_confidence": "LOW"}), 500
 
 
 @app.route("/api/confluence_shortlist", methods=["GET"])
+
 @login_required
 def api_confluence_shortlist():
     """Returns active Golden Confluence shortlist (FM_Score >= 75 + Signal + RS >= 80%)."""
