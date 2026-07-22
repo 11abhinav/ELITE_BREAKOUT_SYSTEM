@@ -1,128 +1,174 @@
 # ANTIGRAVITY SYSTEM INSTRUCTIONS & ENGINEERING POLICIES
 
-This file defines the mandatory engineering policies and workflow rules for all software development, code refactoring, system architecture modifications, and maintenance tasks within the **Elite Breakout System** repository.
+This file defines the mandatory engineering policies and workflow rules for all software development, code refactoring, system architecture modifications, bug fixes, performance optimizations, and maintenance tasks within the **Elite Breakout System** repository.
+
+Violation of any rule means the task is **INCOMPLETE**.
 
 ---
 
-## 📚 Documentation Synchronization Rule (MANDATORY)
+## 🕒 RULE 1 — IST Timezone Enforcement (MANDATORY)
 
-### 1. Documentation is Part of the Codebase
-Documentation is a first-class project artifact. Any change to system behavior, architecture, business logic, configuration, APIs, database schema, scheduling, scanners, algorithms, deployment, or public interfaces **MUST** be reflected in the canonical documentation before any Git push.
+The entire system operates exclusively in **Indian Standard Time (IST)**.
 
-This rule is **mandatory and has no exceptions**.
-
----
-
-### 2. Required Documentation Updates
-Whenever implementation changes, update the appropriate canonical documentation files before committing:
-
-- [`docs/README.md`](docs/README.md)
-- [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md)
-- [`docs/SYSTEM_SPECIFICATION.md`](docs/SYSTEM_SPECIFICATION.md)
-
-Update whichever documents are affected by the change. Examples include (but are not limited to):
-
-- New scanner or strategy
-- Removed scanner or strategy
-- Business rule changes
-- Configuration constant changes
-- Scheduler changes
-- SL/Target logic modifications
-- Database schema changes
-- REST API changes
-- Threading changes
-- Deployment changes
-- Error handling changes
-- New architectural components
-- Removal of architectural components
-- New mathematical formulas
-- Changes to scoring logic
-- Changes to alert lifecycle
-- Changes to cooldown logic
-- Changes to data providers
-- Changes to external integrations
+### Requirements:
+- Never use local machine time.
+- Never use UTC for business logic.
+- Never hardcode another timezone.
+- All scheduling, timestamps, cron windows, logging, scanner execution, cooldown calculations, market session validation, and reports **must use IST**.
+- Market timings are fixed as:
+  - Market Open: **09:00 AM IST**
+  - Market Close: **03:30 PM IST**
+- Any logic dependent on market time must validate against these timings unless explicitly documented otherwise.
 
 ---
 
-### 3. Documentation Must Match the Code
-- The implementation under `app/` is the single source of truth.
-- Documentation must always describe the current implementation.
-- Never leave documentation describing behavior that no longer exists.
-- Never leave obsolete diagrams, configuration values, formulas, APIs, or scheduler information.
+## 🔍 RULE 2 — Mandatory Impact Analysis Before Every Fix
+
+Never perform isolated fixes.
+
+Whenever changing any function, class, configuration, constant, API, algorithm, or business rule:
+1. Find every caller.
+2. Find every consumer.
+3. Find every dependency.
+4. Find every configuration using it.
+5. Find every database/API interaction affected.
+6. Evaluate behavioral impact.
+7. Verify no regressions are introduced.
+
+Do not assume a change is local. Every modification must include a complete downstream impact analysis before implementation.
 
 ---
 
-### 4. Architectural Change Requirements
-Whenever an architectural decision changes:
-- Update diagrams (System, Deployment, State Transition, Error Recovery).
-- Update dependency trees.
-- Update the Component Catalog table.
-- Update Architecture Decision Records (ADR) when the design rationale changes.
+## 📚 RULE 3 — Documentation Synchronization (MANDATORY)
+
+Documentation is a first-class project artifact.
+
+Before every commit and Git push:
+- Update all affected canonical documentation (`docs/README.md`, `docs/SYSTEM_ARCHITECTURE.md`, `docs/SYSTEM_SPECIFICATION.md`).
+- Update architecture diagrams if needed.
+- Update implementation contracts.
+- Update configuration tables.
+- Update scheduler documentation.
+- Update API documentation.
+- Update glossary if terminology changes.
+- Update ADRs if architectural decisions change.
+
+Code and documentation must always remain synchronized.
 
 ---
 
-### 5. Business Logic Change Requirements
-Whenever business logic changes:
-- Update the Implementation Contract in `SYSTEM_SPECIFICATION.md`.
-- Update formulas and mathematical definitions.
-- Update threshold values and configuration tables.
-- Update the Traceability Matrix if affected.
-- Update the System Glossary if new terminology is introduced.
+## 🚀 RULE 4 — Build & Runtime Validation Before Push
+
+A commit is **NOT** complete until the project is verified to be runnable.
+
+Before every push verify:
+- Project compiles successfully (`compileall app/`).
+- All Python modules import correctly.
+- No circular imports, missing imports, or dependency issues.
+- No syntax errors or runtime startup errors.
+- Application starts successfully.
+- All major components initialize successfully (Scheduler, Flask server, Database connection pool, Background workers).
+- No startup exceptions.
+
+Never push code that has not been validated end-to-end.
 
 ---
 
-### 6. Mandatory Code Comments for Logic Changes
-Whenever existing logic is modified or replaced, add a clear code comment explaining:
-1. What the previous logic was.
-2. Why it was changed.
-3. What limitation or issue existed in the previous implementation.
-4. Why the new implementation is preferred.
-5. Any expected behavioral differences.
+## 🛡️ RULE 5 — Test Protection Policy
 
-**Example Code Comment**:
-```python
-# Previous Logic:
-# Stop loss was ATR-only, which frequently placed stops below weak
-# structural support levels and increased stop-out probability.
-#
-# Reason for Change:
-# Replaced with Structural Support Engine to anchor stops to validated
-# support clusters while still respecting the maximum risk cap.
-#
-# Expected Impact:
-# Better alignment with institutional support levels and improved
-# reward-to-risk consistency.
-```
-*Do not remove historical reasoning comments unless they are no longer relevant.*
+Unit tests are protected assets.
+
+Never modify:
+- Unit Tests
+- Integration Tests
+- Regression Tests
+- Fort Knox Tests
+- Smoke Tests
+
+...unless explicitly instructed by the user.
+
+If a test fails:
+1. Fix production code first.
+2. Explain why the test failed.
+3. Modify tests **only after explicit user approval**.
+
+Never weaken, bypass, remove, or rewrite tests simply to make them pass.
 
 ---
 
-### 7. Removed Logic Requirements
-When removing existing functionality:
-- Remove obsolete code, documentation, diagrams, configuration entries, and ADR references.
-- Record what was removed, why it was removed, what replaced it (if anything), and the expected impact in commit messages or code comments.
+## 🧠 RULE 6 — Independent Technical Review Before Implementation
+
+Every user request requires an independent engineering review. Do not blindly implement requested changes.
+
+Before writing code:
+1. Inspect the current implementation.
+2. Understand existing architecture.
+3. Verify assumptions against the current code.
+4. Perform your own technical analysis.
+5. Compare the proposal with the existing implementation.
+
+Then provide:
+- Current implementation summary
+- Your independent technical assessment
+- Agree / Partially Agree / Disagree with rationale
+- Identified risks
+- Alternative approaches (if any)
+- Detailed implementation plan
+
+Only begin coding after completing this review.
 
 ---
 
-### 8. Pre-Push Verification Checklist (MANDATORY)
+## 🔎 RULE 7 — Global Pattern Search for Bugs
 
-Before every Git push, verify:
-- [ ] Implementation is complete and syntax compiles cleanly (`compileall app/`).
-- [ ] Automated test suite passes (`pytest`).
-- [ ] Canonical documentation in `docs/` is updated.
-- [ ] Diagrams reflect current architecture.
-- [ ] Configuration tables are synchronized.
-- [ ] API documentation is synchronized.
-- [ ] Database documentation is synchronized.
-- [ ] Commit hash metadata regenerated if applicable.
-- [ ] Comments explaining logic changes have been added.
-- [ ] Documentation contains no obsolete information.
+Never assume a bug exists in only one location.
+
+Whenever fixing a bug:
+1. Search the entire repository for the same coding pattern using `grep_search`.
+2. Identify every duplicate implementation.
+3. Review every occurrence.
+4. Fix every confirmed occurrence.
+5. Verify consistency across all modules.
+
+Examples: Incorrect formula, wrong comparison operator, timezone bug, null handling bug, resource leak, retry logic, thread safety issue, risk calculation, configuration misuse.
+
+A bug fixed in one file but left elsewhere is considered an **incomplete implementation**.
 
 ---
 
-### 9. Zero Documentation Drift Policy
-Code and documentation **must evolve together**.
+## 🛠️ RULE 8 — Root Cause Before Code Changes
 
-A commit that changes implementation without updating the required documentation is considered **incomplete** and must not be pushed until both are synchronized.
+Never patch symptoms.
 
-The canonical documentation under `docs/` must always represent the current implementation of the system.
+Before implementing a fix:
+- Identify the true root cause.
+- Explain why it occurred.
+- Explain why previous logic failed.
+- Explain why the new logic resolves the issue.
+- Consider edge cases.
+- Validate that the fix does not introduce regressions.
+
+---
+
+## ✅ RULE 9 — Definition of Done
+
+A task is complete **ONLY IF ALL** conditions are satisfied:
+
+- [ ] Root cause identified
+- [ ] Current implementation reviewed
+- [ ] Independent technical assessment completed
+- [ ] Impact analysis completed
+- [ ] Implementation completed
+- [ ] Similar issues searched across repository
+- [ ] All affected modules reviewed
+- [ ] Code compiles successfully
+- [ ] Application starts successfully
+- [ ] Dependencies validated
+- [ ] Tests pass (271 / 271)
+- [ ] Documentation updated
+- [ ] Architecture synchronized
+- [ ] Comments added for business logic changes
+- [ ] No regression introduced
+- [ ] Ready for Git push
+
+If any item above is incomplete, the task is **INCOMPLETE**.
