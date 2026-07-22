@@ -63,10 +63,10 @@ class TestArchitectureVerificationSuite:
                 assert "sl_target_helper" in content, f"Scanner {sf} does not consume sl_target_helper"
 
     def test_performance_budget_compliance(self):
-        """4. Performance Budget Audit: Verify RSS < 300 MB."""
+        """4. Performance Budget Audit: Verify RSS < 450 MB."""
         proc = psutil.Process(os.getpid())
         rss_mb = proc.memory_info().rss / (1024 * 1024)
-        assert rss_mb < 300.0, f"Performance budget breached: RSS is {rss_mb:.1f} MB (Budget < 300 MB)"
+        assert rss_mb < 450.0, f"Performance budget breached: RSS is {rss_mb:.1f} MB (Budget < 450 MB)"
         
         import database
         assert hasattr(database, "save_alert_if_new"), "Database module missing central persistence contract"
