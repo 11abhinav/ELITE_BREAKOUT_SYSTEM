@@ -1,13 +1,13 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `8df3c5a8`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `a4905e6f`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 >
 > **Scope Notice**: This specification covers the core architectural modules that define the system's behavior. Supporting utility modules, helper libraries, and generated artifacts are intentionally omitted except where they materially affect system behavior.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
-| **Git Commit Hash** | `8df3c5a8` |
+| **Git Commit Hash** | `a4905e6f` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -44,7 +44,7 @@
 - **Configuration Consumed**:
   - `MIN_IMPULSE_GAIN_PCT` (Default: `8.0`), `MAX_IMPULSE_BARS` (Default: `20`) — [`app/config.py`](../app/config.py)
   - `PULLBACK_MIN_DEPTH` (Default: `3.0`), `PULLBACK_MAX_DEPTH` (Default: `15.0`) — [`app/config.py`](../app/config.py)
-  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.60`), `MAX_UPPER_WICK` (Default: `0.25`) — [`app/config.py`](../app/config.py)
+  - `TRIGGER_VOL_MULT` (Default: `1.3`), `MIN_CLOSE_LOCATION` (Default: `0.75`), `MAX_UPPER_WICK` (Default: `0.25`) — [`app/config.py`](../app/config.py)
 - **Implementation & Business Rules**:
   - **Impulse Upleg**: `gain_pct = (pivot_price - min_price) / min_price * 100` $\ge 8.0\%$ within $\le 20$ bars (`MAX_IMPULSE_BARS`).
   - **Pullback Retracement Depth**: `depth_pct = ((impulse_end_price - min_pullback_low) / impulse_end_price) * 100` ($3.0\% \le \text{depth\_pct} \le 15.0\%$).
@@ -52,9 +52,9 @@
     ```python
     close_loc = (t_close - t_low) / range_ if range_ > 0 else (1.0 if t_close > prev_close else 0.0)
     upper_wick_ratio = upper_wick / range_ if range_ > 0 else 0.0
-    assert close_loc >= 0.60 and volume_mult >= 1.3 and upper_wick_ratio <= 0.25
+    assert close_loc >= 0.75 and volume_mult >= 1.3 and upper_wick_ratio <= 0.25
     ```
-    Zero-range candles (`High == Low == Close`) evaluate `close_loc = 1.0` ONLY if `t_close > prev_close` (Upper Circuit lock above prior close), protecting against lower circuit crashes.
+    `MIN_CLOSE_LOCATION = 0.75` and `MAX_UPPER_WICK = 0.25` are 100% aligned to demand that bullish trigger candles close in the top $25\%$ of their high-low range. Zero-range candles (`High == Low == Close`) evaluate `close_loc = 1.0` ONLY if `t_close > prev_close` (Upper Circuit lock above prior close), protecting against lower circuit crashes.
 
 ---
 
@@ -63,7 +63,8 @@
 - **Source File**: [`app/daily_builder.py`](../app/daily_builder.py)
 - **Primary Function**: `build_daily_watchlist()`
 - **Implementation & Business Rules**:
-  - `_score_nonfin(...)` — 180+ point fundamental scoring model with zero/negative denominator safeguards in `_anomaly_check`.
+  - `_score_nonfin(...)` — 180+ point fundamental scoring model.
+  - `compute_safe_growth_rate(current, prior)` — Centralized growth helper handling zero denominators, negative-to-positive turnarounds, and missing values safely.
 
 ---
 
@@ -84,7 +85,7 @@
 | `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
 | `MAX_IMPULSE_BARS` | `20` | `swing_utils.py` | Maximum lookback window for impulse leg low search |
 | `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
-| `MIN_CLOSE_LOCATION` | `0.60` | `swing_utils.py` | Minimum trigger candle close location |
+| `MIN_CLOSE_LOCATION` | `0.75` | `swing_utils.py` | Minimum trigger candle close location (top 25% of range) |
 | `MAX_UPPER_WICK` | `0.25` | `swing_utils.py` | Maximum upper wick ratio threshold |
 
 ---

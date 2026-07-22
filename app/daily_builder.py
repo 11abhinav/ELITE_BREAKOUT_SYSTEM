@@ -260,6 +260,20 @@ def _fval(row: pd.Series, col_name: str) -> float:
 def _is_financial(sector: str) -> bool:
     return sector in FINANCIAL_SECTORS
 
+def compute_safe_growth_rate(current: Optional[float], prior: Optional[float]) -> Optional[float]:
+    """
+    Centralized helper for calculating YoY/QoQ growth rates.
+    Handles zero denominators, negative-to-positive turnarounds, and missing values safely.
+    """
+    if current is None or prior is None or pd.isna(current) or pd.isna(prior):
+        return None
+    if prior == 0.0:
+        return 100.0 if current > 0 else (0.0 if current == 0 else -100.0)
+    if prior < 0:
+        # Negative base turnaround calculation: positive delta over absolute prior
+        return ((current - prior) / abs(prior)) * 100.0
+    return ((current - prior) / prior) * 100.0
+
 def _anomaly_check(symbol: str, yoy_rev: float, yoy_profit: float) -> str:
     if yoy_rev is None or yoy_profit is None or pd.isna(yoy_rev) or pd.isna(yoy_profit):
         return f"Missing YoY metrics: YoY Revenue={yoy_rev}, YoY Profit={yoy_profit}"
