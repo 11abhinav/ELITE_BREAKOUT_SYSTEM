@@ -914,17 +914,47 @@ def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d", re
     return result
 
 
+def get_price_cache_stats() -> dict:
+    """Calculates number of keys, total symbol dataframes, and estimated memory in MB."""
+    with _lock:
+        keys_count = len(_cache)
+        total_dfs = 0
+        total_bytes = 0
+        for entry in _cache.values():
+            if isinstance(entry, dict) and "data" in entry and isinstance(entry["data"], dict):
+                total_dfs += len(entry["data"])
+                for df in entry["data"].values():
+                    if isinstance(df, pd.DataFrame):
+                        try:
+                            total_bytes += df.memory_usage(deep=True).sum()
+                        except Exception:
+                            pass
+        return {
+            "keys": keys_count,
+            "entries": total_dfs,
+            "memory_mb": round(total_bytes / (1024 * 1024), 2)
+        }
+
+
 def clear_price_cache():
     """Explicitly release all in-memory price dataframes and trim heap allocation."""
     global _cache, _cache_hits, _cache_misses
+    stats_before = get_price_cache_stats()
     with _lock:
-        keys_count = len(_cache)
         _cache.clear()
-        logger.info(f"🧹 [CACHE CLEAR] Purged {keys_count} price cache keys from memory.")
     gc.collect()
     try:
-        import ctypes
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
+        import sys
+        if sys.platform == "linux":
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:
         pass
+    stats_after = get_price_cache_stats()
+    logger.info(
+        f"🧹 [PRICE_CACHE PURGE] Before: keys={stats_before['keys']} | entries={stats_before['entries']} | memory={stats_before['memory_mb']} MB → "
+        f"After: keys={stats_after['keys']} | entries={stats_after['entries']} | memory={stats_after['memory_mb']} MB"
+    )
+    return stats_before, stats_after
+
 

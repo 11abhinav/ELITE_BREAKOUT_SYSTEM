@@ -336,9 +336,12 @@ def run_purge_with_telemetry(stage_name: str) -> float:
     
     # 1. Clear application caches
     cache_released = 0.0
+    pc_before, pc_after = {"keys": 0, "entries": 0, "memory_mb": 0.0}, {"keys": 0, "entries": 0, "memory_mb": 0.0}
     try:
         from price_cache import clear_price_cache
-        clear_price_cache()
+        res = clear_price_cache()
+        if res:
+            pc_before, pc_after = res
     except Exception as e:
         logger.debug(f"Price cache clear skipped: {e}")
         
@@ -391,12 +394,15 @@ def run_purge_with_telemetry(stage_name: str) -> float:
     logger.info("=" * 60)
     logger.info(f"[PURGE TELEMETRY] Stage: {stage_name}")
     logger.info("=" * 60)
+    logger.info(f"  PRICE_CACHE Before      : keys={pc_before['keys']} | entries={pc_before['entries']} | memory={pc_before['memory_mb']:.1f} MB")
+    logger.info(f"  PRICE_CACHE After       : keys={pc_after['keys']} | entries={pc_after['entries']} | memory={pc_after['memory_mb']:.1f} MB")
     logger.info(f"  RSS Before Purge        : {rss_start:>7.1f} MB")
     logger.info(f"  After Cache Clear       : {rss_after_cache:>7.1f} MB (Released: {cache_released:>5.1f} MB)")
     logger.info(f"  After gc.collect()      : {rss_after_gc:>7.1f} MB (Released: {gc_released:>5.1f} MB, Objects: {collected})")
     logger.info(f"  After malloc_trim()     : {rss_after_trim:>7.1f} MB (Released: {trim_released:>5.1f} MB)")
     logger.info(f"  TOTAL MEMORY RELEASED   : {total_released:>7.1f} MB")
     logger.info("=" * 60)
+
 
     # If memory remains above 500 MB after purge, trigger global object inspection
     if rss_after_trim > 500.0:
