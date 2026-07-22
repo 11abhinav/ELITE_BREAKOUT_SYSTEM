@@ -131,6 +131,13 @@ For EVERY code modification, bug fix, refactoring, or optimization, the AI MUST 
 
 ---
 
+## 🏆 RULE 13 — Mandatory Test & Golden Gate Coverage for New Features (MANDATORY)
+Whenever adding any new feature, subsystem, quantitative engine, or architectural component, it **MUST** be fully covered by:
+1. **Dedicated Unit & Integration Test Suites**: High-coverage test suite under `tests/` testing valid, invalid, boundary, and fallback conditions.
+2. **Golden Gate & Production Deployment Gates**: Direct integration into `tests/test_production_deployment_gates.py` (Release Gates) and `tests/test_golden_rules.py` so that any future code modification or regression impacting the feature is automatically blocked at CI level.
+
+---
+
 ## ✅ RULE 11 — Definition of Done
 A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Root cause identified
@@ -142,12 +149,14 @@ A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Implementation completed
 - [ ] Parameter rationale documented (Rule 10)
 - [ ] Detailed technical explanation of changes shared with user (Rule 12)
+- [ ] Dedicated unit tests & Golden Gate coverage added for new features (Rule 13)
 - [ ] Similar issues searched globally across repository
 - [ ] All affected modules reviewed
 - [ ] Code compiles successfully
 - [ ] Application starts successfully
-- [ ] Tests pass (280 / 280)
+- [ ] Tests pass (296 / 296)
 - [ ] Documentation updated & synchronized
 - [ ] No regression introduced
 - [ ] Ready for Git push
+
 

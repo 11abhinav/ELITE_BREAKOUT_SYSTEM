@@ -79,3 +79,46 @@ def test_golden_rules_enforced_in_main():
     if visitor.errors:
         error_msg = "\n".join(visitor.errors)
         pytest.fail(f"Golden Rule Violations in main.py:\n{error_msg}")
+
+def test_golden_gate_earnings_calendar_integration():
+    """Golden Gate 14: Verifies Earnings Calendar F-06 contracts."""
+    import app.earnings_calendar as ec
+    assert hasattr(ec, "EarningsProvider"), "Golden Gate Failure: EarningsProvider missing"
+    assert hasattr(ec, "EarningsCalendarService"), "Golden Gate Failure: EarningsCalendarService missing"
+    assert hasattr(ec, "earnings_calendar_service"), "Golden Gate Failure: earnings_calendar_service missing"
+    info = ec.earnings_calendar_service.get_earnings_info("RELIANCE.NS")
+    assert "earnings_flag" in info
+    assert "days_to_earnings" in info
+    assert "earnings_severity" in info
+
+def test_golden_gate_quality_trajectory_engine():
+    """Golden Gate 15: Verifies Quality Trajectory F-14 contracts."""
+    import app.quality_trajectory as qt
+    assert hasattr(qt, "compute_trajectory_score"), "Golden Gate Failure: compute_trajectory_score missing"
+    assert hasattr(qt, "safe_float"), "Golden Gate Failure: safe_float missing"
+    res = qt.compute_trajectory_score({"roce_history": [10.0, 15.0, 20.0], "roe_history": [12.0, 16.0, 20.0], "cfo_pat": 1.10})
+    assert "trajectory_score" in res
+    assert "trajectory_grade" in res
+
+def test_golden_gate_forensic_risk_engine():
+    """Golden Gate 16: Verifies Forensic Risk Engine F-15 contracts."""
+    import app.forensic_engine as fe
+    assert hasattr(fe, "ForensicEngine"), "Golden Gate Failure: ForensicEngine class missing"
+    assert hasattr(fe, "ForensicRiskTier"), "Golden Gate Failure: ForensicRiskTier enum missing"
+    
+    # Assert Hard Gate contract
+    reject_res = fe.ForensicEngine.evaluate_symbol({"cfo_pat_3y": 0.45})
+    assert reject_res["forensic_risk_tier"] == fe.ForensicRiskTier.REJECT
+    assert reject_res["forensic_score"] == -30
+
+    # Assert Growth Mode contract
+    growth_res = fe.ForensicEngine.evaluate_symbol({
+        "cfo_pat_3y": 1.10,
+        "fcf_history": [-10.0, -20.0, -30.0],
+        "capex_sales_ratio": 0.22,
+        "revenue_cagr_3y": 0.25,
+        "roce": 0.24
+    })
+    assert growth_res["growth_investment_mode"] is True
+    assert growth_res["forensic_score"] == -3
+
