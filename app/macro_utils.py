@@ -323,3 +323,195 @@ def get_nifty_intraday_drop() -> float:
     except Exception as e:
         logger.warning(f"Failed to compute Nifty intraday drop: {e}")
     return 0.0
+
+# =====================================================================================
+# FEATURE F-03: RELATIVE STRENGTH (RS) VS NIFTY 50 (ACTIVE SCAN UNIVERSE)
+# =====================================================================================
+
+def compute_nifty_rs_rating(symbols: list = None) -> dict:
+    """
+    Computes 63-trading-day RS rating for candidate symbols relative to Nifty 50 (^NSEI)
+    over the active scan universe (~500-700 liquid equities).
+
+    Returns a dict mapping {symbol: rs_percentile_rank} where percentile is 0.0 to 100.0.
+    """
+    if not symbols:
+        try:
+            import os
+            from config import WATCHLIST_PATH
+            if os.path.exists(WATCHLIST_PATH):
+                df_wl = pd.read_parquet(WATCHLIST_PATH)
+                symbols = df_wl['symbol'].tolist()
+        except Exception:
+            pass
+
+    if not symbols:
+        return {}
+
+    try:
+        from price_cache import fetch_unified_historical
+        fetch_list = list(set(symbols + ["^NSEI"]))
+        historical_dict = fetch_unified_historical(fetch_list, period="6m", interval="1d", requester="rs_rating")
+
+        nifty_df = historical_dict.get("^NSEI")
+        if nifty_df is None or nifty_df.empty or len(nifty_df) < 20:
+            return {s: 50.0 for s in symbols}
+
+        nifty_start = float(nifty_df["Close"].iloc[max(0, len(nifty_df) - 63)])
+        nifty_end = float(nifty_df["Close"].iloc[-1])
+        nifty_ret = ((nifty_end - nifty_start) / nifty_start) * 100.0 if nifty_start > 0 else 0.0
+
+        raw_rs_scores = {}
+        for sym in symbols:
+            df_sym = historical_dict.get(sym)
+            if df_sym is not None and not df_sym.empty and len(df_sym) >= 20:
+                s_start = float(df_sym["Close"].iloc[max(0, len(df_sym) - 63)])
+                s_end = float(df_sym["Close"].iloc[-1])
+                s_ret = ((s_end - s_start) / s_start) * 100.0 if s_start > 0 else 0.0
+                raw_rs_scores[sym] = s_ret - nifty_ret
+            else:
+                raw_rs_scores[sym] = 0.0
+
+        # Compute percentile ranks across the active scan universe
+        series_rs = pd.Series(raw_rs_scores)
+        percentiles = (series_rs.rank(pct=True) * 100.0).round(2).to_dict()
+        return percentiles
+    except Exception as e:
+        logger.warning(f"Failed to compute Nifty RS ratings: {e}")
+        return {s: 50.0 for s in (symbols or [])}
+
+# =====================================================================================
+# FEATURE F-07: SECTOR & INDUSTRY REGIME ENGINE (BLENDED + 3-SESSION HYSTERESIS)
+# =====================================================================================
+
+SECTOR_MAP = {
+    "^CNXAUTO": "NIFTY AUTO",
+    "^CNXBANK": "NIFTY BANK",
+    "^CNXIT": "NIFTY IT",
+    "^CNXREALTY": "NIFTY REALTY",
+    "^CNXPHARMA": "NIFTY PHARMA",
+    "^CNXMETAL": "NIFTY METAL",
+    "^CNXENERGY": "NIFTY ENERGY",
+    "^CNXFMCG": "NIFTY FMCG",
+    "^CNXINFRA": "NIFTY INFRA",
+    "^CNXFIN": "NIFTY FINANCIAL SERVICES",
+    "^CNXMEDIA": "NIFTY MEDIA",
+    "^CNXPSU": "NIFTY PSU BANK",
+    "^CNXCOMM": "NIFTY COMMODITIES"
+}
+
+def compute_sector_regime_rankings() -> dict:
+    """
+    Downloads 14 NSE Sector Indices, computes blended 63d (70%) + 21d (30%) return,
+    and applies a 3-Session Hysteresis rule:
+      - Default counters start at 0.
+      - Stock sector must hold Top-3 for 3 consecutive days to earn 'TAILWIND'.
+      - Stock sector must hold Bottom-3 for 3 consecutive days for 'HEADWIND'.
+    """
+    try:
+        from price_cache import fetch_unified_historical
+        from database import get_connection, IST
+        from datetime import datetime
+
+        today_str = datetime.now(IST).strftime('%Y-%m-%d')
+        sector_symbols = list(SECTOR_MAP.keys())
+
+        fetched = fetch_unified_historical(sector_symbols, period="6m", interval="1d", requester="sector_regime")
+        blended_returns = {}
+
+        for sym, name in SECTOR_MAP.items():
+            df_sec = fetched.get(sym)
+            if df_sec is not None and not df_sec.empty and len(df_sec) >= 21:
+                p_current = float(df_sec["Close"].iloc[-1])
+                p_21d = float(df_sec["Close"].iloc[max(0, len(df_sec) - 21)])
+                p_63d = float(df_sec["Close"].iloc[max(0, len(df_sec) - 63)])
+
+                ret_21d = ((p_current - p_21d) / p_21d) * 100.0 if p_21d > 0 else 0.0
+                ret_63d = ((p_current - p_63d) / p_63d) * 100.0 if p_63d > 0 else 0.0
+
+                blended = (0.7 * ret_63d) + (0.3 * ret_21d)
+                blended_returns[sym] = round(blended, 2)
+            else:
+                blended_returns[sym] = 0.0
+
+        # Rank sectors 1 to 14 (descending by blended score)
+        sorted_sectors = sorted(blended_returns.items(), key=lambda x: x[1], reverse=True)
+        raw_ranks = {sym: rank + 1 for rank, (sym, _) in enumerate(sorted_sectors)}
+
+        # Fetch previous day's hysteresis counters from DB
+        prev_counters = {}
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT sector_symbol, consecutive_top3_days, consecutive_bottom3_days
+                        FROM sector_rankings
+                        WHERE ranking_date = (SELECT MAX(ranking_date) FROM sector_rankings WHERE ranking_date < %s)
+                    """, (today_str,))
+                    for row in cur.fetchall():
+                        prev_counters[row[0]] = (row[1] or 0, row[2] or 0)
+        except Exception:
+            pass
+
+        results = {}
+        db_rows = []
+
+        for sym, name in SECTOR_MAP.items():
+            rank = raw_ranks.get(sym, 7)
+            b_score = blended_returns.get(sym, 0.0)
+            prev_top3, prev_bottom3 = prev_counters.get(sym, (0, 0))
+
+            if rank <= 3:
+                consec_top3 = prev_top3 + 1
+                consec_bottom3 = 0
+            elif rank >= len(SECTOR_MAP) - 2:
+                consec_top3 = 0
+                consec_bottom3 = prev_bottom3 + 1
+            else:
+                consec_top3 = 0
+                consec_bottom3 = 0
+
+            # Grant status strictly on 3-session hysteresis rule
+            if consec_top3 >= 3:
+                status = 'TAILWIND'
+            elif consec_bottom3 >= 3:
+                status = 'HEADWIND'
+            else:
+                status = 'NEUTRAL'
+
+            results[sym] = {
+                "sector_name": name,
+                "blended_score": b_score,
+                "raw_rank": rank,
+                "consecutive_top3_days": consec_top3,
+                "consecutive_bottom3_days": consec_bottom3,
+                "effective_status": status
+            }
+            db_rows.append((sym, name, today_str, b_score, rank, consec_top3, consec_bottom3, status))
+
+        # Persist rankings to DB
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    for row in db_rows:
+                        cur.execute("""
+                            INSERT INTO sector_rankings
+                                (sector_symbol, sector_name, ranking_date, blended_score, raw_rank,
+                                 consecutive_top3_days, consecutive_bottom3_days, effective_status)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (sector_symbol, ranking_date) DO UPDATE
+                            SET blended_score = EXCLUDED.blended_score,
+                                raw_rank = EXCLUDED.raw_rank,
+                                consecutive_top3_days = EXCLUDED.consecutive_top3_days,
+                                consecutive_bottom3_days = EXCLUDED.consecutive_bottom3_days,
+                                effective_status = EXCLUDED.effective_status
+                        """, row)
+                    conn.commit()
+        except Exception as dbe:
+            logger.warning(f"Failed to persist sector_rankings: {dbe}")
+
+        return results
+    except Exception as e:
+        logger.warning(f"Failed to compute sector regime rankings: {e}")
+        return {}
+

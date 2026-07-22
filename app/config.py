@@ -77,6 +77,17 @@ SCORE_THRESHOLDS = {
 # =====================================================================================
 ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
 
+# =====================================================================================
+# MOMENTUM BONUS CONSTANTS & RULE 10 RATIONALE
+# =====================================================================================
+# RS_BONUS (10 pts): Awarded if stock's 63-day RS rating is >= 80th percentile vs Nifty 50 over active scan universe.
+# SECTOR_BONUS (8 pts): Awarded if stock belongs to a Top-3 RS sector holding 3-session hysteresis.
+# MAX_MOMENTUM_BONUS (15 pts): Hard cap on combined momentum bonuses so RS (+10) and Sector (+8) co-exist (10+5=15) without clipping Sector to zero.
+RS_BONUS = 10
+SECTOR_BONUS = 8
+MAX_MOMENTUM_BONUS = 15
+
+
 
 MULTI_TF_CONFIG = {
     "MIN_SIGNALS":        2,

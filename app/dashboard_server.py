@@ -1209,6 +1209,60 @@ def api_capital_info():
         logger.exception("❌ /api/capital_info failed")
         return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
 
+@app.route("/api/analytics/expectancy_matrix", methods=["GET"])
+@login_required
+def api_expectancy_matrix():
+    """Returns per-scanner, per-regime expectancy matrix & MFE/MAE stats for Admin UI."""
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        scanner,
+                        regime,
+                        COUNT(*) as total_trades,
+                        COUNT(CASE WHEN exit_reason IN ('T1_HIT', 'T2_HIT', 'EXPIRED_POS') THEN 1 END) as wins,
+                        COUNT(CASE WHEN exit_reason IN ('SL_HIT', 'AMBIGUOUS_SL_HIT', 'EXPIRED_NEG') THEN 1 END) as losses,
+                        COUNT(CASE WHEN exit_reason = 'AMBIGUOUS_SL_HIT' THEN 1 END) as ambiguous_collisions,
+                        ROUND(AVG(CASE WHEN realized_rr IS NOT NULL THEN realized_rr ELSE 0 END), 2) as avg_realized_rr,
+                        ROUND(AVG(max_favorable_excursion_r), 2) as avg_mfe_r,
+                        ROUND(AVG(max_adverse_excursion_r), 2) as avg_mae_r
+                    FROM alert_outcomes
+                    GROUP BY scanner, regime
+                    ORDER BY scanner, regime
+                """)
+                records = cur.fetchall()
+
+                # Calculate overall ambiguous collision percentage
+                total_exits = sum(r["total_trades"] for r in records) if records else 0
+                total_ambiguous = sum(r["ambiguous_collisions"] for r in records) if records else 0
+                ambiguous_pct = round((total_ambiguous / total_exits * 100.0), 2) if total_exits > 0 else 0.0
+
+                return jsonify({
+                    "matrix": records,
+                    "ambiguous_collision_pct": ambiguous_pct,
+                    "ambiguous_warning_triggered": bool(ambiguous_pct > 5.0)
+                })
+    except Exception as e:
+        logger.exception("❌ /api/analytics/expectancy_matrix failed")
+        return jsonify({"matrix": [], "ambiguous_collision_pct": 0, "ambiguous_warning_triggered": False}), 500
+
+
+@app.route("/api/confluence_shortlist", methods=["GET"])
+@login_required
+def api_confluence_shortlist():
+    """Returns active Golden Confluence shortlist (FM_Score >= 75 + Signal + RS >= 80%)."""
+    try:
+        from confluence_engine import evaluate_confluence_shortlist
+        matches = evaluate_confluence_shortlist()
+        return jsonify(matches)
+    except Exception as e:
+        logger.exception("❌ /api/confluence_shortlist failed")
+        return jsonify([]), 500
+
+
 @app.route("/api/sector_momentum", methods=["GET"])
 @login_required
 def api_sector_momentum():
@@ -1221,6 +1275,7 @@ def api_sector_momentum():
     except Exception as e:
         logger.exception("❌ /api/sector_momentum failed")
         return jsonify([])
+
 
 
 # ── MANUAL PORTFOLIO TRACKER ──────────────────────────────────────────────────

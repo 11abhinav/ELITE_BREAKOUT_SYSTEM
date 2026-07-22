@@ -762,6 +762,26 @@ def _start_wrapper(force: bool = False):
                             # BUG-7 FIX: regime_ctx is not a named param in save_alert_if_new — it was silently swallowed by **kwargs.
                             # Derive bayesian_regime (string) from the dict and pass it via the correct named param.
                             _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
+                            _regime_score = float(regime_ctx.get("market_score", 80.0)) if isinstance(regime_ctx, dict) else 80.0
+
+                            # ── Feature F-03 & F-07: Momentum Bonus Injection ──
+                            from macro_utils import compute_nifty_rs_rating, compute_sector_regime_rankings
+                            from config import RS_BONUS, SECTOR_BONUS, MAX_MOMENTUM_BONUS
+
+                            rs_dict = compute_nifty_rs_rating([symbol])
+                            rs_pct_val = float(rs_dict.get(symbol, 50.0))
+                            rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
+
+                            sector_rankings_dict = compute_sector_regime_rankings()
+                            sector_info = sector_rankings_dict.get(sector, {})
+                            sector_status = sector_info.get("effective_status", "NEUTRAL")
+                            sector_name_val = sector_info.get("sector_name", sector or "")
+                            sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
+
+                            total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
+                            base_score_val = int(score)
+                            final_score_val = min(100, base_score_val + total_momentum_bonus)
+
                             saved, reason, cap_alloc, shares = save_alert_if_new(
                                 symbol,
                                 "EOD",
@@ -770,7 +790,7 @@ def _start_wrapper(force: bool = False):
                                 category=category,
                                 entry_price=round(candle_close, 2),
                                 signals=signal_str,
-                                score=score,
+                                score=final_score_val,
                                 rsi=round(rsi_val, 1),
                                 volume_ratio=round(volume_ratio, 2),
                                 stop_loss=suggested_stop,
@@ -783,8 +803,15 @@ def _start_wrapper(force: bool = False):
                                 bayesian_regime=_bayesian_regime,
                                 bayesian_weights=bayesian_weights,
                                 structural_failure_stop=sl_result.get("structural_failure_stop"),
-                                target_quality_score=sl_result.get("target_quality")
+                                target_quality_score=sl_result.get("target_quality"),
+                                base_score=base_score_val,
+                                rs_bonus=rs_bonus_val,
+                                sector_bonus=sector_bonus_val,
+                                rs_percentile=rs_pct_val,
+                                sector_name=sector_name_val,
+                                regime_score=_regime_score
                             )
+
                         else:
                             saved, reason, cap_alloc, shares = True, "", 0.0, 0
 

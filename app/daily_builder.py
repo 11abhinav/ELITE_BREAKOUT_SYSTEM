@@ -756,26 +756,52 @@ def _score_nonfin(yoy_sales, yoy_profit, qoq_sales, qoq_profit, roe, opm, debt_e
 def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa, 
                yoy_margin, fin_mature, fin_compounder, 
                dividend_aristocrat=False, sector="",
-               diamond_hold=False, rev_5y=None, eps_5y=None, fcf_margin=None) -> int:
+               diamond_hold=False, rev_5y=None, eps_5y=None, fcf_margin=None,
+               nnpa=None, nnpa_declining=False, nim=None, car=None, casa=None) -> int:
+    """
+    Pure fundamental scoring engine for Banks, Housing Finance, and NBFCs.
+    Incorporates Net NPA ratio level & trend, Banded NIM (3.0-6.0%), CAR, and CASA ratio.
+    FM_Score remains 100% purely fundamental (no momentum bonuses added here).
+    """
     score = 0
-    if yoy_profit >= 25: score += 20
-    elif yoy_profit >= 15: score += 10
+    if yoy_profit is not None and yoy_profit >= 25: score += 20
+    elif yoy_profit is not None and yoy_profit >= 15: score += 10
     
-    if yoy_rev >= 25: score += 15
-    elif yoy_rev >= 15: score += 10
+    if yoy_rev is not None and yoy_rev >= 25: score += 15
+    elif yoy_rev is not None and yoy_rev >= 15: score += 10
     
     if qoq_profit is not None and qoq_profit >= 15: score += 10
     if qoq_rev is not None and qoq_rev >= 15: score += 5
     
     if yoy_margin: score += 15
     
-    if roe >= 18: score += 15
-    elif roe >= 15: score += 10
-    elif roe >= 12: score += 5
-    if roa >= 2.0: score += 15 
-    elif roa >= 1.5: score += 10
-    elif roa >= 1.0: score += 5
-    # [VERSION: DAILY_BUILDER_PATCH_v1.8] Removed duplicate yoy_margin score contribution line here
+    if roe is not None and roe >= 18: score += 15
+    elif roe is not None and roe >= 15: score += 10
+    elif roe is not None and roe >= 12: score += 5
+
+    if roa is not None and roa >= 2.0: score += 15 
+    elif roa is not None and roa >= 1.5: score += 10
+    elif roa is not None and roa >= 1.0: score += 5
+
+    # ── Feature F-05: Banking Ratios & Quality Metrics ──
+    # Net NPA Ratio Level vs Trend (Dual Independent Signals)
+    if nnpa is not None and nnpa <= 1.0: score += 15
+    elif nnpa is not None and nnpa <= 2.0: score += 8
+
+    if nnpa_declining: score += 15
+
+    # Banded NIM Scoring (3.0% - 6.0% earns full points; > 7.0% high risk MFI = 0 pts)
+    if nim is not None and 3.0 <= nim <= 6.0: score += 15
+    elif nim is not None and 2.5 <= nim < 3.0: score += 7
+
+    # Capital Adequacy Ratio (CAR >= 15% demonstrates balance sheet solvency)
+    if car is not None and car >= 15.0: score += 15
+    elif car is not None and car >= 12.0: score += 7
+
+    # CASA Ratio (Low cost deposit base >= 40%)
+    if casa is not None and casa >= 40.0: score += 10
+    elif casa is not None and casa >= 30.0: score += 5
+
     if fin_mature: score += 10
     if fin_compounder: score += 5
     if dividend_aristocrat: score += 5
@@ -784,17 +810,17 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
     if sector in HIGH_TAILWIND_SECTORS: score += 12
     elif sector in MEDIUM_TAILWIND_SECTORS: score += 6
 
-    # [VERSION: DAILY_BUILDER_PATCH_v1.6] Append long-term & FCF scoring (mirrors _score_nonfin)
     if diamond_hold: score += 20
     if rev_5y is not None and rev_5y >= 15.0: score += 5
     if eps_5y is not None and eps_5y >= 15.0: score += 5
     if fcf_margin is not None:
-        if fcf_margin >= 10:   score += 10   # Banks with positive FCF are genuinely rare
+        if fcf_margin >= 10:   score += 10
         elif fcf_margin >= 3:  score += 5
         elif fcf_margin > 0:   score += 2
         elif fcf_margin < -5:  score -= 5
 
     return score
+
 
 # =====================================================================================
 # ROW BUILDER (shared)

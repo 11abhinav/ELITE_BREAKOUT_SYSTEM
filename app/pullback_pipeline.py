@@ -284,6 +284,24 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         if is_historical_fallback:
             logger.info(f"🧪 [HISTORICAL FALLBACK] Candidate {c.symbol} @ ₹{entry_val:.2f} — Read-only mode, skipped database persistence & notifications.")
         else:
+            # ── Feature F-03 & F-07: Momentum Bonus Injection ──
+            from macro_utils import compute_nifty_rs_rating, compute_sector_regime_rankings
+            from config import RS_BONUS, SECTOR_BONUS, MAX_MOMENTUM_BONUS
+
+            rs_dict = compute_nifty_rs_rating([c.symbol])
+            rs_pct_val = float(rs_dict.get(c.symbol, 50.0))
+            rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
+
+            sector_rankings_dict = compute_sector_regime_rankings()
+            sector_info = sector_rankings_dict.get(sector, {}) if 'sector' in locals() else {}
+            sector_status = sector_info.get("effective_status", "NEUTRAL")
+            sector_name_val = sector_info.get("sector_name", "")
+            sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
+
+            total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
+            base_score_val = int(c.final_score)
+            final_score_val = min(100, base_score_val + total_momentum_bonus)
+
             saved, reason, _, _ = save_alert_if_new(
                 symbol=c.symbol,
                 breakout_type="PULLBACK",
@@ -295,7 +313,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                 target_1=sl_result.get("target_1"),
                 target_2=sl_result.get("target_2"),
                 target_3=sl_result.get("target_3"),
-                score=c.final_score,
+                score=final_score_val,
                 context={
                     "config_version": c.config_version,
                     "structure": {
@@ -303,8 +321,15 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         "duration_bars": c.structure.duration_bars,
                         "volume_ratio": c.structure.volume_ratio
                     }
-                }
+                },
+                base_score=base_score_val,
+                rs_bonus=rs_bonus_val,
+                sector_bonus=sector_bonus_val,
+                rs_percentile=rs_pct_val,
+                sector_name=sector_name_val,
+                regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0))
             )
+
             if saved:
                 alert_count += 1
                 logger.info(f"✅ ALERTED [PULLBACK] {c.symbol} @ ₹{entry_val:.2f} (Score: {c.final_score:.1f})")

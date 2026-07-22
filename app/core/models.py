@@ -100,3 +100,56 @@ class AuditTrailEntry:
     reason: str
     metric: str
     value: Any
+
+@dataclass
+class AlertOutcome:
+    """Represents a tracked trade alert outcome and feature snapshot."""
+    alert_id: int
+    leg: int
+    symbol: str
+    scanner: str
+    regime: str
+    regime_score: float
+    base_score: int
+    rs_bonus: int
+    sector_bonus: int
+    rs_percentile: float
+    sector_name: str
+    rr_at_alert: float
+    atr_pct_at_alert: float
+    entry_price: float
+    stop_loss: float
+    target_1: float
+    target_2: Optional[float] = None
+    alert_timestamp: Optional[str] = None
+    exit_timestamp: Optional[str] = None
+    exit_reason: Optional[str] = None  # 'T1_HIT', 'T2_HIT', 'SL_HIT', 'AMBIGUOUS_SL_HIT', 'EXPIRED_POS', 'EXPIRED_NEG'
+    realized_rr: Optional[float] = None
+    unrealized_rr_at_expiry: Optional[float] = None
+    holding_period_bars: Optional[int] = None
+    max_favorable_excursion_r: float = 0.0
+    max_adverse_excursion_r: float = 0.0
+
+@dataclass
+class SectorRank:
+    """Represents daily sector ranking with 3-session hysteresis."""
+    sector_symbol: str
+    sector_name: str
+    ranking_date: str
+    blended_score: float
+    raw_rank: int
+    consecutive_top3_days: int = 0
+    consecutive_bottom3_days: int = 0
+    effective_status: str = "NEUTRAL"  # "TAILWIND", "HEADWIND", "NEUTRAL"
+
+@dataclass
+class ConfluenceMatch:
+    """Represents a cross-scanner confluence match."""
+    symbol: str
+    match_date: str
+    fm_score: float
+    rs_percentile: float
+    matched_scanners: List[str] = field(default_factory=list)
+    confluence_score: float = 95.0
+    is_elite: bool = True
+

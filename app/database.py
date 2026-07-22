@@ -865,22 +865,56 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
 
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS wealth_score_history (
-                        id SERIAL PRIMARY KEY,
-                        symbol TEXT NOT NULL,
-                        evaluation_date DATE NOT NULL,
-                        hold_score REAL,
-                        fm_score REAL,
-                        rs_6m REAL,
-                        cmp REAL,
-                        sma_200 REAL,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        UNIQUE(symbol, evaluation_date)
+                    CREATE TABLE IF NOT EXISTS alert_outcomes (
+                        alert_id INTEGER REFERENCES alerts(id),
+                        leg INTEGER DEFAULT 1,
+                        symbol VARCHAR(20) NOT NULL,
+                        scanner VARCHAR(30) NOT NULL,
+                        regime VARCHAR(20) NOT NULL,
+                        regime_score NUMERIC(5, 2) DEFAULT 0.0,
+                        base_score INTEGER DEFAULT 0,
+                        rs_bonus INTEGER DEFAULT 0,
+                        sector_bonus INTEGER DEFAULT 0,
+                        rs_percentile NUMERIC(5, 2) DEFAULT 0.0,
+                        sector_name VARCHAR(50) DEFAULT '',
+                        rr_at_alert NUMERIC(5, 2) DEFAULT 0.0,
+                        atr_pct_at_alert NUMERIC(5, 2) DEFAULT 0.0,
+                        entry_price NUMERIC(10, 2) NOT NULL,
+                        stop_loss NUMERIC(10, 2) NOT NULL,
+                        target_1 NUMERIC(10, 2) NOT NULL,
+                        target_2 NUMERIC(10, 2),
+                        alert_timestamp TIMESTAMPTZ NOT NULL,
+                        exit_timestamp TIMESTAMPTZ,
+                        exit_reason VARCHAR(30),
+                        realized_rr NUMERIC(5, 2),
+                        unrealized_rr_at_expiry NUMERIC(5, 2),
+                        holding_period_bars INTEGER,
+                        max_favorable_excursion_r NUMERIC(5, 2) DEFAULT 0.0,
+                        max_adverse_excursion_r NUMERIC(5, 2) DEFAULT 0.0,
+                        PRIMARY KEY (alert_id, leg)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sector_rankings (
+                        sector_symbol VARCHAR(30) NOT NULL,
+                        sector_name VARCHAR(50) NOT NULL,
+                        ranking_date DATE NOT NULL,
+                        blended_score NUMERIC(8, 2) NOT NULL,
+                        raw_rank INTEGER NOT NULL,
+                        consecutive_top3_days INTEGER DEFAULT 0,
+                        consecutive_bottom3_days INTEGER DEFAULT 0,
+                        effective_status VARCHAR(20) DEFAULT 'NEUTRAL',
+                        PRIMARY KEY (sector_symbol, ranking_date)
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sector_rankings_date ON sector_rankings(ranking_date)")
 
                 # ── Wealth Buy Alerts table (historical tracking of buy signals) ──
                 cur.execute("""
+
                     CREATE TABLE IF NOT EXISTS wealth_buy_alert (
                         id SERIAL PRIMARY KEY,
                         symbol TEXT NOT NULL,
@@ -1490,17 +1524,48 @@ def save_alert_if_new(
                             structural_failure_stop, target_quality_score, execution_state)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
+                        RETURNING id;
                     """, (symbol, breakout_type, alert_time, scanner, category,
                         entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, 
                         signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
                         model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
                         structural_failure_stop, target_quality_score))
+                    row = cur.fetchone()
+                    inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
                     conn.commit()
                     success = True
-                    inserted = cur.rowcount > 0
                     if inserted:
+                        alert_id = row[0] if row else 0
+                        base_score_val = kwargs.get('base_score', score or 80)
+
+                        rs_bonus_val = kwargs.get('rs_bonus', 0)
+                        sector_bonus_val = kwargs.get('sector_bonus', 0)
+                        rs_pct_val = kwargs.get('rs_percentile', 0.0)
+                        sector_name_val = kwargs.get('sector_name', '')
+                        regime_score_val = kwargs.get('regime_score', 80.0)
+                        
+                        risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0))
+                        rr_val = round((float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist, 2) if entry_price and target_1 else 1.5
+                        atr_pct_val = round((risk_dist / float(entry_price or 1.0)) * 100.0, 2) if entry_price else 2.0
+                        
+                        try:
+                            cur.execute("""
+                                INSERT INTO alert_outcomes
+                                    (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
+                                     rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2,
+                                     alert_timestamp)
+                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                ON CONFLICT (alert_id, leg) DO NOTHING
+                            """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
+                                  base_score_val, rs_bonus_val, sector_bonus_val, rs_pct_val, sector_name_val,
+                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2))
+                            conn.commit()
+                        except Exception as oe:
+                            logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
+                        
                         msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
                         insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
+
                         
                         # Trigger web push notification
                         try:
