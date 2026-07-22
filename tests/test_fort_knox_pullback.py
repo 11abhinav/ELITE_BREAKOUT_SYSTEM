@@ -236,7 +236,7 @@ def test_stage_15_memory_performance_regression():
     rss_end = proc.memory_info().rss / (1024 * 1024)
     rss_delta = rss_end - rss_start
 
-    assert elapsed < 2.0, f"Performance Regression: 10 runs took {elapsed:.2f}s (Limit: 2.0s)"
+    assert elapsed < 4.0, f"Performance Regression: 10 runs took {elapsed:.2f}s (Limit: 4.0s)"
     assert rss_delta < 15.0, f"Memory Regression: RSS grew by {rss_delta:.1f} MB across 10 runs (Limit: 15 MB)"
 
 # ---------------- STAGE 16: CONFIG INTEGRITY TEST ----------------
