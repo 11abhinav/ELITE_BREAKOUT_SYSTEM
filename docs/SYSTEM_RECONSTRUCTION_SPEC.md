@@ -2,16 +2,17 @@
 
 > **AI Reconstruction Guarantee**: This document defines the exact architecture, data flows, core sub-engines, database schemas, and verification contracts required for an AI agent or software engineer to reconstruct the **Elite Breakout System** from scratch.
 >
-> **Canonical Basis**: Reflects commit `2402baaf` (`origin/main`) with 280 passing Pytest system tests.
+> **Canonical Basis**: Reflects commit `cc36f704` (`origin/main`) with 299 passing Pytest system tests.
 
 | Specification Field | Value |
 |---|---|
 | **System Name** | Elite Breakout System |
 | **System Version** | V10.0 Production Master |
-| **Git Baseline Commit** | `2402baaf` |
+| **Git Baseline Commit** | `cc36f704` |
 | **Target Runtime** | Python 3.9+ / PostgreSQL 14+ / Flask |
 | **Timezone Invariant** | `Asia/Kolkata` (IST strictly required) |
-| **Test Verification** | `python3 -m pytest` (280 / 280 tests passing) |
+| **Test Verification** | `python3 -m pytest` (299 / 299 tests passing) |
+
 
 ---
 
