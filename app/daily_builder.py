@@ -10,6 +10,7 @@ import pandas as pd
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from typing import Optional, Tuple, Dict, Any, List
 IST = ZoneInfo("Asia/Kolkata")
 
 from tradingview_screener import Query, col
