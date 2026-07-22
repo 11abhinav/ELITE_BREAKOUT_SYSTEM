@@ -1,12 +1,14 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM ARCHITECTURE SPECIFICATION
 
+> **Regeneration Notice**: This document is generated directly from source code implementation. Do not edit manually. Regenerate after architectural or behavioral changes. The implementation under `app/` remains the ultimate source of truth.
+
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Architecture & High-Level System Guide ("What exists and how does it work?") |
-| **Git Commit Hash** | `925dc6a9fd004d80a1c1d8975a59600ef7b81ea1` |
+| **Git Commit Hash** | `252aa7633ae099f400a59691b7e3f5b090100915` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
-| **Verification Basis** | Direct AST & Implementation Verification (`app/`) |
+| **Verification Basis** | Direct AST & Source Code Inspection (`app/`) |
 
 ---
 
@@ -16,7 +18,7 @@ The **Elite Breakout System** is an enterprise-grade quantitative trading engine
 
 ```mermaid
 graph TD
-    A[NSE Market Data Streams] --> B[Data Provider Layer app/data_provider.py]
+    A[NSE Market Data Feeds] --> B[Data Provider Layer app/data_provider.py]
     B --> C[Watchlist & Parquet Cache app/daily_builder.py]
     C --> D[Scanner Engine Cluster]
     D --> E[SL & Target Engine V7/V2 app/sl_target_helper.py]
@@ -88,17 +90,17 @@ sequenceDiagram
 
 ## 4. Scheduler Architecture
 
-Discovered job handlers registered in [`app/main.py`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/main.py):
+Discovered job handlers registered in [`app/main.py`](../app/main.py):
 
 | Job Handler | Schedule Window (IST) | Target Subsystem | Architectural Purpose |
 |---|---|---|---|
-| `safe_run_daily_builder()` | 08:30 AM | `app/daily_builder.py` | Builds daily fundamental watchlist parquet file |
-| `run_pledge_worker()` | 09:00 AM | `app/daily_builder.py` | Fetches BSE promoter pledge percentage data |
-| `multi_tf_scanner.start()` | 09:15 AM - 03:30 PM (Hourly) | `app/multi_tf_scanner.py` | Scans intraday 15m/1h candle consolidations |
-| `pullback_pipeline.run_pullback_pipeline()` | 03:45 PM | `app/pullback_pipeline.py` | Scans 3-15 day orderly retracements |
-| `reversal_scanner.start()` | 04:00 PM | `app/reversal_scanner.py` | Scans RSI oversold & lower Bollinger dips |
-| `eod_scanner.start()` | 04:15 PM | `app/eod_scanner.py` | Scans EOD price breakouts & volume expansion |
-| `wealth_engine.run_wealth_scan()` | 04:30 PM | `app/wealth_engine.py` | Rebalances wealth portfolio candidates |
+| `safe_run_daily_builder()` | 08:30 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Builds daily fundamental watchlist parquet file |
+| `run_pledge_worker()` | 09:00 AM | [`app/daily_builder.py`](../app/daily_builder.py) | Fetches BSE promoter pledge percentage data |
+| `multi_tf_scanner.start()` | 09:15 AM - 03:30 PM (Hourly) | [`app/multi_tf_scanner.py`](../app/multi_tf_scanner.py) | Scans intraday 15m/1h candle consolidations |
+| `pullback_pipeline.run_pullback_pipeline()` | 03:45 PM | [`app/pullback_pipeline.py`](../app/pullback_pipeline.py) | Scans 3-15 day orderly retracements |
+| `reversal_scanner.start()` | 04:00 PM | [`app/reversal_scanner.py`](../app/reversal_scanner.py) | Scans RSI oversold & lower Bollinger dips |
+| `eod_scanner.start()` | 04:15 PM | [`app/eod_scanner.py`](../app/eod_scanner.py) | Scans EOD price breakouts & volume expansion |
+| `wealth_engine.run_wealth_scan()` | 04:30 PM | [`app/wealth_engine.py`](../app/wealth_engine.py) | Rebalances wealth portfolio candidates |
 
 ---
 
@@ -118,7 +120,7 @@ graph LR
 
 ## 6. Database Schema & Pooling Architecture
 
-- **Pool Manager**: [`app/database.py:L40`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/database.py#L40) thread-safe `ThreadedConnectionPool`.
+- **Pool Manager**: [`app/database.py`](../app/database.py) thread-safe `ThreadedConnectionPool`.
 - **Primary Schema**:
   ```sql
   CREATE TABLE IF NOT EXISTS alerts (
@@ -147,12 +149,22 @@ graph LR
 
 ## 7. Threading Model & Memory Profiling
 
-- **Process Model**: Single Python process executing main scheduler thread with dedicated background daemon threads for Flask HTTP API (`dashboard_server.py`), Telegram dispatch (`telegram_engine.py`), and WebPush VAPID notifications (`push_service.py`).
-- **Memory Ownership**: Process RSS memory profiled via `ForensicTelemetry` (`app/forensics.py`). Container threshold set to $< 450.0$ MB RSS with explicit `gc.collect()` memory reclamation cycles.
+- **Process Model**: Single Python process executing main scheduler thread with dedicated background daemon threads for Flask HTTP API ([`app/dashboard_server.py`](../app/dashboard_server.py)), Telegram dispatch ([`app/telegram_engine.py`](../app/telegram_engine.py)), and WebPush VAPID notifications ([`app/push_service.py`](../app/push_service.py)).
+- **Memory Ownership**: Process RSS memory profiled via `ForensicTelemetry` ([`app/forensics.py`](../app/forensics.py)). Container threshold set to $< 450.0$ MB RSS with explicit `gc.collect()` memory reclamation cycles.
 
 ---
 
-## 8. Verification & Traceability
+## 8. Out of Scope
 
-- **Source Files Verified**: `app/main.py`, `app/database.py`, `app/sl_target_helper.py`, `app/daily_builder.py`, `app/eod_scanner.py`, `app/pullback_pipeline.py`, `app/reversal_scanner.py`, `app/wealth_engine.py`, `app/dashboard_server.py`.
-- **Last Verified Commit**: `925dc6a9fd004d80a1c1d8975a59600ef7b81ea1`
+The following capabilities are intentionally outside the scope of this core scanning engine:
+- **Broker Direct Auto-Execution**: Automatic order routing/execution to live brokerage accounts (Fyers/Zerodha).
+- **Crypto & Commodity Markets**: Scanning non-NSE instruments (Cryptocurrencies, Forex, MCX Commodities).
+- **High-Frequency Intraday Trading**: Sub-second tick-level order book processing.
+- **Backtesting Visual GUI**: Interactive web-based backtest strategy builder.
+
+---
+
+## 9. Verification & Traceability
+
+- **Source Modules Discovered**: `app/main.py`, `app/database.py`, `app/sl_target_helper.py`, `app/daily_builder.py`, `app/eod_scanner.py`, `app/pullback_pipeline.py`, `app/reversal_scanner.py`, `app/wealth_engine.py`, `app/dashboard_server.py`.
+- **Verified Against Commit**: `252aa7633ae099f400a59691b7e3f5b090100915`
