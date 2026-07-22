@@ -961,23 +961,25 @@ def _start_wrapper(force: bool = False):
                 except Exception as e:
                     logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
 
-            # Map overall outcome & status guard
+            # Map overall outcome & status guard — Missing/unfetched data is a CRITICAL BLOCKER
             outcome = "SUCCESS"
-            if rejection_counts.get("no_data", 0) >= len(watchlist) * 0.25:
-                status = "DEGRADED"
-                outcome = "PARTIAL"
-                error_msg = f"CRITICAL: {rejection_counts.get('no_data', 0)}/{len(watchlist)} symbols rejected as no_data"
+            no_data_count = rejection_counts.get("no_data", 0)
+            
+            if no_data_count >= len(watchlist) * 0.25:
+                status = "DOWN"
+                outcome = "FAILED"
+                error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{len(watchlist)} symbols unfetched (missing data)"
                 logger.error(f"🚨 {error_msg}")
                 try:
                     from telegram_engine import send_telegram_message
-                    send_telegram_message(f"🚨 <b>EOD SCANNER ALERT: DEGRADED DATA</b>\n{rejection_counts.get('no_data', 0)}/{len(watchlist)} symbols failed with no_data.")
+                    send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: EOD SCANNER FAILED</b>\n{no_data_count}/{len(watchlist)} symbols were unfetched / missing data.")
                 except Exception:
                     pass
 
-            if total_fetched_count < len(watchlist) * 0.70:
+            elif total_fetched_count < len(watchlist) * 0.70:
                 outcome = "PARTIAL"
                 status = "DEGRADED"
-            if total_fetched_count == 0:
+            elif total_fetched_count == 0:
                 outcome = "FAILED"
                 status = "DOWN"
 
