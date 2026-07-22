@@ -161,6 +161,42 @@ class TestProductionDeploymentGates:
         response = client.get("/version")
         assert response.status_code == 200, f"/version endpoint failed with status {response.status_code}"
         data = response.get_json()
-        assert "git_commit" in data, "Build metadata missing git_commit"
+        assert data["git_commit"] in data or "git_commit" in data, "Build metadata missing git_commit"
         assert data["architecture_version"] == "8.1", "Architecture version mismatch"
         assert data["status"] == "RELEASE_GATE_APPROVED", "Release gate approval missing"
+
+    def test_gate14_earnings_calendar_contract(self):
+        """Gate 14: Earnings Calendar Subsystem Verification."""
+        import earnings_calendar
+        assert hasattr(earnings_calendar, "EarningsCalendarService"), "Earnings calendar missing EarningsCalendarService"
+        assert hasattr(earnings_calendar, "earnings_calendar_service"), "Earnings calendar missing earnings_calendar_service singleton"
+        
+        info = earnings_calendar.earnings_calendar_service.get_earnings_info("RELIANCE.NS")
+        assert "earnings_flag" in info, "Earnings info missing earnings_flag"
+        assert "days_to_earnings" in info, "Earnings info missing days_to_earnings"
+        assert "earnings_severity" in info, "Earnings info missing earnings_severity"
+        assert "date_status" in info, "Earnings info missing date_status"
+
+    def test_gate15_quality_trajectory_contract(self):
+        """Gate 15: Quality Trajectory Engine Contract Verification."""
+        import quality_trajectory
+        assert hasattr(quality_trajectory, "compute_trajectory_score"), "Quality trajectory missing compute_trajectory_score"
+        assert hasattr(quality_trajectory, "safe_float"), "Quality trajectory missing safe_float helper"
+
+        # Contract snapshot test for valid input
+        result = quality_trajectory.compute_trajectory_score({
+            "roce_history": [10.0, 14.0, 18.0, 22.0],
+            "roe_history": [12.0, 15.0, 18.0, 22.0],
+            "opm_history": [10.0, 12.0, 14.0, 16.0],
+            "de_history": [0.8, 0.6, 0.4, 0.2],
+            "icr_history": [3.0, 5.0, 8.0, 12.0],
+            "cfo_pat": 1.10
+        })
+        assert result["trajectory_score"] >= 18
+        assert result["trajectory_grade"] == "A"
+
+        # Contract snapshot test for missing input (Defensive UNKNOWN fallback)
+        missing_res = quality_trajectory.compute_trajectory_score({})
+        assert missing_res["trajectory_grade"] == "UNKNOWN"
+        assert missing_res["trajectory_details"]["status"] == "MISSING_DATA"
+
