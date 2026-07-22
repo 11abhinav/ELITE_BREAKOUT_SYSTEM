@@ -429,6 +429,27 @@ def run_purge_with_telemetry(stage_name: str) -> float:
 
     total_released = max(0.0, rss_start - rss_after_trim)
 
+    arrow_allocated_mb = 0.0
+    try:
+        import pyarrow as pa
+        arrow_allocated_mb = pa.default_memory_pool().bytes_allocated() / (1024 * 1024)
+    except Exception:
+        pass
+
+    df_inv = get_dataframe_inventory()
+    py_tracemalloc_mb = (tracemalloc.get_traced_memory()[0] / (1024 * 1024)) if tracemalloc.is_tracing() else 0.0
+
+    logger.info(
+        f"📊 [NATIVE MEMORY METRICS] Stage: {stage_name:<25} | "
+        f"RSS: {rss_after_trim:.1f} MB | "
+        f"Arrow Pool: {arrow_allocated_mb:.1f} MB | "
+        f"Arrow Released: {pyarrow_released:.1f} MB | "
+        f"Glibc Trim: {trim_released:.1f} MB | "
+        f"Cache: {pc_after['memory_mb']:.1f} MB ({pc_after['keys']} keys) | "
+        f"PyHeap: {py_tracemalloc_mb:.1f} MB | "
+        f"DFs: {df_inv['memory_mb']:.1f} MB ({df_inv['count']} DFs)"
+    )
+
     logger.info(f"  PRICE_CACHE After       : keys={pc_after['keys']} | entries={pc_after['entries']} | memory={pc_after['memory_mb']:.1f} MB")
     logger.info(f"  RSS Before Purge        : {rss_start:>7.1f} MB")
     logger.info(f"  After Cache Clear       : {rss_after_cache:>7.1f} MB (Released: {cache_released:>5.1f} MB)")
@@ -437,6 +458,7 @@ def run_purge_with_telemetry(stage_name: str) -> float:
     logger.info(f"  After malloc_trim()     : {rss_after_trim:>7.1f} MB (Released: {trim_released:>5.1f} MB)")
     logger.info(f"  TOTAL MEMORY RELEASED   : {total_released:>7.1f} MB")
     logger.info("=" * 60)
+
 
 
 
