@@ -24,6 +24,8 @@
 | **F-10** | **Gap-Aware Execution Risk** | **P2** | ⚠️ Investigate | Medium | `app/sl_target_helper.py` | Flags high-gap frequency stocks and adjusts risk budget for illiquidity slippage. |
 | **F-11** | **Trade Management & Trailing SL** | **P3** | Later | Medium | `app/trade_manager.py` | Moves SL to breakeven at $1R$ and trails stops below structural swing lows. |
 | **F-12** | **Regime-Adaptive Risk Scaling** | **P3** | ⚠️ Carefully | High | `app/config.py` | Dynamically scales `ACCOUNT_RISK_BUDGET_PCT` based on macro regime score. |
+| **F-13** | **Advanced Outcome Analytics & Attribution** | **P2** | ✅ Implement | Medium | `app/outcome_tracker.py` | Computes feature attribution, score band expectancy, calibration monitoring, and rolling validation. |
+
 
 ---
 
@@ -107,7 +109,17 @@ Scales `ACCOUNT_RISK_BUDGET_PCT` based on `MarketRegimeEngine` score:
 
 ---
 
+## 3.8 Feature F-13: Advanced Outcome Analytics & Feature Attribution (P2)
+Extends `app/outcome_tracker.py` and Admin API endpoints to analyze historical trade outcomes once live trade count reaches statistical significance ($N \ge 100$):
+- **Feature Attribution**: Calculates win rate and average $R$-multiple per isolated feature ($RS \ge 80$ vs $RS < 80$, Sector Tailwind vs No Tailwind).
+- **Expectancy by Score Bands**: Evaluates expectancy across score ranges (70–75, 75–80, 80–85, 85–90, 90+) to detect if increasing score thresholds improves expectancy.
+- **Score Calibration Monitoring**: Tracks expected win rates vs observed success rates per score tier to monitor calibration accuracy.
+- **Rolling Window Validation**: Computes rolling 3-month and 6-month expectancy metrics to detect strategy regime shifts or alpha decay over time.
+
+---
+
 # 4. Governance & Strategy Change Validation Protocol
+
 
 Per [`ANTIGRAVITY.md`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/ANTIGRAVITY.md) governance rules, any future strategy parameter change or new feature deployment MUST satisfy the **6-Metric Validation Protocol** using the Replay Backtest Harness (F-02):
 
