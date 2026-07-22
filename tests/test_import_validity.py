@@ -34,6 +34,7 @@ def test_all_app_imports_exist():
                 if (app_dir / f"{module_name}.py").exists() or module_name in ("database", "config", "price_cache", "daily_builder", "earnings_calendar", "quality_trajectory", "message_formatter"):
                     try:
                         mod = importlib.import_module(module_name)
+                        mod = importlib.reload(mod)
                         for alias in node.names:
                             sym_name = alias.name
                             if sym_name == "*":

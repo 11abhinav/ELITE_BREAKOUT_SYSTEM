@@ -666,6 +666,11 @@ def _start_wrapper(force: bool = False):
                         # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                         if score < global_min_score:
                             rejection_counts["low_score"] += 1
+                            try:
+                                from near_miss_tracker import log_near_miss
+                                log_near_miss(symbol, "EOD", primary_signal, "score_threshold", score, global_min_score, score=score)
+                            except Exception:
+                                pass
                             continue
 
 

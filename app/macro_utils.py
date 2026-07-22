@@ -380,6 +380,61 @@ def compute_nifty_rs_rating(symbols: list = None) -> dict:
         logger.warning(f"Failed to compute Nifty RS ratings: {e}")
         return {s: 50.0 for s in (symbols or [])}
 
+def compute_nifty_rs_rating_with_hysteresis(symbols: list = None) -> dict:
+    """
+    Computes RS ratings and applies a 3-Session Hysteresis Rule (3-day rolling average smoothing)
+    to prevent RS 79% <-> 81% flickering across daily scans.
+    """
+    current_rs = compute_nifty_rs_rating(symbols)
+    if not current_rs:
+        return {}
+
+    try:
+        from database import get_connection, IST
+        from datetime import datetime
+        today_str = datetime.now(IST).strftime('%Y-%m-%d')
+
+        # Persist daily RS percentiles into PostgreSQL table for rolling hysteresis
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS daily_rs_history (
+                        symbol VARCHAR(20) NOT NULL,
+                        rs_date DATE NOT NULL,
+                        rs_percentile NUMERIC(5, 2) NOT NULL,
+                        PRIMARY KEY (symbol, rs_date)
+                    )
+                """)
+                for sym, rs_val in current_rs.items():
+                    cur.execute("""
+                        INSERT INTO daily_rs_history (symbol, rs_date, rs_percentile)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (symbol, rs_date) DO UPDATE
+                        SET rs_percentile = EXCLUDED.rs_percentile
+                    """, (sym, today_str, rs_val))
+                conn.commit()
+
+                # Fetch 3-session rolling average
+                smoothed_rs = {}
+                cur.execute("""
+                    SELECT symbol, AVG(rs_percentile)::numeric(5, 2)
+                    FROM (
+                        SELECT symbol, rs_percentile,
+                               ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY rs_date DESC) as rn
+                        FROM daily_rs_history
+                    ) t
+                    WHERE rn <= 3
+                    GROUP BY symbol
+                """)
+                for row in cur.fetchall():
+                    smoothed_rs[row[0]] = float(row[1])
+
+                # Return smoothed RS for symbols requested
+                return {sym: smoothed_rs.get(sym, current_rs.get(sym, 50.0)) for sym in (symbols or current_rs.keys())}
+    except Exception as e:
+        logger.warning(f"RS Hysteresis calculation fallback to raw RS: {e}")
+        return current_rs
+
 # =====================================================================================
 # FEATURE F-07: SECTOR & INDUSTRY REGIME ENGINE (BLENDED + 3-SESSION HYSTERESIS)
 # =====================================================================================

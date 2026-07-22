@@ -89,3 +89,19 @@ def test_near_miss_tracker_logging(mocker):
         threshold_value=75.0,
         score=72
     )
+
+def test_rs_hysteresis_smoothing(mocker):
+    """Verify that RS hysteresis computes 3-session rolling average."""
+    mocker.patch("macro_utils.compute_nifty_rs_rating", return_value={"RELIANCE": 82.0})
+    
+    mock_cursor = mocker.MagicMock()
+    mock_cursor.fetchall.return_value = [("RELIANCE", 81.0)]
+    mock_conn = mocker.MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    
+    mocker.patch("macro_utils.get_connection", return_value=mock_conn)
+    from macro_utils import compute_nifty_rs_rating_with_hysteresis
+    
+    smoothed = compute_nifty_rs_rating_with_hysteresis(["RELIANCE"])
+    assert smoothed["RELIANCE"] == 81.0

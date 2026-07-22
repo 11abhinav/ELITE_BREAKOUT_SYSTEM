@@ -41,10 +41,11 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
         if df_wl.empty or "FM_Score" not in df_wl.columns:
             return []
         
-        # Filter Tier 1 Fundamental Stocks (recabibrated for pure FM_Score without momentum bonuses)
-        tier1_df = df_wl[df_wl["FM_Score"] >= 70.0]
+        # Filter Tier 1 Fundamental Stocks (dynamic 75th percentile quantile of active watchlist)
+        fm_cutoff = float(df_wl["FM_Score"].quantile(0.75)) if len(df_wl) >= 20 else 70.0
+        tier1_df = df_wl[df_wl["FM_Score"] >= fm_cutoff]
         if tier1_df.empty:
-            logger.info("ℹ️ No Tier 1 fundamental stocks (FM_Score >= 70) found today.")
+            logger.info(f"ℹ️ No Tier 1 fundamental stocks (FM_Score >= {fm_cutoff:.1f}) found today.")
             return []
         
         tier1_map = dict(zip(tier1_df["Stock" if "Stock" in tier1_df.columns else "symbol"], tier1_df["FM_Score"]))
@@ -71,9 +72,10 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
         logger.info("ℹ️ No technical alerts fired today for Confluence evaluation.")
         return []
 
-    # 3. Compute RS Percentiles over active universe
+    # 3. Compute RS Percentiles over active universe (with 3-Session Hysteresis Smoothing)
+    from macro_utils import compute_nifty_rs_rating_with_hysteresis
     symbol_list = list(set([row[1] for row in todays_alerts]))
-    rs_dict = compute_nifty_rs_rating(symbol_list)
+    rs_dict = compute_nifty_rs_rating_with_hysteresis(symbol_list)
 
     confluence_matches = []
     
@@ -83,10 +85,10 @@ def evaluate_confluence_shortlist(run_date: str = None) -> List[Dict[str, Any]]:
         rs_pct = float(rs_dict.get(symbol, 50.0))
 
         # Check 3 Independent Conditions:
-        # Condition 1: High Fundamental Score (FM_Score >= 70 post-purification)
+        # Condition 1: High Fundamental Score (FM_Score >= Top 25% Watchlist Cutoff)
         # Condition 2: Active Technical Signal Fired Today
         # Condition 3: Top Relative Strength (rs_percentile >= 80.0)
-        if fm_score is not None and fm_score >= 70.0 and rs_pct >= 80.0:
+        if fm_score is not None and fm_score >= fm_cutoff and rs_pct >= 80.0:
             match_item = {
                 "alert_id": alert_id,
                 "symbol": symbol,
