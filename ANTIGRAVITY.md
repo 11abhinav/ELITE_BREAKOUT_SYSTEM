@@ -112,7 +112,18 @@ Never patch symptoms. Identify and document the true root cause before writing c
 
 ---
 
-## ✅ RULE 9 — Definition of Done
+## 📋 RULE 10 — Documented Parameter Rationale (MANDATORY)
+Every configurable threshold, risk cap, indicator period, or scanner parameter in `app/config.py` MUST have an explicit documented rationale.
+
+For each parameter, documentation must specify:
+1. **Why the parameter exists**: Purpose in technical or risk architecture.
+2. **Chosen Value & Baseline**: Empirical or institutional origin (e.g. standard literature, backtest calibration, institutional risk limits).
+3. **Evaluated Alternatives**: Other threshold values evaluated and trade-offs considered.
+4. **Behavioral Impact**: Expected effect of raising or lowering the threshold on alert volume, win rate, and expectancy.
+
+---
+
+## ✅ RULE 11 — Definition of Done
 A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Root cause identified
 - [ ] Current implementation reviewed
@@ -121,6 +132,7 @@ A task is complete **ONLY IF ALL** conditions are satisfied:
 - [ ] Implementation plan prepared
 - [ ] Explicit user approval received
 - [ ] Implementation completed
+- [ ] Parameter rationale documented (Rule 10)
 - [ ] Similar issues searched globally across repository
 - [ ] All affected modules reviewed
 - [ ] Code compiles successfully

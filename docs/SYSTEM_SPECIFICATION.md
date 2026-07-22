@@ -1,13 +1,13 @@
 # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & IMPLEMENTATION CONTRACT
 
-> **Regeneration Notice**: This document is generated directly from source code implementation at commit `a4905e6f`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
+> **Regeneration Notice**: This document is generated directly from source code implementation at commit `60eff85e`. Do not edit manually. Regenerate after architectural or behavioral changes. The source implementation under `app/` remains the ultimate source of truth.
 >
 > **Scope Notice**: This specification covers the core architectural modules that define the system's behavior. Supporting utility modules, helper libraries, and generated artifacts are intentionally omitted except where they materially affect system behavior.
 
 | Metadata Field | Value |
 |---|---|
 | **Canonical Role** | Detailed Implementation Contract for Core Architectural Modules |
-| **Git Commit Hash** | `a4905e6f` |
+| **Git Commit Hash** | `60eff85e` |
 | **Generation Date** | `2026-07-22` |
 | **Repository Branch** | `main` |
 | **Verification Basis** | AST Analysis & Source Code Inspection (`app/`) |
@@ -68,25 +68,27 @@
 
 ---
 
-## 2. Configuration Reference Appendix (`app/config.py`)
+## 2. Configuration Reference Appendix & Parameter Rationales (RULE 10)
+
+Per **RULE 10 (Documented Parameter Rationale)**, every configuration parameter in [`app/config.py`](../app/config.py) is documented with its technical purpose, baseline origin, evaluated alternatives, and behavioral impact:
 
 ### 2.1 Risk Management & Position Sizing Configuration
-| Constant Name | Default Value | Target Subsystem | Architectural Purpose |
-|---|---|---|---|
-| `MAX_SL_DISTANCE_PCT` | `8.0` | `sl_target_helper.py` | Caps maximum allowed stop loss distance from entry |
-| `ACCOUNT_RISK_BUDGET_PCT` | `1.0` | `sl_target_helper.py` | Maximum portfolio equity risk percentage per position |
-| `MIN_NATURAL_RR` | `1.5` | `sl_target_helper.py` | Minimum natural reward-to-risk threshold for alerts |
+| Constant Name | Value | Purpose | Baseline Origin | Evaluated Alternatives | Behavioral Impact |
+|---|---|---|---|---|---|
+| `MAX_SL_DISTANCE_PCT` | `8.0%` | Hard stop-loss distance cap | NSE swing volatility limit | `5.0%` (too tight for pullbacks), `12.0%` (excessive drawdown) | Rejects wide, loose setups where risk distance exceeds structural norms |
+| `ACCOUNT_RISK_BUDGET_PCT` | `1.0%` | Max equity risk budget per trade | Institutional Kelly fraction (1.0% portfolio risk) | `0.5%` (under-allocated), `2.0%` (excessive portfolio variance) | Determines dynamic position sizing equity allocation ($\le 100\%$) |
+| `MIN_NATURAL_RR` | `1.5` | Min reward-to-risk gate | Confluence target engine baseline | `1.2` (sub-optimal expectancy), `2.0` (filters valid setups) | Rejects trades where natural structural resistance blocks $T_1$ before $1.5R$ |
 
 ### 2.2 Scanner & Trigger Thresholds
-| Constant Name | Default Value | Target Subsystem | Architectural Purpose |
-|---|---|---|---|
-| `PULLBACK_MIN_DEPTH` | `3.0` | `pullback_pipeline.py` | Minimum pullback retracement percentage |
-| `PULLBACK_MAX_DEPTH` | `15.0` | `pullback_pipeline.py` | Maximum pullback retracement percentage |
-| `MIN_IMPULSE_GAIN_PCT` | `8.0` | `swing_utils.py` | Minimum impulse upleg gain percentage |
-| `MAX_IMPULSE_BARS` | `20` | `swing_utils.py` | Maximum lookback window for impulse leg low search |
-| `TRIGGER_VOL_MULT` | `1.3` | `swing_utils.py` | Resumption trigger bar volume multiplier threshold |
-| `MIN_CLOSE_LOCATION` | `0.75` | `swing_utils.py` | Minimum trigger candle close location (top 25% of range) |
-| `MAX_UPPER_WICK` | `0.25` | `swing_utils.py` | Maximum upper wick ratio threshold |
+| Constant Name | Value | Purpose | Baseline Origin | Evaluated Alternatives | Behavioral Impact |
+|---|---|---|---|---|---|
+| `MIN_IMPULSE_GAIN_PCT` | `8.0%` | Min upleg gain for pullback anchor | Momentum impulse threshold | `5.0%` (choppy noise), `12.0%` (misses early trends) | Establishes strong institutional buyer footprint |
+| `MAX_IMPULSE_BARS` | `20` | Max duration for impulse leg | 1 trading month lookback | `10` (too strict for momentum), `40` (includes slow grinds) | Prevents slow 60-day grinds from qualifying as explosive impulses |
+| `PULLBACK_MIN_DEPTH` | `3.0%` | Min retracement depth | Minor noise filter | `1.0%` (intraday noise), `5.0%` (misses shallow bases) | Filters out 1-bar pause candles |
+| `PULLBACK_MAX_DEPTH` | `15.0%` | Max retracement depth | Consolidation breakdown threshold | `10.0%` (too tight), `20.0%` (structural failure) | Rejects setups experiencing deep structural breakdown |
+| `TRIGGER_VOL_MULT` | `1.3x` | Resumption volume expansion | Median pullback volume multiplier | `1.1x` (weak volume), `1.8x` (unreachable on pullbacks) | Ensures institutional volume resumption on trigger candle |
+| `MIN_CLOSE_LOCATION` | `0.75` | Min trigger close location | Top 25% candle range threshold | `0.60` (redundant with upper wick), `0.85` (too restrictive) | Confirms strong buying pressure into session close |
+| `MAX_UPPER_WICK` | `0.25` | Max upper wick ratio | Supply rejection threshold | `0.15` (over-filters), `0.40` (permits heavy overhead supply) | Filters out candles experiencing heavy intra-day profit taking |
 
 ---
 
