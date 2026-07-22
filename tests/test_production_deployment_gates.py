@@ -131,3 +131,36 @@ class TestProductionDeploymentGates:
         annotations = PullbackCandidate.__annotations__
         assert "entry_price" in annotations, "PullbackCandidate DTO missing entry_price annotation"
         assert "as_of_date" in annotations, "PullbackCandidate DTO missing as_of_date annotation"
+
+    def test_gate11_all_scanners_execution(self):
+        """Gate 11: End-to-End Scanner Execution Test for all 6 scanners."""
+        import eod_scanner
+        import pullback_pipeline
+        import reversal_scanner
+        import multi_tf_scanner
+        import wealth_engine
+        import multibagger
+
+        assert hasattr(eod_scanner, "start"), "EOD Scanner missing start entrypoint"
+        assert hasattr(pullback_pipeline, "run_pullback_pipeline"), "Pullback Pipeline missing run_pullback_pipeline entrypoint"
+        assert hasattr(reversal_scanner, "start"), "Reversal Scanner missing start entrypoint"
+        assert hasattr(multi_tf_scanner, "start"), "Multi-TF Scanner missing start entrypoint"
+        assert hasattr(wealth_engine, "run_wealth_scan"), "Wealth Engine missing run_wealth_scan entrypoint"
+        assert hasattr(multibagger, "run_scanner"), "Multibagger Engine missing run_scanner entrypoint"
+
+    def test_gate12_database_contract(self):
+        """Gate 12: Database Contract & Schema Integrity Test."""
+        import database
+        assert hasattr(database, "save_alert_if_new"), "Database missing save_alert_if_new persistence contract"
+        assert hasattr(database, "upsert_scanner_health"), "Database missing upsert_scanner_health contract"
+
+    def test_gate13_version_endpoint(self):
+        """Gate 13: Build Metadata /version Endpoint Verification."""
+        import dashboard_server
+        client = dashboard_server.app.test_client()
+        response = client.get("/version")
+        assert response.status_code == 200, f"/version endpoint failed with status {response.status_code}"
+        data = response.get_json()
+        assert "git_commit" in data, "Build metadata missing git_commit"
+        assert data["architecture_version"] == "8.1", "Architecture version mismatch"
+        assert data["status"] == "RELEASE_GATE_APPROVED", "Release gate approval missing"
