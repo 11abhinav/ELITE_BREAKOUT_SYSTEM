@@ -1,13 +1,28 @@
 from dataclasses import dataclass, field
 
+# [VERSION: SCAN_FAILURE_SCHEMA_FIX_v1.0] Updated ScanFailure dataclass schema to match DB table scan_failures
+import pytz
+from datetime import datetime
+_IST_TZ = pytz.timezone("Asia/Kolkata")
+
 @dataclass
 class ScanFailure:
     symbol: str
-    provider: str
-    reason: str
-    exception_type: str
-    scanner: str
-    stage: str
+    scanner_name: str = "UNKNOWN"
+    provider: str = "unknown"
+    failure_reason: str = "unknown"
+    failed_at: str = field(default_factory=lambda: datetime.now(_IST_TZ).isoformat())
+    scan_id: str = "UNKNOWN"
+    stage: str = "UNKNOWN"
+
+    # Backward compatibility properties
+    @property
+    def scanner(self) -> str:
+        return self.scanner_name
+
+    @property
+    def reason(self) -> str:
+        return self.failure_reason
 
 @dataclass
 class ProviderStats:

@@ -149,7 +149,8 @@ def get_dynamic_cadence(interval: str) -> int:
     return max(5, int(secs) + 5)
 
 
-@profile_function("Price Fetch", budget_mb=350.0)
+# [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.
+@profile_function("Price Fetch", budget_mb=500.0)
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits
     global _cache_misses

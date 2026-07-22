@@ -46,3 +46,17 @@ def test_quality_trajectory_with_none_values():
     assert "trajectory_grade" in result
     assert result["trajectory_grade"] in ("A", "B", "C", "D", "UNKNOWN")
 
+def test_stable_elite_company_receives_grade_a():
+    """Verify that a company with consistently elite flat fundamentals (slope=0) earns Grade A via level scoring."""
+    data = {
+        "roce_history": [35.0, 35.0, 35.0, 35.0],
+        "roe_history": [30.0, 30.0, 30.0, 30.0],
+        "opm_history": [25.0, 25.0, 25.0, 25.0],
+        "de_history": [0.05, 0.05, 0.05, 0.05],
+        "icr_history": [20.0, 20.0, 20.0, 20.0],
+        "cfo_pat": 1.20
+    }
+    result = compute_trajectory_score(data)
+    assert result["trajectory_score"] >= 18
+    assert result["trajectory_grade"] == "A"
+

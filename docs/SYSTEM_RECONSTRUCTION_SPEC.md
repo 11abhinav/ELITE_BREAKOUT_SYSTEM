@@ -70,16 +70,23 @@ flowchart TD
 - Computes Execution Capture Efficiency ($\frac{\text{Avg Realized } R}{\text{Avg MFE } R} \times 100\%$), Feature Attribution (RS, Sector, Regime, Earnings Window), Score Band Expectancy (`SCORE_BANDS`), and Rolling Validation (30d, 90d, 180d).
 
 ### 2.7 Earnings Calendar & Quality Trajectory Subsystems
-- **Earnings Calendar (`app/earnings_calendar.py`)**: `EarningsProvider` interface, `YahooEarningsProvider`, PostgreSQL `earnings_calendar` table, 08:00 AM IST refresh, graded risk classification (🔴 Today, 🟠 Soon 1-2d, 🟡 Medium 3-5d, 🟢 None), and gap-risk message formatters.
-- **Quality Trajectory Engine (`app/quality_trajectory.py`)**: Multi-quarter linear regression trend slope & variance scoring across 6 fundamental pillars (0-20 pts), graduated CFO/PAT scoring, Trajectory Grade (A/B/C/D), and JSON breakdown storage.
+- **Earnings Calendar (`app/earnings_calendar.py`)**: `EarningsProvider` interface, `YahooEarningsProvider`, PostgreSQL `earnings_calendar` table, 08:00 AM IST refresh, graded risk classification (🔴 Today, 🟠 Soon 1-2d, 🟡 Medium 3-5d, ~~🟢 None~~ $\rightarrow$ `UNVERIFIED` for missing dates — `PHASE2_EARNINGS_UNVERIFIED_v1.0`), and gap-risk message formatters.
+- **Quality Trajectory Engine (`app/quality_trajectory.py`)**: ~~Legacy pure slope scoring penalized flat 35% ROCE elite companies~~ $\rightarrow$ `pillar_score = max(level_score, trend_score)` for ROCE, ROE, and OPM with 4-quarter TTM rolling averages (`PHASE2_TRAJECTORY_RECALIB_v1.0`), graduated CFO/PAT scoring, Trajectory Grade (A/B/C/D), and JSON breakdown storage.
 
 ### 2.8 Forensic Risk Engine & Dynamic Growth Investment Mode Subsystem (`app/forensic_engine.py`)
 - ~~Legacy Binary FCF < 0 Hard Filter~~ *(Replaced on 2026-07-22 by 3Y Cumulative CFO / PAT < 0.6 Primary Hard Gate)*.
 - Primary 3Y Cumulative CFO / PAT hard gate ($<0.6 \rightarrow \text{REJECT}$).
-- 0–100 Weighted Growth Investment Score (`Capex/Sales` 40%, `Revenue CAGR 3Y` 30%, `ROCE` 30%). Activates `Growth_Investment_Mode = TRUE` when score $\ge 60$.
+- 0–100 Weighted Growth Investment Score (`Capex/Sales` 40%, `Revenue CAGR 3Y` 30%, `ROCE` 30%).
+- ~~Legacy Score >= 60 alone activated Growth Mode~~ *(Deprecated 2026-07-22 due to circularity where capex reduced capex penalty)*.
+- Growth Mode Preconditions: Requires `Revenue CAGR 3Y >= 12%` AND `ROCE >= 15%` as mandatory hard preconditions before `Growth_Investment_Mode = TRUE` (`PHASE2_GROWTH_MODE_FIX_v1.0`).
 - Scaled & Capped FCF Penalty: Reduces FCF penalties in Growth Mode ($-3$, $-5$ pts) vs Normal Mode ($-10$, $-20$ pts).
 - Explicit `UNKNOWN` risk tier for incomplete fundamental data.
 - Purely evaluative architecture returning `{score, tier, flags, details}`; scanner policies check `Forensic_Risk_Tier != 'REJECT'`.
+
+### 2.9 Infrastructure, Memory & Telemetry Upgrades
+- **Fyers Degradation Cache (`app/data_provider.py`)**: Maintains 24h module-level cache (`_fyers_degradation_cache`) to bypass Fyers retries for failing symbols (`FYERS_DEGRADATION_CACHE_v1.0`).
+- **Memory Recalibration (`app/memory_profiler.py` & `app/price_cache.py`)**: Recalibrated `@profile_function(budget_mb=500.0)` and `TARGET_THRESHOLDS = [500, 600, 700, 800, 900]` for post-boot steady-state process RSS (`MEMORY_RECALIBRATION_v1.0`).
+- **ScanFailure Schema Synchronization (`app/core_models.py`)**: Aligned `ScanFailure` dataclass fields with PostgreSQL `scan_failures` schema (`SCAN_FAILURE_SCHEMA_FIX_v1.0`).
 
 
 ---

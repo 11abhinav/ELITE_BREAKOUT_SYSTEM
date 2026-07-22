@@ -81,3 +81,16 @@ def test_mature_weak_cash_company_rejected_or_high():
     }
     res = ForensicEngine.evaluate_symbol(data)
     assert res["forensic_risk_tier"] == ForensicRiskTier.REJECT
+
+def test_growth_mode_preconditions():
+    """Test 7: High capex alone without Revenue CAGR >= 12% or ROCE >= 15% cannot trigger Growth Mode."""
+    # High capex (20%), low revenue CAGR (5%), low ROCE (8%)
+    data = {
+        "capex_sales_ratio": 0.20, # 40 pts
+        "revenue_cagr_3y": 0.05,   # 10 pts
+        "roce": 0.08               # 16 pts -> total score = 66 pts, BUT preconditions fail
+    }
+    score, is_mode, details = ForensicEngine.calc_growth_investment_score(data)
+    assert score >= 60
+    assert is_mode is False  # Rejected because preconditions_met is False
+    assert details["preconditions_met"] is False

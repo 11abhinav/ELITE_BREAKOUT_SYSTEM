@@ -917,17 +917,37 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
             c_dict["selection_state"] = "REJECTED"
         pool.append(c_dict)
 
-    t1 = targets.get("t1", entry)
-    t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
-    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
-    
+    # [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Next-cluster target fallback.
+    # If nearest cluster (t1) R:R is < min_rr, evaluate subsequent target clusters (t2, t3) before triggering rejection.
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
-    if natural_rr_val < min_rr:
+    risk_amount = abs(entry - sl_data["raw_sl"])
+    
+    valid_target = None
+    valid_t_src = "UNKNOWN"
+    valid_rr = 0.0
+    
+    for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
+        cand_t = targets.get(t_cand_key)
+        if cand_t and cand_t > entry and risk_amount > 0:
+            rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
+            if rr_candidate >= min_rr:
+                valid_target = cand_t
+                valid_rr = rr_candidate
+                valid_t_src = targets.get(t_clust_key).candidates[0].source.name if targets.get(t_clust_key) else "UNKNOWN"
+                break
+
+    if not valid_target:
+        t1_fallback = targets.get("t1", entry)
+        natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
             "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
             "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
+
+    t1 = valid_target
+    t1_src = valid_t_src
+    natural_rr_val = valid_rr
         
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1411,12 +1431,14 @@ class BaseRiskEngine:
             kelly_fraction = 0.15
             max_risk_pct = 0.5
             
-        # Hard cap Kelly account risk limit using central ACCOUNT_RISK_BUDGET_PCT
-        from config import ACCOUNT_RISK_BUDGET_PCT
+        # Hard cap Kelly account risk limit using central ACCOUNT_RISK_BUDGET_PCT and MAX_POSITION_PCT concentration cap
+        # [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0]
+        from config import ACCOUNT_RISK_BUDGET_PCT, MAX_POSITION_PCT
         max_risk_pct = min(max_risk_pct, ACCOUNT_RISK_BUDGET_PCT)
             
         raw_position_size = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
-        position_size_pct = min(100.0, raw_position_size)
+        max_pos_cap = (MAX_POSITION_PCT * 100.0) if MAX_POSITION_PCT <= 1.0 else MAX_POSITION_PCT
+        position_size_pct = min(max_pos_cap, raw_position_size)
         
         targets, target_cluster_vals = self.compute_targets(risk_dist, vol_regime)
         

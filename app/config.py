@@ -172,6 +172,8 @@ ALERT_COOLDOWN_MINUTES = {
 # =====================================================================================
 MAX_SL_DISTANCE_PCT = 8.0         # Max allowed stop loss distance % from entry
 ACCOUNT_RISK_BUDGET_PCT = 1.0     # Max portfolio equity risk % per trade (Kelly / risk budget)
+# [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Enforce MAX_POSITION_PCT concentration cap (25% max portfolio capital per single trade)
+MAX_POSITION_PCT = 0.25
 
 PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",

@@ -56,13 +56,21 @@ class ForensicEngine:
         roce_pts = min(100.0, max(0.0, (roce / 0.15) * 100.0))
 
         weighted_score = int(round(0.40 * capex_pts + 0.30 * cagr_pts + 0.30 * roce_pts))
-        is_growth_mode = weighted_score >= 60
+
+        # [VERSION: PHASE2_GROWTH_MODE_FIX_v1.0] Enforce mandatory hard preconditions for Growth Mode.
+        # Capex alone cannot trigger Growth Mode unless top-line revenue growth (CAGR >= 12%) and ROCE (>= 15%) prove business conversion.
+        rev_cagr_pct = rev_cagr * 100.0 if rev_cagr <= 1.0 else rev_cagr
+        roce_pct_val = roce * 100.0 if roce <= 1.0 else roce
+        preconditions_met = (rev_cagr_pct >= 12.0) and (roce_pct_val >= 15.0)
+
+        is_growth_mode = (weighted_score >= 60) and preconditions_met
 
         details = {
             "capex_sales_pct": round(capex_sales * 100.0, 1),
-            "revenue_cagr_pct": round(rev_cagr * 100.0, 1),
-            "roce_pct": round(roce * 100.0, 1) if roce <= 1.0 else round(roce, 1),
+            "revenue_cagr_pct": round(rev_cagr_pct, 1),
+            "roce_pct": round(roce_pct_val, 1),
             "growth_score": weighted_score,
+            "preconditions_met": preconditions_met,
             "growth_mode": is_growth_mode
         }
 

@@ -306,7 +306,7 @@ def _start_wrapper(force: bool = False):
                         if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
                             rejection_counts["no_data"] += 1
                             provider_stats_counts["EMPTY_DATA"] += 1
-                            scan_failures.append(ScanFailure(symbol, "EOD", "unknown", "missing data", scan_id=scan_id))
+                            scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
                             continue
 
                         if isinstance(all_ticker_data[symbol], ProviderResult):
@@ -314,7 +314,7 @@ def _start_wrapper(force: bool = False):
                             provider_stats_counts[res.name] += 1
                             if res != ProviderResult.SUCCESS:
                                 rejection_counts["no_data"] += 1
-                                scan_failures.append(ScanFailure(symbol, "EOD", "unknown", f"Provider error: {res.name}", scan_id=scan_id))
+                                scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
                                 continue
                         else:
                             provider_stats_counts["SUCCESS"] += 1

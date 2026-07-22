@@ -9,16 +9,19 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 IST = pytz.timezone("Asia/Kolkata")
 
+# [VERSION: PHASE2_EARNINGS_UNVERIFIED_v1.0] Added UNVERIFIED status/severity for missing earnings dates to prevent false green signals.
 class DateStatus:
     CONFIRMED = "CONFIRMED"
     ESTIMATED = "ESTIMATED"
+    UNVERIFIED = "UNVERIFIED"
     UNKNOWN = "UNKNOWN"
 
 class EarningsSeverity:
     HIGH_TODAY = "HIGH_TODAY"      # Results today 🔴
     HIGH_SOON = "HIGH_SOON"        # 1-2 days 🟠
     MEDIUM_WEEK = "MEDIUM_WEEK"    # 3-5 days 🟡
-    NONE = "NONE"                  # > 5 days 🟢
+    NONE = "NONE"                  # > 5 days 🟢 (Confirmed no earnings soon)
+    UNVERIFIED = "UNVERIFIED"      # Missing / Unverified date data ⚠️
 
 class EarningsProvider(ABC):
     @abstractmethod
@@ -139,13 +142,14 @@ class EarningsCalendarService:
         elif isinstance(target_date, datetime):
             target_date = target_date.date()
 
+        # [VERSION: PHASE2_EARNINGS_UNVERIFIED_v1.0] Default response for missing/unverified dates returns UNVERIFIED severity to prevent false green safety signals.
         default_response = {
             "earnings_flag": False,
             "days_to_earnings": 999,
             "earnings_date": None,
-            "earnings_severity": EarningsSeverity.NONE,
-            "date_status": DateStatus.UNKNOWN,
-            "warning_msg": ""
+            "earnings_severity": EarningsSeverity.UNVERIFIED,
+            "date_status": DateStatus.UNVERIFIED,
+            "warning_msg": "⚠️ UNVERIFIED EARNINGS: No reliable upcoming earnings date available in calendar."
         }
 
         try:

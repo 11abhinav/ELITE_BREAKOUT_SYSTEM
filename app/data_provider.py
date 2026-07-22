@@ -408,6 +408,9 @@ class YFinanceFetcher(DataFetcher):
 
 # ── Auto Switching & Fallback Fetcher ───────────────────────────────────────
 
+# [VERSION: FYERS_DEGRADATION_CACHE_v1.0] Module-level 24-hour Fyers degradation cache
+_fyers_degradation_cache: dict[str, float] = {}
+
 class AutoSwitchingFetcher(DataFetcher):
     """Fetcher that uses Fyers as primary if authenticated, falling back to YFinance on any failure."""
     def __init__(self):
@@ -418,6 +421,26 @@ class AutoSwitchingFetcher(DataFetcher):
             self.fyers_fetcher = FyersFetcher()
         except Exception as e:
             logger.warning(f"FyersFetcher could not be loaded: {e}. Falling back completely to YFinance.")
+
+    def _is_fyers_degraded(self, symbol: str) -> bool:
+        if not symbol: return False
+        clean = symbol.strip().upper()
+        if clean.endswith(".NS"): clean = clean[:-3]
+        if clean.endswith(".BO"): clean = clean[:-3]
+        
+        ts = _fyers_degradation_cache.get(clean)
+        if ts and (time.time() - ts < 86400):  # 24-hour degradation cooldown
+            return True
+        elif ts:
+            _fyers_degradation_cache.pop(clean, None)
+        return False
+
+    def _mark_fyers_degraded(self, symbol: str):
+        if not symbol: return
+        clean = symbol.strip().upper()
+        if clean.endswith(".NS"): clean = clean[:-3]
+        if clean.endswith(".BO"): clean = clean[:-3]
+        _fyers_degradation_cache[clean] = time.time()
 
     def _should_use_fyers(self) -> bool:
         if not self.fyers_fetcher:
@@ -464,52 +487,48 @@ class AutoSwitchingFetcher(DataFetcher):
             return False
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
-        if self._should_use_fyers():
+        if self._should_use_fyers() and not self._is_fyers_degraded(symbol):
             try:
                 md = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
                 if md.dataframe is not None and md.quality_report is not None and md.quality_report.is_valid:
                     return md
-                logger.warning(f"Fyers fetch returned poor quality for {symbol} (Score: {md.quality_report.quality_score if md.quality_report else 0}). Falling back to YFinance.")
+                logger.warning(f"Fyers fetch returned poor quality for {symbol} (Score: {md.quality_report.quality_score if md.quality_report else 0}). Marking symbol degraded & falling back to YFinance.")
+                self._mark_fyers_degraded(symbol)
             except Exception as e:
-                logger.warning(f"Fyers fetch exception for {symbol}: {e}. Falling back to YFinance.")
+                logger.warning(f"Fyers fetch exception for {symbol}: {e}. Marking symbol degraded & falling back to YFinance.")
+                self._mark_fyers_degraded(symbol)
         return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         if self._should_use_fyers():
-            try:
-                results = self.fyers_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
-                missing_symbols = [s for s in symbols if not results.get(s) or results[s].dataframe is None or not results[s].quality_report or not results[s].quality_report.is_valid]
-                if missing_symbols:
-                    if len(missing_symbols) == len(symbols):
-                        logger.warning(f"Fyers Batch API Silent Failure: Fyers returned poor data for ALL {len(symbols)} symbols. Falling back to Yahoo Finance.")
-                    else:
-                        logger.warning(f"Fyers batch fetch returned poor quality data for {len(missing_symbols)} symbols. Querying YFinance for these.")
-                        
-                    for s in missing_symbols:
-                        res = results.get(s)
-                        if not res or res.dataframe is None:
-                            logger.debug(f"⚠️ {s} missing from Fyers: Empty dataframe or no data returned. (Date Range: {range_from} to {range_to})")
-                        elif res.quality_report and not res.quality_report.is_valid:
-                            logger.warning(f"⚠️ {s} Fyers data rejected by validator: {res.quality_report.warnings}")
+            # Bypass Fyers for symbols in the 24h degradation cache
+            fyers_candidates = [s for s in symbols if not self._is_fyers_degraded(s)]
+            known_degraded = [s for s in symbols if self._is_fyers_degraded(s)]
+            
+            results = {}
+            if fyers_candidates:
+                try:
+                    results = self.fyers_fetcher.get_batch_ohlcv(fyers_candidates, interval, period, retries, range_from, range_to, caller=caller)
+                except Exception as e:
+                    logger.warning(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
 
-                    yf_results = self.yfinance_fetcher.get_batch_ohlcv(missing_symbols, interval, period, retries, range_from, range_to, caller=caller)
-                    recovered_count = 0
-                    for s in missing_symbols:
-                        if s in yf_results:
-                            results[s] = yf_results[s]
-                            if results[s].dataframe is not None and results[s].quality_report and results[s].quality_report.is_valid:
-                                recovered_count += 1
-                                
-                    if recovered_count > 0:
-                        logger.info(f"✅ YFinance fallback successfully recovered data for {recovered_count} out of {len(missing_symbols)} missing symbols.")
-                    if recovered_count < len(missing_symbols):
-                        logger.warning(f"⚠️ YFinance fallback could not recover {len(missing_symbols) - recovered_count} symbols.")
-                for s in symbols:
-                    if s not in results:
-                        results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
-                return results
-            except Exception as e:
-                logger.warning(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
+            missing_symbols = [s for s in fyers_candidates if not results.get(s) or results[s].dataframe is None or not results[s].quality_report or not results[s].quality_report.is_valid]
+            for s in missing_symbols:
+                self._mark_fyers_degraded(s)
+                
+            yf_fetch_list = list(set(missing_symbols + known_degraded))
+            if yf_fetch_list:
+                if known_degraded:
+                    logger.info(f"⚡ [FYERS DEGRADATION CACHE] Bypassing Fyers for {len(known_degraded)} degraded symbols. Direct YFinance query.")
+                yf_results = self.yfinance_fetcher.get_batch_ohlcv(yf_fetch_list, interval, period, retries, range_from, range_to, caller=caller)
+                for s in yf_fetch_list:
+                    if s in yf_results:
+                        results[s] = yf_results[s]
+
+            for s in symbols:
+                if s not in results:
+                    results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
+            return results
         
         yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
         for s in symbols:

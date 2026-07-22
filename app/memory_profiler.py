@@ -10,7 +10,8 @@ import pandas as pd
 import numpy as np
 from config import MEMORY_PROFILER_CONFIG
 
-TARGET_THRESHOLDS = [300, 400, 500, 600, 700, 800, 900]
+# [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated threshold breach triggers to start at 500 MB (post-boot baseline ~400 MB)
+TARGET_THRESHOLDS = [500, 600, 700, 800, 900]
 
 def configure_glibc_mmap_tuning():
     """

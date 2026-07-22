@@ -110,14 +110,17 @@
      - `HIGH_TODAY` (🔴 Results Today)
      - `HIGH_SOON` (🟠 Results in 1-2 days)
      - `MEDIUM_WEEK` (🟡 Results in 3-5 days)
-     - `NONE` (🟢 No Warning)
+     - ~~`NONE` (🟢 No Warning)~~ *(Deprecated 2026-07-22: Missing/unverified dates returned false-safety green NONE)*
+     - `UNVERIFIED` (⚠️ Missing/Unverified earnings date data in database — `PHASE2_EARNINGS_UNVERIFIED_v1.0`)
    - Injects gap-risk warning banner into Telegram and WebPush payloads.
 2. **Quality Trajectory Scorer (`app/quality_trajectory.py`)**:
-   - Computes multi-quarter trend slope and variance across 6 fundamental pillars (0-20 pts): ROCE, ROE, OPM, Debt/Equity reduction, Interest Coverage expansion, and graduated CFO/PAT ratio.
+   - Computes multi-quarter level and trend slope across 6 fundamental pillars (0-20 pts): ROCE, ROE, OPM, Debt/Equity reduction, Interest Coverage expansion, and graduated CFO/PAT ratio (`PHASE2_TRAJECTORY_RECALIB_v1.0`).
+   - ~~Legacy pure slope scoring penalized flat 35% ROCE elite companies~~ $\rightarrow$ `pillar_score = max(level_score, trend_score)` for ROCE, ROE, and OPM, giving flat 35% ROCE full Grade A credit. Uses 4-quarter TTM rolling averages to eliminate quarterly seasonality noise.
    - Maps total score to `Trajectory_Grade`: **A** (18-20), **B** (15-17), **C** (10-14), **D** (<10).
    - Stores detailed component breakdown JSON (`trajectory_details`).
 3. **F-13 Granular Attribution**:
    - Extends `compute_advanced_outcome_analytics()` to track trade counts, win rate %, average $R$, expectancy, and capture efficiency across 6 granular risk buckets: `results_today`, `one_day_before`, `two_days_before`, `three_to_five_before`, `one_day_after`, and `normal_trades`.
+   - Filter Capture Efficiency calculation to trades with $MFE \ge 0.5R$ (`PHASE2_ANALYTICS_ROBUSTNESS_v1.0`) and pin overall confidence levels to explicit half-open ranges: `LOW [0,100)`, `MEDIUM [100,300]`, `HIGH (300,∞)`.
 
 ### 1.10 Feature F-15: Forensic Risk Engine & Dynamic Growth Investment Mode
 
@@ -126,9 +129,18 @@
    - ~~Legacy Binary FCF < 0 Hard Filter~~ *(Replaced on 2026-07-22 by 3Y Cumulative CFO / PAT < 0.6 Primary Hard Gate)*.
    - Primary hard gate: `3-Year Cumulative CFO / PAT < 0.6` $\rightarrow$ `REJECT`.
    - 0–100 Weighted Growth Investment Score: `Capex / Sales` (40%), `Revenue CAGR 3Y` (30%), `ROCE` (30%).
-   - Activates `Growth_Investment_Mode = TRUE` when `Growth_Investment_Score >= 60`.
+   - ~~Legacy Score >= 60 alone activated Growth Mode~~ *(Deprecated 2026-07-22 due to circularity where capex reduced capex penalty)*.
+   - Growth Mode Preconditions: Requires `Revenue CAGR 3Y >= 12%` AND `ROCE >= 15%` as mandatory hard preconditions before `Growth_Investment_Mode = TRUE` (`PHASE2_GROWTH_MODE_FIX_v1.0`).
    - Scaled FCF Penalty: Capped/reduced in Growth Mode ($-3$, $-5$ pts) vs Normal Mode ($-10$, $-20$ pts).
    - Supports explicit `UNKNOWN` risk tier for missing fundamental data.
+
+### 1.11 Data Provider & Memory Infrastructure Upgrades
+1. **Fyers Symbol Degradation Cache (`app/data_provider.py`)**:
+   - Maintains 24-hour module-level degradation cache (`_fyers_degradation_cache`) for symbols failing quality validation on Fyers (`FYERS_DEGRADATION_CACHE_v1.0`), bypassing redundant Fyers API calls.
+2. **Memory Profiler Recalibration (`app/memory_profiler.py` & `app/price_cache.py`)**:
+   - ~~Legacy 300-400 MB thresholds triggered false alarm breach logs during normal operations~~ $\rightarrow$ Recalibrated `@profile_function(budget_mb=500.0)` and `TARGET_THRESHOLDS = [500, 600, 700, 800, 900]` to match post-boot steady-state process RSS (`MEMORY_RECALIBRATION_v1.0`).
+3. **ScanFailure Dataclass & Database Synchronization (`app/core_models.py`)**:
+   - Aligned `ScanFailure` dataclass fields (`symbol, scanner_name, provider, failure_reason, failed_at, scan_id, stage`) with PostgreSQL `scan_failures` table schema (`SCAN_FAILURE_SCHEMA_FIX_v1.0`).
 
 2. **Scanner Policy Deciders**:
    - `ForensicEngine` operates as a pure evaluator returning `{score, tier, flags, details}`. Scanners check `Forensic_Risk_Tier != 'REJECT'` policy gate.

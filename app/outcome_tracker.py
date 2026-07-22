@@ -210,6 +210,7 @@ def _compute_metrics_block(rows: list) -> dict:
             "avg_mfe_r": 0.0,
             "avg_mae_r": 0.0,
             "capture_efficiency_pct": 0.0,
+            "capture_efficiency_coverage_pct": 0.0,
             "confidence": "LOW"
         }
 
@@ -232,7 +233,18 @@ def _compute_metrics_block(rows: list) -> dict:
 
     wr_frac = win_rate / 100.0
     expectancy = round((wr_frac * avg_win_r) + ((1.0 - wr_frac) * avg_loss_r), 2)
-    capture_eff = round((avg_realized / avg_mfe * 100.0), 1) if avg_mfe > 0 else 0.0
+
+    # [VERSION: PHASE2_ANALYTICS_ROBUSTNESS_v1.0] Calculate Capture Efficiency only over trades with MFE >= 0.5R
+    # Prevents division instability and extreme negative percentages on losing cohorts with near-zero MFE.
+    valid_eff_trades = [r for r in rows if float(r.get("max_favorable_excursion_r") or 0.0) >= 0.5]
+    eff_n = len(valid_eff_trades)
+    coverage_pct = round((eff_n / n * 100.0), 1) if n > 0 else 0.0
+    if eff_n > 0:
+        eff_realized = sum(float(r.get("realized_rr") or 0.0) for r in valid_eff_trades) / eff_n
+        eff_mfe = sum(float(r.get("max_favorable_excursion_r") or 0.0) for r in valid_eff_trades) / eff_n
+        capture_eff = round((eff_realized / eff_mfe * 100.0), 1) if eff_mfe > 0 else 0.0
+    else:
+        capture_eff = 0.0
 
     return {
         "trades": n,
@@ -242,6 +254,7 @@ def _compute_metrics_block(rows: list) -> dict:
         "avg_mfe_r": avg_mfe,
         "avg_mae_r": avg_mae,
         "capture_efficiency_pct": capture_eff,
+        "capture_efficiency_coverage_pct": coverage_pct,
         "confidence": _metric_confidence(n)
     }
 

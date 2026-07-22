@@ -15,14 +15,26 @@ def safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
     except (TypeError, ValueError):
         return default
 
+# [VERSION: PHASE2_TRAJECTORY_RECALIB_v1.0]
+# 1. Level-and-Trend Trajectory Scoring: pillar_score = max(level_score, trend_score)
+#    Prevents penalizing already-elite stable companies (e.g., ROCE 35% flat).
+# 2. Seasonality Smoothing: Uses TTM / 4-quarter rolling averages for slope calculations.
+
 def _calc_trend_and_consistency(series: List[float]) -> Tuple[float, float]:
     """
-    Computes (slope, variance) across a 4-quarter fundamental series.
+    Computes (slope, variance) across a fundamental series with TTM rolling smoothing if len >= 4.
     Returns (0.0, 999.0) if series is insufficient or invalid.
     """
     valid = [safe_float(v) for v in series if safe_float(v) is not None]
     if len(valid) < 2:
         return 0.0, 999.0
+        
+    # Apply TTM / 4-quarter rolling average smoothing for seasonal metrics
+    if len(valid) >= 4:
+        smoothed = [float(np.mean(valid[i:i+4])) for i in range(len(valid) - 3)]
+        if len(smoothed) >= 2:
+            valid = smoothed
+
     x = np.arange(len(valid))
     y = np.array(valid)
     slope = float(np.polyfit(x, y, 1)[0]) if len(valid) >= 2 else 0.0
@@ -31,9 +43,10 @@ def _calc_trend_and_consistency(series: List[float]) -> Tuple[float, float]:
 
 def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Computes a 0-20 pt Quality Trajectory Score and Grade based on 4-quarter fundamental trends.
-    Measures multi-quarter slope, consistency, and graduated CFO/PAT quality.
-    Returns UNKNOWN grade when fundamental data is missing/insufficient.
+    Computes a 0-20 pt Quality Trajectory Score and Grade based on 4-quarter fundamental trends & levels.
+    Measures multi-quarter slope, level excellence, consistency, and graduated CFO/PAT quality.
+    Total 20 pts: ROCE (0-4), ROE (0-4), OPM (0-3), Debt (0-3), Interest (0-3), CFO/PAT (0-3).
+    Grade A: >= 18, Grade B: >= 15, Grade C: >= 10, Grade D: < 10.
     """
     if not fundamental_data:
         return {
@@ -48,53 +61,94 @@ def compute_trajectory_score(fundamental_data: Dict[str, Any]) -> Dict[str, Any]
     score = 0
     details = {}
 
-    # ── 1. ROCE Trend (0-4 pts) ────────────────────────────────────────────────────────
+    # ── 1. ROCE Trend & Level (0-4 pts) ────────────────────────────────────────────────
     roce_history = fundamental_data.get("roce_history", [])
     if not roce_history and "roce" in fundamental_data:
         roce_history = [fundamental_data["roce"]]
     roce_slope, roce_var = _calc_trend_and_consistency(roce_history)
+    
+    trend_roce_pts = 0
     if roce_slope > 0.5 and roce_var < 50.0:
-        score += 4
-        details["roce"] = "Improving (High Consistency)"
+        trend_roce_pts = 4
     elif roce_slope > 0.0:
-        score += 2
-        details["roce"] = "Improving"
+        trend_roce_pts = 2
     elif roce_slope >= -0.2:
-        score += 1
-        details["roce"] = "Stable"
-    else:
-        details["roce"] = "Deteriorating"
+        trend_roce_pts = 1
 
-    # ── 2. ROE Trend (0-4 pts) ─────────────────────────────────────────────────────────
+    last_roce = safe_float(roce_history[-1]) if roce_history else safe_float(fundamental_data.get("roce"))
+    current_roce_val = (last_roce * 100.0 if last_roce <= 1.0 else last_roce) if last_roce is not None else 0.0
+    
+    level_roce_pts = 0
+    if current_roce_val >= 25.0:
+        level_roce_pts = 4
+    elif current_roce_val >= 18.0:
+        level_roce_pts = 3
+    elif current_roce_val >= 12.0:
+        level_roce_pts = 2
+    elif current_roce_val >= 8.0:
+        level_roce_pts = 1
+
+    roce_pts = max(trend_roce_pts, level_roce_pts)
+    score += roce_pts
+    details["roce"] = f"{roce_pts}/4 pts (Level: {level_roce_pts}, Trend: {trend_roce_pts})"
+
+    # ── 2. ROE Trend & Level (0-4 pts) ─────────────────────────────────────────────────
     roe_history = fundamental_data.get("roe_history", [])
     if not roe_history and "roe" in fundamental_data:
         roe_history = [fundamental_data["roe"]]
     roe_slope, roe_var = _calc_trend_and_consistency(roe_history)
+    
+    trend_roe_pts = 0
     if roe_slope > 0.5 and roe_var < 50.0:
-        score += 4
-        details["roe"] = "Improving (High Consistency)"
+        trend_roe_pts = 4
     elif roe_slope > 0.0:
-        score += 2
-        details["roe"] = "Improving"
+        trend_roe_pts = 2
     elif roe_slope >= -0.2:
-        score += 1
-        details["roe"] = "Stable"
-    else:
-        details["roe"] = "Deteriorating"
+        trend_roe_pts = 1
 
-    # ── 3. OPM Trend (0-3 pts) ─────────────────────────────────────────────────────────
+    last_roe = safe_float(roe_history[-1]) if roe_history else safe_float(fundamental_data.get("roe"))
+    current_roe_val = (last_roe * 100.0 if last_roe <= 1.0 else last_roe) if last_roe is not None else 0.0
+
+    level_roe_pts = 0
+    if current_roe_val >= 22.0:
+        level_roe_pts = 4
+    elif current_roe_val >= 15.0:
+        level_roe_pts = 3
+    elif current_roe_val >= 10.0:
+        level_roe_pts = 2
+    elif current_roe_val >= 6.0:
+        level_roe_pts = 1
+
+    roe_pts = max(trend_roe_pts, level_roe_pts)
+    score += roe_pts
+    details["roe"] = f"{roe_pts}/4 pts (Level: {level_roe_pts}, Trend: {trend_roe_pts})"
+
+    # ── 3. OPM Trend & Level (0-3 pts) ─────────────────────────────────────────────────
     opm_history = fundamental_data.get("opm_history", [])
     if not opm_history and "opm" in fundamental_data:
         opm_history = [fundamental_data["opm"]]
     opm_slope, _ = _calc_trend_and_consistency(opm_history)
+    
+    trend_opm_pts = 0
     if opm_slope > 0.3:
-        score += 3
-        details["opm"] = "Expanding"
+        trend_opm_pts = 3
     elif opm_slope >= -0.1:
-        score += 1
-        details["opm"] = "Stable"
-    else:
-        details["opm"] = "Contracting"
+        trend_opm_pts = 1
+
+    last_opm = safe_float(opm_history[-1]) if opm_history else safe_float(fundamental_data.get("opm"))
+    current_opm_val = (last_opm * 100.0 if last_opm <= 1.0 else last_opm) if last_opm is not None else 0.0
+
+    level_opm_pts = 0
+    if current_opm_val >= 20.0:
+        level_opm_pts = 3
+    elif current_opm_val >= 14.0:
+        level_opm_pts = 2
+    elif current_opm_val >= 8.0:
+        level_opm_pts = 1
+
+    opm_pts = max(trend_opm_pts, level_opm_pts)
+    score += opm_pts
+    details["opm"] = f"{opm_pts}/3 pts (Level: {level_opm_pts}, Trend: {trend_opm_pts})"
 
     # ── 4. Debt-to-Equity Reduction (0-3 pts) ──────────────────────────────────────────
     de_history = fundamental_data.get("de_history", [])
