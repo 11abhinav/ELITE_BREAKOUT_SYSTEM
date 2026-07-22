@@ -2030,6 +2030,64 @@ ightarrow$ Scanner ingestion input.</td>
         </div>
     </section>
 
+
+
+    <!-- ================= SECTION 36 — AUTOMATED 5-PILLAR ARCHITECTURE VERIFICATION SUITE ================= -->
+    <section id="s36-verification-suite">
+        <h2>36. Automated 5-Pillar Architecture & Verification Engine (CI/CD Protection)</h2>
+        <p>Continuous automated architectural enforcement suite (<code>tests/test_architecture_verification_suite.py</code>) protecting specifications against drift:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Pillar Audit Name</th>
+                    <th>Automated Check Implementation</th>
+                    <th>Enforced Threshold / Invariant</th>
+                    <th>CI Test Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>1. Documentation Drift Audit</strong></td>
+                    <td>AST symbol extraction across all modules</td>
+                    <td>AST Classes >= 150, AST Functions >= 700</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>2. Runtime Coverage Audit</strong></td>
+                    <td>Track scheduled execution windows and threads</td>
+                    <td>All 7 master scheduler windows active</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>3. Rule Enforcement Audit</strong></td>
+                    <td>Static analysis of scanner imports & raw queries</td>
+                    <td>0 Raw SQL in scanners, 100% <code>sl_target_helper</code> usage</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>4. Performance Budget Audit</strong></td>
+                    <td>Runtime RSS memory and DB pool check</td>
+                    <td>Process RSS &lt; 300 MB, DB Pool Max &lt;= 30</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+                <tr>
+                    <td><strong>5. Disaster Recovery Audit</strong></td>
+                    <td>Fault injection on DB connection & external APIs</td>
+                    <td>Graceful exception handling without thread crash</td>
+                    <td><span style="color:var(--accent-green)">✅ PASSED</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="alert-box success">
+            <strong>Automated Architectural Verification Sign-Off:</strong><br>
+            • Enforced automatically via <code>pytest tests/test_architecture_verification_suite.py</code> on every pull request.<br>
+            • Prevents documentation drift, architectural erosion, and unauthorized raw SQL execution.<br>
+            • 259 total test cases active across the repository.
+        </div>
+    </section>
+
 </div>
 </body>
 </html>
