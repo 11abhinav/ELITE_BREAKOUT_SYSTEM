@@ -307,11 +307,6 @@ class BatchMemoryTracker:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.collect_gc:
-            try:
-                from price_cache import clear_price_cache
-                clear_price_cache()
-            except Exception:
-                pass
             gc.collect()
             
             try:

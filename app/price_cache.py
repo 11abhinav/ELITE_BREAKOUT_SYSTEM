@@ -229,8 +229,9 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
-        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes (Max 2 active timeframes)
-        if len(_cache) > 2 and cache_key not in _cache:
+        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes (Max 8 active timeframes)
+        # 8 is required to support multi_tf_scanner (uses 5 timeframes) + wealth/reversal (1y/1d).
+        if len(_cache) > 8 and cache_key not in _cache:
             keys_purged = len(_cache)
             for k, entry in list(_cache.items()):
                 if isinstance(entry, dict):
