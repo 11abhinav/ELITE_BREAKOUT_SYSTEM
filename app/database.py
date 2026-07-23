@@ -5223,15 +5223,17 @@ def verify_user(identifier, password):
                 
                 if row and (check_password_hash(row[2], password) or (row[2] == 'PLACEHOLDER' and password == '123456')):
                     if row[4]: # is_active
-                        # reset failed attempts and update last_login
-                        cur.execute("UPDATE users SET failed_login_attempts = 0, last_login = NOW() WHERE user_id = %s", (row[0],))
+                        import uuid
+                        new_token = str(uuid.uuid4())
+                        # reset failed attempts and update last_login and session_token
+                        cur.execute("UPDATE users SET failed_login_attempts = 0, last_login = NOW(), session_token = %s WHERE user_id = %s", (new_token, row[0]))
                         conn.commit()
                         return {
                             'user_id': row[0],
                             'username': row[1],
                             'role': row[3],
                             'must_change_password': row[5],
-                            'session_token': str(row[6]) if row[6] else None
+                            'session_token': new_token
                         }
                     else:
                         return {'error': 'pending_approval'}
