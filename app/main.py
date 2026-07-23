@@ -1037,10 +1037,17 @@ def run_system_scheduler():
         
         # Weekdays only
         if now.weekday() < 5:  # Mon-Fri
-            # 1:00 AM - Daily Builder
+            # 1:00 AM - Daily Builder → then create a fresh SessionContext
             if now.hour == 1 and now.minute >= 0 and not daily_builder_ran:
                 daily_builder_ran = True
                 safe_run_daily_builder()
+                # [VERSION: SESSION_ARCH_v2A_0] Create session after Daily Builder so
+                # the watchlist is ready when SessionContext managers initialise.
+                try:
+                    from application_context import ApplicationContext
+                    ApplicationContext.get_instance().create_session()
+                except Exception as _se:
+                    logger.warning(f"⚠️ [SESSION_ARCH] Failed to create SessionContext: {_se}")
             elif now.hour != 1:
                 daily_builder_ran = False
             
@@ -1113,7 +1120,19 @@ def run_system_scheduler():
                 _run_multibagger_scanner_single()
             elif now.hour != 19:
                 multibagger_ran = False
-                
+
+            # 00:00 - Midnight session rotation
+            # Destroy the old SessionContext so all session-scoped memory
+            # is released cleanly. A new session will be created at 01:00
+            # after the Daily Builder runs.
+            if now.hour == 0 and now.minute == 0:
+                try:
+                    from application_context import ApplicationContext
+                    ApplicationContext.get_instance().new_trading_day()
+                    logger.info("🌙 [SESSION_ARCH] Midnight rotation complete — old session destroyed.")
+                except Exception as _me:
+                    logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
+
         # Sleep tight, loop runs approximately every minute
         time.sleep(60)
 
@@ -1569,9 +1588,20 @@ def _trigger_performance_tracker():
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
     _cleanup_old_scanner_names()
+
+    # [VERSION: SESSION_ARCH_v2A_0] Instantiate ApplicationContext at process boot.
+    # This is the single process-lifetime owner of all services and sessions.
+    from application_context import ApplicationContext
+    _app_ctx = ApplicationContext.get_instance()
+    logger.info("✅ [SESSION_ARCH] ApplicationContext ready (Phase 2A — wiring only).")
+
     def handle_sigterm(*args):
         logger.info("🛑 SIGTERM received — container shutting down. Closing gracefuly...")
-        # Telegram notification removed (2026-06-17)
+        # Destroy session cleanly on SIGTERM so memory is released before exit
+        try:
+            _app_ctx.destroy_session()
+        except Exception:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)

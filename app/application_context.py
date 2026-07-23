@@ -3,40 +3,115 @@ from typing import Optional
 
 logger = logging.getLogger("ApplicationContext")
 
+# [VERSION: SESSION_ARCH_v2A_0] ApplicationContext wired into main.py startup.
+# Previously this was a skeleton with no callers. As of Phase 2A it is
+# instantiated at process boot and owns the SessionContext lifecycle.
+
+
 class ApplicationContext:
     """
-    Bootstrap object that owns long-lived services across multiple sessions.
-    Clearly separates application lifetime from trading session lifetime.
+    Process-lifetime singleton. Owns long-lived services across multiple
+    trading sessions.
+
+    Clearly separates:
+        - Application lifetime   (this object — lives for the duration of the process)
+        - Session lifetime       (SessionContext — one per trading day, midnight rotation)
+
+    Scanners should never hold a reference to ApplicationContext directly.
+    They interact only with the SessionContext passed to them at scan time.
     """
-    _instance = None  # ApplicationContext can be a singleton, SessionContext is not.
+
+    _instance: Optional["ApplicationContext"] = None
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> "ApplicationContext":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     def __init__(self):
         self.session_context = None
-        self.logger = logger
-        # In a full DI setup, these would be initialized here:
-        # self.database_manager = DatabaseManager()
-        # self.scheduler = Scheduler()
-        # self.configuration = Configuration()
-        # self.telemetry = TelemetryManager()
-    
-    def create_session(self):
-        """Creates a new SessionContext for a trading day."""
-        from session_context import SessionContext
+
+        # ── Long-lived services (process lifetime) ──────────────────────────
+        # Imported lazily to avoid circular imports at module load time.
+        self._db = None
+        self._telemetry = None
+        self._config = None
+
+        logger.info("✅ ApplicationContext initialised (process lifetime).")
+
+    # ── Service accessors ────────────────────────────────────────────────────
+
+    @property
+    def db(self):
+        if self._db is None:
+            from database import get_connection
+            self._db = get_connection
+        return self._db
+
+    @property
+    def telemetry(self):
+        if self._telemetry is None:
+            from telemetry_manager import telemetry as _t
+            self._telemetry = _t
+        return self._telemetry
+
+    @property
+    def config(self):
+        if self._config is None:
+            import config as _c
+            self._config = _c
+        return self._config
+
+    # ── Session lifecycle ────────────────────────────────────────────────────
+
+    def create_session(self) -> "SessionContext":
+        """
+        Create a new SessionContext for today's trading day.
+        If a previous session exists it is destroyed first.
+        """
         if self.session_context is not None:
+            logger.warning(
+                "ApplicationContext.create_session() called while a session "
+                "already exists. Destroying old session first."
+            )
             self.destroy_session()
-            
+
+        from session_context import SessionContext
         self.session_context = SessionContext()
+        logger.info(
+            f"✅ [SESSION] New SessionContext created | "
+            f"State: {self.session_context.state.name}"
+        )
+        try:
+            self.telemetry.log_session_timeline("SessionContext created (new trading day)")
+        except Exception:
+            pass
         return self.session_context
-        
+
     def destroy_session(self):
-        """Destroys the current trading session and frees its memory."""
-        if self.session_context:
-            self.session_context.transition_to("SHUTTING_DOWN")
-            self.session_context.transition_to("DESTROYED")
+        """
+        Destroy the current SessionContext and release all its managed memory.
+        Called at midnight to ensure a clean start the next trading day.
+        """
+        if self.session_context is None:
+            return
+        try:
+            self.session_context.destroy()
+        except Exception as e:
+            logger.warning(f"Error during SessionContext destroy: {e}")
+        finally:
             self.session_context = None
+        logger.info("🗑️ [SESSION] SessionContext destroyed (midnight rotation).")
+        try:
+            self.telemetry.log_session_timeline("SessionContext destroyed (midnight rotation)")
+        except Exception:
+            pass
+
+    def new_trading_day(self) -> "SessionContext":
+        """
+        Convenience wrapper: destroy old session and create a fresh one.
+        Called by the midnight scheduler tick.
+        """
+        self.destroy_session()
+        return self.create_session()
