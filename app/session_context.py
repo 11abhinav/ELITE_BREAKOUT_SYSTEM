@@ -1,99 +1,160 @@
-import time
 import logging
-import threading
-import pandas as pd
+from enum import Enum, auto
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
-from datetime import datetime, date
-from zoneinfo import ZoneInfo
 
-from telemetry_manager import telemetry
+logger = logging.getLogger("SessionContext")
 
-logger = logging.getLogger("session_context")
-IST = ZoneInfo("Asia/Kolkata")
 
-@dataclass
-class IndicatorBundle:
-    ema_50: Optional[pd.Series] = None
-    ema_200: Optional[pd.Series] = None
-    atr_14: Optional[pd.Series] = None
-    rsi_14: Optional[pd.Series] = None
-    pivots: Optional[Dict[str, Any]] = None
+class SessionState(Enum):
+    CREATED = auto()
+    WARMING = auto()
+    READY = auto()
+    MARKET_OPEN = auto()
+    POST_MARKET = auto()
+    SHUTTING_DOWN = auto()
+    DESTROYED = auto()
+
 
 @dataclass
-class SymbolContext:
-    symbol: str
-    ohlcv: pd.DataFrame
-    indicators: IndicatorBundle
-    metadata: Dict[str, Any]
+class CachePolicy:
+    """
+    Declarative policy object that describes the lifecycle of a cache, 
+    rather than embedding execution logic.
+    """
+    owner: str  # e.g., "HistoricalDataManager.IntradayStore"
+    persistence: str  # e.g., "SESSION", "PERSISTENT"
+    refresh_policy: str  # e.g., "EVERY_5_MIN", "DAILY", "ON_DEMAND"
+    expiration_policy: str  # e.g., "CONSUMER_DRIVEN", "END_OF_DAY"
+    estimated_size_mb: float = 0.0
+    consumer_count: int = 0
 
-class SessionCache:
-    def __init__(self):
-        self.historical: Dict[str, SymbolContext] = {}
-        self.fundamentals: Dict[str, Any] = {}
-        self.market_regime: Dict[str, Any] = {}
-        self._lock = threading.Lock()
 
-class RuntimeState:
+# -------------------------------------------------------------------------
+# Manager Interfaces
+# -------------------------------------------------------------------------
+
+class IntradayStore:
     def __init__(self):
-        self.active_scanners: set = set()
-        self.scanner_status: Dict[str, str] = {}
-        self.active_alerts: int = 0
-        self._lock = threading.Lock()
+        self.data = {}
+        self.policy = CachePolicy(
+            owner="HistoricalDataManager.IntradayStore",
+            persistence="SESSION",
+            refresh_policy="EVERY_5_MIN",
+            expiration_policy="CONSUMER_DRIVEN"
+        )
+
+class DailyStore:
+    def __init__(self):
+        self.data = {}
+        self.policy = CachePolicy(
+            owner="HistoricalDataManager.DailyStore",
+            persistence="SESSION",
+            refresh_policy="DAILY",
+            expiration_policy="CONSUMER_DRIVEN"
+        )
+
+class DeliveryStore:
+    def __init__(self):
+        self.data = {}
+        self.policy = CachePolicy(
+            owner="HistoricalDataManager.DeliveryStore",
+            persistence="SESSION",
+            refresh_policy="ON_DEMAND",
+            expiration_policy="CONSUMER_DRIVEN"
+        )
 
 class HistoricalDataManager:
-    def __init__(self, cache: SessionCache):
-        self.cache = cache
-        
-    def get_symbol_context(self, symbol: str) -> Optional[SymbolContext]:
-        with self.cache._lock:
-            return self.cache.historical.get(symbol)
-            
-    def update_ohlcv(self, symbol: str, new_df: pd.DataFrame):
-        with self.cache._lock:
-            if symbol not in self.cache.historical:
-                self.cache.historical[symbol] = SymbolContext(
-                    symbol=symbol,
-                    ohlcv=new_df,
-                    indicators=IndicatorBundle(),
-                    metadata={}
-                )
-            else:
-                self.cache.historical[symbol].ohlcv = new_df
+    def __init__(self):
+        self.intraday = IntradayStore()
+        self.daily = DailyStore()
+        self.delivery = DeliveryStore()
+
+
+class IndicatorManager:
+    def __init__(self):
+        self.policy = CachePolicy(
+            owner="IndicatorManager",
+            persistence="SESSION",
+            refresh_policy="ON_DEMAND",
+            expiration_policy="CONSUMER_DRIVEN"
+        )
+
+
+class MarketRegimeManager:
+    def __init__(self):
+        self.policy = CachePolicy(
+            owner="MarketRegimeManager",
+            persistence="SESSION",
+            refresh_policy="EVERY_5_MIN",
+            expiration_policy="END_OF_DAY"
+        )
+
+
+class CacheManager:
+    def __init__(self):
+        self.managed_policies: Dict[str, CachePolicy] = {}
+
+    def register_policy(self, name: str, policy: CachePolicy):
+        self.managed_policies[name] = policy
+
+
+# -------------------------------------------------------------------------
+# SessionContext 
+# -------------------------------------------------------------------------
 
 class SessionContext:
     """
-    The orchestrator composing specialized managers for the trading session.
-    Enforces a strict daily lifecycle and explicit mutability.
+    Non-singleton orchestrator. Owned by ApplicationContext.
+    Delegates entirely to specialized managers. Exposes services, not raw data.
     """
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(SessionContext, cls).__new__(cls)
-                cls._instance._init()
-            return cls._instance
-
-    def _init(self):
-        self.created_at = datetime.now(IST)
-        self.session_cache = SessionCache()
-        self.runtime_state = RuntimeState()
+    def __init__(self):
+        self.state = SessionState.CREATED
         
-        # Managers
-        self.historical = HistoricalDataManager(self.session_cache)
-        self.telemetry = telemetry
+        # Initialize Managers
+        self.historical = HistoricalDataManager()
+        self.indicators = IndicatorManager()
+        self.market_regime = MarketRegimeManager()
+        self.cache_manager = CacheManager()
         
-    def get_mutable_copy(self, symbol: str) -> Optional[pd.DataFrame]:
-        """
-        Explicitly requests a mutable copy of the underlying OHLCV DataFrame.
-        Scanners should normally operate on immutable references.
-        """
-        ctx = self.historical.get_symbol_context(symbol)
-        if ctx and ctx.ohlcv is not None:
-            return ctx.ohlcv.copy(deep=True)
-        return None
+        # Register policies
+        self.cache_manager.register_policy("intraday", self.historical.intraday.policy)
+        self.cache_manager.register_policy("daily", self.historical.daily.policy)
+        self.cache_manager.register_policy("delivery", self.historical.delivery.policy)
+        self.cache_manager.register_policy("indicators", self.indicators.policy)
+        self.cache_manager.register_policy("market_regime", self.market_regime.policy)
+        
+        logger.info(f"SessionContext Initialized in state: {self.state.name}")
 
-# Global Singleton
-session = SessionContext()
+    def transition_to(self, target_state_name: str):
+        """Enforces valid state machine transitions."""
+        target_state = SessionState[target_state_name]
+        
+        valid_transitions = {
+            SessionState.CREATED: [SessionState.WARMING, SessionState.SHUTTING_DOWN],
+            SessionState.WARMING: [SessionState.READY, SessionState.SHUTTING_DOWN],
+            SessionState.READY: [SessionState.MARKET_OPEN, SessionState.POST_MARKET, SessionState.SHUTTING_DOWN],
+            SessionState.MARKET_OPEN: [SessionState.POST_MARKET, SessionState.SHUTTING_DOWN],
+            SessionState.POST_MARKET: [SessionState.SHUTTING_DOWN],
+            SessionState.SHUTTING_DOWN: [SessionState.DESTROYED],
+            SessionState.DESTROYED: []
+        }
+        
+        if target_state not in valid_transitions[self.state]:
+            raise ValueError(f"Illegal transition: {self.state.name} -> {target_state_name}")
+            
+        self.state = target_state
+        logger.info(f"Session state transitioned to: {self.state.name}")
+
+    def destroy(self):
+        """Releases all managers to prepare for garbage collection."""
+        if self.state != SessionState.SHUTTING_DOWN:
+            self.transition_to("SHUTTING_DOWN")
+            
+        # Clear references
+        self.historical = None
+        self.indicators = None
+        self.market_regime = None
+        self.cache_manager = None
+        
+        self.transition_to("DESTROYED")
