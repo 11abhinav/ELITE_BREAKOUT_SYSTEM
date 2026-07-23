@@ -780,10 +780,10 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 logger.debug(f"Execution Time: {elapsed:.1f} sec")
                 logger.debug(f"Memory Before: {start_rss:.1f} MB")
                 logger.debug(f"Memory After: {end_rss:.1f} MB")
-                logger.info(f"Memory Delta: {end_rss - start_rss:+.1f} MB")
+                logger.debug(f"Memory Delta: {end_rss - start_rss:+.1f} MB")
                 if hasattr(mem, 'peak_wset'):
-                    logger.info(f"Peak Memory: {peak_rss:.1f} MB")
-                logger.info("======================================")
+                    logger.debug(f"Peak Memory: {peak_rss:.1f} MB")
+                logger.debug("======================================")
                 
                 logger.debug(f"  Live DF Count   : {df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - df_start['count']:+d})")
                 logger.debug(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
