@@ -150,6 +150,13 @@ def get_connection(timeout: int = 5):
         # Return connection to pool if we checked one out
         if conn:
             try:
+                # [FIX: IDLE IN TRANSACTION]
+                # psycopg2 does not implicitly rollback open read transactions when putconn is called.
+                # If a caller forgets to commit, or if it was just a SELECT query, 
+                # we MUST rollback here to prevent poisoning the pool with open transactions 
+                # which blocks Postgres vacuuming and causes severe MVCC bloat.
+                if not conn.closed:
+                    conn.rollback()
                 p.putconn(conn)
             except Exception:
                 pass
@@ -1383,6 +1390,67 @@ def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) 
 
 # ── Public API ────────────────────────────────────────────────────────────────────────
 
+
+def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 30) -> set:
+    """
+    Bulk fetches all symbols that are currently in a failed reversal cooldown.
+    Returns a set of symbols for O(1) lookup in the scanner loop.
+    """
+    init_db()
+    try:
+        from datetime import date as _date, datetime as _dt
+        today = datetime.now(IST).date()
+        cooldown_symbols = set()
+        
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    WITH LatestAlerts AS (
+                        SELECT a.symbol, a.status, a.alert_date, ao.exit_reason,
+                               ROW_NUMBER() OVER (PARTITION BY a.symbol ORDER BY a.alert_date DESC, a.alert_time DESC) as rn
+                        FROM alerts a
+                        LEFT JOIN alert_outcomes ao ON a.id = ao.alert_id
+                        WHERE a.scanner = 'REVERSAL'
+                    )
+                    SELECT symbol, alert_date, exit_reason
+                    FROM LatestAlerts
+                    WHERE rn = 1 AND UPPER(status) = 'LOSS'
+                """)
+                
+                rows = cur.fetchall()
+                for row in rows:
+                    symbol, alert_date, exit_reason = row[0], row[1], row[2]
+                    
+                    if exit_reason and str(exit_reason).upper() == "AMBIGUOUS_SL_HIT":
+                        continue
+                        
+                    if not isinstance(alert_date, _date):
+                        alert_date = _dt.strptime(str(alert_date)[:10], "%Y-%m-%d").date()
+                        
+                    if today < alert_date:
+                        continue
+                        
+                    # Calculate business days
+                    try:
+                        import numpy as np
+                        biz_days = int(np.busday_count(alert_date, today))
+                    except Exception:
+                        delta_days = (today - alert_date).days
+                        weeks, remainder = divmod(delta_days, 7)
+                        biz_days = weeks * 5
+                        start_weekday = alert_date.weekday()
+                        for i in range(remainder):
+                            if (start_weekday + i) % 7 < 5:
+                                biz_days += 1
+                                
+                    if biz_days < cooldown_days:
+                        cooldown_symbols.add(symbol)
+                        
+        return cooldown_symbols
+    except Exception:
+        logger.exception("❌ get_all_failed_reversal_cooldown_symbols failed")
+        return set()
+
 def delete_todays_alerts_for_scanner(scanner_name: str, trade_date: str) -> int:
     """Idempotently delete today's alerts for a specific scanner before saving new ones."""
     try:
@@ -2550,6 +2618,74 @@ def has_error_concall_cache_within_24h(symbol: str) -> bool:
     except Exception:
         logger.exception(f"Failed to check error concall cache for {symbol}")
         return False
+
+
+def get_bulk_recent_concall_analysis(symbols: list, max_age_days: int = 60) -> dict:
+    """Bulk fetches the most recent cached AI analysis for a list of symbols."""
+    if not symbols:
+        return {}
+    init_db()
+    results = {}
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use DISTINCT ON to get the latest row per symbol efficiently
+                placeholders = ','.join(['%s'] * len(symbols))
+                query = f"""
+                    SELECT DISTINCT ON (symbol) symbol, analysis_data
+                    FROM ai_concall_cache_v3
+                    WHERE symbol IN ({placeholders})
+                      AND created_at >= NOW() - INTERVAL '1 day' * %s
+                    ORDER BY symbol, id DESC
+                """
+                params = tuple(symbols) + (max_age_days,)
+                cur.execute(query, params)
+                for row in cur.fetchall():
+                    results[row[0]] = row[1]
+    except Exception:
+        logger.exception("Failed to bulk get recent concall analysis")
+    return results
+
+def get_bulk_concall_cache_status(symbols: list) -> dict:
+    """
+    Bulk fetches the concall cache status for a list of symbols.
+    Returns dict: {'valid': set(), 'recent_error': set()}
+    """
+    init_db()
+    res = {'valid': set(), 'recent_error': set()}
+    if not symbols:
+        return res
+        
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # ANY() is much faster for large arrays than IN (...)
+                cur.execute("""
+                    SELECT symbol, (analysis_data->>'error') IS NULL as is_valid, created_at
+                    FROM ai_concall_cache_v3
+                    WHERE symbol = ANY(%s)
+                """, (symbols,))
+                
+                rows = cur.fetchall()
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                
+                for sym, is_valid, created_at in rows:
+                    if is_valid:
+                        res['valid'].add(sym)
+                    else:
+                        # Error case. Check if within 7 days.
+                        if created_at:
+                            # created_at is TIMESTAMPTZ, but might be naive depending on psycopg2 parsing
+                            if created_at.tzinfo is None:
+                                created_at = created_at.replace(tzinfo=ZoneInfo("UTC"))
+                            days_diff = (now_ist - created_at).total_seconds() / 86400
+                            if days_diff <= 7:
+                                res['recent_error'].add(sym)
+    except Exception:
+        logger.exception("Failed to fetch bulk concall cache status")
+    return res
 
 def get_recent_concall_analysis(symbol: str, max_age_days: int = 60):
     """
