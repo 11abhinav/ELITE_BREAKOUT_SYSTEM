@@ -300,12 +300,12 @@ def _start_wrapper(force: bool = False):
                     rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                     tracker.mark_fetch_complete(row_count=rows_fetched)
                 
-                    for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
+                    for idx, row in enumerate(chunk_df.itertuples(index=False), start=1):
                         symbol = "UNKNOWN"
                         try:
-                            symbol   = row["Stock"]
-                            category = row["Category"]
-                            sector   = row.get("Sector", None)
+                            symbol   = getattr(row, "Stock")
+                            category = getattr(row, "Category")
+                            sector   = getattr(row, "Sector", None)
 
                             if symbol in get_live_blacklist():
                                 continue

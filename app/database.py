@@ -4808,6 +4808,117 @@ def upsert_breakout_watchlist(
     except Exception as e:
         logger.exception(f"❌ Failed to upsert breakout_watchlist for {symbol}: {e}")
 
+def batch_upsert_breakout_watchlist(records: list):
+    """
+    Batch inserts/updates the breakout_watchlist to avoid N sequential queries.
+    Expects a list of dicts where each dict has the exact kwargs of upsert_breakout_watchlist.
+    """
+    if DONT_SAVE_ALERTS or not records:
+        return
+        
+    from datetime import datetime
+    from psycopg2.extras import execute_batch
+    
+    query = """
+        INSERT INTO breakout_watchlist (
+            symbol, category, current_state,
+            h1_status, m30_status, m15_status, m5_status,
+            breakout_level, support_level, trigger_level, invalidation_level, 
+            max_extension_atr, buffer_pct, armed_at, session_date, context_json, last_updated,
+            signal_timestamp, expires_at, timeframe
+        ) VALUES (
+            %(symbol)s, %(category)s, %(current_state)s, %(h1_status)s, %(m30_status)s, %(m15_status)s, %(m5_status)s,
+            %(breakout_level)s, %(support_level)s, %(trigger_level)s, %(invalidation_level)s, %(max_extension_atr)s, 
+            %(buffer_pct)s, %(armed_at)s, %(session_date)s, %(context_json)s, NOW(), %(signal_timestamp)s, %(expires_at)s, %(timeframe)s
+        )
+        ON CONFLICT (symbol) DO UPDATE SET
+            category = EXCLUDED.category,
+            current_state = CASE
+                WHEN %(force)s = FALSE THEN
+                    CASE
+                        WHEN EXCLUDED.current_state = 'HOURLY_APPROVED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED') THEN breakout_watchlist.current_state
+                        WHEN EXCLUDED.current_state = 'SETUP_ARMED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY') THEN breakout_watchlist.current_state
+                        WHEN EXCLUDED.current_state = 'ENTRY_READY' AND breakout_watchlist.current_state = 'TRADE_ACTIVE' THEN breakout_watchlist.current_state
+                        ELSE EXCLUDED.current_state
+                    END
+                ELSE EXCLUDED.current_state
+            END,
+            h1_status = EXCLUDED.h1_status,
+            m30_status = EXCLUDED.m30_status,
+            m15_status = EXCLUDED.m15_status,
+            m5_status = EXCLUDED.m5_status,
+            breakout_level = COALESCE(EXCLUDED.breakout_level, breakout_watchlist.breakout_level),
+            support_level = COALESCE(EXCLUDED.support_level, breakout_watchlist.support_level),
+            trigger_level = COALESCE(EXCLUDED.trigger_level, breakout_watchlist.trigger_level),
+            invalidation_level = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.invalidation_level
+                ELSE COALESCE(EXCLUDED.invalidation_level, breakout_watchlist.invalidation_level)
+            END,
+            max_extension_atr = COALESCE(EXCLUDED.max_extension_atr, breakout_watchlist.max_extension_atr),
+            buffer_pct = COALESCE(EXCLUDED.buffer_pct, breakout_watchlist.buffer_pct),
+            armed_at = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.armed_at
+                ELSE COALESCE(EXCLUDED.armed_at, breakout_watchlist.armed_at)
+            END,
+            session_date = EXCLUDED.session_date,
+            context_json = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.context_json
+                ELSE COALESCE(EXCLUDED.context_json, breakout_watchlist.context_json)
+            END,
+            signal_timestamp = COALESCE(EXCLUDED.signal_timestamp, breakout_watchlist.signal_timestamp),
+            expires_at = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN EXCLUDED.expires_at
+                ELSE COALESCE(EXCLUDED.expires_at, breakout_watchlist.expires_at)
+            END,
+            timeframe = COALESCE(EXCLUDED.timeframe, breakout_watchlist.timeframe),
+            invalidated_at = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN NULL
+                ELSE breakout_watchlist.invalidated_at
+            END,
+            cooldown_until = CASE 
+                WHEN %(clear_context)s = TRUE AND (%(force)s = TRUE OR breakout_watchlist.current_state NOT IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED')) THEN NULL
+                ELSE breakout_watchlist.cooldown_until
+            END,
+            last_updated = NOW()
+    """
+    
+    session_date = datetime.now(IST).strftime("%Y-%m-%d")
+    
+    # Normalize input dicts with default values
+    normalized_records = []
+    for r in records:
+        normalized_records.append({
+            'symbol': r.get('symbol'),
+            'category': r.get('category'),
+            'current_state': r.get('current_state'),
+            'h1_status': r.get('h1_status', 'PENDING'),
+            'm30_status': r.get('m30_status', 'PENDING'),
+            'm15_status': r.get('m15_status', 'PENDING'),
+            'm5_status': r.get('m5_status', 'PENDING'),
+            'breakout_level': r.get('breakout_level'),
+            'support_level': r.get('support_level'),
+            'trigger_level': r.get('trigger_level'),
+            'invalidation_level': r.get('invalidation_level'),
+            'max_extension_atr': r.get('max_extension_atr'),
+            'buffer_pct': r.get('buffer_pct'),
+            'armed_at': r.get('armed_at'),
+            'context_json': r.get('context_json'),
+            'signal_timestamp': r.get('signal_timestamp'),
+            'expires_at': r.get('expires_at'),
+            'timeframe': r.get('timeframe'),
+            'clear_context': r.get('clear_context', False),
+            'force': r.get('force', False),
+            'session_date': session_date
+        })
+        
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                execute_batch(cur, query, normalized_records, page_size=200)
+            conn.commit()
+    except Exception as e:
+        logger.exception(f"❌ Failed to batch upsert breakout watchlist for {len(records)} records: {e}")
+
 def get_active_breakout_watchlist() -> list:
     try:
         with get_connection() as conn:

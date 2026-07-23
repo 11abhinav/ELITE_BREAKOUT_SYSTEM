@@ -12,6 +12,7 @@ from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from database import (
     upsert_breakout_watchlist,
+    batch_upsert_breakout_watchlist,
     get_active_breakout_watchlist,
     sweep_stale_breakout_watchlist,
     check_recent_alert,
@@ -139,10 +140,11 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             tracker.mark_fetch_complete(row_count=rows_fetched)
         
         # 2. Process chunk
-            for idx, row in chunk_df.iterrows():
+            batch_upserts = []
+            for row in chunk_df.itertuples(index=False):
                 try:
-                    symbol = row["Stock"]
-                    category = row["Category"]
+                    symbol = getattr(row, "Stock")
+                    category = getattr(row, "Category")
                     funnel["total"] += 1
             
                     df = ticker_data.get(symbol)
@@ -237,24 +239,31 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                             end_of_session = now_dt + timedelta(minutes=15)
                         if not is_test_mode:
                             # [VERSION: MTF_PHASE_B_DROP_FIX] Force clear old context (expires_at, invalidated_at) so Phase B doesn't silently ignore this stock due to yesterday's stale state
-                            upsert_breakout_watchlist(
-                                symbol=symbol,
-                                category=category,
-                                current_state="HOURLY_APPROVED",
-                                h1_status="PASSED",
-                                breakout_level=prior_high,
-                                clear_context=True,
-                                trigger_level=prior_high,
-                                signal_timestamp=now_dt.isoformat(),
-                                expires_at=end_of_session.isoformat(),
-                                timeframe="1h"
-                            )
+                            batch_upserts.append({
+                                'symbol': symbol,
+                                'category': category,
+                                'current_state': "HOURLY_APPROVED",
+                                'h1_status': "PASSED",
+                                'breakout_level': prior_high,
+                                'clear_context': True,
+                                'trigger_level': prior_high,
+                                'signal_timestamp': now_dt.isoformat(),
+                                'expires_at': end_of_session.isoformat(),
+                                'timeframe': "1h",
+                                'force': True
+                            })
                         funnel["approved"] += 1
                         logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
     
                 except Exception as e:
                     logger.exception(f"Fault isolation caught exception for Phase A: {e}")
                     continue
+            
+            if batch_upserts:
+                try:
+                    batch_upsert_breakout_watchlist(batch_upserts)
+                except Exception as e:
+                    logger.exception(f"Failed to execute batch upsert for Phase A: {e}")
                 
         del ticker_data
         locals().pop('df', None)
