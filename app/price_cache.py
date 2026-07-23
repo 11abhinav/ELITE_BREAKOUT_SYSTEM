@@ -174,14 +174,14 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 cached_data = entry["data"]
                 missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                 if not missing_symbols:
-                    telemetry.cache_stats.record_hit()
+                    pass
                     logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
                     return {s: cached_data[s] for s in watchlist["Stock"]}
             else:
-                telemetry.cache_stats.record_miss()
+                pass
                 logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence:.0f}s). Forcing fresh download.")
         else:
-            telemetry.cache_stats.record_miss()
+            pass
 
     # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
     # This prevents thundering herd where 5+ scanners fetch simultaneously
@@ -199,12 +199,12 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     cached_data = entry["data"]
                     missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                     if not missing_symbols:
-                        telemetry.cache_stats.record_hit()
+                        pass
                         logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
                         return {s: cached_data[s] for s in watchlist["Stock"]}
         
         # Cache miss or stale — download fresh data
-        telemetry.cache_stats.record_miss()
+        pass
         result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
 
     # Determine oldest timestamp in batch

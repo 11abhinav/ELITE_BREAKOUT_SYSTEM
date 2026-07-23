@@ -1185,8 +1185,8 @@ def generate_eod_memory_report() -> None:
     cache_keys = cache_entries = cache_mem_mb = 0
     try:
         from telemetry_manager import telemetry
-        cache_hits = getattr(telemetry.cache_stats, 'hits', 0)
-        cache_misses = getattr(telemetry.cache_stats, 'misses', 0)
+        cache_hits = 0
+        cache_misses = 0
     except Exception:
         pass
     try:
