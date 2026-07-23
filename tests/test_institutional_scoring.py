@@ -13,9 +13,9 @@ from app.block_deal_detector import (
     KNOWN_FII_PATTERNS,
     KNOWN_DII_SUPER_PATTERNS,
     load_cache_if_needed,
-    _CACHE,
     CACHE_FILE
 )
+from app.data_registry import registry
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -109,13 +109,12 @@ def test_bonus_modifiers_and_caps(monkeypatch):
         }
     }
     
-    # Inject into memory cache
-    monkeypatch.setattr("app.block_deal_detector._CACHE", {
+    # Inject into memory cache via registry
+    registry.put("block_deals", {
         "date": str(datetime.now(IST).date()),
         "version": 1,
         "deals": mock_deals
     })
-    monkeypatch.setattr("app.block_deal_detector._LAST_LOADED_DATE", str(datetime.now(IST).date()))
     
     # Test Footprints Getters
     footprints = get_inst_footprints("RELIANCE")

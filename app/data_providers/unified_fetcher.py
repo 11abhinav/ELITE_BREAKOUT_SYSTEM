@@ -133,11 +133,11 @@ class UnifiedFetcher:
             pending = set(symbols)
             
             for provider in providers:
-            if not pending:
-                break
-                
-            if provider == "fyers":
-                logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
+                if not pending:
+                    break
+                    
+                if provider == "fyers":
+                    logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
                 pending_list = list(pending)
                 chunk_size = 50
                 for i in range(0, len(pending_list), chunk_size):
