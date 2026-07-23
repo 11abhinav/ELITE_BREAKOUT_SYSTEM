@@ -440,7 +440,24 @@ class FyersFetcher(DataFetcher):
                             data["symbol"] = fallback_sym
                             continue  # Immediate retry with -EQ without sleeping
 
-                    # If it's BSE or any other format that failed, fast-fail without blacklisting
+                    if ns_symbol.startswith("BSE:"):
+                        logger.warning(f"⚠️ Fyers rejected BSE mapping for {ns_symbol}. Marking invalid and attempting NSE fallback.")
+                        try:
+                            from bse_mapping_utils import mark_bse_invalid
+                            mark_bse_invalid(orig_sym)
+                        except Exception as ex:
+                            pass
+                            
+                        fallback_sym = f"NSE:{orig_sym}-EQ"
+                        if fallback_sym in tried_suffixes:
+                            return None
+                            
+                        logger.info(f"🔄 Fyers: Falling back to {fallback_sym}")
+                        ns_symbol = fallback_sym
+                        data["symbol"] = fallback_sym
+                        continue
+
+                    # If it's any other format that failed, fast-fail without blacklisting
                     logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
                     return None
                     
