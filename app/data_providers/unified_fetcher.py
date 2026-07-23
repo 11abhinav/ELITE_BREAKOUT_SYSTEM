@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from typing import Optional
-from .fyers_fetcher import get_historical_data_fyers
+from .fyers_fetcher import FyersFetcher
 from data_registry import registry
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ class UnifiedFetcher:
     """
     def __init__(self):
         self.registry = registry
+        self.fyers = FyersFetcher()
 
     def fetch_historical(self, symbol: str, interval: str, period: str, consumer: str) -> Optional[pd.DataFrame]:
         logger.info(f"[{consumer}] Fetching {symbol} ({interval} / {period}) via UnifiedFetcher")
@@ -28,12 +29,12 @@ class UnifiedFetcher:
             
         # 1. Primary: Fyers
         try:
-            df = get_historical_data_fyers(symbol, interval=interval, period=period)
-            if df is not None and not df.empty:
+            md = self.fyers.get_ohlcv(symbol, interval=interval, period=period)
+            if md is not None and md.df is not None and not md.df.empty:
                 logger.info(f"✅ [Fyers] Successfully fetched {symbol}")
                 if self.registry.get_entry(dataset_id):
                     self.registry.get_entry(dataset_id).provider_used = "fyers"
-                return df
+                return md.df
         except Exception as e:
             logger.warning(f"⚠️ [Fyers] Failed to fetch {symbol}: {e}")
 
