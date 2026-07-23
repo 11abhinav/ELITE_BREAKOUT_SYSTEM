@@ -120,15 +120,22 @@ class TelemetryManager:
         rss_mb = process.memory_info().rss / (1024 * 1024)
         vms_mb = process.memory_info().vms / (1024 * 1024)
         
-        logger.info("========== MEMORY SNAPSHOT ==========")
-        logger.info(f"Context: {context}")
+        hit_rate = 0.0
+        total_cache_reqs = self.cache_stats.hits + self.cache_stats.misses
+        if total_cache_reqs > 0:
+            hit_rate = (self.cache_stats.hits / total_cache_reqs) * 100
+            
+        logger.info(f"========== {context} MEMORY SNAPSHOT ==========")
         logger.info(f"Time: {datetime.now().strftime('%H:%M:%S')}")
-        logger.info(f"RSS Memory: {rss_mb:.1f} MB")
-        logger.info(f"VMS Memory: {vms_mb:.1f} MB")
-        logger.info(f"Cache Size: {self.cache_stats.size_mb:.1f} MB")
-        logger.info(f"Cache Hits: {self.cache_stats.hits} | Misses: {self.cache_stats.misses}")
-        logger.info(f"Network Calls: {self.network_stats.api_calls} | Data: {self.network_stats.downloaded_bytes / (1024*1024):.2f} MB")
-        logger.info("=====================================")
+        logger.info(f"Process RSS memory: {rss_mb:.1f} MB")
+        logger.info(f"Process VMS memory: {vms_mb:.1f} MB")
+        logger.info(f"Total cached symbols: {self.cache_stats.entries}")
+        logger.info(f"Historical cache size: {len(self._timers)} Symbols")
+        logger.info(f"Indicator cache size: {self.cache_stats.entries} Objects")
+        logger.info(f"Number of active scanner caches: {len(self._timers)}")
+        logger.info(f"Cache hit rate: {hit_rate:.1f}% ({self.cache_stats.hits} hits)")
+        logger.info(f"Cache miss rate: {100.0 - hit_rate:.1f}% ({self.cache_stats.misses} misses)")
+        logger.info("=============================================")
 
 # Global singleton access
 telemetry = TelemetryManager()
