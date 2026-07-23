@@ -477,7 +477,6 @@ def _run_scan(force: bool = False):
                 all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
                 
                 from price_cache import get_intraday_snapshot
-                from datetime import datetime
                 from dateutil import tz
                 IST = tz.gettz("Asia/Kolkata")
                 

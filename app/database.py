@@ -2154,6 +2154,7 @@ def upsert_scanner_health(
     outcome: str = None,          # "SUCCESS", "PARTIAL", "FAILED"
     provider_stats: dict = None,  # JSON dict of provider outcome counts
     duration_seconds: float = None, # Time taken for the scan
+    retry_count: int = None,      # Number of retries attempted
 ) -> None:
     """
     Insert or update a scanner's health record in the scanner_health table.
@@ -2239,6 +2240,9 @@ def upsert_scanner_health(
                 if duration_seconds is not None:
                     set_clauses.append("duration_seconds = %s")
                     params.append(duration_seconds)
+                if retry_count is not None:
+                    set_clauses.append("retry_count = %s")
+                    params.append(retry_count)
                 
                 set_clauses.append("updated_at = %s")
                 params.append(now_str)
@@ -2267,6 +2271,9 @@ def upsert_scanner_health(
                 if duration_seconds is not None:
                     insert_cols.append("duration_seconds")
                     insert_vals.append(duration_seconds)
+                if retry_count is not None:
+                    insert_cols.append("retry_count")
+                    insert_vals.append(retry_count)
                 
                 insert_placeholders = ", ".join(["%s"] * len(insert_cols))
                 insert_cols_str = ", ".join(insert_cols)
