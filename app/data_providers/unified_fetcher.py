@@ -138,84 +138,84 @@ class UnifiedFetcher:
                     
                 if provider == "fyers":
                     logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
-                pending_list = list(pending)
-                chunk_size = 50
-                for i in range(0, len(pending_list), chunk_size):
-                    chunk = pending_list[i:i+chunk_size]
-                    fyers_symbols = [self.fyers._normalize_symbol(s) for s in chunk if self.fyers._normalize_symbol(s)]
-                    if not fyers_symbols: continue
+                    pending_list = list(pending)
+                    chunk_size = 50
+                    for i in range(0, len(pending_list), chunk_size):
+                        chunk = pending_list[i:i+chunk_size]
+                        fyers_symbols = [self.fyers._normalize_symbol(s) for s in chunk if self.fyers._normalize_symbol(s)]
+                        if not fyers_symbols: continue
                     
-                    try:
-                        from fyers_auth import get_fyers_client
-                        fyers_client = get_fyers_client()
-                        if fyers_client:
-                            resp = fyers_client.quotes({"symbols": ",".join(fyers_symbols)})
-                            if resp and isinstance(resp, dict) and resp.get("s") == "ok":
-                                for item in resp.get("d", []):
-                                    if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                        sym = item["n"].split("-")[-1] # Simple extract
-                                        # Match back
-                                        for orig in chunk:
-                                            if self.fyers._normalize_symbol(orig) == item["n"]:
-                                                results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                        try:
+                            from fyers_auth import get_fyers_client
+                            fyers_client = get_fyers_client()
+                            if fyers_client:
+                                resp = fyers_client.quotes({"symbols": ",".join(fyers_symbols)})
+                                if resp and isinstance(resp, dict) and resp.get("s") == "ok":
+                                    for item in resp.get("d", []):
+                                        if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                                            sym = item["n"].split("-")[-1] # Simple extract
+                                            # Match back
+                                            for orig in chunk:
+                                                if self.fyers._normalize_symbol(orig) == item["n"]:
+                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                    pending.remove(orig)
+                                                    break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
+                        
+                elif provider == "yahoo":
+                    logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
+                    import yfinance as yf
+                    pending_list = list(pending)
+                    chunk_size = 100
+                    for i in range(0, len(pending_list), chunk_size):
+                        chunk = pending_list[i:i+chunk_size]
+                        yf_symbols = [s + ".NS" for s in chunk]
+                        try:
+                            df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
+                            if len(chunk) == 1:
+                                if not df.empty and "Close" in df.columns:
+                                    val = float(df["Close"].iloc[-1])
+                                    if val > 0:
+                                        results[chunk[0]] = {"v": {"cmd": {"c": val}}}
+                                        pending.remove(chunk[0])
+                            elif hasattr(df.columns, 'levels'):
+                                for y_sym, orig in zip(yf_symbols, chunk):
+                                    if y_sym in df.columns.levels[0]:
+                                        if not df[y_sym].empty:
+                                            val = float(df[y_sym]["Close"].iloc[-1])
+                                            if val > 0:
+                                                results[orig] = {"v": {"cmd": {"c": val}}}
                                                 pending.remove(orig)
-                                                break
-                    except Exception as e:
-                        logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
                         
-            elif provider == "yahoo":
-                logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
-                import yfinance as yf
-                pending_list = list(pending)
-                chunk_size = 100
-                for i in range(0, len(pending_list), chunk_size):
-                    chunk = pending_list[i:i+chunk_size]
-                    yf_symbols = [s + ".NS" for s in chunk]
-                    try:
-                        df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
-                        if len(chunk) == 1:
-                            if not df.empty and "Close" in df.columns:
-                                val = float(df["Close"].iloc[-1])
-                                if val > 0:
-                                    results[chunk[0]] = {"v": {"cmd": {"c": val}}}
-                                    pending.remove(chunk[0])
-                        elif hasattr(df.columns, 'levels'):
-                            for y_sym, orig in zip(yf_symbols, chunk):
-                                if y_sym in df.columns.levels[0]:
-                                    if not df[y_sym].empty:
-                                        val = float(df[y_sym]["Close"].iloc[-1])
-                                        if val > 0:
-                                            results[orig] = {"v": {"cmd": {"c": val}}}
-                                            pending.remove(orig)
-                    except Exception as e:
-                        logger.warning(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
-                        
-            elif provider == "bse":
-                logger.info(f"🔄 [BSE] Fetching live quotes for {len(pending)} symbols...")
-                import yfinance as yf
-                pending_list = list(pending)
-                chunk_size = 100
-                for i in range(0, len(pending_list), chunk_size):
-                    chunk = pending_list[i:i+chunk_size]
-                    yf_symbols = [s + ".BO" for s in chunk]
-                    try:
-                        df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
-                        if len(chunk) == 1:
-                            if not df.empty and "Close" in df.columns:
-                                val = float(df["Close"].iloc[-1])
-                                if val > 0:
-                                    results[chunk[0]] = {"v": {"cmd": {"c": val}}}
-                                    pending.remove(chunk[0])
-                        elif hasattr(df.columns, 'levels'):
-                            for y_sym, orig in zip(yf_symbols, chunk):
-                                if y_sym in df.columns.levels[0]:
-                                    if not df[y_sym].empty:
-                                        val = float(df[y_sym]["Close"].iloc[-1])
-                                        if val > 0:
-                                            results[orig] = {"v": {"cmd": {"c": val}}}
-                                            pending.remove(orig)
-                    except Exception as e:
-                        logger.warning(f"⚠️ [BSE] Batch quote fetch failed: {e}")
+                elif provider == "bse":
+                    logger.info(f"🔄 [BSE] Fetching live quotes for {len(pending)} symbols...")
+                    import yfinance as yf
+                    pending_list = list(pending)
+                    chunk_size = 100
+                    for i in range(0, len(pending_list), chunk_size):
+                        chunk = pending_list[i:i+chunk_size]
+                        yf_symbols = [s + ".BO" for s in chunk]
+                        try:
+                            df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
+                            if len(chunk) == 1:
+                                if not df.empty and "Close" in df.columns:
+                                    val = float(df["Close"].iloc[-1])
+                                    if val > 0:
+                                        results[chunk[0]] = {"v": {"cmd": {"c": val}}}
+                                        pending.remove(chunk[0])
+                            elif hasattr(df.columns, 'levels'):
+                                for y_sym, orig in zip(yf_symbols, chunk):
+                                    if y_sym in df.columns.levels[0]:
+                                        if not df[y_sym].empty:
+                                            val = float(df[y_sym]["Close"].iloc[-1])
+                                            if val > 0:
+                                                results[orig] = {"v": {"cmd": {"c": val}}}
+                                                pending.remove(orig)
+                        except Exception as e:
+                            logger.warning(f"⚠️ [BSE] Batch quote fetch failed: {e}")
 
         if pending:
             logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols: {len(pending)}")
