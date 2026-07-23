@@ -38,7 +38,13 @@ class ApplicationContext:
         self._telemetry = None
         self._config = None
 
-        logger.info("✅ ApplicationContext initialised (process lifetime).")
+        # Log the object identity (memory address) so production logs can
+        # confirm only one instance ever exists across the process lifetime.
+        logger.info(
+            f"✅ ApplicationContext initialised | "
+            f"instance_id={id(self):#x} (process lifetime)."
+        )
+
 
     # ── Service accessors ────────────────────────────────────────────────────
 
@@ -81,6 +87,7 @@ class ApplicationContext:
         self.session_context = SessionContext()
         logger.info(
             f"✅ [SESSION] New SessionContext created | "
+            f"instance_id={id(self):#x} | "
             f"State: {self.session_context.state.name}"
         )
         try:
@@ -102,7 +109,7 @@ class ApplicationContext:
             logger.warning(f"Error during SessionContext destroy: {e}")
         finally:
             self.session_context = None
-        logger.info("🗑️ [SESSION] SessionContext destroyed (midnight rotation).")
+        logger.info(f"🗑️ [SESSION] SessionContext destroyed | instance_id={id(self):#x} (midnight rotation).")
         try:
             self.telemetry.log_session_timeline("SessionContext destroyed (midnight rotation)")
         except Exception:
