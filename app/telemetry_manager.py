@@ -165,7 +165,6 @@ class TelemetryManager:
         
 
     def log_scheduler_event(self, name: str, event_type: str, error: str = None):
-        if not self.enabled: return
         msg = f"[{event_type}] Scheduler: {name}"
         if error:
             msg += f" (Error: {error})"
