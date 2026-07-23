@@ -120,7 +120,7 @@ class MemoryProfiler:
         
         logger.info("========== MEMORY SNAPSHOT ==========")
         logger.info(f"Time: {time.strftime('%H:%M:%S')}")
-        logger.info(f"Block: {self.stage_name}")
+        logger.info(f"Scanner: {self.stage_name}")
         logger.info(f"RSS Memory: {rss_mb:.1f} MB")
         logger.info(f"VMS Memory: {vms_mb:.1f} MB")
         logger.info(f"Historical Cache: {len(telemetry._timers)} Symbols")
@@ -169,8 +169,8 @@ class MemoryProfiler:
         timer = telemetry.get_timer(self.stage_name.split()[0])
         timer.stages[self.stage_name] = elapsed
         
-        logger.info("========== PROFILER BLOCK COMPLETE ==========")
-        logger.info(f"Block: {self.stage_name}")
+        logger.info("========== SCANNER COMPLETE ==========")
+        logger.info(f"Scanner: {self.stage_name}")
         logger.info(f"Execution Time: {elapsed:.2f}s")
         logger.info(f"Memory Before: {start_mb:.1f} MB")
         logger.info(f"Memory After: {current_mb:.1f} MB")
