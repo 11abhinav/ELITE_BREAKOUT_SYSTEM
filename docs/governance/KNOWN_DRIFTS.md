@@ -7,3 +7,4 @@
 | GR-003 | MTF-001 | Under Review | TBD | v1.3 |
 | GR-004 | SL-001 | Accepted | TBD | v1.3 |
 | GR-005 | VAL-001 | Accepted | TBD | v1.3 |
+| GR-006 | ARCH-003 | Known Violation | Bhavcopy uses SQLite despite ephemeral disk restriction. Migration deferred to Phase 2/3. | v2.0 |

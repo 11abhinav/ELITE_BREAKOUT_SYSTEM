@@ -55,33 +55,45 @@ MAX_SECTOR_PCT  = 0.25   # Max 25% of portfolio from one sector
 # NIFTY BENCHMARK
 # =====================================================================================
 
-_nifty_cache = {"ret_6m": None, "dist_52w": None, "ts": None}
+_nifty_cache_fallback = {"ret_6m": None, "dist_52w": None, "ts": None}
 _NIFTY_CACHE_TTL = 3600  # 1 hour max staleness
+
+def _get_nifty_cache() -> dict:
+    try:
+        from application_context import ApplicationContext
+        ctx = ApplicationContext.get_instance()
+        if ctx.session_context is not None:
+            return ctx.session_context.market_regime_manager.cache
+        else:
+            logger.debug("[SESSION_ARCH] No active session. Using nifty fallback.")
+    except Exception:
+        pass
+    return _nifty_cache_fallback
 
 def fetch_nifty_macro_state() -> Tuple[Optional[float], Optional[float]]:
     """Fetch 6-month return and 52W distance of Nifty 50 for RS and Macro Regime Gate."""
-    global _nifty_cache
     now = time.time()
+    cache = _get_nifty_cache()
     # Serve cache only if fresh
     if (
-        _nifty_cache["ts"] is not None
-        and (now - _nifty_cache["ts"]) < _NIFTY_CACHE_TTL
-        and _nifty_cache["ret_6m"] is not None
+        cache["ts"] is not None
+        and (now - cache["ts"]) < _NIFTY_CACHE_TTL
+        and cache["ret_6m"] is not None
     ):
-        return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
+        return (cache["ret_6m"], cache["dist_52w"])
 
     try:
         from macro_utils import get_nifty_6m_state
         ret_6m, dist_52w = get_nifty_6m_state()
         if ret_6m is not None:
-            _nifty_cache = {"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": now}
+            cache.update({"ret_6m": ret_6m, "dist_52w": dist_52w, "ts": now})
             return (ret_6m, dist_52w)
     except Exception as e:
         logger.exception(f"Failed to fetch Nifty Macro State")
 
     # Return stale cache rather than None if fetch fails
     logger.warning("Nifty fetch failed — serving stale cache if available")
-    return (_nifty_cache["ret_6m"], _nifty_cache["dist_52w"])
+    return (cache["ret_6m"], cache["dist_52w"])
 
 # =====================================================================================
 # PER-STOCK TECHNICAL OVERLAY

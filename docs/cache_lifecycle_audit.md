@@ -159,3 +159,11 @@ Verified indicators mathematically computed on DataFrames:
 1. Completing Phase A observation (2-3 full trading sessions)
 2. Verifying all dataset consumers have finished before clearing
 3. Updating `CACHE_LIFECYCLE_AUDIT.md` with verified release points
+
+---
+
+## 12. Governance Records (GR Reviews)
+
+* **GR-2026-07-23-01:** Phase 1 (Cache Migrations Part 1 & Cleanup) completed.
+  * *Action:* Migrated `_nifty_cache`, `_dead_symbols_cache`, `_push_throttle_cache`, and `_news_cache` to `SessionContext` fallbacks. Quarantined legacy `fix_*.py` and `patch_*.py` scripts to `scripts/legacy/`.
+  * *Verification:* 4 module-level globals successfully encapsulated behind `get_session_cache_or_fallback()`.

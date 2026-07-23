@@ -10,7 +10,8 @@ from config import WATCHLIST_PATH
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-_watchlist_cache = None
+# The watchlist dataset is managed by DatasetRegistry
+# We still keep the file date logic for now.
 _watchlist_date = None
 
 class StaleWatchlistError(Exception):
@@ -47,21 +48,23 @@ def validate_watchlist_freshness(require_fresh: bool = False) -> bool:
     return True
 
 def get_watchlist(require_fresh: bool = False) -> pd.DataFrame:
-    global _watchlist_cache, _watchlist_date
+    global _watchlist_date
+    from data_registry import registry
     current_date = datetime.now(IST).date()
     
     if require_fresh:
         validate_watchlist_freshness(require_fresh=True)
 
-    if _watchlist_cache is not None and _watchlist_date == current_date:
-        return _watchlist_cache.copy()
+    cache = registry.get("watchlist")
+    if cache is not None and _watchlist_date == current_date:
+        return cache.copy()
 
     try:
         df = pd.read_parquet(WATCHLIST_PATH)
-        _watchlist_cache = df
+        registry.put("watchlist", df)
         _watchlist_date = current_date
-        logger.info(f"📁 Watchlist loaded into memory cache ({len(df)} symbols)")
-        return _watchlist_cache.copy()
+        logger.info(f"📁 Watchlist loaded into DatasetRegistry ({len(df)} symbols)")
+        return df.copy()
     except Exception:
         # Try to restore from database first to avoid 2-minute rebuilding on server restarts
         try:
@@ -79,10 +82,10 @@ def get_watchlist(require_fresh: bool = False) -> pd.DataFrame:
                     logger.warning(f"Failed to restore exclusion log from DB: {ex_err}")
                 
                 df = pd.read_parquet(WATCHLIST_PATH)
-                _watchlist_cache = df
+                registry.put("watchlist", df)
                 _watchlist_date = current_date
                 logger.info(f"☁️ [WATCHLIST CACHE] Restored watchlist from Postgres cache ({len(df)} symbols)")
-                return _watchlist_cache.copy()
+                return df.copy()
         except Exception as e:
             logger.warning(f"Failed to restore watchlist from DB: {e}")
 

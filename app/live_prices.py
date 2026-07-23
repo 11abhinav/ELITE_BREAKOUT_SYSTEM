@@ -56,19 +56,24 @@ _dead_symbols_cache = {}
 _DEAD_TTL = 3600 * 24  # 24 hours
 _MAX_DEAD_CACHE_SIZE = 1000
 
+def _get_dead_symbols() -> dict:
+    from session_context import get_session_cache_or_fallback
+    return get_session_cache_or_fallback("dead_symbols", _dead_symbols_cache, logger)
+
 def _cleanup_dead_symbols_cache():
     now = time.time()
+    cache = _get_dead_symbols()
     # 1. Remove expired
-    expired_keys = [k for k, v in _dead_symbols_cache.items() if now - v > _DEAD_TTL]
+    expired_keys = [k for k, v in cache.items() if now - v > _DEAD_TTL]
     for k in expired_keys:
-        del _dead_symbols_cache[k]
+        del cache[k]
         
     # 2. If still over limit, remove oldest (Python 3.7+ dicts preserve insertion order)
-    if len(_dead_symbols_cache) > _MAX_DEAD_CACHE_SIZE:
-        excess = len(_dead_symbols_cache) - _MAX_DEAD_CACHE_SIZE
-        oldest_keys = list(_dead_symbols_cache.keys())[:excess]
+    if len(cache) > _MAX_DEAD_CACHE_SIZE:
+        excess = len(cache) - _MAX_DEAD_CACHE_SIZE
+        oldest_keys = list(cache.keys())[:excess]
         for k in oldest_keys:
-            del _dead_symbols_cache[k]
+            del cache[k]
         logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from _dead_symbols_cache.")
 
 def _parse_yf_error(err_str: str) -> FetchFailureType:
@@ -90,8 +95,9 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
 
     now = time.time()
     valid_symbols = []
+    cache = _get_dead_symbols()
     for s in symbols:
-        if s in _dead_symbols_cache and (now - _dead_symbols_cache[s]) < _DEAD_TTL:
+        if s in cache and (now - cache[s]) < _DEAD_TTL:
             continue
         valid_symbols.append(s)
         
@@ -473,7 +479,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
 
         if invalid_count >= 2:
             _cleanup_dead_symbols_cache()
-            _dead_symbols_cache[s] = time.time()
+            cache[s] = time.time()
             logger.warning(
                 f"🚫 Marking {s} as completely DEAD for 24h\n"
                 f"  Decision: DEAD_SYMBOL\n"

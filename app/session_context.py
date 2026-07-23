@@ -49,6 +49,20 @@ class SessionState(Enum):
 # CachePolicy  (declarative, carries no execution logic)
 # ─────────────────────────────────────────────────────────────────────────────
 
+class PersistenceTier(Enum):
+    SESSION = auto()
+    PERSISTENT = auto()
+
+class RefreshPolicy(Enum):
+    EVERY_5_MIN = auto()
+    EVERY_60_MIN = auto()
+    DAILY = auto()
+    ON_DEMAND = auto()
+
+class ExpirationPolicy(Enum):
+    CONSUMER_DRIVEN = auto()
+    END_OF_DAY = auto()
+
 @dataclass
 class CachePolicy:
     """
@@ -56,24 +70,16 @@ class CachePolicy:
     rather than embedding execution logic.
     """
     owner: str            # e.g. "MarketRegimeManager"
-    persistence: str      # "SESSION" | "PERSISTENT"
-    refresh_policy: str   # "EVERY_5_MIN" | "DAILY" | "ON_DEMAND" | "EVERY_60_MIN"
-    expiration_policy: str  # "CONSUMER_DRIVEN" | "END_OF_DAY"
+    persistence: PersistenceTier
+    refresh_policy: RefreshPolicy
+    expiration_policy: ExpirationPolicy
     estimated_size_mb: float = 0.0
     consumer_count: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# IndicatorBundle  (deferred import of pandas)
+# IndicatorBundle moved to indicator_manager.py to avoid circular dependencies
 # ─────────────────────────────────────────────────────────────────────────────
-
-@dataclass
-class IndicatorBundle:
-    ema_50: Optional[Any] = None    # pd.Series
-    ema_200: Optional[Any] = None
-    atr_14: Optional[Any] = None
-    rsi_14: Optional[Any] = None
-    pivots: Optional[Dict[str, Any]] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,9 +91,9 @@ class IntradayStore:
         self.data = {}
         self.policy = CachePolicy(
             owner="HistoricalDataManager.IntradayStore",
-            persistence="SESSION",
-            refresh_policy="EVERY_5_MIN",
-            expiration_policy="CONSUMER_DRIVEN",
+            persistence=PersistenceTier.SESSION,
+            refresh_policy=RefreshPolicy.EVERY_5_MIN,
+            expiration_policy=ExpirationPolicy.CONSUMER_DRIVEN,
         )
 
 
@@ -96,9 +102,9 @@ class DailyStore:
         self.data = {}
         self.policy = CachePolicy(
             owner="HistoricalDataManager.DailyStore",
-            persistence="SESSION",
-            refresh_policy="DAILY",
-            expiration_policy="CONSUMER_DRIVEN",
+            persistence=PersistenceTier.SESSION,
+            refresh_policy=RefreshPolicy.DAILY,
+            expiration_policy=ExpirationPolicy.END_OF_DAY,
         )
 
 
@@ -107,9 +113,9 @@ class DeliveryStore:
         self.data = {}
         self.policy = CachePolicy(
             owner="HistoricalDataManager.DeliveryStore",
-            persistence="SESSION",
-            refresh_policy="ON_DEMAND",
-            expiration_policy="CONSUMER_DRIVEN",
+            persistence=PersistenceTier.SESSION,
+            refresh_policy=RefreshPolicy.ON_DEMAND,
+            expiration_policy=ExpirationPolicy.CONSUMER_DRIVEN,
         )
 
 
@@ -120,21 +126,7 @@ class HistoricalDataManager:
         self.delivery = DeliveryStore()
 
 
-class IndicatorManager:
-    def __init__(self):
-        self.store: Dict[str, IndicatorBundle] = {}   # symbol → IndicatorBundle
-        self.policy = CachePolicy(
-            owner="IndicatorManager",
-            persistence="SESSION",
-            refresh_policy="ON_DEMAND",
-            expiration_policy="CONSUMER_DRIVEN",
-        )
-
-    def get(self, symbol: str) -> Optional[IndicatorBundle]:
-        return self.store.get(symbol)
-
-    def put(self, symbol: str, bundle: IndicatorBundle) -> None:
-        self.store[symbol] = bundle
+# IndicatorManager moved to indicator_manager.py
 
 
 class MarketRegimeManager:
@@ -145,9 +137,9 @@ class MarketRegimeManager:
         self.cache: Dict[str, Any] = {"ret_6m": None, "dist_52w": None, "ts": None}
         self.policy = CachePolicy(
             owner="MarketRegimeManager",
-            persistence="SESSION",
-            refresh_policy="EVERY_60_MIN",
-            expiration_policy="END_OF_DAY",
+            persistence=PersistenceTier.SESSION,
+            refresh_policy=RefreshPolicy.EVERY_60_MIN,
+            expiration_policy=ExpirationPolicy.CONSUMER_DRIVEN,
         )
 
 
@@ -203,6 +195,12 @@ class CacheManager:
     def get_policy(self, name: str) -> Optional[CachePolicy]:
         return self._policies.get(name)
 
+    @property
+    def managed_policies(self) -> Dict[str, CachePolicy]:
+        """Public alias for the policy registry — preserves backward compatibility."""
+        return self._policies
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SessionContext
@@ -221,7 +219,8 @@ class SessionContext:
         self.generation: int = _next_generation()
         self.state = SessionState.CREATED
 
-        # ── Managers ─────────────────────────────────────────────────────────
+        from indicator_manager import IndicatorManager
+        
         self.historical = HistoricalDataManager()
         self.indicators = IndicatorManager()
         self.market_regime = MarketRegimeManager()
@@ -231,7 +230,6 @@ class SessionContext:
         self.cache_manager.register_policy("intraday",      self.historical.intraday.policy)
         self.cache_manager.register_policy("daily",         self.historical.daily.policy)
         self.cache_manager.register_policy("delivery",      self.historical.delivery.policy)
-        self.cache_manager.register_policy("indicators",    self.indicators.policy)
         self.cache_manager.register_policy("market_regime", self.market_regime.policy)
 
         logger.info(
@@ -283,3 +281,36 @@ class SessionContext:
         self.cache_manager = None
 
         self.transition_to("DESTROYED")
+
+
+def get_session_cache_or_fallback(cache_name: str, fallback: dict, logger: logging.Logger) -> dict:
+    """
+    Return the named cache from the active SessionContext.
+    Falls back to `fallback` (the legacy module global) if no session exists.
+    Logs a WARNING if the fallback is used unexpectedly.
+    """
+    try:
+        from application_context import ApplicationContext
+        ctx = ApplicationContext.get_instance()
+        if ctx.session_context is not None:
+            cache = ctx.session_context.cache_manager.get(cache_name)
+            if cache is not None:
+                return cache
+            logger.error(
+                f"[SESSION_ARCH] Unknown cache name '{cache_name}' in CacheManager "
+                f"(generation={ctx.session_context.generation}). Using fallback."
+            )
+        else:
+            logger.debug(
+                f"[SESSION_ARCH] No active session for cache '{cache_name}'. "
+                f"Using module global fallback (expected before 01:00 AM)."
+            )
+    except ImportError:
+        logger.debug(f"[SESSION_ARCH] ApplicationContext not importable. Using fallback for '{cache_name}'.")
+    except Exception as exc:
+        logger.warning(
+            f"[SESSION_ARCH] Unexpected error accessing cache '{cache_name}': {exc!r}. "
+            f"Using module global fallback. This should be investigated."
+        )
+    return fallback
+

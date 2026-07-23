@@ -44,6 +44,34 @@ install_db_logger()
 
 logger = logging.getLogger(__name__)
 
+# ── Phase 2 Dataset Registry: Self-Register Consumers ────────────────────────
+try:
+    from data_registry import registry
+    registry.register_consumer("watchlist", "WealthEngine")
+    registry.register_consumer("price_1d", "WealthEngine")
+    registry.register_consumer("fundamentals_quarterly", "WealthEngine")
+    
+    registry.register_consumer("watchlist", "MultiTFScanner")
+    registry.register_consumer("price_1m", "MultiTFScanner")
+    registry.register_consumer("price_15m", "MultiTFScanner")
+    registry.register_consumer("price_1d", "MultiTFScanner")
+    
+    registry.register_consumer("watchlist", "EODScanner")
+    registry.register_consumer("price_1d", "EODScanner")
+    
+    registry.register_consumer("watchlist", "PullbackScanner")
+    registry.register_consumer("price_1d", "PullbackScanner")
+    
+    registry.register_consumer("watchlist", "ReversalScanner")
+    registry.register_consumer("price_1d", "ReversalScanner")
+    
+    # Run graph validation at startup
+    registry.validate()
+    logger.info("✅ Dataset Registry graph validation passed.")
+except Exception as e:
+    logger.critical(f"🚨 Dataset Registry initialization failed: {e}")
+    sys.exit(1)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # STARTUP DIAGNOSTICS — Verify all required functions are available (2026-06-26)
 # This catches version mismatches between local/container code early

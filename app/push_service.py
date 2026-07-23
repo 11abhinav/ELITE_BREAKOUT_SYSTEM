@@ -11,33 +11,36 @@ logger = logging.getLogger(__name__)
 _push_throttle_cache = {}
 _THROTTLE_SECONDS = 3600  # 1 hour
 
+def _get_push_throttle() -> dict:
+    from session_context import get_session_cache_or_fallback
+    return get_session_cache_or_fallback("push_throttle", _push_throttle_cache, logger)
+
 def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", bypass_throttle: bool = False):
     """Send a web push notification to all subscribed users. Throttles duplicates by default."""
-    
-    global _push_throttle_cache
+    cache = _get_push_throttle()
     now = time.time()
     
     # 1. Clean up expired throttles
-    expired_keys = [k for k, v in _push_throttle_cache.items() if now - v > _THROTTLE_SECONDS]
+    expired_keys = [k for k, v in cache.items() if now - v > _THROTTLE_SECONDS]
     for k in expired_keys:
-        del _push_throttle_cache[k]
+        del cache[k]
         
     # Throttle identical titles (to prevent MULTI_TF from spamming every 5 minutes during outages)
-    if not bypass_throttle and title in _push_throttle_cache:
+    if not bypass_throttle and title in cache:
         # We already removed expired keys above, so if it's still here, it is within throttle window
         logger.info(f"🔕 Throttling duplicate push notification: '{title}' | Details: {body}")
         return
     
-    _push_throttle_cache[title] = now
+    cache[title] = now
     
     # 2. Limit maximum cache size
     MAX_PUSH_CACHE_SIZE = 1000
-    if len(_push_throttle_cache) > MAX_PUSH_CACHE_SIZE:
-        excess = len(_push_throttle_cache) - MAX_PUSH_CACHE_SIZE
-        oldest_keys = list(_push_throttle_cache.keys())[:excess]
+    if len(cache) > MAX_PUSH_CACHE_SIZE:
+        excess = len(cache) - MAX_PUSH_CACHE_SIZE
+        oldest_keys = list(cache.keys())[:excess]
         for k in oldest_keys:
-            del _push_throttle_cache[k]
-        logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from _push_throttle_cache.")
+            del cache[k]
+        logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from push_throttle cache.")
 
     vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
     vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")

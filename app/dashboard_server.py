@@ -1025,7 +1025,13 @@ def api_shortlist_excluded():
         logger.exception(f"Failed to load excluded stocks JSON")
         return jsonify([])
 
-_wealth_cache = {"mtime": 0, "payload": None}
+def _get_wealth_cache():
+    from data_registry import registry
+    data = registry.get("wealth_cache")
+    if data is None:
+        data = {"mtime": 0, "payload": None}
+        registry.put("wealth_cache", data)
+    return data
 
 @app.route("/api/wealth")
 @login_required
@@ -1040,8 +1046,9 @@ def api_wealth():
         mtime = os.path.getmtime(WEALTH_PATH)
         
         # Serve from cache if file hasn't changed
-        if _wealth_cache["mtime"] == mtime and _wealth_cache["payload"] is not None:
-            return Response(_wealth_cache["payload"], mimetype="application/json")
+        cache = _get_wealth_cache()
+        if cache["mtime"] == mtime and cache["payload"] is not None:
+            return Response(cache["payload"], mimetype="application/json")
         
         import pandas as pd
         import json
@@ -1068,8 +1075,9 @@ def api_wealth():
         generated_at = datetime.fromtimestamp(mtime, tz=IST).isoformat()
         
         payload = json.dumps({"data": records, "generated_at": generated_at})
-        _wealth_cache["mtime"] = mtime
-        _wealth_cache["payload"] = payload
+        cache = _get_wealth_cache()
+        cache["mtime"] = mtime
+        cache["payload"] = payload
         
         return Response(payload, mimetype="application/json")
     except Exception as e:
@@ -2012,6 +2020,7 @@ def api_scanner_status():
                             "target_3":     float(t.get("target_3", 0)) if t.get("target_3") else None,
                             "target_price": float(t["target_price"]) if t["target_price"] else None,
                             "exit_price":   float(t.get("exit_price", 0)) if t.get("exit_price") else None,
+                            "exit_price":   float(t["exit_price"]) if t["exit_price"] else None,
                             "closed_at":    t["closed_at"],
                             "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
                             "status":       t["status"] or "OPEN",
@@ -2043,7 +2052,14 @@ def api_scanner_status():
 
 # ── Endpoints for Market Ticker & Catalyst News ────────────────────────────────────
 
-_indices_cache = {"data": None, "timestamp": 0}
+def _get_indices_cache():
+    from data_registry import registry
+    data = registry.get("indices_cache")
+    if data is None:
+        data = {"data": None, "timestamp": 0}
+        registry.put("indices_cache", data)
+    return data
+
 _indices_lock = threading.Lock()
 
 @app.route("/api/indices")
@@ -2051,8 +2067,9 @@ _indices_lock = threading.Lock()
 def api_indices():
     """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching using Fyers API."""
     with _indices_lock:
-        if _indices_cache.get("data") and (time.time() - _indices_cache.get("timestamp", 0) < 60):
-            return jsonify(_indices_cache["data"])
+        cache = _get_indices_cache()
+        if cache.get("data") and (time.time() - cache.get("timestamp", 0) < 60):
+            return jsonify(cache["data"])
         
     try:
         # Fyers Index Symbols
@@ -2114,16 +2131,21 @@ def api_indices():
                     logger.warning(f"Failed to fetch index {sym} via yf: {e}")
             
         with _indices_lock:
-            _indices_cache["data"] = data
-            _indices_cache["timestamp"] = time.time()
+            cache = _get_indices_cache()
+            cache["data"] = data
+            cache["timestamp"] = time.time()
             
         return jsonify(data)
     except Exception as e:
         logger.warning(f"Failed to fetch indices: {e}")
-        return jsonify(_indices_cache.get("data") or {})
+        return jsonify(_get_indices_cache().get("data") or {})
 
-_news_cache = {}
+_news_cache_fallback = {}
 _news_lock = threading.Lock()
+
+def _get_news_cache() -> dict:
+    from session_context import get_session_cache_or_fallback
+    return get_session_cache_or_fallback("news", _news_cache_fallback, logger)
 
 @app.route("/api/news/<symbol>")
 @login_required
@@ -2144,7 +2166,8 @@ def api_news(symbol):
 
     
     with _news_lock:
-        cached = _news_cache.get(yf_symbol)
+        cache = _get_news_cache()
+        cached = cache.get(yf_symbol)
         if cached and (time.time() - cached["timestamp"] < 900): # 15 min cache
             return jsonify(cached["data"])
             
@@ -2190,23 +2213,24 @@ def api_news(symbol):
             })
 
         with _news_lock:
+            cache = _get_news_cache()
             # 1. Clean up expired entries (TTL 15 min / 900s)
             now = time.time()
-            expired = [k for k, v in _news_cache.items() if now - v["timestamp"] > 900]
+            expired = [k for k, v in cache.items() if now - v["timestamp"] > 900]
             for k in expired:
-                del _news_cache[k]
+                del cache[k]
                 
             # 2. Add new entry
-            _news_cache[yf_symbol] = {"data": news, "timestamp": now}
+            cache[yf_symbol] = {"data": news, "timestamp": now}
             
             # 3. If cache still too large (e.g., burst of 500 different queries in 15min), remove oldest
             MAX_NEWS_CACHE_SIZE = 500
-            if len(_news_cache) > MAX_NEWS_CACHE_SIZE:
-                excess = len(_news_cache) - MAX_NEWS_CACHE_SIZE
-                oldest_keys = list(_news_cache.keys())[:excess]
+            if len(cache) > MAX_NEWS_CACHE_SIZE:
+                excess = len(cache) - MAX_NEWS_CACHE_SIZE
+                oldest_keys = list(cache.keys())[:excess]
                 for k in oldest_keys:
-                    del _news_cache[k]
-                logger.info(f"🧹 Evicted {len(expired)} expired and {len(oldest_keys)} oldest entries from _news_cache.")
+                    del cache[k]
+                logger.info(f"🧹 Evicted {len(expired)} expired and {len(oldest_keys)} oldest entries from news cache.")
         try:
             mark_success('yfinance')
         except Exception:
