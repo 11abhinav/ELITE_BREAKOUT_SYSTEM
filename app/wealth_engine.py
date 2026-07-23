@@ -975,7 +975,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     if concall_cache is not None:
                         concall = concall_cache.get(sym)
                     else:
-                        concall = get_recent_concall_analysis(sym)
+                        concall = {}
                     tech["AI_Confidence"] = int(concall["management_confidence"]) if concall and "management_confidence" in concall else 0
                 except Exception:
                     tech["AI_Confidence"] = 0
