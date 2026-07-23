@@ -115,12 +115,7 @@ def get_dynamic_cadence(interval: str) -> int:
         secs = (market_open - now_dt).total_seconds()
         return max(5, int(secs))
         
-    # Parse the interval (e.g., '15m', '45m', '1h', '1d')
     interval_lower = interval.lower()
-    if interval_lower in ('1d', 'daily'):
-        # For daily data, update on 5-minute boundaries during market hours
-        # This prevents the 60s fallback spam while keeping live data fresh
-        interval_lower = '5m'
 
     match = re.match(r'^(\d+)(m|h)$', interval_lower)
     if not match:
@@ -271,8 +266,10 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
     is_market_active = not is_weekend and (market_open <= now_dt <= market_close)
     
     # If the market is currently OPEN, the cache is NEVER fully up to date
-    # (because new candles are forming right now). We MUST fetch the delta.
-    if is_market_active:
+    # for intraday candles (because new candles are forming right now).
+    # However, for 1D candles, we consider them up to date if they have yesterday's close,
+    # as live intraday CMP will be stitched natively in memory by scanners.
+    if is_market_active and interval.lower() not in ('1d', 'daily', '1wk', '1mo'):
         return False
         
     if is_weekend:

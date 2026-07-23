@@ -475,6 +475,45 @@ def _run_scan(force: bool = False):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             with BatchMemoryTracker("REVERSAL", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                 all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
+                
+                from price_cache import get_intraday_snapshot
+                from datetime import datetime
+                from dateutil import tz
+                IST = tz.gettz("Asia/Kolkata")
+                
+                chunk_symbols = chunk_df["Stock"].tolist()
+                chunk_snapshots = get_intraday_snapshot(chunk_symbols, interval="5m", period="1d")
+                
+                if all_ticker_data:
+                    now_ist = datetime.now(IST)
+                    today_date_str = now_ist.strftime("%Y-%m-%d")
+                    for sym, hist_df in all_ticker_data.items():
+                        if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
+                            snap_df = chunk_snapshots.get(sym) if chunk_snapshots else None
+                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
+                                live_price = snap_df['Close'].iloc[-1]
+                                # Ensure we don't mutate the global cache directly
+                                hist_df = hist_df.copy()
+                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
+                                if t_col:
+                                    last_dt = hist_df[t_col].iloc[-1]
+                                
+                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                
+                                if last_dt_str == today_date_str:
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                else:
+                                    new_row = hist_df.iloc[-1:].copy()
+                                    if t_col:
+                                        new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                    else:
+                                        new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                    new_row['Close'] = live_price
+                                    hist_df = pd.concat([hist_df, new_row])
+                                
+                                all_ticker_data[sym] = hist_df
+                                
                 if not all_ticker_data:
                     continue
                     

@@ -988,11 +988,48 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
                 chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
                 
+                from price_cache import get_intraday_snapshot
+                chunk_snapshots = get_intraday_snapshot(chunk, interval="5m", period="1d")
+                
                 from database import get_bulk_recent_concall_analysis
                 chunk_concalls = get_bulk_recent_concall_analysis(chunk, max_age_days=60)
                 
                 if chunk_historical_data is None:
                     chunk_historical_data = {}
+                else:
+                    # [ARCHITECTURAL FIX] Stitch live intraday price into 1D historical data 
+                    # so 1D delta fetches aren't spammed every 5 minutes during market hours.
+                    now_ist = datetime.now(IST)
+                    today_date_str = now_ist.strftime("%Y-%m-%d")
+                    for sym, hist_df in chunk_historical_data.items():
+                        if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
+                            snap_df = chunk_snapshots.get(sym) if chunk_snapshots else None
+                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
+                                live_price = snap_df['Close'].iloc[-1]
+                                # Ensure we don't mutate the global cache directly
+                                hist_df = hist_df.copy()
+                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
+                                if t_col:
+                                    last_dt = hist_df[t_col].iloc[-1]
+                                
+                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                
+                                if last_dt_str == today_date_str:
+                                    # Update today's existing candle
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                else:
+                                    # Append a new live candle for today
+                                    new_row = hist_df.iloc[-1:].copy()
+                                    if t_col:
+                                        new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                    else:
+                                        new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                    new_row['Close'] = live_price
+                                    hist_df = pd.concat([hist_df, new_row])
+                                
+                                chunk_historical_data[sym] = hist_df
+                                
                     
                 valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 global_fetched_count += valid_fetches
@@ -1013,6 +1050,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     
                 # Explicit cleanup of large DataFrame references
                 del chunk_historical_data
+                del chunk_snapshots
 
         required_count = int(len(df) * 0.70)
         if global_fetched_count < required_count:
