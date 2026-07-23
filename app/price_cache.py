@@ -147,8 +147,7 @@ def get_dynamic_cadence(interval: str) -> int:
 # [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.
 @profile_function("Price Fetch", budget_mb=500.0)
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
-    global _cache_hits
-    global _cache_misses
+    from telemetry_manager import telemetry
     requester = requester or threading.current_thread().name or "Unknown"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
@@ -161,11 +160,14 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 cached_data = entry["data"]
                 missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                 if not missing_symbols:
-                    _cache_hits += 1
+                    telemetry.cache_stats.record_hit()
                     logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
                     return {s: cached_data[s] for s in watchlist["Stock"]}
             else:
+                telemetry.cache_stats.record_miss()
                 logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence:.0f}s). Forcing fresh download.")
+        else:
+            telemetry.cache_stats.record_miss()
 
     # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
     # This prevents thundering herd where 5+ scanners fetch simultaneously
@@ -183,12 +185,12 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     cached_data = entry["data"]
                     missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
                     if not missing_symbols:
-                        _cache_hits += 1
+                        telemetry.cache_stats.record_hit()
                         logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
                         return {s: cached_data[s] for s in watchlist["Stock"]}
         
         # Cache miss or stale — download fresh data
-        _cache_misses += 1
+        telemetry.cache_stats.record_miss()
         result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
 
     # Determine oldest timestamp in batch
@@ -229,20 +231,6 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
-        # Bounded cache guard: Prevent uncontrolled memory growth across multiple timeframes (Max 8 active timeframes)
-        # 8 is required to support multi_tf_scanner (uses 5 timeframes) + wealth/reversal (1y/1d).
-        if len(_cache) > 8 and cache_key not in _cache:
-            keys_purged = len(_cache)
-            for k, entry in list(_cache.items()):
-                if isinstance(entry, dict):
-                    data = entry.get("data")
-                    if isinstance(data, dict):
-                        data.clear()
-                    entry.clear()
-            _cache.clear()
-            gc.collect()
-            logger.info(f"🧹 [CACHE BOUNDED GUARD] Purged {keys_purged} cache keys to prevent memory growth.")
-
 
         _cache[cache_key] = {
             "data": result,

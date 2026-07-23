@@ -2,6 +2,7 @@ import gc
 import os
 import sys
 import time
+from datetime import datetime
 import logging
 import psutil
 import tracemalloc
@@ -113,6 +114,19 @@ class MemoryProfiler:
                 tracemalloc.start()
             tracemalloc.clear_traces()
             
+        from telemetry_manager import telemetry
+        rss_mb = self.start_rss / (1024 * 1024)
+        vms_mb = self.process.memory_info().vms / (1024 * 1024)
+        
+        logger.info("========== MEMORY SNAPSHOT ==========")
+        logger.info(f"Time: {datetime.now().strftime('%H:%M:%S')}")
+        logger.info(f"Scanner: {self.stage_name}")
+        logger.info(f"RSS Memory: {rss_mb:.1f} MB")
+        logger.info(f"VMS Memory: {vms_mb:.1f} MB")
+        logger.info(f"Historical Cache: {len(telemetry._timers)} Symbols")
+        logger.info(f"Shared Cache Objects: {telemetry.cache_stats.entries}")
+        logger.info("=====================================")
+            
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -151,12 +165,18 @@ class MemoryProfiler:
         
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
-        logger.info(f"=== [PROFILE] {self.stage_name} ===")
-        logger.info(f"  Time            : {elapsed:.2f}s")
-        logger.info(f"  RSS Before      : {start_mb:.1f} MB")
-        logger.info(f"  RSS After       : {current_mb:.1f} MB")
-        logger.info(f"  RSS Delta       : {delta_str} MB")
-        logger.info(f"  RSS Peak        : {peak_mb:.1f} MB")
+        from telemetry_manager import telemetry
+        timer = telemetry.get_timer(self.stage_name.split()[0])
+        timer.stages[self.stage_name] = elapsed
+        
+        logger.info("========== SCANNER COMPLETE ==========")
+        logger.info(f"Scanner: {self.stage_name}")
+        logger.info(f"Execution Time: {elapsed:.2f}s")
+        logger.info(f"Memory Before: {start_mb:.1f} MB")
+        logger.info(f"Memory After: {current_mb:.1f} MB")
+        logger.info(f"Memory Delta: {delta_str} MB")
+        logger.info(f"Peak Memory: {peak_mb:.1f} MB")
+        logger.info("======================================")
         logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
         
         if ENABLE_PROFILING and self.df_start:
@@ -197,9 +217,8 @@ def start_tracemalloc():
 
 def log_hourly_memory():
     """Logs the current raw RSS memory footprint."""
-    process = psutil.Process(os.getpid())
-    current_mb = process.memory_info().rss / (1024 * 1024)
-    logger.info(f"[MEMORY] 🕒 HOURLY TICK | Current RSS: {current_mb:.1f} MB")
+    from telemetry_manager import telemetry
+    telemetry.log_memory_snapshot(context="HOURLY TICK")
 
 def log_object_inventory():
     """
@@ -353,6 +372,9 @@ def run_purge_with_telemetry(stage_name: str) -> float:
     Step 3: Force gc.collect()
     Step 4: Execute malloc_trim(0)
     """
+    # Profiling mode active: Do not forcefully purge memory.
+    return 0.0
+    
     proc = psutil.Process(os.getpid())
     rss_start = proc.memory_info().rss / (1024 * 1024)
     
@@ -877,6 +899,19 @@ def profile_function(stage_name: str, budget_mb: float = None):
                     logger.warning(f"  ⚠️ BUDGET EXCEEDED: {end_rss:.1f} MB > {budget_mb:.1f} MB")
                 
                 logger.debug(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
+                
+                from telemetry_manager import telemetry
+                timer = telemetry.get_timer(stage_name.split()[0])
+                timer.stages[stage_name] = elapsed
+                logger.info("========== SCANNER COMPLETE ==========")
+                logger.info(f"Scanner: {stage_name}")
+                logger.info(f"Execution Time: {elapsed:.1f} sec")
+                logger.info(f"Memory Before: {start_rss:.1f} MB")
+                logger.info(f"Memory After: {end_rss:.1f} MB")
+                logger.info(f"Memory Delta: {end_rss - start_rss:+.1f} MB")
+                if hasattr(mem, 'peak_wset'):
+                    logger.info(f"Peak Memory: {peak_rss:.1f} MB")
+                logger.info("======================================")
                 
                 logger.debug(f"  Live DF Count   : {df_start['count']} -> {df_end['count']} (Delta: {df_end['count'] - df_start['count']:+d})")
                 logger.debug(f"  Total DF Memory : {df_start['memory_mb']:.1f} MB -> {df_end['memory_mb']:.1f} MB")
