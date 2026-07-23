@@ -359,6 +359,7 @@ class BatchMemoryTracker:
 # =======================================================
 
 ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", "True").lower() in ("true", "1", "yes")
+ENABLE_DEEP_INVENTORY = os.getenv("ENABLE_DEEP_INVENTORY", "False").lower() in ("true", "1", "yes")
 
 def run_purge_with_telemetry(stage_name: str) -> float:
     # Removed as per Phase 4 LifecycleManager Memory Thresholds
@@ -472,7 +473,7 @@ def get_dataframe_inventory():
     largest_df_cols = 0
     largest_df_id = None
     
-    if not ENABLE_PROFILING:
+    if not ENABLE_PROFILING or not ENABLE_DEEP_INVENTORY:
         return {"count": 0, "rows": 0, "cols": 0, "memory_mb": 0.0, "largest_mb": 0.0, "largest_rows": 0, "largest_cols": 0, "largest_id": None}
 
     for obj in gc.get_objects():

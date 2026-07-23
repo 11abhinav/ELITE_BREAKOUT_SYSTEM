@@ -12,6 +12,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 from delivery_data import fetch_delivery_data
 from validation.result import ValidationStatus
+from data_registry import registry
+
+@pytest.fixture(autouse=True)
+def reset_registry():
+    """Reset the global registry before each test to prevent state leakage."""
+    registry._data.clear()
+    yield
 
 @patch("database.get_bhavcopy_cache")
 @patch("delivery_data._get_robust_session")

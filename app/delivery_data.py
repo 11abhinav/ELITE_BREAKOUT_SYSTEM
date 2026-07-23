@@ -91,6 +91,15 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
     
     # 0. Check in-memory DatasetRegistry first (fastest)
     registry_key = f"bhavcopy_delivery_{trading_date.isoformat()}"
+    
+    # Dynamically register the specific date key if not exists
+    if not registry.get_entry(registry_key):
+        from data_registry import DatasetEntry, StorageTier
+        registry.register_dataset(DatasetEntry(
+            id=registry_key, owner="DeliveryDataManager", 
+            tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"
+        ))
+        
     cached_mem = registry.get(registry_key)
     if cached_mem is not None:
         return cached_mem

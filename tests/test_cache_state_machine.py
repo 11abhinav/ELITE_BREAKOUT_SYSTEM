@@ -91,7 +91,13 @@ def test_healthy_cache_delta_fetch(mock_get_fetcher, mock_watchlist, base_histor
 
     # Modify base history to end yesterday
     dates = pd.date_range(end=yesterday, periods=300, freq="D", tz=IST)
-    cached_df = pd.DataFrame({"Close": [100.0] * 300}, index=dates)
+    cached_df = pd.DataFrame({
+        "Open": [100.0] * 300,
+        "High": [105.0] * 300,
+        "Low": [95.0] * 300,
+        "Close": [100.0] * 300,
+        "Volume": [1000] * 300
+    }, index=dates)
     cached_df.index.name = "Date"
     
     # Save to mock DATA_DIR
@@ -133,7 +139,13 @@ def test_healthy_cache_already_up_to_date(mock_get_fetcher, setup_test_env):
     """
     now = datetime.now(IST)
     dates = pd.date_range(end=now, periods=300, freq="D", tz=IST)
-    cached_df = pd.DataFrame({"Close": [100.0] * 300}, index=dates)
+    cached_df = pd.DataFrame({
+        "Open": [100.0] * 300,
+        "High": [105.0] * 300,
+        "Low": [95.0] * 300,
+        "Close": [100.0] * 300,
+        "Volume": [1000] * 300
+    }, index=dates)
     cached_df.index.name = "Date"
     
     history_dir = setup_test_env / "history" / "1d"
