@@ -337,10 +337,16 @@
 </div>
 
 <script>
+  function getApiBase() {
+    return (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') 
+        ? 'https://elitebreakoutsystem-production.up.railway.app' 
+        : '';
+}
+
   let csrfToken = '';
   
   async function fetchCsrf() {
-      const res = await fetch('/api/csrf_token');
+      const res = await fetch(`${getApiBase()}/api/csrf_token`);
       const data = await res.json();
       csrfToken = data.csrf_token;
   }
@@ -387,7 +393,7 @@
       } else {
         const data = await res.json();
         alert('Signup successful! Please login.');
-        window.location.href = '/login';
+        window.location.href = `${getApiBase()}/login`;
       }
     } catch (err) {
       document.getElementById('error-msg').textContent = 'Network protocol error. Please try again.';
@@ -425,7 +431,7 @@
     formData.append('message', document.getElementById('chat-message').value);
 
     try {
-      const res = await fetch('/api/guest_chat', { method: 'POST', body: formData });
+      const res = await fetch(`${getApiBase()}/api/guest_chat`, { method: 'POST', body: formData });
       if (res.ok) {
         document.getElementById('chat-form').style.display = 'none';
         document.getElementById('chat-success').style.display = 'block';

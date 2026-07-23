@@ -82,6 +82,12 @@
   </div>
 
 <script>
+  function getApiBase() {
+    return (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') 
+        ? 'https://elitebreakoutsystem-production.up.railway.app' 
+        : '';
+}
+
   let csrfToken = '';
   
   async function fetchCsrf() {
@@ -142,6 +148,12 @@
 </script>
 
 <script>
+  function getApiBase() {
+    return (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') 
+        ? 'https://elitebreakoutsystem-production.up.railway.app' 
+        : '';
+}
+
   // ── PWA: Service Worker Registration ──
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

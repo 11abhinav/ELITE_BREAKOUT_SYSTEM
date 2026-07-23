@@ -233,11 +233,17 @@
   }
 </style>
 <script>
+  function getApiBase() {
+    return ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') 
+        ? 'https://elitebreakoutsystem-production.up.railway.app' 
+        : '';
+}
+
 
 let globalCsrfToken = '';
 async function initAuth() {
     try {
-        const res = await fetch('/api/csrf_token');
+        const res = await fetch(getApiBase() + '/api/csrf_token');
         if (res.ok) {
             const data = await res.json();
             globalCsrfToken = data.csrf_token;
@@ -249,6 +255,9 @@ initAuth();
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     let [resource, config] = args;
+    if (typeof resource === 'string' && resource.startsWith('/')) {
+        resource = getApiBase() + resource;
+    }
     if (config && ['POST', 'PUT', 'DELETE'].includes(config.method)) {
         config.headers = config.headers || {};
         if (globalCsrfToken && !config.headers['X-CSRFToken']) {
