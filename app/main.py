@@ -230,6 +230,60 @@ def _run(name, fn):
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = threading.Lock()
 
+def _run_performance_tracker_single():
+    """Runs a single pass of the performance tracker dashboard refresh."""
+    from performance_tracker import build_performance_data
+    from database import upsert_scanner_health
+    try:
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_START")
+        build_performance_data()
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER", status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Every 5min (all day)"
+        )
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
+    except Exception as e:
+        if "actively running" not in str(e).lower():
+            logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_FAILED", error=str(e))
+            try:
+                upsert_scanner_health(
+                    "PERFORMANCE_TRACKER", status="DOWN",
+                    error_msg=str(e)[:500],
+                    scheduled_for="Every 5min (all day)"
+                )
+            except Exception:
+                pass
+
+def _run_multibagger_exit_single():
+    """Runs a single pass of the Multibagger Exit Monitor."""
+    from database import upsert_scanner_health
+    from multibagger import run_standalone_exit_monitor
+    
+    try:
+        logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
+        run_standalone_exit_monitor()
+        upsert_scanner_health(
+            "MULTIBAGGER_EXIT", status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Every 15min (market hours)"
+        )
+        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
+    except Exception as e:
+        logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
+        if "actively running" not in str(e):
+            try:
+                upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
+            except Exception:
+                pass
+
 def run_multi_tf_scanner():
     wait_for_window("multi_tf")
     import multi_tf_scanner
@@ -243,12 +297,15 @@ def run_performance_tracker():
     
     # Always run once on boot to ensure fresh dashboard data, even on weekends
     try:
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
         build_performance_data()
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
             scheduled_for="Every 5min (all day)"
         )
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
     except Exception as e:
         if "actively running" in str(e).lower():
             pass
@@ -259,22 +316,28 @@ def run_performance_tracker():
             error_msg="Boot refresh failed",
             scheduled_for="Every 5min (all day)"
         )
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_FAILED", error=str(e))
         
     from market_utils import is_market_open
     
     while True:
         if is_market_open():
             try:
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_START")
                 build_performance_data()
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
                     last_success=datetime.now(IST).isoformat(),
                     scheduled_for="Every 5min (all day)"
                 )
+                telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
             except Exception as e:
                 if "actively running" in str(e).lower():
                     continue
                 logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_FAILED", error=str(e))
                 try:
                     upsert_scanner_health(
                         "PERFORMANCE_TRACKER", status="DOWN",
@@ -284,7 +347,7 @@ def run_performance_tracker():
                 except Exception:
                     pass
         
-        time.sleep(300)
+        time.sleep(900)  # [ARCHITECTURAL FIX] Reduced from 5m (300) to 15m (900) to lower API strain
 
 _watchlist_build_lock = threading.Lock()
 
@@ -649,20 +712,20 @@ def run_evening_scanners():
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
         
-        logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback threads.")
-        eod_thread = threading.Thread(target=_run_eod_with_retries, args=(today_str,), name="EODWorker")
-        rev_thread = threading.Thread(target=_run_reversal_with_retries, args=(today_str,), name="ReversalWorker")
-        pb_thread  = threading.Thread(target=_run_pullback_with_retries, args=(today_str,), name="PullbackWorker")
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_START")
+        telemetry.log_session_timeline("Started Evening Scanners Cycle (EOD, Reversal, Pullback)")
         
-        eod_thread.start()
-        rev_thread.start()
+        logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
         
-        eod_thread.join()
-        rev_thread.join()
+        # Run EOD Scanner
+        _run_eod_with_retries(today_str)
+        
+        # Run Reversal Scanner
+        _run_reversal_with_retries(today_str)
 
-        # Run Pullback Scanner 6th in the batch (after EOD & Reversal finish)
-        pb_thread.start()
-        pb_thread.join()
+        # Run Pullback Scanner (after EOD & Reversal finish)
+        _run_pullback_with_retries(today_str)
 
         # Verify actual execution outcome from database health records before declaring status
         from database import get_all_scanner_health
@@ -679,9 +742,13 @@ def run_evening_scanners():
 
         if eod_ok and rev_ok and pb_ok:
             logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) completed successfully for today.")
+            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
+            telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
         else:
             status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
             logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
+            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_FAILED", error=status_str)
+            telemetry.log_session_timeline(f"Evening Scanners Cycle Failed: {status_str}")
 
         # Execute 4-step defensive purge telemetry post evening batch
         try:
@@ -756,6 +823,8 @@ def run_system_scheduler():
                 logger.info("🕒 SCHEDULER | [1:00 AM] Watchlist already fresh for today. Skipping redundant build.")
             else:
                 logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_START")
                 # Pre-Daily Builder 4-step defensive memory purge
                 try:
                     from memory_profiler import run_purge_with_telemetry
@@ -782,6 +851,9 @@ def run_system_scheduler():
             except Exception:
                 logger.warning("⚠️ Could not update Daily Builder health status")
             logger.info("✅ Daily Builder completed successfully")
+            if not already_fresh:
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_COMPLETE")
             return True
         except Exception as e:
             err_str = str(e).lower()
@@ -790,6 +862,8 @@ def run_system_scheduler():
                 return False
                 
             logger.exception("❌ SCHEDULER | Daily Builder crashed")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_FAILED", error=str(e))
             # Telegram notifications disabled (2026-06-17)
             try:
                 upsert_scanner_health(
@@ -806,6 +880,9 @@ def run_system_scheduler():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         try:
             logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_START")
+            telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
                 run_wealth_scan()
             
@@ -818,6 +895,8 @@ def run_system_scheduler():
                 scheduled_for="02:00 IST"
             )
             logger.info("✅ Wealth Engine (initial) completed successfully")
+            telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_COMPLETE")
+            telemetry.log_session_timeline("Completed Wealth Engine Initial Setup Cycle Successfully")
             with MemoryProfiler("Cleanup - WEALTH", force_gc_cleanup=True):
                 pass
             return True
@@ -826,6 +905,9 @@ def run_system_scheduler():
                 logger.info("⏳ Wealth Engine is actively running.")
                 return False
             logger.exception("❌ SCHEDULER | Wealth Engine (initial) crashed")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_FAILED", error=str(e))
+            telemetry.log_session_timeline(f"Wealth Engine Initial Setup Cycle Failed: {str(e)}")
             upsert_scanner_health(
                 "Wealth Engine",
                 status="DOWN",
@@ -844,17 +926,12 @@ def run_system_scheduler():
                 return False
             
             logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
             with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                 run_wealth_scan()
             
-            # Run exit monitor in isolated try/except so a crash here
-            # does NOT mark Wealth Engine as DOWN (Issue #5 from audit)
-            try:
-                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Multibagger Exit Monitor (market hours - 5min loop)")
-                from multibagger import run_standalone_exit_monitor
-                run_standalone_exit_monitor()
-            except Exception as exit_err:
-                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed (Wealth Engine unaffected): {exit_err}")
+            # [ARCHITECTURAL FIX] Multibagger Exit Monitor decoupled to run_multibagger_exit_monitor thread.
             
             last_wealth_market_run = now
             # Mark success
@@ -934,7 +1011,27 @@ def run_system_scheduler():
     # Run boot verification
     verify_scans()
 
-    # Main scheduler loop
+    # Main scheduler loop state variables
+    last_mb_exit = None
+    last_perf = None
+    daily_builder_ran = False
+    wealth_initial_ran = False
+    verify_scans_ran = False
+    multi_tf_ran = False
+    multibagger_ran = False
+    evening_scanners_ran = False
+    
+    # Run boot items sequentially
+    try:
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
+        _run_performance_tracker_single()
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
+    except Exception as e:
+        logger.error(f"Boot perf tracker failed: {e}")
+        
+    verify_scans()
+
     while True:
         now = datetime.now(IST)
         
@@ -967,13 +1064,58 @@ def run_system_scheduler():
                 verify_scans_ran = False
             
             from market_utils import is_market_open
-            # Market hours: Wealth Engine every 5 minutes from 9:15 AM - 3:30 PM
+            # Market hours strict sequential loop (9:15 AM - 3:30 PM)
             if is_market_open(now):
-                safe_run_wealth_market_hours()
-                check_scanner_staleness(now)
+                with scanner_execution_lock:
+                    # 1. Multibagger Exit Monitor (every 15 mins)
+                    if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 900:
+                        _run_multibagger_exit_single()
+                        last_mb_exit = datetime.now(IST)
+                        
+                    # 2. Performance Tracker (every 5 mins)
+                    if not last_perf or (now - last_perf).total_seconds() >= 300:
+                        _run_performance_tracker_single()
+                        last_perf = datetime.now(IST)
+                        
+                    # 3. Wealth Engine
+                    safe_run_wealth_market_hours()
                 
-        # Sunday only
-        time.sleep(30)  # Check every 30 seconds
+                check_scanner_staleness(now)
+            
+            now = datetime.now(IST)
+            
+            # 15:00 - Multi-TF Scanner
+            if now.hour == 15 and now.minute >= 0 and not multi_tf_ran:
+                multi_tf_ran = True
+                logger.info(f"🚀 MULTI_TF SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
+                with scanner_execution_lock:
+                    _trigger_multi_tf()
+            elif now.hour != 15:
+                multi_tf_ran = False
+                
+            # 18:00 - Evening Scanners (EOD, Reversal, Pullback)
+            if now.hour >= 18 and not evening_scanners_ran:
+                from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
+                wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
+                evening_scanners_ran = True
+                with scanner_execution_lock:
+                    logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
+                    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                    _run_eod_with_retries(today_str)
+                    _run_reversal_with_retries(today_str)
+                    _run_pullback_with_retries(today_str)
+            elif now.hour < 18:
+                evening_scanners_ran = False
+                
+            # 19:00 - Multibagger Scanner
+            if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
+                multibagger_ran = True
+                _run_multibagger_scanner_single()
+            elif now.hour != 19:
+                multibagger_ran = False
+                
+        # Sleep tight, loop runs approximately every minute
+        time.sleep(60)
 
 
 def check_scanner_staleness(now):
@@ -1095,84 +1237,101 @@ def check_scanner_staleness(now):
 from ai_worker import run_worker_loop
 from pledge_worker import worker_loop as run_pledge_loop
 
-def run_multibagger_scanner():
-    """
-    Multibagger Scanner:
-    - Runs Daily at 7:00 PM IST (19:00 IST).
-    - Scans dynamically fetched index constituents.
-    - Updates watchlist and buy alerts.
-    """
-    multibagger_ran = False
+def run_multibagger_exit_monitor():
+    """Independent background daemon to monitor multibagger exits every 15 minutes."""
+    from database import upsert_scanner_health
+    from market_utils import is_market_open
+    from multibagger import run_standalone_exit_monitor
+    
     while True:
-        try:
-            now = datetime.now(IST)
-            # Daily at 7:00 PM IST
-            if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
-                logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-                from database import upsert_scanner_health
-                upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
-                import multibagger
-                with scanner_execution_lock:
-                    with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                        stats = multibagger.start() or {}
-                    time.sleep(15)
-                multibagger_ran = True
-                
-                # Mark success in health table
-                from database import upsert_scanner_health
-                upsert_scanner_health(
-                    "MULTIBAGGER",
-                    status="OK",
-                    last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Daily 19:00 IST",
-                    total_count=stats.get("total_count"),
-                    processed_count=stats.get("processed_count"),
-                    today_alerts=stats.get("today_alerts", 0)
-                )
-                # Rebuild performance data on scanner completion (debounced, async)
-                try:
-                    from performance_tracker import trigger_performance_rebuild
-                    trigger_performance_rebuild()
-                except Exception as pe:
-                    logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
-                logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
-            
-            # Reset flag outside 7 PM window
-            if now.hour != 19:
-                multibagger_ran = False
-                
-        except Exception as e:
-            if "actively running" in str(e).lower():
-                logger.info("⏳ MULTIBAGGER scanner is already running. Skipping...")
-                time.sleep(60)
-                continue
-                
-            logger.exception("❌ MULTIBAGGER SCAN | Failed")
+        if is_market_open():
             try:
-                from database import upsert_scanner_health
+                logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (15min loop)")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
+                run_standalone_exit_monitor()
                 upsert_scanner_health(
-                    "MULTIBAGGER",
-                    status="DOWN",
-                    error_msg=str(e)[:500],
-                    scheduled_for="Daily 19:00 IST"
+                    "MULTIBAGGER_EXIT", status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Every 15min (market hours)"
                 )
-                from push_service import send_push_to_all
-                send_push_to_all("❌ MULTIBAGGER Scanner DOWN", f"Crash: {str(e)[:100]}", bypass_throttle=True)
-            except Exception:
-                pass
-                
-        time.sleep(30)
+                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
+            except Exception as e:
+                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
+                if "actively running" not in str(e):
+                    try:
+                        upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
+                    except Exception:
+                        pass
+        time.sleep(900)
+
+
+def _run_multibagger_scanner_single():
+    """Runs a single pass of the Multibagger Scanner."""
+    try:
+        now = datetime.now(IST)
+        logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
+        from database import upsert_scanner_health
+        upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
+        import multibagger
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
+        telemetry.log_session_timeline("Started Multibagger Scanner Cycle")
+        with scanner_execution_lock:
+            with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
+                stats = multibagger.start() or {}
+            time.sleep(15)
+        
+        # Mark success in health table
+        upsert_scanner_health(
+            "MULTIBAGGER",
+            status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Daily 19:00 IST",
+            total_count=stats.get("total_count"),
+            processed_count=stats.get("processed_count"),
+            today_alerts=stats.get("today_alerts", 0)
+        )
+        # Rebuild performance data on scanner completion (debounced, async)
+        try:
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild()
+        except Exception as pe:
+            logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
+        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
+        telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
+        logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
+            
+    except Exception as e:
+        if "actively running" in str(e).lower():
+            logger.info("⏳ MULTIBAGGER scanner is already running. Skipping...")
+            return
+            
+        logger.exception("❌ MULTIBAGGER SCAN | Failed")
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_FAILED", error=str(e))
+        telemetry.log_session_timeline(f"Multibagger Scanner Cycle Failed: {str(e)}")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                "MULTIBAGGER",
+                status="DOWN",
+                error_msg=str(e)[:500],
+                scheduled_for="Daily 19:00 IST"
+            )
+            from push_service import send_push_to_all
+            send_push_to_all("❌ MULTIBAGGER Scanner DOWN", f"Crash: {str(e)[:100]}", bypass_throttle=True)
+        except Exception:
+            pass
 
 
 RESTARTABLE_THREADS = {
-    "MultiTFScanner":     run_multi_tf_scanner,
-    "PerformanceTracker": run_performance_tracker,
     # [VERSION: TRIGGER_AI_WORKER_v1.3] Uncomment AI Worker thread
     "AI Worker":          run_worker_loop,
     "Pledge Worker":      run_pledge_loop,
     "SystemScheduler":    run_system_scheduler,
-    "EveningScanners":    run_evening_scanners,
-    "MultibaggerScanner": run_multibagger_scanner,
 }
 
 # EOD and Reversal are now restartable since they run continuously

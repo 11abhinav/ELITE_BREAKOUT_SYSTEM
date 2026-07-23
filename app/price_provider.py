@@ -171,8 +171,6 @@ class PriceProvider:
                 bytes_dl = df.memory_usage(deep=True).sum() if (pd is not None and hasattr(df, 'memory_usage')) else 0
                 if isinstance(bytes_dl, pd.Series):
                     bytes_dl = bytes_dl.sum()
-                from telemetry_manager import telemetry
-                telemetry.network_stats.record_call(bytes_transferred=int(bytes_dl), duration_sec=duration, status_code=200, retries=attempts, is_timeout=False)
                 
                 # success
                 last_exc = None
@@ -184,10 +182,8 @@ class PriceProvider:
                 attempts += 1
                 is_rate = ('too many requests' in msg) or ('rate limit' in msg) or ('429' in msg)
                 
-                from telemetry_manager import telemetry
                 status_code = 429 if is_rate else (403 if '403' in msg else 500)
                 is_timeout = 'timeout' in msg
-                telemetry.network_stats.record_call(bytes_transferred=0, duration_sec=duration, status_code=status_code, retries=attempts, is_timeout=is_timeout)
                 
                 logger.warning(f"yfinance batch download failed (attempt {attempts}/{self.max_retries}) for {len(tickers)} tickers: {e}")
                 if is_rate:

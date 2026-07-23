@@ -123,7 +123,6 @@ class MemoryProfiler:
                 tracemalloc.start()
             tracemalloc.clear_traces()
             
-        from telemetry_manager import telemetry
         rss_mb = self.start_rss / (1024 * 1024)
         vms_mb = self.process.memory_info().vms / (1024 * 1024)
         
@@ -132,8 +131,6 @@ class MemoryProfiler:
         log_func(f"Scanner: {self.stage_name}")
         log_func(f"RSS Memory: {rss_mb:.1f} MB")
         log_func(f"VMS Memory: {vms_mb:.1f} MB")
-        log_func(f"Historical Cache: {len(telemetry._timers)} Symbols")
-        log_func(f"Shared Cache Objects: {telemetry.cache_stats.entries}")
         log_func("=====================================")
             
         return self
@@ -176,9 +173,6 @@ class MemoryProfiler:
         
         delta_str = f"+{delta_mb:.1f}" if delta_mb >= 0 else f"{delta_mb:.1f}"
         
-        from telemetry_manager import telemetry
-        timer = telemetry.get_timer(self.stage_name.split()[0])
-        timer.stages[self.stage_name] = elapsed
         
         log_func("========== SCANNER COMPLETE ==========")
         log_func(f"Scanner: {self.stage_name}")
@@ -220,8 +214,7 @@ def start_tracemalloc():
 
 def log_hourly_memory():
     """Logs the current raw RSS memory footprint."""
-    from telemetry_manager import telemetry
-    telemetry.log_memory_snapshot(context="HOURLY TICK")
+    pass
 
 def log_object_inventory():
     """
@@ -916,9 +909,6 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
                 
                 
-                from telemetry_manager import telemetry
-                timer = telemetry.get_timer(stage_name.split()[0])
-                timer.stages[stage_name] = elapsed
                 logger.debug("========== PROFILER BLOCK COMPLETE ==========")
                 logger.debug(f"Block: {stage_name}")
                 logger.debug(f"Execution Time: {elapsed:.1f} sec")
