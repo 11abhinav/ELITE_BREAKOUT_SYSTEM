@@ -76,7 +76,7 @@ def test_cache_policy_validation():
     policies = session.cache_manager.managed_policies
     assert "intraday" in policies
     assert "daily" in policies
-    assert "indicators" in policies
+    assert "delivery" in policies
     
     intraday_policy = policies["intraday"]
     assert isinstance(intraday_policy, CachePolicy)

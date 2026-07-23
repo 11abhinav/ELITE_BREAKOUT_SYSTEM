@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from typing import Optional
-from app.data_providers.fyers_fetcher import get_historical_data_fyers
+from .fyers_fetcher import get_historical_data_fyers
 from data_registry import registry
 
 logger = logging.getLogger(__name__)
