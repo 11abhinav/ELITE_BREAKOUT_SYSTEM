@@ -274,6 +274,8 @@ def _start_wrapper(force: bool = False):
         import gc, time
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
         
+        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 2880))
+        
         total_fetched_count = 0
         logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE}...")
 
