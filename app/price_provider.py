@@ -155,8 +155,8 @@ class PriceProvider:
         backoffs = [5, 15, 35]
         last_exc = None
         while attempts < self.max_retries:
-            # rate-limit the call as a single request
-            if not self.rate_limiter.wait_for_slot(1, timeout=5.0):
+            # rate-limit the call based on the number of tickers we are fetching concurrently
+            if not self.rate_limiter.wait_for_slot(len(tickers), timeout=5.0):
                 raise RuntimeError("Rate limit exceeded; try again later")
 
             tickers_arg = " ".join(tickers)

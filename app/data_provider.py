@@ -14,7 +14,7 @@ from validation import ValidationEngine, MarketData, ValidationContext, registry
 logger = logging.getLogger(__name__)
 
 # Module-level shared provider to ensure cache is reused across fetcher instances
-_price_provider = PriceProvider(batch_size=BATCH_DOWNLOAD_SIZE, cache_ttl=PRICE_CACHE_TTL_SECONDS)
+_price_provider = PriceProvider(batch_size=BATCH_DOWNLOAD_SIZE, cache_ttl=PRICE_CACHE_TTL_SECONDS, yf_threads=True)
 
 class DataFetcher(ABC):
     @abstractmethod
