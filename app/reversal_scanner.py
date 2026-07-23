@@ -456,8 +456,12 @@ def _run_scan(force: bool = False):
     except Exception as e:
         logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
 
-    from database import get_recent_alerts_for_scanner
+    from database import get_recent_alerts_for_scanner, get_all_failed_reversal_cooldown_symbols
+
+    from database import get_recent_alerts_for_scanner, get_all_failed_reversal_cooldown_symbols
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
+    failed_reversal_cooldown_symbols = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
+
 
     import gc, time
     BATCH_SIZE = int(os.environ.get("REVERSAL_FETCH_BATCH_SIZE", "50"))
@@ -493,7 +497,7 @@ def _run_scan(force: bool = False):
 
                         # [FIX 1] FAILED-REVERSAL COOLDOWN — earliest cheap gate after blacklist.
                         # Suppress symbols that recently stopped out / failed follow-through.
-                        if _is_symbol_in_reversal_cooldown(symbol, REVERSAL_COOLDOWN_TRADING_DAYS):
+                        if symbol in failed_reversal_cooldown_symbols:
                             rejected["cooldown"] += 1
                             logger.info(f"[REVERSAL] {symbol} skipped: failed reversal cooldown active")
                             continue

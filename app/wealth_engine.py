@@ -933,7 +933,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         technicals = []
         total_batches = (len(all_symbols_to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE
 
-        def process_symbol(idx, sym, historical_cache=None):
+        def process_symbol(idx, sym, historical_cache=None, concall_cache=None):
             try:
                 tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=historical_cache)
                 if tech.get("cmp") is None and not prev_wealth_df.empty and sym in prev_wealth_df["Stock"].values:
@@ -971,7 +971,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 tech["Promoter_Pledge"] = None
                 
                 try:
-                    concall = get_recent_concall_analysis(sym)
+                    if concall_cache is not None:
+                        concall = concall_cache.get(sym)
+                    else:
+                        concall = get_recent_concall_analysis(sym)
                     tech["AI_Confidence"] = int(concall["management_confidence"]) if concall and "management_confidence" in concall else 0
                 except Exception:
                     tech["AI_Confidence"] = 0
@@ -985,6 +988,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
                 chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
                 
+                from database import get_bulk_recent_concall_analysis
+                chunk_concalls = get_bulk_recent_concall_analysis(chunk, max_age_days=60)
+                
                 if chunk_historical_data is None:
                     chunk_historical_data = {}
                     
@@ -996,7 +1002,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 
                 try:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-                        futures = {executor.submit(process_symbol, i, sym, chunk_historical_data): i for i, sym in enumerate(chunk)}
+                        futures = {executor.submit(process_symbol, i, sym, chunk_historical_data, chunk_concalls): i for i, sym in enumerate(chunk)}
                         for future in concurrent.futures.as_completed(futures, timeout=120):
                             try:
                                 technicals.append(future.result())
