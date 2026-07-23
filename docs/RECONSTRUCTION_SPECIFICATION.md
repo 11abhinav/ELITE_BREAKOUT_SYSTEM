@@ -18,7 +18,7 @@
 # 1. Master Architecture & System Reconstruction Foundations
 
 ## 1.1 High-Level Architectural Pattern
-The Elite Breakout System is a multi-process, multi-threaded quantitative scanning engine designed for National Stock Exchange (NSE) equity securities. It integrates fundamental screening, multi-timeframe price action indicators, structural support/resistance confluence algorithms, institutional volume analysis, and dynamic market regime policies.
+~~The Elite Breakout System is a multi-process, multi-threaded quantitative scanning engine designed for National Stock Exchange (NSE) equity securities.~~ *(Updated 2026-07-23: The system is now a single-threaded sequentially-scheduled quantitative scanning engine due to strict memory constraints on Railway).* It integrates fundamental screening, multi-timeframe price action indicators, structural support/resistance confluence algorithms, institutional volume analysis, and dynamic market regime policies.
 
 ```mermaid
 graph TD
