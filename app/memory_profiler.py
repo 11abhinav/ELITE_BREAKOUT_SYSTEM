@@ -369,13 +369,29 @@ ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", "True").lower() in ("true", "1"
 
 def run_purge_with_telemetry(stage_name: str) -> float:
     """
-    Executes a 4-step defensive memory purge and logs stage-by-stage telemetry.
-    Step 1: Measure RSS Before
-    Step 2: Clear Application Caches
-    Step 3: Force gc.collect()
-    Step 4: Execute malloc_trim(0)
+    [DEPRECATED / INTENTIONALLY DISABLED — Phase A Observation Mode]
+
+    This function was designed to execute a 4-step defensive memory purge:
+      Step 1: Measure RSS Before
+      Step 2: Clear Application Caches
+      Step 3: Force gc.collect()
+      Step 4: Execute malloc_trim(0)
+
+    WHY IT IS DISABLED:
+    Aggressive memory purging caused instability by prematurely clearing caches
+    that are still referenced by active scanners (e.g. delivery cache cleared
+    while Pullback Scanner was mid-execution). The system is in Phase A
+    (Observation Mode) — no cache clearing is performed until Phase B after
+    2-3 full trading sessions of lifecycle observation validate release points.
+
+    DO NOT RE-ENABLE WITHOUT:
+    1. Completing Phase A observation (2-3 full trading sessions)
+    2. Verifying all dataset consumers have finished (via DatasetLifecycleRegistry)
+    3. Updating docs/cache_lifecycle_audit.md with verified safe release points
+
+    See: docs/cache_lifecycle_audit.md §6 and §11
     """
-    # Profiling mode active: Do not forcefully purge memory.
+    # [PHASE A] Intentionally disabled — observation mode only.
     return 0.0
     
     proc = psutil.Process(os.getpid())
@@ -968,3 +984,309 @@ class CacheProfiler:
         logger.info(f"  Oldest: {oldest_entry} | Newest: {newest_entry}")
         logger.info(f"  Hits: {cls.hits} | Misses: {cls.misses} | Hit%: {hit_pct:.1f}% | Evictions: {cls.evictions}")
         logger.info("----------------------------------")
+
+
+# =====================================================================================
+# DATASET LIFECYCLE REGISTRY — Phase A: Observation Mode
+# Tracks every expensive dataset fetch, reuse, and release eligibility.
+# No cleanup is performed here — this is pure telemetry.
+# =====================================================================================
+import threading as _tlc_threading
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+@dataclass
+class DatasetLifecycleEntry:
+    dataset_name: str
+    fetched_by: str
+    source: str
+    symbols: int = 0
+    rows: int = 0
+    download_time_sec: float = 0.0
+    memory_mb: float = 0.0
+    consumers: List[str] = field(default_factory=list)
+    fetch_count_today: int = 1
+    reuse_count: int = 0
+    released: bool = False
+    eligible_release_time: Optional[str] = None
+    eligible_release_reason: Optional[str] = None
+    first_fetch_time: str = ""
+
+
+class DatasetLifecycleRegistry:
+    """
+    Thread-safe global registry for tracking dataset fetch/reuse/release lifecycle.
+    Phase A: Observation only — no cleanup triggered from here.
+    """
+    _lock = _tlc_threading.Lock()
+    _registry: dict = {}          # dataset_name → DatasetLifecycleEntry
+    _scanner_reports: list = []   # (scanner_name, rss_before, rss_after, elapsed_sec)
+
+    @classmethod
+    def record_fetch(
+        cls,
+        dataset_name: str,
+        fetched_by: str,
+        source: str,
+        symbols: int = 0,
+        rows: int = 0,
+        download_time_sec: float = 0.0,
+        memory_mb: float = 0.0,
+    ) -> None:
+        """Called immediately after an expensive dataset is downloaded/computed."""
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
+        IST = ZoneInfo("Asia/Kolkata")
+        now_str = _dt.now(IST).strftime("%H:%M:%S IST")
+
+        with cls._lock:
+            existing = cls._registry.get(dataset_name)
+            if existing:
+                existing.fetch_count_today += 1
+                existing.symbols = symbols or existing.symbols
+                existing.rows = rows or existing.rows
+                existing.download_time_sec = download_time_sec or existing.download_time_sec
+                existing.memory_mb = memory_mb or existing.memory_mb
+                entry = existing
+            else:
+                entry = DatasetLifecycleEntry(
+                    dataset_name=dataset_name,
+                    fetched_by=fetched_by,
+                    source=source,
+                    symbols=symbols,
+                    rows=rows,
+                    download_time_sec=download_time_sec,
+                    memory_mb=memory_mb,
+                    first_fetch_time=now_str,
+                )
+                cls._registry[dataset_name] = entry
+
+        logger.info(
+            f"\n========================================\n"
+            f"Dataset : {dataset_name}\n\n"
+            f"Fetched By      : {fetched_by}\n"
+            f"Source          : {source}\n"
+            f"Symbols         : {symbols}\n"
+            f"Rows/Symbol     : {rows}\n"
+            f"Download Time   : {download_time_sec:.1f} sec\n"
+            f"Memory          : {memory_mb:.1f} MB\n\n"
+            f"Consumers       : {entry.consumers or ['(none yet)']  }\n"
+            f"Fetch Count     : {entry.fetch_count_today}\n"
+            f"Reused          : {entry.reuse_count}\n"
+            f"Released        : {'YES' if entry.released else 'NO'}\n"
+            f"Reason          : {entry.eligible_release_reason or 'In use / observation mode'}\n"
+            f"========================================"
+        )
+
+    @classmethod
+    def record_reuse(cls, dataset_name: str, reused_by: str) -> None:
+        """Called when a scanner reads a dataset from cache (not a fresh fetch)."""
+        with cls._lock:
+            entry = cls._registry.get(dataset_name)
+            if entry:
+                entry.reuse_count += 1
+                if reused_by not in entry.consumers:
+                    entry.consumers.append(reused_by)
+            else:
+                # Dataset was cached before registry was initialized — create stub
+                cls._registry[dataset_name] = DatasetLifecycleEntry(
+                    dataset_name=dataset_name,
+                    fetched_by="Unknown (pre-registry)",
+                    source="Unknown",
+                    consumers=[reused_by],
+                    reuse_count=1,
+                )
+
+    @classmethod
+    def record_eligible_release(
+        cls,
+        dataset_name: str,
+        reason: str,
+    ) -> None:
+        """Called when a dataset's last verified consumer has completed.
+        Phase A: Logs the eligibility only. Does NOT release memory."""
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
+        IST = ZoneInfo("Asia/Kolkata")
+        now_str = _dt.now(IST).strftime("%H:%M:%S IST")
+
+        with cls._lock:
+            entry = cls._registry.get(dataset_name)
+            if entry:
+                entry.eligible_release_time = now_str
+                entry.eligible_release_reason = reason
+
+        logger.info(
+            f"📋 [LIFECYCLE] '{dataset_name}' is now ELIGIBLE FOR RELEASE at {now_str}\n"
+            f"   Reason: {reason}\n"
+            f"   [Phase A] Memory NOT cleared — observation mode only."
+        )
+
+    @classmethod
+    def record_scanner_run(
+        cls,
+        scanner_name: str,
+        rss_before_mb: float,
+        rss_after_mb: float,
+        elapsed_sec: float,
+        peak_mb: float = 0.0,
+    ) -> None:
+        """Called after each scanner completes to accumulate the EOD report data."""
+        with cls._lock:
+            cls._scanner_reports.append({
+                "scanner": scanner_name,
+                "rss_before": rss_before_mb,
+                "rss_after": rss_after_mb,
+                "delta": rss_after_mb - rss_before_mb,
+                "peak": peak_mb or rss_after_mb,
+                "elapsed_sec": elapsed_sec,
+            })
+
+    @classmethod
+    def reset_daily(cls) -> None:
+        """Clears the registry at start of each trading day (called at midnight)."""
+        with cls._lock:
+            cls._registry.clear()
+            cls._scanner_reports.clear()
+
+    @classmethod
+    def get_dataset_table(cls) -> list:
+        """Returns list of dicts for the EOD report dataset table."""
+        with cls._lock:
+            rows = []
+            for name, e in cls._registry.items():
+                rows.append({
+                    "dataset": name,
+                    "fetches": e.fetch_count_today,
+                    "reuses": e.reuse_count,
+                    "peak_mb": e.memory_mb,
+                    "released": "Yes" if e.released else "No",
+                    "eligible_at": e.eligible_release_time or "—",
+                })
+            return rows
+
+
+def generate_eod_memory_report() -> None:
+    """
+    Generates and writes the end-of-day memory report to logs/eod_memory_report_YYYY-MM-DD.log.
+    Called from main.py after pb_thread.join() (all evening scanners complete).
+    Phase A: Pure observation — no cleanup actions taken.
+    """
+    from zoneinfo import ZoneInfo
+    from datetime import datetime as _dt
+    import os
+    IST = ZoneInfo("Asia/Kolkata")
+    now = _dt.now(IST)
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M:%S IST")
+
+    # Gather RSS snapshot
+    proc = psutil.Process(os.getpid())
+    current_rss = proc.memory_info().rss / (1024 * 1024)
+
+    # Gather scanner reports
+    scanner_rows = DatasetLifecycleRegistry._scanner_reports
+
+    # Gather dataset lifecycle table
+    dataset_rows = DatasetLifecycleRegistry.get_dataset_table()
+
+    # Gather cache stats from telemetry if available
+    cache_hits = cache_misses = 0
+    cache_keys = cache_entries = cache_mem_mb = 0
+    try:
+        from telemetry_manager import telemetry
+        cache_hits = getattr(telemetry.cache_stats, 'hits', 0)
+        cache_misses = getattr(telemetry.cache_stats, 'misses', 0)
+    except Exception:
+        pass
+    try:
+        from price_cache import get_price_cache_stats
+        stats = get_price_cache_stats()
+        cache_keys = stats.get('keys', 0)
+        cache_entries = stats.get('entries', 0)
+        cache_mem_mb = stats.get('memory_mb', 0.0)
+    except Exception:
+        pass
+
+    # Build report string
+    lines = [
+        f"{'=' * 60}",
+        f"  END-OF-DAY MEMORY REPORT — {date_str} @ {time_str}",
+        f"  Phase A: Observation Mode — No cache clearing performed",
+        f"{'=' * 60}",
+        "",
+        "SYSTEM RSS SUMMARY",
+        f"  Current RSS at Report Time : {current_rss:>7.1f} MB",
+        "",
+    ]
+
+    if scanner_rows:
+        lines += [
+            "SCANNER MEMORY SUMMARY",
+            f"  {'Scanner':<25} {'Time':>8}  {'Before':>8}  {'After':>8}  {'Delta':>7}  {'Peak':>8}",
+            f"  {'-'*25} {'-'*8}  {'-'*8}  {'-'*8}  {'-'*7}  {'-'*8}",
+        ]
+        all_rss = [r['rss_before'] for r in scanner_rows] + [r['rss_after'] for r in scanner_rows]
+        for r in scanner_rows:
+            mins = int(r['elapsed_sec'] // 60)
+            secs = r['elapsed_sec'] % 60
+            time_fmt = f"{mins}m {secs:.0f}s" if mins else f"{secs:.1f}s"
+            delta_str = f"{r['delta']:+.1f}"
+            lines.append(
+                f"  {r['scanner']:<25} {time_fmt:>8}  {r['rss_before']:>7.1f}M  "
+                f"{r['rss_after']:>7.1f}M  {delta_str:>7}M  {r['peak']:>7.1f}M"
+            )
+        if all_rss:
+            lines += [
+                "",
+                f"  Peak RSS (all scanners)   : {max(r['peak'] for r in scanner_rows):>7.1f} MB",
+                f"  Min  RSS (all scanners)   : {min(all_rss):>7.1f} MB",
+            ]
+        lines.append("")
+
+    if dataset_rows:
+        lines += [
+            "DATASET LIFECYCLE TABLE",
+            f"  {'Dataset':<22} {'Fetches':>7}  {'Reuses':>6}  {'Peak MB':>7}  {'Released':>8}  {'Eligible At':>12}",
+            f"  {'-'*22} {'-'*7}  {'-'*6}  {'-'*7}  {'-'*8}  {'-'*12}",
+        ]
+        for r in dataset_rows:
+            lines.append(
+                f"  {r['dataset']:<22} {r['fetches']:>7}  {r['reuses']:>6}  "
+                f"{r['peak_mb']:>7.1f}  {r['released']:>8}  {r['eligible_at']:>12}"
+            )
+        lines.append("")
+
+    total_cache_calls = cache_hits + cache_misses
+    hit_pct = (cache_hits / total_cache_calls * 100) if total_cache_calls > 0 else 0.0
+    lines += [
+        "PRICE CACHE STATISTICS",
+        f"  Keys     : {cache_keys}",
+        f"  Entries  : {cache_entries}",
+        f"  Memory   : {cache_mem_mb:.1f} MB",
+        f"  Hits     : {cache_hits}  |  Misses: {cache_misses}  |  Hit Rate: {hit_pct:.1f}%",
+        "",
+        "NOTES",
+        "  Phase A — Observation Mode",
+        "  No cache clearing has been performed in this deployment.",
+        "  Review 'Eligible At' column to identify safe release windows.",
+        "  Enable targeted cleanup in Phase B after 2-3 session validation.",
+        f"{'=' * 60}",
+    ]
+
+    report = "\n".join(lines)
+
+    # Log to standard logger
+    logger.info("\n" + report)
+
+    # Write to file
+    try:
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        report_path = os.path.join(log_dir, f"eod_memory_report_{date_str}.log")
+        with open(report_path, "a", encoding="utf-8") as f:
+            f.write(report + "\n\n")
+        logger.info(f"📊 [EOD REPORT] Written to {report_path}")
+    except Exception as e:
+        logger.warning(f"⚠️ [EOD REPORT] Could not write to file: {e}")
+

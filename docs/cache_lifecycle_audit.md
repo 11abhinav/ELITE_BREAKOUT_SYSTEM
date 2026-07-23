@@ -12,7 +12,7 @@ Every dependency mapped below is explicitly found in the codebase.
 | Scanner | Function Call | Dataset Used | Origin Module |
 | :--- | :--- | :--- | :--- |
 | **Wealth Engine** | `pd.read_parquet(WATCHLIST_PATH)` | Watchlist | `daily_builder.py` |
-| **Wealth Engine** | `fetch_unified_historical()` | 15m OHLCV | `price_cache.py` (via yfinance) |
+| **Wealth Engine** | `fetch_unified_historical()` | **1Y Daily OHLCV** (`period="1y", interval="1d"`) | `price_cache.py` (via yfinance) |
 | **Wealth Engine** | `calculate_wealth_technicals()`| EMA, RSI, Pivots | `technical_indicators.py` |
 | **Multi TF** | `get_watchlist()` | Watchlist | `watchlist_cache.py` |
 | **EOD Scanner** | `fetch_delivery_data()` | Delivery Volume | `delivery_data.py` (NSE Archives) |
@@ -72,13 +72,12 @@ Scanners (Read-Only Consumers)
 
 **Verified execution chain (from `main.py`):**
 
-1. `01:00` **Daily Builder** -> *Creates:* Watchlist, Fundamentals.
-2. `02:00` **Wealth Engine (Init)** -> *Creates:* Initial 15m OHLCV (`elite_wealth_system.parquet`).
-3. `08:30` **Warmup Check** -> *Validates:* Disk caches exist.
-4. `09:15-15:30` **Wealth Engine & MultiTF** (Loop) -> *Reuses:* Watchlist. *Refreshes:* Live 15m Candles. *Creates:* Buy Signals.
-5. `21:00` **EOD Scanner** -> *Creates:* Delivery Data Cache (Bhavcopy).
-6. `21:05` **Reversal Scanner** -> *Reuses:* Delivery Data. 
-7. `21:10` **Pullback Scanner** -> *Reuses:* Delivery Data.
+1. `01:00` **Daily Builder** → *Creates:* Watchlist, Fundamentals.
+2. `02:00` **Wealth Engine (Init)** → *Creates:* Initial scan result (`elite_wealth_system.parquet`). Fetches **1Y Daily OHLCV** (`period="1y", interval="1d"`) for all watchlist symbols.
+3. `08:30` **Warmup Check** → *Validates:* Disk caches exist.
+4. `09:15-15:30` **Wealth Engine & MultiTF** (Loop) → *Reuses:* Watchlist. *Refreshes:* 5m intraday snapshot. Stitches live CMP into cached 1Y daily. *Creates:* Buy Signals.
+5. `21:00` **EOD Scanner** and **Reversal Scanner** → Run **in parallel** (both `.start()` before either `.join()`). *Creates:* Delivery Data Cache (Bhavcopy). *Verified from `main.py:L657-661`:* `eod_thread.start(); rev_thread.start(); eod_thread.join(); rev_thread.join()`.
+6. After both complete → **Pullback Scanner** starts and waits (`pb_thread.start(); pb_thread.join()`). *Reuses:* Delivery Data.
 
 ---
 
@@ -87,10 +86,13 @@ Scanners (Read-Only Consumers)
 **Current Codebase State:**
 * Cleanup relies purely on Python's Garbage Collection when function scopes end.
 * `elite_wealth_system.parquet` is persistently overwritten.
+* `run_purge_with_telemetry()` in `memory_profiler.py` is **intentionally disabled** — `return 0.0` at line 379 makes the entire purge body unreachable. See §11.
 
-**Proposed Safe Cleanups:**
-* **15m OHLCV:** Safe to release at `16:00`. *Verification:* No evening scanner imports `fetch_unified_historical` for 15m data; they all request Daily `1d` data.
-* **Bhavcopy Cache:** Safe to release after `Pullback Scanner`. *Verification:* It is the final scanner in the `main.py` evening batch (`pb_thread.join()`).
+**Phase A (Observation) — No cleanup implemented yet.**
+
+**Verified Future Safe Cleanups (to enable in Phase B after 2-3 session observation):**
+* **1Y Daily OHLCV:** Safe to release after full evening batch (EOD + Reversal + Pullback complete). *Verification:* No process runs after Pullback that requires historical daily OHLCV.
+* **Bhavcopy/Delivery Cache:** Safe to release after `Pullback Scanner`. *Verification:* Pullback is final consumer — `main.py:L664-665` `pb_thread.start(); pb_thread.join()`.
 
 ---
 
@@ -124,11 +126,11 @@ Verified indicators mathematically computed on DataFrames:
 
 ## 9. Performance Baseline (Observed)
 
-*Measured during standard execution prior to Phase 2 architecture:*
-* **Wealth Engine 5m Loop:** ~20-25 seconds per cycle.
-* **Peak RSS:** ~1.8 GB to 2.2 GB intraday.
-* **Network Latency (Yahoo):** ~50% of scanner execution time.
-* **Evening Batch Runtime:** ~4-6 minutes total (sequential).
+*Measured during live execution (2026-07-23):*
+* **Wealth Engine 5m Loop (pre-fix):** ~17 minutes per cycle. Root cause: `get_dynamic_cadence("1d")` returned 60s TTL, causing 7× cold re-fetches of 1Y daily data per run.
+* **Wealth Engine 5m Loop (post-fix, SHA `50768a7b`):** Target ~2-3 minutes per cycle. Daily cache now persists until market close.
+* **Peak RSS:** ~500 MB per batch during intraday (observed from `BatchMemoryTracker` logs).
+* **Evening Batch Runtime:** EOD + Reversal run in parallel. Pullback follows sequentially. Total ~4-6 minutes.
 
 ---
 
@@ -141,4 +143,19 @@ Verified indicators mathematically computed on DataFrames:
 
 **Recommendations for SessionContext:**
 * Centralize the 5+ scattered global dictionaries into the `SessionCache`.
-* Establish 16:00 as the explicit teardown time for 15m data, and 23:59 for complete `SessionContext` destruction, replacing scattered TTL logic.
+* Establish 16:00 as the explicit teardown time for 5m intraday data, and 23:59 for complete `SessionContext` destruction, replacing scattered TTL logic.
+
+---
+
+## 11. Disabled Code: `run_purge_with_telemetry()`
+
+**Location:** `app/memory_profiler.py`, line 379.
+
+**Status:** Intentionally disabled. The function contains `return 0.0` immediately after the docstring, making the entire purge body (cache clearing, `gc.collect()`, `malloc_trim()`) unreachable.
+
+**Why it is disabled:** The system is in observation mode. Aggressive memory purging was causing instability by prematurely clearing caches that are still referenced by active scanners. The function is preserved for historical context and future reactivation under controlled conditions (Phase B).
+
+**Do not re-enable without:**
+1. Completing Phase A observation (2-3 full trading sessions)
+2. Verifying all dataset consumers have finished before clearing
+3. Updating `CACHE_LIFECYCLE_AUDIT.md` with verified release points
