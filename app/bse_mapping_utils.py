@@ -130,7 +130,7 @@ def mark_bse_invalid(original_sym: str) -> None:
         if _bse_invalid_cache is not None:
             _bse_invalid_cache.add(orig_clean)
             
-        logger.warning(f"🚫 Marked symbol as INVALID (attempt {failures}). Retrying after {days} days: {orig_clean}")
+        logger.warning(f"🚫 Marked BSE mapping as INVALID for {orig_clean} (attempt {failures}). System will ignore BSE route for {days} days.")
     except Exception as e:
         logger.warning(f"Failed to mark BSE mapping invalid for {orig_clean}: {e}")
 
