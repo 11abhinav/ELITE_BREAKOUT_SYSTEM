@@ -1055,20 +1055,17 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 
                 tracker.mark_fetch_complete(row_count=rows_fetched)
                 
-                try:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKER_COUNT) as executor:
-                        futures = {executor.submit(process_symbol, i, sym, chunk_historical_data, chunk_concalls): i for i, sym in enumerate(chunk)}
-                        for future in concurrent.futures.as_completed(futures, timeout=120):
-                            try:
-                                technicals.append(future.result())
-                            except Exception:
-                                pass
-                except concurrent.futures.TimeoutError:
-                    logger.error("❌ Timeout during technical calculations in Wealth Engine chunk. Proceeding to next.")
+                for i, sym in enumerate(chunk):
+                    try:
+                        result = process_symbol(i, sym, chunk_historical_data, chunk_concalls)
+                        technicals.append(result)
+                    except Exception as e:
+                        logger.error(f"❌ Error processing symbol {sym}: {e}")
                     
                 # Explicit cleanup of large DataFrame references
                 del chunk_historical_data
                 del chunk_snapshots
+                del chunk_concalls
 
         required_count = int(len(df) * 0.70)
         if global_fetched_count < required_count:
@@ -1097,6 +1094,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             return pd.DataFrame()
 
         tech_df = pd.DataFrame(technicals)
+        
+        # [MEMORY FIX] Release large objects before entering Candidate Selection
+        del technicals
+        del all_snapshots
+        del all_concalls
+        import gc; gc.collect()
         
         if not tech_df.empty and "cmp" in tech_df.columns and (tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
             logger.error("❌ API returned 0 prices. Rate limited.")
