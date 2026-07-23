@@ -649,10 +649,11 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
         ProfilerState.consecutive_anomalies += 1
         ProfilerState.last_deep_diagnostic_time = now
         
-        logger.warning(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}' (Anomaly #{ProfilerState.consecutive_anomalies})")
-        logger.warning(f"🚨 RSS grew by {rss_delta_mb:.1f} MB, DF changed by {df_delta_mb:+.1f} MB, Tracemalloc Peak: {tracemalloc_peak_mb:.1f} MB.")
+        log_lines = []
+        log_lines.append(f"🚨 [DEEP MEMORY DIAGNOSTIC] Triggered for '{stage_name}' (Anomaly #{ProfilerState.consecutive_anomalies})")
+        log_lines.append(f"🚨 RSS grew by {rss_delta_mb:.1f} MB, DF changed by {df_delta_mb:+.1f} MB, Tracemalloc Peak: {tracemalloc_peak_mb:.1f} MB.")
         
-        logger.warning("=== Python Object Population (gc.get_objects) ===")
+        log_lines.append("=== Python Object Population (gc.get_objects) ===")
         import collections
         import numpy as np
         objs = gc.get_objects()
@@ -660,41 +661,41 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
         type_counts = collections.Counter(type(o).__name__ for o in objs)
         top_types = type_counts.most_common(10)
         for obj_type, count in top_types:
-            logger.warning(f"  {obj_type}: {count} instances")
+            log_lines.append(f"  {obj_type}: {count} instances")
             
-        logger.warning("=== NumPy Array Diagnostics ===")
+        log_lines.append("=== NumPy Array Diagnostics ===")
         try:
             arrays = [o for o in objs if isinstance(o, np.ndarray)]
             count = len(arrays)
             total_bytes = sum(arr.nbytes for arr in arrays)
-            logger.warning(f"  Live ndarrays: {count}")
-            logger.warning(f"  Total memory : {total_bytes / (1024*1024):.2f} MB")
+            log_lines.append(f"  Live ndarrays: {count}")
+            log_lines.append(f"  Total memory : {total_bytes / (1024*1024):.2f} MB")
             
             if arrays:
                 largest = sorted(arrays, key=lambda x: x.nbytes)[-5:]
-                logger.warning("  Largest 5 arrays:")
+                log_lines.append("  Largest 5 arrays:")
                 for arr in largest:
-                    logger.warning(f"    Shape: {arr.shape}, dtype: {arr.dtype}, Size: {arr.nbytes / 1024:.1f} KB")
+                    log_lines.append(f"    Shape: {arr.shape}, dtype: {arr.dtype}, Size: {arr.nbytes / 1024:.1f} KB")
         except Exception as e:
-            logger.warning(f"  Could not track NumPy arrays: {e}")
+            log_lines.append(f"  Could not track NumPy arrays: {e}")
             
         # LEVEL 1: Tracemalloc and Memory Maps
         if tracemalloc.is_tracing():
             snapshot = tracemalloc.take_snapshot()
             if ProfilerState.last_snapshot is not None:
                 top_stats = snapshot.compare_to(ProfilerState.last_snapshot, 'lineno')
-                logger.warning("=== Top 5 Python Allocations (Delta since last snapshot) ===")
+                log_lines.append("=== Top 5 Python Allocations (Delta since last snapshot) ===")
                 for stat in top_stats[:5]:
-                    logger.warning(f"  {stat}")
+                    log_lines.append(f"  {stat}")
             else:
                 top_stats = snapshot.statistics('lineno')
-                logger.warning("=== Top 5 Python Allocations (Absolute) ===")
+                log_lines.append("=== Top 5 Python Allocations (Absolute) ===")
                 for stat in top_stats[:5]:
-                    logger.warning(f"  {stat}")
+                    log_lines.append(f"  {stat}")
             ProfilerState.last_snapshot = snapshot
             
         try:
-            logger.warning("=== Process Memory Maps (Native Shared Libraries) ===")
+            log_lines.append("=== Process Memory Maps (Native Shared Libraries) ===")
             process = psutil.Process(os.getpid())
             maps = process.memory_maps()
             lib_rss = {}
@@ -707,28 +708,37 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
             for base, rss_bytes in sorted_libs[:10]:
                 rss_mb = rss_bytes / (1024 * 1024)
                 if rss_mb > 1.0:
-                    logger.warning(f"  {base}: {rss_mb:.1f} MB")
+                    log_lines.append(f"  {base}: {rss_mb:.1f} MB")
         except Exception as e:
-            logger.warning(f"Could not read memory maps: {e}")
+            log_lines.append(f"Could not read memory maps: {e}")
         except Exception as e:
-            logger.warning(f"  Native memory map unavailable: {e}")
+            log_lines.append(f"  Native memory map unavailable: {e}")
             
         # LEVEL 2: GC Objects
         if ProfilerState.consecutive_anomalies >= MEMORY_PROFILER_CONFIG.get("CONSECUTIVE_TRIGGER_COUNT", 3):
-            logger.warning("🚨 [LEVEL 2 DIAGNOSTIC] Repeated anomalies detected. Running GC Object Histogram...")
+            log_lines.append("🚨 [LEVEL 2 DIAGNOSTIC] Repeated anomalies detected. Running GC Object Histogram...")
             try:
                 from collections import Counter
-                logger.warning("=== GC Object Type Counts ===")
+                log_lines.append("=== GC Object Type Counts ===")
                 objs = gc.get_objects()
                 type_counts = Counter(type(o).__name__ for o in objs)
                 for t_name, count in type_counts.most_common(5):
-                    logger.warning(f"  {t_name}: {count} objects")
+                    log_lines.append(f"  {t_name}: {count} objects")
             except Exception as e:
-                logger.warning(f"  Failed to get GC object counts: {e}")
+                log_lines.append(f"  Failed to get GC object counts: {e}")
                 
             ProfilerState.consecutive_anomalies = 0 # Reset after level 2
             
-        logger.warning("==================================================")
+        log_lines.append("==================================================")
+        
+        # Write to file instead of terminal
+        try:
+            os.makedirs("logs", exist_ok=True)
+            with open("logs/deep_memory_diagnostics.log", "a") as f:
+                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Memory Anomaly Detected\n")
+                f.write("\n".join(log_lines) + "\n")
+        except Exception:
+            pass
     else:
         # Reset if the anomaly is broken
         if ProfilerState.consecutive_anomalies > 0:
@@ -893,11 +903,11 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 from telemetry_manager import telemetry
                 timer = telemetry.get_timer(stage_name.split()[0])
                 timer.stages[stage_name] = elapsed
-                logger.info("========== SCANNER COMPLETE ==========")
-                logger.info(f"Scanner: {stage_name}")
-                logger.info(f"Execution Time: {elapsed:.1f} sec")
-                logger.info(f"Memory Before: {start_rss:.1f} MB")
-                logger.info(f"Memory After: {end_rss:.1f} MB")
+                logger.debug("========== PROFILER BLOCK COMPLETE ==========")
+                logger.debug(f"Block: {stage_name}")
+                logger.debug(f"Execution Time: {elapsed:.1f} sec")
+                logger.debug(f"Memory Before: {start_rss:.1f} MB")
+                logger.debug(f"Memory After: {end_rss:.1f} MB")
                 logger.info(f"Memory Delta: {end_rss - start_rss:+.1f} MB")
                 if hasattr(mem, 'peak_wset'):
                     logger.info(f"Peak Memory: {peak_rss:.1f} MB")

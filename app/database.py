@@ -585,7 +585,7 @@ def init_db():
                         END
                         $$;
                     """)
-                    logger.info("✅ ai_concall_cache_v3.created_at migrated to TIMESTAMPTZ (or already correct)")
+                    logger.debug("✅ ai_concall_cache_v3.created_at migrated to TIMESTAMPTZ (or already correct)")
                 except Exception as _ts_err:
                     logger.warning(f"⚠️ ai_concall_cache_v3 TIMESTAMPTZ migration skipped: {_ts_err}")
                 # [VERSION: CONCALL_CACHE_UNIQUE_FIX_v1.0] Migration: drop old pdf_url-only unique
