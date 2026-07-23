@@ -27,7 +27,7 @@ class ApplicationContext:
     
     def create_session(self):
         """Creates a new SessionContext for a trading day."""
-        from app.session_context import SessionContext
+        from session_context import SessionContext
         if self.session_context is not None:
             self.destroy_session()
             
