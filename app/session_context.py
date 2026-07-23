@@ -2,6 +2,7 @@ import logging
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
+import pandas as pd
 
 logger = logging.getLogger("SessionContext")
 
@@ -28,6 +29,15 @@ class CachePolicy:
     expiration_policy: str  # e.g., "CONSUMER_DRIVEN", "END_OF_DAY"
     estimated_size_mb: float = 0.0
     consumer_count: int = 0
+
+
+@dataclass
+class IndicatorBundle:
+    ema_50: Optional[pd.Series] = None
+    ema_200: Optional[pd.Series] = None
+    atr_14: Optional[pd.Series] = None
+    rsi_14: Optional[pd.Series] = None
+    pivots: Optional[Dict[str, Any]] = None
 
 
 # -------------------------------------------------------------------------

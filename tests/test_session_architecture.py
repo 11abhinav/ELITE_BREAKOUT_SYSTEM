@@ -14,37 +14,37 @@ def test_application_context_creates_session():
     # Verify destroy
     app_ctx.destroy_session()
     assert app_ctx.session_context is None
-    assert session.state == SessionState.DESTROYED
+    assert session.state.name == "DESTROYED"
 
 
 def test_session_state_transitions():
     """Verify the strict state machine enforces legal transitions."""
     session = SessionContext()
-    assert session.state == SessionState.CREATED
+    assert session.state.name == "CREATED"
     
     session.transition_to("WARMING")
-    assert session.state == SessionState.WARMING
+    assert session.state.name == "WARMING"
     
     session.transition_to("READY")
-    assert session.state == SessionState.READY
+    assert session.state.name == "READY"
     
     session.transition_to("MARKET_OPEN")
-    assert session.state == SessionState.MARKET_OPEN
+    assert session.state.name == "MARKET_OPEN"
     
     session.transition_to("POST_MARKET")
-    assert session.state == SessionState.POST_MARKET
+    assert session.state.name == "POST_MARKET"
     
     session.transition_to("SHUTTING_DOWN")
-    assert session.state == SessionState.SHUTTING_DOWN
+    assert session.state.name == "SHUTTING_DOWN"
     
     session.transition_to("DESTROYED")
-    assert session.state == SessionState.DESTROYED
+    assert session.state.name == "DESTROYED"
 
 
 def test_illegal_state_transitions_rejected():
     """Verify illegal transitions raise ValueError."""
     session = SessionContext()
-    assert session.state == SessionState.CREATED
+    assert session.state.name == "CREATED"
     
     with pytest.raises(ValueError, match="Illegal transition"):
         session.transition_to("MARKET_OPEN")  # Cannot skip WARMING and READY
