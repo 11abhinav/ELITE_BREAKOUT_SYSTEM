@@ -7,6 +7,7 @@ import pandas as pd
 
 from technical_indicators import apply_indicators
 from memory_profiler import MemoryProfiler
+from core_enums import ProviderResult
 from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from database import (
