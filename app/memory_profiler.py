@@ -484,7 +484,7 @@ def inspect_largest_global_objects(top_n: int = 10):
     for mod in target_mods:
         mod_name = getattr(mod, "__name__", "unknown")
         for var_name, obj in getattr(mod, "__dict__", {}).items():
-            if var_name.startswith("__") or callable(obj) or isinstance(obj, type) or isinstance(obj, sys.modules.get("types", {}).get("ModuleType", ())):
+            if var_name.startswith("__") or callable(obj) or isinstance(obj, type) or type(obj).__name__ == "module":
                 continue
                 
             obj_type = type(obj).__name__
