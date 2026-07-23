@@ -349,7 +349,7 @@
   let csrfToken = '';
   
   async function fetchCsrf() {
-      const res = await fetch(`${getApiBase()}/api/csrf_token`);
+      const res = await fetch(`${getApiBase()}/api/csrf_token`, {credentials: 'include'});
       const data = await res.json();
       csrfToken = data.csrf_token;
   }
@@ -371,9 +371,10 @@
     formData.append('csrf_token', csrfToken);
     
     try {
-      const res = await fetch('/signup', {
+      const res = await fetch(`${getApiBase()}/signup`, {
         method: 'POST',
         body: formData,
+        credentials: 'include',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
           'X-CSRFToken': csrfToken

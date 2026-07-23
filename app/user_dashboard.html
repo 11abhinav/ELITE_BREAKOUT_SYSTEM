@@ -246,7 +246,7 @@
 let globalCsrfToken = '';
 async function initAuth() {
     try {
-        const res = await fetch(getApiBase() + '/api/csrf_token');
+        const res = await fetch(getApiBase() + '/api/csrf_token', {credentials: 'include'});
         if (res.ok) {
             const data = await res.json();
             globalCsrfToken = data.csrf_token;
@@ -261,7 +261,9 @@ window.fetch = async function(...args) {
     if (typeof resource === 'string' && resource.startsWith('/')) {
         resource = getApiBase() + resource;
     }
-    if (config && ['POST', 'PUT', 'DELETE'].includes(config.method)) {
+    config = config || {};
+    config.credentials = 'include';
+    if (['POST', 'PUT', 'DELETE'].includes(config.method)) {
         config.headers = config.headers || {};
         if (globalCsrfToken && !config.headers['X-CSRFToken']) {
             config.headers['X-CSRFToken'] = globalCsrfToken;

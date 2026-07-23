@@ -230,6 +230,13 @@ def login():
         session['must_change_password'] = user_data['must_change_password']
         session['session_token'] = user_data['session_token']
         
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            if user_data['must_change_password']:
+                return jsonify({"redirect": "/complete_profile"}), 200
+            if user_data['role'] == 'admin':
+                return jsonify({"redirect": "/admin"}), 200
+            return jsonify({"redirect": "/"}), 200
+            
         if user_data['must_change_password']:
             return redirect('/complete_profile')
         if user_data['role'] == 'admin':
@@ -313,6 +320,8 @@ def guest_chat():
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.clear()
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({"redirect": "/login"}), 200
     return redirect('/login')
 
 @app.route("/complete_profile", methods=["GET", "POST"])
@@ -364,6 +373,8 @@ def complete_profile():
         session['must_change_password'] = False
         session['username'] = username
         session['session_token'] = new_token
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"redirect": "/admin" if session['role'] == 'admin' else "/"}), 200
         return redirect('/admin' if session['role'] == 'admin' else '/')
     except Exception as e:
         return jsonify({"error": "Error updating profile. Username/Email/Mobile may already be in use."}), 400
