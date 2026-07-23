@@ -106,7 +106,16 @@ class MemoryProfiler:
             self.start_peak = self.start_rss
             
         current_mb = self.start_rss / (1024 * 1024)
-        logger.info(f"[MEMORY] 🟢 STARTING: {self.stage_name:<15} | Current RSS: {current_mb:>6.1f} MB")
+        
+        # Check if this is a top-level scanner for log filtering
+        name_upper = self.stage_name.upper()
+        self.is_top_level = any(kw in name_upper for kw in [
+            "EOD", "REVERSAL", "WEALTH", "PULLBACK", 
+            "MULTI_TF", "MULTIBAGGER", "PERFORMANCE", "STARTUP"
+        ])
+        
+        log_func = logger.info if self.is_top_level else logger.debug
+        log_func(f"[MEMORY] 🟢 STARTING: {self.stage_name:<15} | Current RSS: {current_mb:>6.1f} MB")
         
         if ENABLE_PROFILING:
             self.df_start = get_dataframe_inventory()
@@ -118,21 +127,23 @@ class MemoryProfiler:
         rss_mb = self.start_rss / (1024 * 1024)
         vms_mb = self.process.memory_info().vms / (1024 * 1024)
         
-        logger.info("========== MEMORY SNAPSHOT ==========")
-        logger.info(f"Time: {time.strftime('%H:%M:%S')}")
-        logger.info(f"Scanner: {self.stage_name}")
-        logger.info(f"RSS Memory: {rss_mb:.1f} MB")
-        logger.info(f"VMS Memory: {vms_mb:.1f} MB")
-        logger.info(f"Historical Cache: {len(telemetry._timers)} Symbols")
-        logger.info(f"Shared Cache Objects: {telemetry.cache_stats.entries}")
-        logger.info("=====================================")
+        log_func("========== MEMORY SNAPSHOT ==========")
+        log_func(f"Time: {time.strftime('%H:%M:%S')}")
+        log_func(f"Scanner: {self.stage_name}")
+        log_func(f"RSS Memory: {rss_mb:.1f} MB")
+        log_func(f"VMS Memory: {vms_mb:.1f} MB")
+        log_func(f"Historical Cache: {len(telemetry._timers)} Symbols")
+        log_func(f"Shared Cache Objects: {telemetry.cache_stats.entries}")
+        log_func("=====================================")
             
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        log_func = logger.info if self.is_top_level else logger.debug
+        
         if self.force_gc_cleanup:
             collected = gc.collect()
-            logger.info(f"[MEMORY GC] Stage: {self.stage_name} | Reclaimed: {collected} objects")
+            log_func(f"[MEMORY GC] Stage: {self.stage_name} | Reclaimed: {collected} objects")
             
             try:
                 import sys
@@ -169,14 +180,14 @@ class MemoryProfiler:
         timer = telemetry.get_timer(self.stage_name.split()[0])
         timer.stages[self.stage_name] = elapsed
         
-        logger.info("========== SCANNER COMPLETE ==========")
-        logger.info(f"Scanner: {self.stage_name}")
-        logger.info(f"Execution Time: {elapsed:.2f}s")
-        logger.info(f"Memory Before: {start_mb:.1f} MB")
-        logger.info(f"Memory After: {current_mb:.1f} MB")
-        logger.info(f"Memory Delta: {delta_str} MB")
-        logger.info(f"Peak Memory: {peak_mb:.1f} MB")
-        logger.info("======================================")
+        log_func("========== SCANNER COMPLETE ==========")
+        log_func(f"Scanner: {self.stage_name}")
+        log_func(f"Execution Time: {elapsed:.2f}s")
+        log_func(f"Memory Before: {start_mb:.1f} MB")
+        log_func(f"Memory After: {current_mb:.1f} MB")
+        log_func(f"Memory Delta: {delta_str} MB")
+        log_func(f"Peak Memory: {peak_mb:.1f} MB")
+        log_func("======================================")
         logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
         
         if ENABLE_PROFILING and self.df_start:
