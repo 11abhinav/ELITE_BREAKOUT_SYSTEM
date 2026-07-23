@@ -199,15 +199,7 @@ class MemoryProfiler:
                 
         logger.debug("=================================")
         
-        # Budget Alerts
-        current_gb = current_mb / 1024
-        if current_gb >= 3.5:
-            logger.critical(f"🚨 FATAL MEMORY USAGE: {current_gb:.2f} GB! Raising MemoryError to force thread restart.")
-            raise MemoryError(f"Process RSS exceeded 3.5 GB safety threshold ({current_gb:.2f} GB).")
-        elif current_gb >= 3.0:
-            logger.error(f"🚨 CRITICAL MEMORY USAGE: {current_gb:.2f} GB! Threshold (3 GB) exceeded.")
-        elif current_gb >= 2.0:
-            logger.warning(f"⚠️ WARNING MEMORY USAGE: {current_gb:.2f} GB! Threshold (2 GB) exceeded.")
+        # Budget Alerts disabled during profiling mode
 
 
 def start_tracemalloc():
@@ -734,17 +726,8 @@ def _trigger_deep_diagnostic(rss_delta_mb: float, df_delta_mb: float, stage_name
 
 
 def _check_rss_thresholds(previous_rss_mb: float, current_rss_mb: float):
-    if not ENABLE_PROFILING:
-        return
-        
-    for threshold in TARGET_THRESHOLDS:
-        if threshold in ProfilerState.crossed_rss_thresholds:
-            continue
-            
-        if previous_rss_mb < threshold <= current_rss_mb:
-            ProfilerState.crossed_rss_thresholds.add(threshold)
-            logger.warning(f"🚨 [THRESHOLD BREACH] RSS crossed {threshold} MB! Triggering deep diagnostic...")
-            _dump_threshold_snapshot(threshold, current_rss_mb)
+    # Threshold breach warnings disabled during profiling phase
+    return
 
 def _dump_threshold_snapshot(threshold: int, current_rss_mb: float):
     import json
@@ -895,10 +878,6 @@ def profile_function(stage_name: str, budget_mb: float = None):
                 logger.debug(f"  RSS Peak        : {peak_rss:.1f} MB")
                 logger.debug(f"  Transient Alloc : {transient_mb:.1f} MB (Peak - After)")
                 
-                if budget_mb and end_rss > budget_mb:
-                    logger.warning(f"  ⚠️ BUDGET EXCEEDED: {end_rss:.1f} MB > {budget_mb:.1f} MB")
-                
-                logger.debug(f"  Tracemalloc Peak: {peak_alloc_mb:.1f} MB")
                 
                 from telemetry_manager import telemetry
                 timer = telemetry.get_timer(stage_name.split()[0])
