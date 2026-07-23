@@ -4,6 +4,7 @@ import os
 import sys
 import tracemalloc
 from datetime import datetime, timezone, timedelta
+from enum import Enum
 from typing import Optional
 
 import psutil
@@ -21,17 +22,23 @@ if not logger.handlers:
 
 
 # ── Canonical dataset identifiers (shared with Phase 2 registry) ─────────────
-# All callers MUST use these constants so telemetry and registry align.
-class DatasetID:
-    OHLCV_1Y      = "OHLCV_1Y"       # HistoricalDataManager.DailyStore
+# str+Enum mixin: Python 3.9-compatible equivalent of StrEnum (added in 3.11).
+# Existing callers are unaffected — values remain plain strings in all contexts.
+# Benefits over plain class: type safety, iteration, membership checks,
+# IDE autocompletion, and structural impossibility of string drift.
+class DatasetID(str, Enum):
+    OHLCV_1Y       = "OHLCV_1Y"       # HistoricalDataManager.DailyStore
     OHLCV_INTRADAY = "OHLCV_INTRADAY" # HistoricalDataManager.IntradayStore
-    INDICATORS    = "INDICATORS"      # IndicatorManager
-    WATCHLIST     = "WATCHLIST"       # WatchlistBuilder
-    DELIVERY      = "DELIVERY"        # HistoricalDataManager.DeliveryStore
-    BHAVCOPY      = "BHAVCOPY"        # BhavcopyStore
-    FINANCIALS    = "FINANCIALS"      # FundamentalCache
-    NIFTY_CACHE   = "NIFTY_CACHE"     # MarketData
-    LIVE_SNAPSHOTS = "LIVE_SNAPSHOTS" # MarketData
+    INDICATORS     = "INDICATORS"      # IndicatorManager
+    WATCHLIST      = "WATCHLIST"       # WatchlistBuilder
+    DELIVERY       = "DELIVERY"        # HistoricalDataManager.DeliveryStore
+    BHAVCOPY       = "BHAVCOPY"        # BhavcopyStore
+    FINANCIALS     = "FINANCIALS"      # FundamentalCache
+    NIFTY_CACHE    = "NIFTY_CACHE"     # MarketData
+    LIVE_SNAPSHOTS = "LIVE_SNAPSHOTS"  # MarketData
+
+    def __str__(self) -> str:          # Ensures f-string / str() returns raw value
+        return self.value
 
 
 # ── Phase 1 helpers ──────────────────────────────────────────────────────────
