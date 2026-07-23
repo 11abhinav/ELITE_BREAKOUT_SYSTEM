@@ -1473,6 +1473,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "MULTI_TF":      _trigger_multi_tf,
         "EOD":           _trigger_eod,
         "REVERSAL":      _trigger_reversal,
+        "PULLBACK":      _trigger_pullback,
         "Wealth Engine": _trigger_wealth_engine,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,

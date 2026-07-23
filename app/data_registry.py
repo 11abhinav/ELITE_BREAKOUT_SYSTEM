@@ -48,6 +48,9 @@ class DatasetRegistry:
         self.register_dataset(DatasetEntry(id="fundamentals_quarterly", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=90*86400, preferred_provider="yahoo"))
         self.register_dataset(DatasetEntry(id="company_profile", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=30*86400, preferred_provider="yahoo"))
         
+        # Fundamentals governed dataset
+        self.register_dataset(DatasetEntry(id="fundamentals_cache", owner="FundamentalsManager", tier=StorageTier.DURABLE, cadence=86400, preferred_provider="yahoo"))
+        
         # Freeze reconciliation additions (Phase 2 & Completion Sprint)
         self.register_dataset(DatasetEntry(id="block_deals", owner="InstitutionalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))
         self.register_dataset(DatasetEntry(id="bhavcopy_delivery", owner="DeliveryDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))

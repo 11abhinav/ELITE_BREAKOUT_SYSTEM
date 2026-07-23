@@ -56,6 +56,12 @@ def save_cache(cache_data: dict, upload_to_db=False):
         except Exception as e:
             logger.warning(f"⚠️ Failed to backup fundamentals cache to DB: {e}")
 
+def init_fundamentals_registry():
+    cache = load_cache()
+    from data_registry import registry
+    registry.put("fundamentals_cache", cache)
+    logger.info("✅ Fundamentals cache loaded into DatasetRegistry (DURABLE)")
+
 def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
     try:
         score = 0
@@ -347,6 +353,9 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
                 
     save_cache(cache, upload_to_db=True)
     
+    from data_registry import registry
+    registry.put("fundamentals_cache", cache)
+    
     # Notify Admin if any stocks permanently failed (No Data)
     if missing_data_stocks:
         try:
@@ -359,10 +368,16 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     logger.info("✅ Fundamental fetch complete.")
 
 def get_piotroski_score(symbol: str) -> int:
-    cache = load_cache()
+    from data_registry import registry
+    cache = registry.get("fundamentals_cache")
+    if not cache:
+        cache = load_cache() # Fallback if registry not initialized
     entry = cache.get(symbol) or {}
     return entry.get("score", -1)
 
 def get_fundamentals(symbol: str) -> dict:
-    cache = load_cache()
+    from data_registry import registry
+    cache = registry.get("fundamentals_cache")
+    if not cache:
+        cache = load_cache()
     return cache.get(symbol) or {}

@@ -89,6 +89,10 @@ def _start_wrapper(force: bool = False):
     is_test_mode = True  # Safe default
     init_db()
     
+    # Initialize the fundamentals cache into the DatasetRegistry (DURABLE)
+    from fundamentals_cache import init_fundamentals_registry
+    init_fundamentals_registry()
+    
     try:
         upsert_scanner_health("EOD", "RUNNING", error_msg="EOD Scan in progress...")
     except Exception:
