@@ -412,7 +412,7 @@ class YFinanceFetcher(DataFetcher):
 _fyers_degradation_cache: dict[str, float] = {}
 
 class AutoSwitchingFetcher(DataFetcher):
-    """Fetcher that uses Fyers as primary if authenticated, falling back to YFinance on any failure."""
+    """Fetcher that uses interval-based routing policy with fallback capabilities."""
     def __init__(self):
         self.yfinance_fetcher = YFinanceFetcher()
         self.fyers_fetcher = None
@@ -486,64 +486,165 @@ class AutoSwitchingFetcher(DataFetcher):
         except Exception:
             return False
 
+    # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Delegate provider selection to ProviderSelector
+    def _get_providers(self, interval: str, fetch_type: str = "historical") -> list:
+        try:
+            from data_providers.provider_selector import selector
+            resolved = selector.get_providers(interval, fetch_type=fetch_type)
+            mapped = []
+            for p in resolved:
+                name = "yfinance" if p in ("yahoo", "bse") else p
+                if name not in mapped:
+                    mapped.append(name)
+            return mapped if mapped else ["yfinance", "fyers"]
+        except Exception as e:
+            logger.warning(f"Error resolving ProviderSelector route: {e}")
+            return ["yfinance", "fyers"]
+
+    def _get_fetcher_by_name(self, name: str) -> DataFetcher:
+        if name in ("yfinance", "yahoo", "bse"):
+            return self.yfinance_fetcher
+        if name == "fyers" and self._should_use_fyers():
+            return self.fyers_fetcher
+        return None
+
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
-        if self._should_use_fyers() and not self._is_fyers_degraded(symbol):
-            try:
-                md = self.fyers_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
-                if md.dataframe is not None and md.quality_report is not None and md.quality_report.is_valid:
-                    return md
-                logger.warning(f"Fyers fetch returned poor quality for {symbol} (Score: {md.quality_report.quality_score if md.quality_report else 0}). Marking symbol degraded & falling back to YFinance.")
-                self._mark_fyers_degraded(symbol)
-            except Exception as e:
-                logger.warning(f"Fyers fetch exception for {symbol}: {e}. Marking symbol degraded & falling back to YFinance.")
-                self._mark_fyers_degraded(symbol)
-        return self.yfinance_fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
-
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
-        if self._should_use_fyers():
-            # Bypass Fyers for symbols in the 24h degradation cache
-            fyers_candidates = [s for s in symbols if not self._is_fyers_degraded(s)]
-            known_degraded = [s for s in symbols if self._is_fyers_degraded(s)]
-            
-            results = {}
-            if fyers_candidates:
-                try:
-                    results = self.fyers_fetcher.get_batch_ohlcv(fyers_candidates, interval, period, retries, range_from, range_to, caller=caller)
-                except Exception as e:
-                    logger.warning(f"Fyers batch fetch exception: {e}. Falling back to YFinance.")
-
-            missing_symbols = [s for s in fyers_candidates if not results.get(s) or results[s].dataframe is None or not results[s].quality_report or not results[s].quality_report.is_valid]
-            for s in missing_symbols:
-                self._mark_fyers_degraded(s)
-                
-            yf_fetch_list = list(set(missing_symbols + known_degraded))
-            if yf_fetch_list:
-                if known_degraded:
-                    logger.info(f"⚡ [FYERS DEGRADATION CACHE] Bypassing Fyers for {len(known_degraded)} degraded symbols. Direct YFinance query.")
-                yf_results = self.yfinance_fetcher.get_batch_ohlcv(yf_fetch_list, interval, period, retries, range_from, range_to, caller=caller)
-                for s in yf_fetch_list:
-                    if s in yf_results:
-                        results[s] = yf_results[s]
-
-            for s in symbols:
-                if s not in results:
-                    results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
-            return results
+        providers = self._get_providers(interval)
         
-        yf_fallback_results = self.yfinance_fetcher.get_batch_ohlcv(symbols, interval, period, retries, range_from, range_to, caller=caller)
+        last_md = None
+        for prov_name in providers:
+            fetcher = self._get_fetcher_by_name(prov_name)
+            if not fetcher:
+                continue
+                
+            if prov_name == "fyers" and self._is_fyers_degraded(symbol):
+                continue
+                
+            try:
+                md = fetcher.get_ohlcv(symbol, interval, period, retries, range_from, range_to)
+                last_md = md
+                if md and md.dataframe is not None and md.quality_report and md.quality_report.is_valid:
+                    return md
+                    
+                if prov_name == "fyers":
+                    logger.warning(f"Fyers fetch returned poor quality for {symbol}. Marking symbol degraded & falling back.")
+                    self._mark_fyers_degraded(symbol)
+            except Exception as e:
+                logger.warning(f"{prov_name} fetch exception for {symbol}: {e}.")
+                if prov_name == "fyers":
+                    self._mark_fyers_degraded(symbol)
+                    
+        return last_md if last_md else MarketData(None, "UNKNOWN", None, False, False, "Missing")
+
+    # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Partial fallback with taxonomy telemetry
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
+        providers = self._get_providers(interval)
+        
+        results = {}
+        fallback_results = {}  # Store the most recent result for missing symbols
+        missing_symbols = list(symbols)
+        provider_telemetry = {}
+        
+        for prov_name in providers:
+            if not missing_symbols:
+                break
+                
+            fetcher = self._get_fetcher_by_name(prov_name)
+            if not fetcher:
+                provider_telemetry[prov_name] = {
+                    "requested": len(missing_symbols), "succeeded": 0, "failed": len(missing_symbols),
+                    "reasons": {"provider_unavailable": len(missing_symbols)}, "latency_s": 0.0
+                }
+                continue
+                
+            current_batch = list(missing_symbols)
+            if prov_name == "fyers":
+                current_batch = [s for s in missing_symbols if not self._is_fyers_degraded(s)]
+                known_degraded = [s for s in missing_symbols if self._is_fyers_degraded(s)]
+                if known_degraded:
+                    logger.info(f"⚡ [FYERS DEGRADATION CACHE] Bypassing Fyers for {len(known_degraded)} degraded symbols.")
+                
+            if current_batch:
+                start_t = time.time()
+                prov_stats = {
+                    "requested": len(current_batch),
+                    "succeeded": 0,
+                    "failed": 0,
+                    "reasons": {
+                        "missing": 0, "timeout": 0, "rate_limit": 0,
+                        "quality_rejected": 0, "malformed": 0, "provider_unavailable": 0
+                    }
+                }
+                try:
+                    prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries, range_from, range_to, caller=caller)
+                    
+                    for s in current_batch:
+                        res = prov_results.get(s)
+                        if res:
+                            fallback_results[s] = res
+                            if res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
+                                results[s] = res
+                                if s in missing_symbols:
+                                    missing_symbols.remove(s)
+                                prov_stats["succeeded"] += 1
+                            else:
+                                prov_stats["failed"] += 1
+                                err_msg = str(getattr(res, 'error', '') or '').lower()
+                                if "timeout" in err_msg:
+                                    prov_stats["reasons"]["timeout"] += 1
+                                elif "rate" in err_msg or "429" in err_msg or "circuit" in err_msg:
+                                    prov_stats["reasons"]["rate_limit"] += 1
+                                elif "quality" in err_msg or "reject" in err_msg:
+                                    prov_stats["reasons"]["quality_rejected"] += 1
+                                elif "malformed" in err_msg or "format" in err_msg:
+                                    prov_stats["reasons"]["malformed"] += 1
+                                else:
+                                    prov_stats["reasons"]["missing"] += 1
+                                    
+                                if prov_name == "fyers":
+                                    self._mark_fyers_degraded(s)
+                        else:
+                            prov_stats["failed"] += 1
+                            prov_stats["reasons"]["missing"] += 1
+                except Exception as e:
+                    prov_stats["failed"] = len(current_batch)
+                    prov_stats["reasons"]["provider_unavailable"] = len(current_batch)
+                    logger.warning(f"{prov_name} batch fetch exception: {e}.")
+                    
+                prov_stats["latency_s"] = round(time.time() - start_t, 3)
+                provider_telemetry[prov_name] = prov_stats
+
+        # Log detailed per-provider telemetry summary
+        telemetry_summary = " | ".join([
+            f"{p}: {data.get('succeeded', 0)}/{data.get('requested', 0)} ok ({data.get('latency_s', 0.0)}s)"
+            for p, data in provider_telemetry.items()
+        ])
+        logger.info(f"📊 [BATCH_TELEMETRY] Caller={caller or 'Unknown'} | {telemetry_summary}")
+        
         for s in symbols:
-            if s not in yf_fallback_results:
-                yf_fallback_results[s] = MarketData(None, "UNKNOWN", None, False, False, "Missing")
-        return yf_fallback_results
+            if s not in results:
+                results[s] = fallback_results.get(s, MarketData(None, "UNKNOWN", None, False, False, "Missing"))
+                
+        return results
 
     def get_quote(self, symbol: str) -> dict:
-        if self._should_use_fyers():
+        providers = self._get_providers("quote")
+        
+        for prov_name in providers:
+            fetcher = self._get_fetcher_by_name(prov_name)
+            if not fetcher:
+                continue
+                
+            if prov_name == "fyers" and self._is_fyers_degraded(symbol):
+                continue
+                
             try:
-                quote = self.fyers_fetcher.get_quote(symbol)
+                quote = fetcher.get_quote(symbol)
                 if quote:
                     return quote
             except Exception as e:
-                logger.warning(f"Fyers quote fetch exception for {symbol}: {e}. Falling back to YFinance.")
+                logger.warning(f"{prov_name} quote fetch exception for {symbol}: {e}.")
+                
         return self.yfinance_fetcher.get_quote(symbol)
 
 

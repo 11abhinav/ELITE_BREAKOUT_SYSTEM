@@ -28,6 +28,68 @@ import os
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+# [VERSION: V5_ACQUISITION_ROUTING_V1.0] Cache Schema & Metadata Invariants
+CACHE_SCHEMA_VERSION = 3
+INDICATOR_VERSION = "v5.2"
+
+import hashlib
+
+def compute_ohlcv_hash(df: pd.DataFrame) -> str:
+    """Computes a fast deterministic hash of core OHLCV data for change detection."""
+    if df is None or df.empty:
+        return ""
+    try:
+        cols = [c for c in ["Date", "Datetime", "Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+        if not cols and not df.index.empty:
+            sample_data = str(df.index.tolist()[:5]) + str(df.iloc[:5].to_dict())
+        else:
+            sample_data = f"{len(df)}_{df[cols].iloc[0].to_dict()}_{df[cols].iloc[-1].to_dict()}"
+        return hashlib.sha256(sample_data.encode("utf-8")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
+    """
+    Validates structural OHLCV integrity:
+    1. Timestamp monotonicity (strictly increasing timestamps).
+    2. Price sanity (High >= Low, Open & Close within Low/High bounds, Volume >= 0).
+    3. Non-empty DataFrame.
+    """
+    if df is None or df.empty:
+        return False, "EMPTY_DATAFRAME"
+        
+    try:
+        # 1. Monotonicity
+        time_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
+        if time_col:
+            ts_series = pd.to_datetime(df[time_col])
+        else:
+            ts_series = pd.to_datetime(df.index)
+            
+        if not ts_series.is_monotonic_increasing:
+            return False, "NON_MONOTONIC_TIMESTAMPS"
+            
+        # 2. Price Sanity
+        if "High" in df.columns and "Low" in df.columns:
+            if (df["High"] < df["Low"]).any():
+                return False, "HIGH_LESS_THAN_LOW"
+                
+        if "Close" in df.columns and "High" in df.columns and "Low" in df.columns:
+            if (df["Close"] > df["High"] * 1.001).any() or (df["Close"] < df["Low"] * 0.999).any():
+                return False, "CLOSE_OUT_OF_BOUNDS"
+                
+        if "Open" in df.columns and "High" in df.columns and "Low" in df.columns:
+            if (df["Open"] > df["High"] * 1.001).any() or (df["Open"] < df["Low"] * 0.999).any():
+                return False, "OPEN_OUT_OF_BOUNDS"
+                
+        if "Volume" in df.columns:
+            if (df["Volume"] < 0).any():
+                return False, "NEGATIVE_VOLUME"
+                
+        return True, "VALID"
+    except Exception as e:
+        return False, f"VALIDATION_EXCEPTION_{e}"
+
 _cache: dict[tuple, dict] = {}
 _lock = threading.Lock()
 _fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
@@ -409,15 +471,35 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     if is_up_to_date:
                         if is_long_enough:
-                            # [PERFORMANCE_FIX] Ensure legacy cache files missing indicators are updated
-                            if not cached_df.empty and "EMA20" not in cached_df.columns:
+                            # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Enforce Cache Invariants: schema_version, indicator_version, ohlcv_hash
+                            meta_valid = False
+                            if os.path.exists(meta_path):
+                                try:
+                                    with open(meta_path, "r") as f:
+                                        meta = json.load(f)
+                                    if (meta.get("schema_version") == CACHE_SCHEMA_VERSION and 
+                                        meta.get("indicator_version") == INDICATOR_VERSION and
+                                        meta.get("ohlcv_hash") == compute_ohlcv_hash(cached_df)):
+                                        meta_valid = True
+                                except Exception:
+                                    pass
+
+                            if not cached_df.empty and (not meta_valid or "EMA20" not in cached_df.columns):
                                 from technical_indicators import apply_indicators
                                 cached_df = apply_indicators(cached_df, timeframe=interval)
                                 try:
-                                    # We don't have the strict pyarrow type-casting here, but it's okay for legacy update
                                     cached_df.to_parquet(file_path)
+                                    new_meta = {
+                                        "schema_version": CACHE_SCHEMA_VERSION,
+                                        "indicator_version": INDICATOR_VERSION,
+                                        "ohlcv_hash": compute_ohlcv_hash(cached_df),
+                                        "generated_at": time.time(),
+                                        "row_count": len(cached_df)
+                                    }
+                                    with open(meta_path, "w") as f:
+                                        json.dump(new_meta, f)
                                 except Exception as e:
-                                    logger.warning(f"Failed to resave enriched legacy cache for {sym}: {e}")
+                                    logger.warning(f"Failed to resave enriched cache for {sym}: {e}")
                                     
                             all_data[sym] = cached_df
                             needs_full = False
@@ -600,11 +682,23 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 new_df = new_df.reset_index(drop=True)
                             all_data[sym] = new_df
                             
-                        # [PERFORMANCE_FIX] Pre-calculate all indicators before caching to disk.
-                        # This prevents 5,000 O(N) calculations in the scanner loops, saving ~4 mins per run.
+                        # [VERSION: V5_ACQUISITION_ROUTING_V1.0] OHLCV Validation Stage before indicator calculation
                         if not all_data[sym].empty:
-                            from technical_indicators import apply_indicators
-                            all_data[sym] = apply_indicators(all_data[sym], timeframe=interval)
+                            is_valid_struct, reason = validate_ohlcv_structure(all_data[sym])
+                            if not is_valid_struct:
+                                logger.warning(f"⚠️ OHLCV Structure Validation Failed for {sym}: {reason}. Reverting to stale cache if available.")
+                                if cached_df is not None and not cached_df.empty:
+                                    cached_df.attrs['is_stale'] = True
+                                    all_data[sym] = cached_df
+                                else:
+                                    all_data[sym] = None
+                                continue
+
+                            from indicator_executor import indicator_executor
+                            job = {"symbol": sym, "timeframe": interval, "dataframe": all_data[sym]}
+                            exec_res = indicator_executor.execute([job])
+                            if sym in exec_res:
+                                all_data[sym] = exec_res[sym]
                             
                         # If this was a FULL fetch for a long historical period, record the earliest available date
                         # [VERSION: CACHE_POISON_FIX] Require at least 10 bars to prevent a failed 1-bar fallback from poisoning the IPO date
@@ -652,11 +746,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             # Save sidecar metadata
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             meta = {
+                                "schema_version": CACHE_SCHEMA_VERSION,
+                                "indicator_version": INDICATOR_VERSION,
+                                "ohlcv_hash": compute_ohlcv_hash(all_data[sym]),
+                                "generated_at": time.time(),
+                                "row_count": len(all_data[sym]),
                                 "validation_score": new_report.quality_score if new_report else 100,
                                 "validation_status": str(new_report.status) if new_report else "ValidationStatus.VALID",
-                                "validator_name": new_report.validator_name if new_report else "Unknown",
-                                "timestamp_saved": time.time(),
-                                "row_count": len(all_data[sym])
+                                "validator_name": new_report.validator_name if new_report else "Unknown"
                             }
                             with open(meta_path, "w") as f:
                                 json.dump(meta, f)

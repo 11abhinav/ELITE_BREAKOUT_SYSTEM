@@ -1,43 +1,77 @@
-from typing import List
+# [VERSION: V5_ACQUISITION_ROUTING_V1.0] Configuration-driven ProviderSelector with Capability Matching
+from typing import List, Optional
 import logging
 from data_registry import registry
+import config
 
 logger = logging.getLogger(__name__)
 
 class ProviderSelector:
     """
     Decouples the provider fallback policy from the fetcher execution.
-    Determines the sequence of providers to try for a given data request.
+    Determines the sequence of providers to try for a given data request
+    based on config.PROVIDER_ROUTING_POLICY and config.PROVIDER_CAPABILITIES.
     """
     
     def __init__(self):
         self.registry = registry
 
-    def get_providers(self, dataset_id: str, fetch_type: str = "historical") -> List[str]:
+    def resolve_dataset_id(self, dataset_or_interval: str, fetch_type: str = "historical") -> str:
+        """Helper to map interval string (e.g. '1d') to canonical dataset ID (e.g. 'price_1d')."""
+        if not dataset_or_interval:
+            return "default"
+            
+        dataset_str = str(dataset_or_interval).strip().lower()
+        if dataset_str.startswith("price_"):
+            return dataset_str
+            
+        if fetch_type == "live_quotes" or dataset_str in ("quote", "live"):
+            return "live_quotes"
+            
+        if dataset_str in ("1d", "1wk", "1mo", "1h", "30m", "15m", "5m", "1m"):
+            return f"price_{dataset_str}"
+            
+        return dataset_str
+
+    def get_providers(self, dataset_id: str, fetch_type: str = "historical", required_capability: Optional[str] = None) -> List[str]:
         """
         Returns an ordered list of providers to try (primary, secondary, etc.)
-        based on the Dataset Registry configuration or default rules.
+        governed by config.PROVIDER_ROUTING_POLICY and capability checks.
         """
-        entry = self.registry.get_entry(dataset_id)
+        canonical_key = self.resolve_dataset_id(dataset_id, fetch_type=fetch_type)
         
-        # If registry explicitly defines a preferred provider, prioritize it
+        # 1. Check registry override first if defined
+        entry = self.registry.get_entry(canonical_key)
         if entry and entry.preferred_provider:
-            # We treat preferred_provider as the primary if we are fetching fresh.
-            primary = entry.preferred_provider
+            primary = entry.preferred_provider.lower()
             if primary == "fyers":
-                return ["fyers", "yahoo", "bse"]
+                base_route = ["fyers", "yahoo", "bse"]
             elif primary == "yahoo":
-                return ["yahoo", "fyers", "bse"]
+                base_route = ["yahoo", "fyers", "bse"]
             elif primary == "nse":
-                return ["nse"]
-                
-        # Default fallback policies based on the type of data requested
-        if fetch_type == "live_quotes":
-            return ["fyers", "yahoo", "bse"]
-        elif fetch_type == "historical":
-            return ["fyers", "yahoo", "bse"]
-            
-        return ["fyers", "yahoo", "bse"]
+                base_route = ["nse"]
+            else:
+                base_route = [primary, "yahoo", "fyers", "bse"]
+        else:
+            # 2. Configuration-driven policy routing from config.py
+            routing_policy = getattr(config, "PROVIDER_ROUTING_POLICY", {})
+            base_route = routing_policy.get(canonical_key, routing_policy.get("default", ["fyers", "yahoo", "bse"]))
+
+        # 3. Optional Capability Filter
+        if required_capability:
+            capabilities = getattr(config, "PROVIDER_CAPABILITIES", {})
+            filtered_route = []
+            for p in base_route:
+                p_caps = capabilities.get(p, {})
+                if p_caps.get(required_capability, True):
+                    filtered_route.append(p)
+                else:
+                    logger.debug(f"Provider '{p}' filtered out for key '{canonical_key}': lacks capability '{required_capability}'")
+            if filtered_route:
+                return filtered_route
+
+        return list(base_route)
 
 # Global instance
 selector = ProviderSelector()
+

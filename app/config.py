@@ -388,6 +388,57 @@ STRUCTURAL_STOP = {
 # ── DATA PROVIDER SETTINGS ──────────────────────────────────────────────────────────
 DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")  # auto, yfinance, fyers, or kite
 
+# [VERSION: V5_ACQUISITION_ROUTING_V1.0] Provider routing policy and capabilities configuration
+ROUTING_POLICY_VERSION = 2
+
+PROVIDER_ROUTING_POLICY = {
+    "price_1d": ["yahoo", "fyers", "bse"],
+    "price_1wk": ["yahoo", "fyers", "bse"],
+    "price_1mo": ["yahoo", "fyers", "bse"],
+    "price_1h": ["fyers", "yahoo", "bse"],
+    "price_30m": ["fyers", "yahoo", "bse"],
+    "price_15m": ["fyers", "yahoo", "bse"],
+    "price_5m": ["fyers", "yahoo", "bse"],
+    "price_1m": ["fyers", "yahoo", "bse"],
+    "live_quotes": ["fyers", "yahoo", "bse"],
+    "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
+    "promoter_pledge": ["bse_corporate", "nse_corporate"],
+    "default": ["fyers", "yahoo", "bse"]
+}
+
+PROVIDER_CAPABILITIES = {
+    "yahoo": {
+        "bulk": True,
+        "live": False,
+        "intraday": True,
+        "historical": True
+    },
+    "fyers": {
+        "bulk": False,
+        "live": True,
+        "intraday": True,
+        "historical": True
+    },
+    "bse": {
+        "bulk": True,
+        "live": False,
+        "intraday": False,
+        "historical": True
+    }
+}
+
+STAGE_PERFORMANCE_BUDGETS = {
+    "download_seconds": 5.0,
+    "fallback_seconds": 3.0,
+    "validation_seconds": 2.0,
+    "indicators_seconds": 15.0,
+    "parquet_write_seconds": 2.0,
+    "scanner_seconds": 10.0,
+    "database_seconds": 2.0,
+    "cleanup_seconds": 1.0,
+    "total_scan_seconds": 60.0
+}
+
 # ── FYERS CONFIGURATION ──────────────────────────────────────────────────────────
 FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")

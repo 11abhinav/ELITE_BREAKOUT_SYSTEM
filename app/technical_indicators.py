@@ -275,10 +275,10 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         # 5-bar OBV slope via linear regression approximation (simple diff)
         obv_slope = rolling_obv.diff(5)
         
-        # If rolling OBV is NaN (e.g. first 49 bars), the slope will be NaN, and apply will return 0
-        new_cols["OBV_TREND"] = obv_slope.apply(
-            lambda x: 1 if (pd.notna(x) and x > 0) else (-1 if (pd.notna(x) and x < 0) else 0)
-        )
+        # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Vectorized OBV_TREND calculation
+        conds = [obv_slope > 0, obv_slope < 0]
+        choices = [1, -1]
+        new_cols["OBV_TREND"] = pd.Series(np.select(conds, choices, default=0), index=df.index)
     else:
         new_cols["OBV_TREND"] = 0
         new_cols["OBV_20MA"] = float("nan")
