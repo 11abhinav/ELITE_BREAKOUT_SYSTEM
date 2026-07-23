@@ -132,3 +132,15 @@ The following capabilities are intentionally outside the scope of this core scan
 - **Broker Direct Auto-Execution**: Automatic order routing/execution to live brokerage accounts (Fyers/Zerodha).
 - **Crypto & Commodity Markets**: Scanning non-NSE instruments (Cryptocurrencies, Forex, MCX Commodities).
 - **High-Frequency Intraday Trading**: Sub-second tick-level order book processing.
+
+## Recent Architecture Updates (July 2026)
+
+### 1. Sequential Execution Constraint
+All scanner threads, including `eod_thread`, `rev_thread`, and `exit_monitor`, are executed **strictly sequentially** via `SystemScheduler`. Parallel processing was explicitly deprecated (2026-07-23) to respect rigid memory constraints and prevent OOM crashing under Railway's resource limits. 
+
+### 2. Frontend Dynamic Routing (API Resolution)
+Hardcoded production URLs have been deprecated across all frontend templates (`user_dashboard.html`, `login.html`, `signup.html`, `complete_profile.html`). 
+The UI relies on a dynamic `getApiBase()` injector that returns relative paths (`""`) in production to avoid CORS/mixed-content violations, while cleanly falling back to `http://127.0.0.1:8080` when tested via the `file://` protocol or pure `localhost`.
+
+### 3. Telemetry Hooks Cleanup
+Deprecated `telemetry.cache_stats` hooks that were responsible for unhandled runtime `AttributeError` exceptions in the caching layers (`price_cache.py`, `memory_profiler.py`, `macro_utils.py`) have been stripped out. The telemetry manager now focuses entirely on `log_scheduler_event` lifecycle tracing without polling volatile inner cache state metrics.

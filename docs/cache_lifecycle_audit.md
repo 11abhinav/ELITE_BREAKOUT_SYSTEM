@@ -76,8 +76,8 @@ Scanners (Read-Only Consumers)
 2. `02:00` **Wealth Engine (Init)** → *Creates:* Initial scan result (`elite_wealth_system.parquet`). Fetches **1Y Daily OHLCV** (`period="1y", interval="1d"`) for all watchlist symbols.
 3. `08:30` **Warmup Check** → *Validates:* Disk caches exist.
 4. `09:15-15:30` **Wealth Engine & MultiTF** (Loop) → *Reuses:* Watchlist. *Refreshes:* 5m intraday snapshot. Stitches live CMP into cached 1Y daily. *Creates:* Buy Signals.
-5. `21:00` **EOD Scanner** and **Reversal Scanner** → Run **in parallel** (both `.start()` before either `.join()`). *Creates:* Delivery Data Cache (Bhavcopy). *Verified from `main.py:L657-661`:* `eod_thread.start(); rev_thread.start(); eod_thread.join(); rev_thread.join()`.
-6. After both complete → **Pullback Scanner** starts and waits (`pb_thread.start(); pb_thread.join()`). *Reuses:* Delivery Data.
+5. `21:00` **EOD Scanner**, **Reversal Scanner**, and **Pullback Scanner** → Run **strictly sequentially**. *Creates:* Delivery Data Cache (Bhavcopy). ~~*Verified from `main.py:L657-661`:* `eod_thread.start(); rev_thread.start(); eod_thread.join(); rev_thread.join()`.~~ *(Updated 2026-07-23: Parallel execution is strictly forbidden; `main.py` explicitly executes sequentially via `_run_multibagger_exit_single` and related blocks).*
+6. ~~After both complete → **Pullback Scanner** starts and waits (`pb_thread.start(); pb_thread.join()`). *Reuses:* Delivery Data.~~ *(Updated 2026-07-23: All scanners execute in one sequential loop).*
 
 ---
 
@@ -130,7 +130,7 @@ Verified indicators mathematically computed on DataFrames:
 * **Wealth Engine 5m Loop (pre-fix):** ~17 minutes per cycle. Root cause: `get_dynamic_cadence("1d")` returned 60s TTL, causing 7× cold re-fetches of 1Y daily data per run.
 * **Wealth Engine 5m Loop (post-fix, SHA `50768a7b`):** Target ~2-3 minutes per cycle. Daily cache now persists until market close.
 * **Peak RSS:** ~500 MB per batch during intraday (observed from `BatchMemoryTracker` logs).
-* **Evening Batch Runtime:** EOD + Reversal run in parallel. Pullback follows sequentially. Total ~4-6 minutes.
+* ~~**Evening Batch Runtime:** EOD + Reversal run in parallel. Pullback follows sequentially.~~ *(Updated 2026-07-23: Evening Batch Runtime is strictly sequential. All scanners, including Exit Monitor, run sequentially to respect hard memory constraints.)* Total ~4-6 minutes.
 
 ---
 
