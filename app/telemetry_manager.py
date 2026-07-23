@@ -20,6 +20,20 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 
+# ── Canonical dataset identifiers (shared with Phase 2 registry) ─────────────
+# All callers MUST use these constants so telemetry and registry align.
+class DatasetID:
+    OHLCV_1Y      = "OHLCV_1Y"       # HistoricalDataManager.DailyStore
+    OHLCV_INTRADAY = "OHLCV_INTRADAY" # HistoricalDataManager.IntradayStore
+    INDICATORS    = "INDICATORS"      # IndicatorManager
+    WATCHLIST     = "WATCHLIST"       # WatchlistBuilder
+    DELIVERY      = "DELIVERY"        # HistoricalDataManager.DeliveryStore
+    BHAVCOPY      = "BHAVCOPY"        # BhavcopyStore
+    FINANCIALS    = "FINANCIALS"      # FundamentalCache
+    NIFTY_CACHE   = "NIFTY_CACHE"     # MarketData
+    LIVE_SNAPSHOTS = "LIVE_SNAPSHOTS" # MarketData
+
+
 # ── Phase 1 helpers ──────────────────────────────────────────────────────────
 
 def _get_python_heap_mb() -> float:
@@ -31,7 +45,13 @@ def _get_python_heap_mb() -> float:
 
 
 def _count_live_dataframes() -> int:
-    """Count live pandas DataFrames currently reachable by the GC."""
+    """
+    Count live pandas DataFrames currently reachable by the GC.
+
+    WARNING: This walks the entire Python object graph (~20-100ms depending on
+    heap size). Only call from log_dataframe_snapshot(), which is called
+    explicitly at phase boundaries — NOT from log_phase_start/end.
+    """
     try:
         import pandas as pd
         return sum(1 for obj in gc.get_objects() if isinstance(obj, pd.DataFrame))
@@ -144,31 +164,36 @@ class TelemetryManager:
             logger.info("[TELEMETRY] tracemalloc heap tracing started")
 
     def log_phase_start(self, phase: str):
-        """Record phase entry timestamp and snapshot system state."""
+        """
+        Record phase entry timestamp, RSS, and Python heap.
+
+        NOTE: Does NOT call _count_live_dataframes() — that walks the full GC
+        object graph (~20-100ms). Use log_dataframe_snapshot() explicitly at
+        key boundaries where the DF count is meaningful and the cost is worth it.
+        """
         import time
         self.daily_metrics["_phase_timers"][phase] = time.perf_counter()
         rss = self.get_current_rss_mb()
         heap = _get_python_heap_mb()
-        df_count = _count_live_dataframes()
         self._record_rss(rss)
-        if df_count > self.daily_metrics["peak_dataframe_count"]:
-            self.daily_metrics["peak_dataframe_count"] = df_count
         logger.info(
             f"\n[PHASE START] {phase}\n"
             f"RSS           : {rss:.1f} MB\n"
             f"Python Heap   : {heap:.1f} MB\n"
-            f"Live DFs      : {df_count}\n"
         )
 
     def log_phase_end(self, phase: str):
-        """Record phase exit, compute duration, snapshot system state."""
+        """
+        Record phase exit, compute duration, RSS, and Python heap.
+
+        NOTE: Does NOT call _count_live_dataframes() — see log_phase_start note.
+        """
         import time
         start = self.daily_metrics["_phase_timers"].pop(phase, None)
         elapsed = (time.perf_counter() - start) if start is not None else 0.0
         self.daily_metrics["phase_durations_sec"][phase] = elapsed
         rss = self.get_current_rss_mb()
         heap = _get_python_heap_mb()
-        df_count = _count_live_dataframes()
         self._record_rss(rss)
         if heap > self.daily_metrics["peak_heap_mb"]:
             self.daily_metrics["peak_heap_mb"] = heap
@@ -177,7 +202,6 @@ class TelemetryManager:
             f"Duration      : {elapsed:.1f} sec\n"
             f"RSS           : {rss:.1f} MB\n"
             f"Python Heap   : {heap:.1f} MB\n"
-            f"Live DFs      : {df_count}\n"
         )
 
     def log_gc_run(self, trigger: str):
@@ -393,7 +417,14 @@ class TelemetryManager:
 
     # ── Daily Summary (Phase 1 — expanded) ──────────────────────────────────
 
-    def generate_daily_summary(self):
+    def generate_daily_summary(self, end_of_day_rss_mb: float = 0.0):
+        """
+        Generate and log the end-of-day telemetry summary.
+
+        Args:
+            end_of_day_rss_mb: Final RSS reading at session close, used to compute
+                               Memory Recovery %. Pass 0 if not available (derivation skipped).
+        """
         m = self.daily_metrics
         avg_rss = m["avg_rss_sum"] / m["rss_samples"] if m["rss_samples"] > 0 else 0
         min_rss = m["min_rss"] if m["min_rss"] != float('inf') else 0
@@ -408,16 +439,33 @@ class TelemetryManager:
         largest_temp  = f"{m['largest_temp_alloc']['name']} ({m['largest_temp_alloc']['size_mb']:.1f} MB)" if m['largest_temp_alloc']['name'] else "N/A"
         leak_cands    = ",".join(m['leak_candidates']) if m['leak_candidates'] else "None"
 
+        # ── Derived metric 1: Cache Hit Rate ─────────────────────────────────
+        # Cache Hit Rate = (Session + Durable) / Total Fetches
         src = m["fetch_source_counts"]
         total_fetches = src.get("DURABLE", 0) + src.get("SESSION", 0) + src.get("API", 0)
-        cache_eff = round(
+        cache_hit_rate = round(
             100.0 * (src.get("DURABLE", 0) + src.get("SESSION", 0)) / total_fetches, 1
         ) if total_fetches else 0.0
+
+        # ── Derived metric 2: Memory Recovery % ──────────────────────────────
+        # Memory Recovery % = (Peak RSS - End-of-Day RSS) / Peak RSS * 100
+        # Becomes meaningful once Phase 10 purging is enabled.
+        if m["peak_rss"] > 0 and end_of_day_rss_mb > 0:
+            mem_recovery_pct = round(
+                100.0 * (m["peak_rss"] - end_of_day_rss_mb) / m["peak_rss"], 1
+            )
+        else:
+            mem_recovery_pct = None  # Not yet available (purging not enabled)
 
         phase_lines = "\n".join(
             f"  {ph:<24}: {dur:.1f} sec"
             for ph, dur in m["phase_durations_sec"].items()
         ) or "  (none recorded)"
+
+        mem_recovery_str = (
+            f"{mem_recovery_pct}%  (Peak {m['peak_rss']:.1f} MB → EoD {end_of_day_rss_mb:.1f} MB)"
+            if mem_recovery_pct is not None else "N/A  (purging not yet enabled)"
+        )
 
         summary = (
             f"\n{'='*42}\n"
@@ -429,6 +477,7 @@ class TelemetryManager:
             f"Minimum RSS          : {min_rss:.1f} MB\n"
             f"Peak Python Heap     : {m['peak_heap_mb']:.1f} MB\n"
             f"Peak Live DataFrames : {m['peak_dataframe_count']}\n"
+            f"Memory Recovery %    : {mem_recovery_str}\n"
             f"── GC ──────────────────────────────────\n"
             f"GC Runs              : {m['gc_runs']}\n"
             f"Total GC Time        : {m['total_gc_time_sec']:.2f} sec\n"
@@ -440,7 +489,7 @@ class TelemetryManager:
             f"Fetches from Durable : {src.get('DURABLE', 0)}\n"
             f"Fetches from Session : {src.get('SESSION', 0)}\n"
             f"Fetches from API     : {src.get('API', 0)}\n"
-            f"Cache Efficiency     : {cache_eff}%\n"
+            f"Cache Hit Rate       : {cache_hit_rate}%  (Session+Durable / Total)\n"
             f"Cache Hits           : {m['cache_hits']}\n"
             f"Cache Misses         : {m['cache_misses']}\n"
             f"Duplicate Fetches    : {m['duplicate_fetches']}\n"
