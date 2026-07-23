@@ -1,6 +1,6 @@
 import pytest
 from app.application_context import ApplicationContext
-from app.session_context import SessionState, SessionContext, CachePolicy
+from app.session_context import SessionState, SessionContext, CachePolicy, PersistenceTier, RefreshPolicy, ExpirationPolicy
 
 def test_application_context_creates_session():
     """Verify ApplicationContext manages SessionContext correctly."""
@@ -81,7 +81,7 @@ def test_cache_policy_validation():
     intraday_policy = policies["intraday"]
     assert isinstance(intraday_policy, CachePolicy)
     assert intraday_policy.owner == "HistoricalDataManager.IntradayStore"
-    assert intraday_policy.persistence == "SESSION"
-    assert intraday_policy.refresh_policy == "EVERY_5_MIN"
-    assert intraday_policy.expiration_policy == "CONSUMER_DRIVEN"
+    assert intraday_policy.persistence == PersistenceTier.SESSION
+    assert intraday_policy.refresh_policy == RefreshPolicy.EVERY_5_MIN
+    assert intraday_policy.expiration_policy == ExpirationPolicy.CONSUMER_DRIVEN
     assert intraday_policy.consumer_count == 0
