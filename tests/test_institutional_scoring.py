@@ -15,7 +15,7 @@ from app.block_deal_detector import (
     load_cache_if_needed,
     CACHE_FILE
 )
-from app.data_registry import registry
+from app.block_deal_detector import registry as bd_registry
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -110,7 +110,7 @@ def test_bonus_modifiers_and_caps(monkeypatch):
     }
     
     # Inject into memory cache via registry
-    registry.put("block_deals", {
+    bd_registry.put("block_deals", {
         "date": str(datetime.now(IST).date()),
         "version": 1,
         "deals": mock_deals

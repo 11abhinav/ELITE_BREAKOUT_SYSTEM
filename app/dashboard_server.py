@@ -2096,13 +2096,9 @@ def api_indices():
             cache = _get_indices_cache() # This gets the reference to the dict
             cache["timestamp"] = time.time()
             cache["data"] = data
-            
             # If using session context, make sure to save it back
-            from session_context import get_session_manager
-            sm = get_session_manager()
-            if sm and hasattr(sm, 'context') and hasattr(sm.context, 'cache_manager'):
-                registry = sm.context.cache_manager
-                registry.put("indices_cache", cache)
+            from data_registry import registry
+            registry.put("indices_cache", cache)
 
     return jsonify(data)
 
