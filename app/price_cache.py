@@ -117,6 +117,20 @@ def get_dynamic_cadence(interval: str) -> int:
         
     interval_lower = interval.lower()
 
+    # [VERSION: DAILY_CACHE_TTL_FIX_v1.0] Daily intervals must cache until end of trading day.
+    # Previously fell through to CACHE_TTL_SECONDS (60s), causing the Wealth Engine to
+    # re-download 1 year of daily OHLCV data every minute. Daily bars only change once at
+    # market close, so the cache should survive the entire trading session.
+    if interval_lower in ('1d', 'daily', '1wk', '1mo'):
+        market_close = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
+        if now_dt < market_close:
+            # Cache until today's market close
+            secs = (market_close - now_dt).total_seconds()
+            return max(300, int(secs))  # At least 5 min floor
+        else:
+            # After market close: cache for 12h (next run will be after next open)
+            return 43200
+
     match = re.match(r'^(\d+)(m|h)$', interval_lower)
     if not match:
         return CACHE_TTL_SECONDS

@@ -925,7 +925,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         BATCH_SIZE = int(os.environ.get("WEALTH_BATCH_SIZE", "50"))
         logger.info(f"💰 [WEALTH ENGINE] Processing {len(all_symbols_to_fetch)} symbols in chunks of {BATCH_SIZE}...")
         
-        from price_cache import fetch_unified_historical
+        from price_cache import fetch_unified_historical, get_intraday_snapshot
+        from database import get_bulk_recent_concall_analysis
         from memory_profiler import chunk_iterable, BatchMemoryTracker, MemoryProfiler
         import concurrent.futures
         
@@ -984,15 +985,32 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": sym}
 
+        # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch intraday snapshots for ALL symbols once.
+        # Previously called inside the batch loop (once per 50-symbol chunk = 7x per cycle).
+        # One bulk call populates the cache for all 308 symbols in a single API round-trip.
+        logger.info(f"💰 [WEALTH ENGINE] Pre-fetching intraday snapshots for {len(all_symbols_to_fetch)} symbols...")
+        try:
+            all_snapshots = get_intraday_snapshot(all_symbols_to_fetch, interval="5m", period="1d") or {}
+        except Exception as _snap_e:
+            logger.warning(f"⚠️ [WEALTH ENGINE] Snapshot pre-fetch failed: {_snap_e}. Falling back to empty snapshots.")
+            all_snapshots = {}
+
+        # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch concall data for ALL symbols once.
+        # Previously caused 7 separate DB round-trips (one per batch). Single bulk query is faster.
+        logger.info(f"💰 [WEALTH ENGINE] Pre-fetching concall cache for {len(all_symbols_to_fetch)} symbols...")
+        try:
+            all_concalls = get_bulk_recent_concall_analysis(all_symbols_to_fetch, max_age_days=60) or {}
+        except Exception as _concall_e:
+            logger.warning(f"⚠️ [WEALTH ENGINE] Concall pre-fetch failed: {_concall_e}. AI_Confidence defaults to 0.")
+            all_concalls = {}
+
         for batch_num, chunk in enumerate(chunk_iterable(all_symbols_to_fetch, BATCH_SIZE), start=1):
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
                 chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
-                
-                from price_cache import get_intraday_snapshot
-                chunk_snapshots = get_intraday_snapshot(chunk, interval="5m", period="1d")
-                
-                from database import get_bulk_recent_concall_analysis
-                chunk_concalls = get_bulk_recent_concall_analysis(chunk, max_age_days=60)
+
+                # Slice from pre-fetched dicts — no additional API/DB calls per batch
+                chunk_snapshots = {sym: all_snapshots.get(sym) for sym in chunk}
+                chunk_concalls  = {sym: all_concalls.get(sym)  for sym in chunk}
                 
                 if chunk_historical_data is None:
                     chunk_historical_data = {}
