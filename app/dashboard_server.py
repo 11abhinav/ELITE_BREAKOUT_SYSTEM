@@ -1970,10 +1970,12 @@ def api_scanner_status():
                             cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
                             symbols_set.update(r[0] for r in cur.fetchall())
                     try:
-                        from constituent_service import fetch_constituents
-                        idx_symbols = fetch_constituents()
-                        if idx_symbols:
-                            symbols_set.update(idx_symbols)
+                        from constituent_service import ConstituentService
+                        if ConstituentService._cached_symbols:
+                            symbols_set.update(ConstituentService._cached_symbols)
+                        else:
+                            import threading
+                            threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
                     except Exception:
                         pass
                     symbols = list(symbols_set)
