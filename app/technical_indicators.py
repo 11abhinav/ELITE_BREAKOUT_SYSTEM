@@ -45,8 +45,6 @@ def _find_swing_highs(high: pd.Series, n: int = 3) -> pd.Series:
     result = high.where(high == window_max, float("nan"))
     return result.ffill()
 
-
-@profile_function("Indicators", budget_mb=400.0)
 def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.DataFrame = None) -> pd.DataFrame:
     # [VERSION: MEMORY_OPTIMIZATION_v1.0] Fix block manager fragmentation by using dict for column assignment
     """
