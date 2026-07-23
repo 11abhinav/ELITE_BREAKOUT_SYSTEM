@@ -9,7 +9,16 @@ from core_enums import MappingState
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-# Fallback caches
+# ==============================================================================
+# INFRASTRUCTURE LOOKUPS
+# The _fyers_mappings_cache and _fyers_invalid_cache are documented exceptions 
+# to the session dataset rules. They are Process-Lifetime Immutable Lookups:
+# - Process lifetime
+# - Immutable after load (or atomically replaced on refresh)
+# - Excluded from session rotation
+# - Not governed by LifecycleManager
+# - Not part of business datasets
+# ==============================================================================
 _fyers_mappings_cache = None
 _fyers_invalid_cache = None
 

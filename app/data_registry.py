@@ -16,6 +16,7 @@ class DatasetEntry:
     consumers: Set[str] = field(default_factory=set)
     depends_on: List[str] = field(default_factory=list)
     release_event: Optional[str] = None
+    preferred_provider: Optional[str] = None
     provider_used: Optional[str] = None
     
     # Metadata for legacy compatibility
@@ -40,20 +41,23 @@ class DatasetRegistry:
     def _init_legacy_datasets(self):
         # Existing datasets with explicit StorageTier.EPHEMERAL
         # Per §1 of ARCHITECTURE_FREEZE.md: price_1m/intraday -> fyers, historical -> yahoo
-        self.register_dataset(DatasetEntry(id="price_1m", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=60, period="1mo", resolution="1m", min_rows=50, provider_used="fyers"))
-        self.register_dataset(DatasetEntry(id="price_15m", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=900, period="6mo", resolution="15m", provider_used="fyers"))
-        self.register_dataset(DatasetEntry(id="price_1d", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, period="1y", resolution="1d", provider_used="yahoo"))
-        self.register_dataset(DatasetEntry(id="promoter_pledge", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, provider_used="yahoo"))
-        self.register_dataset(DatasetEntry(id="fundamentals_quarterly", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=90*86400, provider_used="yahoo"))
-        self.register_dataset(DatasetEntry(id="company_profile", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=30*86400, provider_used="yahoo"))
+        self.register_dataset(DatasetEntry(id="price_1m", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=60, period="1mo", resolution="1m", min_rows=50, preferred_provider="fyers"))
+        self.register_dataset(DatasetEntry(id="price_15m", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=900, period="6mo", resolution="15m", preferred_provider="fyers"))
+        self.register_dataset(DatasetEntry(id="price_1d", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, period="1y", resolution="1d", preferred_provider="yahoo"))
+        self.register_dataset(DatasetEntry(id="promoter_pledge", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))
+        self.register_dataset(DatasetEntry(id="fundamentals_quarterly", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=90*86400, preferred_provider="yahoo"))
+        self.register_dataset(DatasetEntry(id="company_profile", owner="HistoricalDataManager", tier=StorageTier.EPHEMERAL, cadence=30*86400, preferred_provider="yahoo"))
         
-        # Freeze reconciliation additions (Phase 2)
-        self.register_dataset(DatasetEntry(id="block_deals", owner="InstitutionalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, provider_used="nse"))
+        # Freeze reconciliation additions (Phase 2 & Completion Sprint)
+        self.register_dataset(DatasetEntry(id="block_deals", owner="InstitutionalDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))
+        self.register_dataset(DatasetEntry(id="bhavcopy_delivery", owner="DeliveryDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))
+        self.register_dataset(DatasetEntry(id="blacklist", owner="SurveillanceManager", tier=StorageTier.EPHEMERAL, cadence=3600, preferred_provider="nse"))
         
         # Migrated caches
         self.register_dataset(DatasetEntry(id="watchlist", owner="DailyBuilder", tier=StorageTier.EPHEMERAL, cadence=86400))
-        self.register_dataset(DatasetEntry(id="indices_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900, provider_used="yahoo"))
+        self.register_dataset(DatasetEntry(id="indices_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900, preferred_provider="yahoo"))
         self.register_dataset(DatasetEntry(id="wealth_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900))
+        self.register_dataset(DatasetEntry(id="sector_rotation", owner="SectorRotationEngine", tier=StorageTier.EPHEMERAL, cadence=1800, preferred_provider="yahoo"))
 
     def register_dataset(self, entry: DatasetEntry) -> None:
         self._datasets[entry.id] = entry

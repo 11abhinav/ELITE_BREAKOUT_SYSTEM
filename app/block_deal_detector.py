@@ -136,15 +136,14 @@ def is_promoter_client(symbol: str, client_name: str) -> bool:
         
     return False
 
-# Lazy-loaded cache
-_CACHE = {}
-_LAST_LOADED_DATE = None
+from data_registry import registry
 
 def load_cache_if_needed():
-    global _CACHE, _LAST_LOADED_DATE
     import os
     today = str(datetime.now(IST).date())
-    if _LAST_LOADED_DATE != today or not _CACHE:
+    cached = registry.get("block_deals")
+    
+    if cached is None or cached.get("date") != today:
         if os.path.exists(CACHE_FILE):
             try:
                 with open(CACHE_FILE, "r") as f:
@@ -162,24 +161,23 @@ def load_cache_if_needed():
                                 "dii_super_sell": list(v.get("dii_super_sell", [])),
                                 "promoter_sell": list(v.get("promoter_sell", []))
                             }
-                        _CACHE = {
+                        registry.put("block_deals", {
                             "date": today,
                             "version": data.get("version", 1),
                             "deals": normalized_deals
-                        }
-                        _LAST_LOADED_DATE = today
+                        })
                         return
             except Exception as e:
                 logger.warning(f"⚠️ Failed to parse institutional block deals JSON cache: {e}")
         # Default empty cache
-        _CACHE = {"date": today, "version": 1, "deals": {}}
-        _LAST_LOADED_DATE = today
+        registry.put("block_deals", {"date": today, "version": 1, "deals": {}})
 
 def get_inst_footprints(symbol: str) -> dict[str, list[str]]:
     """Side-effect free and shape-stable function returning FII, DII, and Promoter footprints."""
     load_cache_if_needed()
     sym = symbol.strip().upper()
-    deals = _CACHE.get("deals", {}).get(sym, {})
+    cached = registry.get("block_deals") or {}
+    deals = cached.get("deals", {}).get(sym, {})
     return {
         "fii": list(deals.get("fii", [])),
         "dii_super": list(deals.get("dii_super", [])),
@@ -305,25 +303,28 @@ def detect_fii_deals() -> dict:
 def get_cached_fii_deals() -> dict:
     """Legacy backward compatibility method."""
     load_cache_if_needed()
-    return {sym: data.get("fii", []) for sym, data in _CACHE.get("deals", {}).items() if data.get("fii")}
+    cached = registry.get("block_deals") or {}
+    return {sym: data.get("fii", []) for sym, data in cached.get("deals", {}).items() if data.get("fii")}
 
 def run_fii_detector() -> dict:
     """Main execution entrypoint from daily watchlist builder."""
     logger.info("🔍 Running FII Block/Bulk Deal Detector...")
     load_cache_if_needed()
-    if _CACHE and _CACHE.get("deals"):
-        logger.info(f"✅ Loaded {len(_CACHE.get('deals', {}))} deals from cache.")
-        return _CACHE.get("deals", {})
+    cached = registry.get("block_deals") or {}
+    if cached and cached.get("deals"):
+        logger.info(f"✅ Loaded {len(cached.get('deals', {}))} deals from registry.")
+        return cached.get("deals", {})
 
     results = detect_all_deals()
     
     # Save cache
     import os
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    today = str(datetime.now(IST).date())
     try:
         with open(CACHE_FILE, "w") as f:
             json.dump({
-                "date": str(datetime.now(IST).date()),
+                "date": today,
                 "version": 1,
                 "deals": results
             }, f, indent=2)
@@ -331,11 +332,11 @@ def run_fii_detector() -> dict:
     except Exception as e:
         logger.error(f"Failed to write cache file {CACHE_FILE}: {e}")
         
-    global _LAST_LOADED_DATE
-    _CACHE["deals"] = results
-    _CACHE["date"] = str(datetime.now(IST).date())
-    _CACHE["version"] = 1
-    _LAST_LOADED_DATE = str(datetime.now(IST).date())
+    registry.put("block_deals", {
+        "deals": results,
+        "date": today,
+        "version": 1
+    })
     
     return results
 

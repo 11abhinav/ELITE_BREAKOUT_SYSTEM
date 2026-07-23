@@ -9,7 +9,16 @@ from core_enums import MappingState
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-# Fallback in-memory cache
+# ==============================================================================
+# INFRASTRUCTURE LOOKUPS
+# The _bse_mappings_cache and _bse_invalid_cache are documented exceptions 
+# to the session dataset rules. They are Process-Lifetime Immutable Lookups:
+# - Process lifetime
+# - Immutable after load (or atomically replaced on refresh)
+# - Excluded from session rotation
+# - Not governed by LifecycleManager
+# - Not part of business datasets
+# ==============================================================================
 _bse_mappings_cache = None
 _bse_invalid_cache = None
 _last_fetch_time = 0.0

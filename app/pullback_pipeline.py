@@ -191,9 +191,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                                 logger.debug(f"⏭️ {symbol} failed data quality check: {dqe}")
                                 continue
 
+                            from indicator_manager import manager
+                            bundle = manager.compute_base_indicators(historical_view, symbol)
                             last_bar = historical_view.iloc[-1]
-                            sma50_val = historical_view['Close'].rolling(50).mean().iloc[-1] if len(historical_view) >= 50 else None
-                            sma200_val = historical_view['Close'].rolling(200).mean().iloc[-1] if len(historical_view) >= 200 else None
+                            
+                            sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
+                            sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
                             if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
                                 continue

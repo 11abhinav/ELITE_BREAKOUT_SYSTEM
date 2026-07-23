@@ -8,8 +8,12 @@ logger = logging.getLogger("indicator_manager")
 
 @dataclass
 class IndicatorBundle:
+    ema_20: Optional[pd.Series] = None
     ema_50: Optional[pd.Series] = None
     ema_200: Optional[pd.Series] = None
+    sma_20: Optional[pd.Series] = None
+    sma_50: Optional[pd.Series] = None
+    sma_200: Optional[pd.Series] = None
     atr_14: Optional[pd.Series] = None
     rsi_14: Optional[pd.Series] = None
     pivots: Optional[Dict[str, Any]] = None
@@ -31,16 +35,21 @@ class IndicatorManager:
             return bundle
             
         try:
-            # 1. EMA 50 & 200
+            # 1. EMAs & SMAs
+            bundle.ema_20 = df['Close'].ewm(span=20, adjust=False).mean()
             bundle.ema_50 = df['Close'].ewm(span=50, adjust=False).mean()
             bundle.ema_200 = df['Close'].ewm(span=200, adjust=False).mean()
+            bundle.sma_20 = df['Close'].rolling(window=20).mean()
+            bundle.sma_50 = df['Close'].rolling(window=50).mean()
+            bundle.sma_200 = df['Close'].rolling(window=200).mean()
             
             # 2. ATR 14
+            prev_close = df['Close'].shift()
             high_low = df['High'] - df['Low']
-            high_close = np.abs(df['High'] - df['Close'].shift())
-            low_close = np.abs(df['Low'] - df['Close'].shift())
+            high_close = np.abs(df['High'] - prev_close)
+            low_close = np.abs(df['Low'] - prev_close)
             tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            bundle.atr_14 = tr.rolling(14).mean()
+            bundle.atr_14 = tr.rolling(window=14).mean()
             
             # 3. RSI 14
             delta = df['Close'].diff()

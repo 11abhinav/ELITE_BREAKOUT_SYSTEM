@@ -33,8 +33,7 @@ BHAVCOPY_URL = (
 FETCH_TIMEOUT = 60
 MAX_RETRIES = 3
 
-_delivery_cache = None
-_delivery_cache_date = None
+from data_registry import registry
 _delivery_cache_lock = threading.RLock()
 
 def _compute_sha256(raw_data: str) -> str:
@@ -56,14 +55,15 @@ def _get_robust_session():
     return session
 
 def fetch_previous_day_delivery() -> dict[str, float]:
-    global _delivery_cache, _delivery_cache_date
     from datetime import datetime as _dt
     today = _dt.now().date()
     
     with _delivery_cache_lock:
-        if _delivery_cache is not None and _delivery_cache_date == today:
-            logger.info(f"⚡ [CACHE HIT] Returning {len(_delivery_cache)} symbols from memory (already fetched today).")
-            return _delivery_cache
+        cached = registry.get("bhavcopy_delivery")
+        if cached is not None and cached.get("_date") == today:
+            logger.info(f"⚡ [CACHE HIT] Returning {len(cached) - 1} symbols from registry (already fetched today).")
+            # Remove _date key before returning
+            return {k: v for k, v in cached.items() if k != "_date"}
 
         for days_back in range(1, 5):
             candidate = today - timedelta(days=days_back)
@@ -74,14 +74,14 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             result = fetch_delivery_data(candidate)
             if result:
                 logger.info(f"📦 Previous-day delivery loaded | Date={candidate}")
-                _delivery_cache = result
-                _delivery_cache_date = today
-                return result
+                result["_date"] = today
+                registry.put("bhavcopy_delivery", result)
+                return {k: v for k, v in result.items() if k != "_date"}
         
         # FINAL FALLBACK: If all fetches fail, return the stale cache if we have one.
-        if _delivery_cache is not None:
-            logger.warning("⚠️ NSE Delivery fetch failed for all recent days. Using stale cache as final fallback.")
-            return _delivery_cache
+        if cached is not None:
+            logger.warning("⚠️ NSE Delivery fetch failed for all recent days. Using stale registry cache as final fallback.")
+            return {k: v for k, v in cached.items() if k != "_date"}
             
     return {}
 

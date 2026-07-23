@@ -1,36 +1,38 @@
-# ELITE BREAKOUT SYSTEM — QUANTITATIVE TRADING ENGINE
+# Elite Breakout System
 
-An enterprise-grade, automated quantitative trading engine and real-time market scanner optimized for National Stock Exchange (NSE) equity securities.
+An enterprise-grade, fully governed quantitative trading platform and momentum scanner for the National Stock Exchange (NSE).
 
----
+## Quick Start
 
-## 📚 Canonical System Documentation
-
-The Elite Breakout System maintains a single, authoritative documentation set consisting of **exactly two canonical Markdown files** reconstructed directly from source implementation under `app/`:
-
-- **[SYSTEM ARCHITECTURE](docs/SYSTEM_ARCHITECTURE.md)** (`docs/SYSTEM_ARCHITECTURE.md`) — Answers *"What exists and how does it work?"* High-level architecture, component catalog, dependency tree, state transition lifecycle, wall-clock scheduler triggers, scanner engine flows, database schema, threading, and Mermaid diagrams.
-- **[SYSTEM SPECIFICATION](docs/SYSTEM_SPECIFICATION.md)** (`docs/SYSTEM_SPECIFICATION.md`) — Answers *"Exactly how is it implemented?"* Complete engineering implementation contract for core architectural modules, detailing public/private APIs, algorithms, business rules, configuration reference appendix, API reference appendix, database operations appendix, and system glossary.
-
----
-
-## 🚀 Quick Start & Release Verification
-
-### Run Automated Release Gates
+### Installation
 ```bash
-python3 -m pytest tests/test_production_deployment_gates.py
+# Set up virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Run Full Test Suite
-```bash
-python3 -m pytest
+### Configuration
+Ensure your environment variables are configured in `.env`:
+```env
+FYERS_APP_ID="your_app_id"
+FYERS_SECRET_KEY="your_secret"
+SCRAPERAPI_KEY="your_scraperapi_key"
+DATABASE_URL="postgres://..."
 ```
 
-### Build & Run Web Application
+### Running the System
 ```bash
 python3 app/main.py
 ```
 
----
+## Documentation
 
-## 🔒 Verification & Release Integrity
-Every commit is validated through 13 automated deployment gates including cold-start execution checks, AST reflection signature audits, memory budget checks ($< 450.0$ MB), and API version endpoint validation (`GET /version`). Documentation verified against commit `920de35e7eedd09231a93740b47b3f08e1548cdc`.
+The architecture and engineering specifications for this project are formally maintained in two canonical documents. **No architectural descriptions belong in this README.**
+
+1. **[System Guide](docs/SYSTEM_GUIDE.md)**: The operational and architectural guide. Read this to understand how the system executes, how it manages state, and how to debug it.
+2. **[Engineering Specification](docs/ENGINEERING_SPECIFICATION.md)**: The rebuild guide. Read this to understand the data contracts, threading models, architectural invariants, and exact specifications necessary to reconstruct the platform.
+
+*For versioned architectural changes, see the [Changelog](docs/CHANGELOG.md).*

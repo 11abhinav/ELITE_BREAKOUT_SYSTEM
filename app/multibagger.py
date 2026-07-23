@@ -243,14 +243,10 @@ def batch_download_market_data(symbols: list) -> dict:
                     else:
                         avg_turnover = 0.0
                 
-                    sma_20 = float(close_series.rolling(20).mean().iloc[-1])
-                    sma_50 = float(close_series.rolling(50).mean().iloc[-1])
-                
-                    window_200 = min(200, len(close_series))
-                    sma_200_series = close_series.rolling(window_200).mean()
-                    sma_200 = float(sma_200_series.iloc[-1])
-                    sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
-                
+                    hist_idx_6m = min(120, len(close_series) - 1)
+                    close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
+                    mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
+                    
                     high_20d = float(close_series.rolling(20).max().iloc[-1])
                     high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
                 
@@ -258,31 +254,24 @@ def batch_download_market_data(symbols: list) -> dict:
                     close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
                     mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
                 
-                    hist_idx_6m = min(120, len(close_series) - 1)
-                    close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
-                    mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
-                
                     latest_volume = float(vol_series.iloc[-1])
                     volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
                 
-                    if "High" in ticker_df.columns and "Low" in ticker_df.columns:
-                        high = ticker_df["High"]
-                        low = ticker_df["Low"]
-                        shifted_close = close_series.shift(1)
-                        tr1 = high - low
-                        tr2 = (high - shifted_close).abs()
-                        tr3 = (low - shifted_close).abs()
-                        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-                        atr_14 = float(tr.rolling(14).mean().iloc[-1])
-                    else:
-                        atr_14 = close_price * 0.05
+                    from indicator_manager import manager
+                    bundle = manager.compute_base_indicators(ticker_df, sym)
                     
-                    ema_20 = float(close_series.ewm(span=20, adjust=False).mean().iloc[-1])
+                    sma_20 = float(bundle.sma_20.iloc[-1]) if bundle.sma_20 is not None and not bundle.sma_20.empty else close_price
+                    sma_50 = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
+                    sma_200 = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
+                    sma_200_yesterday = float(bundle.sma_200.iloc[-2]) if bundle.sma_200 is not None and len(bundle.sma_200) >= 2 else sma_200
+                    
+                    atr_14 = float(bundle.atr_14.iloc[-1]) if bundle.atr_14 is not None and not bundle.atr_14.empty else (close_price * 0.05)
+                    ema_20 = float(bundle.ema_20.iloc[-1]) if bundle.ema_20 is not None and not bundle.ema_20.empty else close_price
                 
                     closes_below_sma200_count = 0
-                    if len(close_series) >= 5 and len(sma_200_series.dropna()) >= 5:
+                    if len(close_series) >= 5 and bundle.sma_200 is not None and len(bundle.sma_200.dropna()) >= 5:
                         last_5_closes = close_series.iloc[-5:]
-                        last_5_smas = sma_200_series.iloc[-5:]
+                        last_5_smas = bundle.sma_200.iloc[-5:]
                         closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
                 
                     results[sym] = StockPriceData(

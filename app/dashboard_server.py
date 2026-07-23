@@ -2065,80 +2065,46 @@ _indices_lock = threading.Lock()
 @app.route("/api/indices")
 @login_required
 def api_indices():
-    """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching using Fyers API."""
+    """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching using UnifiedFetcher."""
     with _indices_lock:
         cache = _get_indices_cache()
         if cache.get("data") and (time.time() - cache.get("timestamp", 0) < 60):
             return jsonify(cache["data"])
-        
+            
+    symbols_to_fetch = ["NIFTY 50", "BANKNIFTY", "SENSEX"]
+    data = {}
+    
     try:
-        # Fyers Index Symbols
-        symbols = {
-            "NIFTY 50": "NSE:NIFTY50-INDEX", 
-            "BANKNIFTY": "NSE:NIFTYBANK-INDEX", 
-            "SENSEX": "BSE:SENSEX-INDEX"
-        }
-        data = {}
+        from data_providers.unified_fetcher import fetcher
+        results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
         
-        from fyers_auth import get_fyers_client
-        fyers = get_fyers_client()
-        
-        fyers_symbol_str = ",".join(symbols.values())
-        if fyers:
-            response = fyers.quotes({"symbols": fyers_symbol_str})
-            if response and response.get("s") == "ok":
-                for item in response.get("d", []):
-                    if item.get("s") == "ok" and "v" in item:
-                        v = item["v"]
-                        lp = v.get("lp", 0)
-                        prev_close = v.get("prev_close_price", lp) # Fyers returns prev_close_price
-                        
-                        sym = item.get("n")
-                        # Map back to display name
-                        display_name = ""
-                        for name, f_sym in symbols.items():
-                            if f_sym == sym:
-                                display_name = name
-                                break
-                                
-                        if display_name:
-                            pct_change = 0.0
-                            if lp and prev_close:
-                                pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
-                            data[display_name] = {"price": lp, "pct_change": pct_change}
-        
-        # If Fyers failed or didn't return all, fallback to yfinance
-        if len(data) < len(symbols):
-            logger.info("Fyers failed or partial for indices, falling back to yfinance")
-            yf_symbols = {"NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "SENSEX": "^BSESN"}
-            import yfinance as yf
-            from yf_rate_limiter import acquire as yf_acquire, release as yf_release
-            for name, sym in yf_symbols.items():
-                if name in data:
-                    continue
-                try:
-                    yf_acquire(context=f"DashboardServer.indices | {sym}")
-                    try:
-                        ticker = yf.Ticker(sym)
-                        info = ticker.fast_info
-                        price = float(info.last_price)
-                        prev_close = float(info.previous_close)
-                        pct_change = round(((price - prev_close) / prev_close) * 100, 2) if prev_close else 0.0
-                        data[name] = {"price": price, "pct_change": pct_change}
-                    finally:
-                        yf_release()
-                except Exception as e:
-                    logger.warning(f"Failed to fetch index {sym} via yf: {e}")
-            
-        with _indices_lock:
-            cache = _get_indices_cache()
-            cache["data"] = data
-            cache["timestamp"] = time.time()
-            
-        return jsonify(data)
+        for sym, quote in results.items():
+            if "v" in quote and "cmd" in quote["v"]:
+                lp = quote["v"]["cmd"]["c"]
+                prev_close = quote["v"]["cmd"].get("pc", lp)
+                pct_change = 0.0
+                if lp and prev_close:
+                    pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
+                data[sym] = {"price": lp, "pct_change": pct_change}
+                
     except Exception as e:
-        logger.warning(f"Failed to fetch indices: {e}")
-        return jsonify(_get_indices_cache().get("data") or {})
+        logger.error(f"Error fetching indices via UnifiedFetcher: {e}")
+        
+    if data:
+        with _indices_lock:
+            # We already hold the lock, just update the global directly or via session manager
+            cache = _get_indices_cache() # This gets the reference to the dict
+            cache["timestamp"] = time.time()
+            cache["data"] = data
+            
+            # If using session context, make sure to save it back
+            from session_context import get_session_manager
+            sm = get_session_manager()
+            if sm and hasattr(sm, 'context') and hasattr(sm.context, 'cache_manager'):
+                registry = sm.context.cache_manager
+                registry.put("indices_cache", cache)
+
+    return jsonify(data)
 
 _news_cache_fallback = {}
 _news_lock = threading.Lock()

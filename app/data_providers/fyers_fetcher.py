@@ -132,10 +132,12 @@ class FyersFetcher(DataFetcher):
             sym = sym.replace("_", "-")
         
         # Map index symbols
-        if sym in ("^NSEI", "NIFTY", "NIFTY-50", "NSEI"):
+        if sym in ("^NSEI", "NIFTY", "NIFTY-50", "NIFTY 50", "NSEI"):
             return "NSE:NIFTY50-INDEX"
         if sym in ("^NSEBANK", "BANKNIFTY", "NSEBANK"):
             return "NSE:NIFTYBANK-INDEX"
+        if sym in ("^BSESN", "SENSEX", "BSE:SENSEX-INDEX"):
+            return "BSE:SENSEX-INDEX"
             
         if sym.startswith("^"):
             # Generic index format

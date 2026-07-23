@@ -35,6 +35,7 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
 
     Inputs
     - hist: expected to contain at least columns ['Close','High','Low','Volume']
+            and an 'attrs' dict with 'symbol' key if populated by pipeline.
 
     The score is a deterministic aggregation of:
       - 6-month return
@@ -55,30 +56,14 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
             return 0, "LOW"
 
     try:
-        df = hist.copy()
+        df = hist
 
         # Normalize length; if very short, return low confidence
         confidence = "HIGH" if len(df) >= 200 else ("MEDIUM" if len(df) >= 60 else "LOW")
 
-        # Simple indicators
-        df["sma_50"] = df["Close"].rolling(window=50, min_periods=10).mean()
-        df["sma_200"] = df["Close"].rolling(window=200, min_periods=50).mean()
-        df["ema_20"] = df["Close"].ewm(span=20, adjust=False).mean()
-
-        # RSI (14)
-        delta = df["Close"].diff()
-        gain = delta.where(delta > 0, 0).rolling(window=14, min_periods=7).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=7).mean()
-        rs = gain / loss
-        df["RSI"] = 100 - (100 / (1 + rs))
-
-        # ATR(14)
-        prev = df["Close"].shift(1)
-        tr1 = (df["High"] - df["Low"]).abs()
-        tr2 = (df["High"] - prev).abs()
-        tr3 = (df["Low"] - prev).abs()
-        df["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        df["ATR"] = df["TR"].rolling(window=14, min_periods=7).mean()
+        symbol = df.attrs.get('symbol', 'UNKNOWN')
+        from indicator_manager import manager
+        bundle = manager.compute_base_indicators(df, symbol)
 
         # 6-month return estimate (approx 126 trading days). If not available, use full-range
         if len(df) >= 126:
@@ -101,8 +86,8 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
 
         # 2) Trend bias: price relative to SMA200 and SMA50
         last_close = _safe_last(df["Close"])
-        last_sma50 = _safe_last(df["sma_50"]) or 0
-        last_sma200 = _safe_last(df["sma_200"]) or 0
+        last_sma50 = _safe_last(bundle.sma_50) if bundle.sma_50 is not None else 0
+        last_sma200 = _safe_last(bundle.sma_200) if bundle.sma_200 is not None else 0
         if last_sma200 and last_close and last_close > last_sma200:
             score += 8
         if last_sma50 and last_close and last_close > last_sma50:
@@ -110,14 +95,15 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
 
         # 3) EMA slope (short-term acceleration)
         try:
-            ema20 = df["ema_20"].dropna()
-            if len(ema20) >= 3 and ema20.iloc[-1] > ema20.iloc[-3]:
-                score += 6
+            if bundle.ema_20 is not None:
+                ema20 = bundle.ema_20.dropna()
+                if len(ema20) >= 3 and ema20.iloc[-1] > ema20.iloc[-3]:
+                    score += 6
         except Exception:
             pass
 
         # 4) RSI sanity: penalize extreme overbought/oversold (gives quality signal)
-        last_rsi = _safe_last(df.get("RSI", pd.Series([])))
+        last_rsi = _safe_last(bundle.rsi_14) if bundle.rsi_14 is not None else None
         if last_rsi is not None:
             if 40 <= last_rsi <= 70:
                 score += 6
@@ -125,7 +111,7 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
                 score += 3
 
         # 5) ATR relative: lower ATR (percent) => higher quality (0-10)
-        last_atr = _safe_last(df.get("ATR", pd.Series([])))
+        last_atr = _safe_last(bundle.atr_14) if bundle.atr_14 is not None else None
         if last_atr and last_close:
             atr_pct = (last_atr / last_close) * 100
             if atr_pct < 1.5:

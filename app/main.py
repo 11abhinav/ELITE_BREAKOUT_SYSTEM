@@ -255,8 +255,26 @@ def _run(name, fn):
         except Exception:
             pass
 
+class InstrumentedLock:
+    def __init__(self, name="scanner_execution_lock"):
+        self.lock = threading.Lock()
+        self.name = name
+        
+    def __enter__(self):
+        wait_start = time.time()
+        self.lock.acquire()
+        wait_time = time.time() - wait_start
+        self._acquire_time = time.time()
+        logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        hold_time = time.time() - self._acquire_time
+        self.lock.release()
+        logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
+
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
-scanner_execution_lock = threading.Lock()
+scanner_execution_lock = InstrumentedLock()
 
 def _run_performance_tracker_single():
     """Runs a single pass of the performance tracker dashboard refresh."""

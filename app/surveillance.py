@@ -8,8 +8,9 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-_blacklist_cache = None
-_blacklist_ts = 0
+from data_registry import registry
+import threading
+
 _BLACKLIST_TTL = 30 * 60  # 30 minutes
 _blacklist_lock = threading.Lock()
 
@@ -20,16 +21,18 @@ def get_live_blacklist() -> set[str]:
     Note: Since this is an in-memory cache, each worker process will fetch
     its own copy every 30 minutes. This is acceptable given the infrequency.
     """
-    global _blacklist_cache, _blacklist_ts, _blacklist_lock
+    global _blacklist_lock
     
     # Return cache if valid (fast path without lock)
-    if _blacklist_cache is not None and (time.monotonic() - _blacklist_ts) < _BLACKLIST_TTL:
-        return _blacklist_cache
+    cached = registry.get("blacklist")
+    if cached is not None and (time.time() - cached.get("ts", 0)) < _BLACKLIST_TTL:
+        return cached["data"]
         
     with _blacklist_lock:
         # Double-check inside lock
-        if _blacklist_cache is not None and (time.monotonic() - _blacklist_ts) < _BLACKLIST_TTL:
-            return _blacklist_cache
+        cached = registry.get("blacklist")
+        if cached is not None and (time.time() - cached.get("ts", 0)) < _BLACKLIST_TTL:
+            return cached["data"]
         
         blacklist = set()
         
@@ -61,9 +64,8 @@ def get_live_blacklist() -> set[str]:
                         for sym in cached_list:
                             blacklist.add(str(sym).strip().upper())
                         logger.info(f"🛡️ Loaded {len(cached_list)} surveillance symbols from fresh Postgres cache (age: {file_age/3600:.1f}h).")
-                        _blacklist_cache = blacklist
-                        _blacklist_ts = time.monotonic()
-                        return _blacklist_cache
+                        registry.put("blacklist", {"ts": time.time(), "data": blacklist})
+                        return blacklist
         except Exception as e:
             logger.warning(f"Failed to load fresh Postgres surveillance cache: {e}")
 
@@ -72,7 +74,7 @@ def get_live_blacklist() -> set[str]:
             from config import DISABLE_NSE_SURVEILLANCE_FETCH
             if DISABLE_NSE_SURVEILLANCE_FETCH:
                 logger.warning("NSE Surveillance fetch is disabled via config. Using existing cache or empty set.")
-                return _blacklist_cache or blacklist
+                return cached["data"] if cached else blacklist
         except ImportError:
             pass
 
@@ -153,8 +155,8 @@ def get_live_blacklist() -> set[str]:
         except Exception as e:
             logger.warning(f"Falling back to stale cache due to NSE fetch failure: {str(e)[:100]}")
             
-            if _blacklist_cache is not None:
-                return _blacklist_cache
+            if cached is not None:
+                return cached["data"]
                 
             try:
                 from database import get_system_state
@@ -167,20 +169,17 @@ def get_live_blacklist() -> set[str]:
                         for sym in cached_list:
                             blacklist.add(str(sym).strip().upper())
                         logger.warning(f"⚠️ Restored {len(cached_list)} blacklisted symbols from Postgres system_state (stale).")
-                        _blacklist_cache = blacklist
-                        _blacklist_ts = time.monotonic()
-                        return _blacklist_cache
+                        registry.put("blacklist", {"ts": time.time(), "data": blacklist})
+                        return blacklist
             except Exception as cache_err:
                 logger.warning(f"Failed to read surveillance Postgres backup: {cache_err}")
                 
         # Update cache
-        _blacklist_cache = blacklist
-        _blacklist_ts = time.monotonic()
-        return _blacklist_cache
+        registry.put("blacklist", {"ts": time.time(), "data": blacklist})
+        return blacklist
 
 def force_refresh_blacklist() -> set[str]:
     """Force a fresh download, ignoring the TTL."""
-    global _blacklist_ts, _blacklist_lock
     with _blacklist_lock:
-        _blacklist_ts = 0  # Invalidates cache
+        registry.put("blacklist", {"ts": 0, "data": set()})  # Invalidates cache
     return get_live_blacklist()
