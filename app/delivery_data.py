@@ -89,10 +89,17 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     from database import get_bhavcopy_cache, save_bhavcopy_cache
     
-    # 1. Check database cache first (Outside lock for speed)
+    # 0. Check in-memory DatasetRegistry first (fastest)
+    registry_key = f"bhavcopy_delivery_{trading_date.isoformat()}"
+    cached_mem = registry.get(registry_key)
+    if cached_mem is not None:
+        return cached_mem
+    
+    # 1. Check database cache next (Outside lock for speed)
     cached_data = get_bhavcopy_cache(trading_date)
     if cached_data:
         logger.info(f"⚡ [DB CACHE HIT] Returning {len(cached_data)} symbols from DB for date: {trading_date}")
+        registry.put(registry_key, cached_data)
         return cached_data
 
     with _delivery_cache_lock:
@@ -100,6 +107,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
         cached_data = get_bhavcopy_cache(trading_date)
         if cached_data:
             logger.info(f"⚡ [DB CACHE HIT] Returning {len(cached_data)} symbols from DB for date: {trading_date} (after waiting for lock)")
+            registry.put(registry_key, cached_data)
             return cached_data
 
         date_str = trading_date.strftime("%d%m%Y")
@@ -223,6 +231,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                         try:
                             mark_success('nse_bhavcopy')
                         except Exception: pass
+                        registry.put(registry_key, final_dict)
                         return final_dict
                 
             except Exception as e:

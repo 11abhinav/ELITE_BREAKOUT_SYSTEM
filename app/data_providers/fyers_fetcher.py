@@ -147,7 +147,7 @@ class FyersFetcher(DataFetcher):
         # BSE numeric scrip codes instead of ticker names (e.g. NSDL = BSE:544467-EQ).
         # Add entries here whenever a stock fails with both -EQ and -BE on the name.
         _bse_scrip_overrides = {
-            "NSDL": "BSE:544467-EQ",   # National Securities Depository Ltd (BOM:544467)
+            "NSDL": "BSE:544467-A",   # National Securities Depository Ltd (BOM:544467), Group A
         }
         if sym in _bse_scrip_overrides:
             return _bse_scrip_overrides[sym]

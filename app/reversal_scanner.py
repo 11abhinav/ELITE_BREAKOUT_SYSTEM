@@ -457,8 +457,6 @@ def _run_scan(force: bool = False):
         logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
 
     from database import get_recent_alerts_for_scanner, get_all_failed_reversal_cooldown_symbols
-
-    from database import get_recent_alerts_for_scanner, get_all_failed_reversal_cooldown_symbols
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES["REVERSAL"])
     failed_reversal_cooldown_symbols = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
 
@@ -515,7 +513,6 @@ def _run_scan(force: bool = False):
                     continue
                     
                 from core_enums import ProviderResult
-                import pandas as pd
                 valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 total_fetched_count += valid_fetches
                 rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
@@ -538,15 +535,20 @@ def _run_scan(force: bool = False):
                             logger.info(f"[REVERSAL] {symbol} skipped: failed reversal cooldown active")
                             continue
 
-                        if symbol not in all_ticker_data or all_ticker_data[symbol] is None:
+                        # Robust symbol resolution across .NS / .BO suffixes
+                        ticker_data = all_ticker_data.get(symbol)
+                        if ticker_data is None:
+                            ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
+
+                        if ticker_data is None:
                             logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
                             rejected["no_data"] += 1
                             provider_stats_counts["EMPTY_DATA"] += 1
                             scan_failures.append(ScanFailure(symbol=symbol, scanner_name="REVERSAL", provider="unknown", failure_reason="missing data", scan_id=scan_id, stage="data_fetch"))
                             continue
                 
-                        if isinstance(all_ticker_data[symbol], ProviderResult):
-                            res = all_ticker_data[symbol]
+                        if isinstance(ticker_data, ProviderResult):
+                            res = ticker_data
                             provider_stats_counts[res.name] += 1
                             scan_failures.append(ScanFailure(symbol=symbol, scanner_name="REVERSAL", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id, stage="data_fetch"))
                             rejected["no_data"] += 1
@@ -554,7 +556,7 @@ def _run_scan(force: bool = False):
                         else:
                             provider_stats_counts["SUCCESS"] += 1
 
-                        ticker = all_ticker_data[symbol].copy()
+                        ticker = ticker_data.copy()
             
                         if ticker.empty:
                             logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
@@ -576,7 +578,8 @@ def _run_scan(force: bool = False):
                             rejected["insufficient_bars"] += 1
                             continue
 
-                        ticker = apply_indicators(ticker, timeframe="1d")
+                        # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
+                        # ticker = apply_indicators(ticker, timeframe="1d")
                         if ticker is None or ticker.empty:
                             logger.debug(f"[REVERSAL] {symbol} rejected: apply_indicators returned empty/None")
                             rejected["no_data"] += 1
@@ -1217,6 +1220,8 @@ def _run_scan(force: bool = False):
         logger.warning(f"Failed to log funnel telemetry: {e}")
 
     elapsed_time_final = (datetime.now(IST) - scan_start).total_seconds()
+    logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
+    logger.info(f"📊 Final Rejections: {dict(rejected)}")
     logger.info(f"✅ [COMPLETE] REVERSAL SCAN DONE | {elapsed_time_final:.2f}s | Found {total_alerts} bottoming stocks.")
 
     try:

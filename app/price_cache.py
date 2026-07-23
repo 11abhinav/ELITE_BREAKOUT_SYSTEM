@@ -57,7 +57,7 @@ def _log_cache_timeline():
                 if df is not None and not df.empty:
                     dfs_in_key += 1
                     try:
-                        key_mb += df.memory_usage(deep=True).sum() / (1024 * 1024)
+                        key_mb += df.memory_usage(deep=False).sum() / (1024 * 1024)
                     except Exception:
                         pass
             
@@ -391,6 +391,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     else:
                         last_ts = pd.to_datetime(cached_df.index[-1])
                         
+                    if pd.isna(last_ts):
+                        raise ValueError("last_ts is NaT, cache file might be corrupt")
+                        
                     if last_ts.tzinfo is None:
                         last_ts = last_ts.tz_localize(IST)
                     else:
@@ -406,6 +409,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     if is_up_to_date:
                         if is_long_enough:
+                            # [PERFORMANCE_FIX] Ensure legacy cache files missing indicators are updated
+                            if not cached_df.empty and "EMA20" not in cached_df.columns:
+                                from technical_indicators import apply_indicators
+                                cached_df = apply_indicators(cached_df, timeframe=interval)
+                                try:
+                                    # We don't have the strict pyarrow type-casting here, but it's okay for legacy update
+                                    cached_df.to_parquet(file_path)
+                                except Exception as e:
+                                    logger.warning(f"Failed to resave enriched legacy cache for {sym}: {e}")
+                                    
                             all_data[sym] = cached_df
                             needs_full = False
                             fresh_count += 1
@@ -586,6 +599,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             if time_col:
                                 new_df = new_df.reset_index(drop=True)
                             all_data[sym] = new_df
+                            
+                        # [PERFORMANCE_FIX] Pre-calculate all indicators before caching to disk.
+                        # This prevents 5,000 O(N) calculations in the scanner loops, saving ~4 mins per run.
+                        if not all_data[sym].empty:
+                            from technical_indicators import apply_indicators
+                            all_data[sym] = apply_indicators(all_data[sym], timeframe=interval)
                             
                         # If this was a FULL fetch for a long historical period, record the earliest available date
                         # [VERSION: CACHE_POISON_FIX] Require at least 10 bars to prevent a failed 1-bar fallback from poisoning the IPO date
@@ -938,7 +957,7 @@ def get_price_cache_stats() -> dict:
                 for df in entry["data"].values():
                     if isinstance(df, pd.DataFrame):
                         try:
-                            total_bytes += df.memory_usage(deep=True).sum()
+                            total_bytes += df.memory_usage(deep=False).sum()
                         except Exception:
                             pass
         return {
@@ -950,7 +969,6 @@ def get_price_cache_stats() -> dict:
 
 def clear_price_cache():
     """Explicitly release all in-memory price dataframes and trim heap allocation."""
-    global _cache, _cache_hits, _cache_misses
     stats_before = get_price_cache_stats()
     with _lock:
         for k, entry in list(_cache.items()):

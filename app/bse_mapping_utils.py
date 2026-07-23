@@ -103,7 +103,6 @@ def save_bse_mapping(original_sym: str, mapped_sym: str) -> None:
         logger.warning(f"Failed to save BSE symbol mapping to DB: {e}")
 
 def mark_bse_invalid(original_sym: str) -> None:
-    global _bse_mappings_cache, _bse_invalid_cache
     orig_clean = original_sym.strip().upper()
     if orig_clean.endswith(".NS") or orig_clean.endswith(".BO"):
         orig_clean = orig_clean[:-3]

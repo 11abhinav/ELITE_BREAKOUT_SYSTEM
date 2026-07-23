@@ -158,10 +158,12 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     df = strip_forming_candle(df, 60, datetime.now(IST))
                     if df is None or df.empty or len(df) < 2:
                         continue
-                    df = apply_indicators(df, timeframe="1h")
+                    # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
+                    # df = apply_indicators(df, timeframe="1h")
                     if df is None or df.empty:
+                        # rejections["indicator_fail"] += 1
                         continue
-                
+                    
                     # Validate indicator columns
                     required_cols = ["EMA9", "EMA20", "SMA50", "SMA200", "ADX", "PRIOR_20D_HIGH"]
                     if not all(col in df.columns for col in required_cols):
@@ -472,7 +474,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase B: insufficient 30m data")
                         continue
-                    df = apply_indicators(df, timeframe="30m")
+                    # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
+                    # df = apply_indicators(df, timeframe="30m")
                     if df.empty:
                         logger.debug(f"⏭️ {symbol} phase B: indicators failed to compute")
                         continue
@@ -543,7 +546,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase C: insufficient 15m data")
                         continue
-                    df = apply_indicators(df, timeframe="15m")
+                    # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
+                    # df = apply_indicators(df, timeframe="15m")
                     if df.empty:
                         logger.debug(f"⏭️ {symbol} phase C: indicators failed to compute")
                         continue
@@ -1021,6 +1025,8 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
             logger.info("=========================================")
+            logger.info(f"📊 Hourly Phase: {dict(metrics_a)}")
+            logger.info(f"📊 Lower TF Phase: {dict(metrics_b)}")
             logger.info(f"✅ [COMPLETE] MULTI-TF LADDER DONE | {elapsed_time:.2f}s | Status=OK")
             logger.info("=========================================")
 

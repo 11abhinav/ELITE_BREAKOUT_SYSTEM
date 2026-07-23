@@ -250,8 +250,8 @@ def log_object_inventory():
     for obj in objects:
         if isinstance(obj, pd.DataFrame):
             try:
-                # deep=True ensures we count strings/objects properly
-                total_pd_bytes += obj.memory_usage(deep=True).sum()
+                # Use deep=False for O(1) shallow memory tracking instead of O(N) deep introspection
+                total_pd_bytes += obj.memory_usage(deep=False).sum()
                 pd_count += 1
             except Exception:
                 pass
@@ -388,7 +388,7 @@ def inspect_largest_global_objects(top_n: int = 10):
             
             if isinstance(obj, pd.DataFrame):
                 try:
-                    mem_mb = obj.memory_usage(deep=True).sum() / (1024 * 1024)
+                    mem_mb = obj.memory_usage(deep=False).sum() / (1024 * 1024)
                     length = len(obj)
                 except Exception:
                     pass
@@ -478,7 +478,7 @@ def get_dataframe_inventory():
     for obj in gc.get_objects():
         if isinstance(obj, pd.DataFrame):
             try:
-                mem = obj.memory_usage(deep=True).sum()
+                mem = obj.memory_usage(deep=False).sum()
                 r = len(obj)
                 c = len(obj.columns)
                 total_bytes += mem

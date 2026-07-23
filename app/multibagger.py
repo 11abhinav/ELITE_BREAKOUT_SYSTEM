@@ -1371,7 +1371,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         else:
             raw_fundamentals["relative_volume_10d"] = 1.0
             
-                # Calculate proxy RS Rating from 6-month momentum
+        # Calculate proxy RS Rating from 6-month momentum
         mom = getattr(price_data, 'mom_6m', 0.0)
         if mom > 0.40: rs = 95.0
         elif mom > 0.20: rs = 85.0

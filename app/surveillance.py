@@ -21,7 +21,6 @@ def get_live_blacklist() -> set[str]:
     Note: Since this is an in-memory cache, each worker process will fetch
     its own copy every 30 minutes. This is acceptable given the infrequency.
     """
-    global _blacklist_lock
     
     # Return cache if valid (fast path without lock)
     cached = registry.get("blacklist")

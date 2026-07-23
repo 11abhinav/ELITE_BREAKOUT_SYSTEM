@@ -1918,9 +1918,6 @@ def api_scanner_status():
 
         health_rows = get_all_scanner_health()
         result = {}
-        
-        global _cached_worker_symbols, _cached_worker_symbols_time
-            
         for row in health_rows:
             sc = row["scanner_name"]
             today_trades = get_scanner_today_trades(sc, today_str)

@@ -60,12 +60,12 @@ class SymbolMasterValidator(BaseValidator):
             
         # Check for mandatory values missing in key identifiers
         if df["SYMBOL"].isna().any() or df["ISIN"].isna().any() or df["SYMBOL"].eq("").any() or df["ISIN"].eq("").any():
-             result.schema_failures.append(ValidationFailure(
+            result.schema_failures.append(ValidationFailure(
                 code=FailureCode.SCH001,
                 severity=Severity.CRITICAL,
                 message="Mandatory values missing (SYMBOL or ISIN cannot be null/empty)"
             ))
-             return
+            return
 
         numeric_cols = ["LOT_SIZE", "FACE_VALUE"]
         try:
@@ -176,10 +176,10 @@ class SymbolMasterValidator(BaseValidator):
             duplicate_isins = df["ISIN"].duplicated(keep=False)
             dup_isin_count = duplicate_isins.sum()
             if dup_isin_count > 0:
-                 # Note: We do NOT append to historical_failures. We track it as a warning metric.
-                 # Let's create a custom metric or just piggyback on an existing warning structure
-                 # We can use invalid_prices as a general bad_row_count to drop the score
-                 result.metrics.invalid_prices += int(dup_isin_count)
+                # Note: We do NOT append to historical_failures. We track it as a warning metric.
+                # Let's create a custom metric or just piggyback on an existing warning structure
+                # We can use invalid_prices as a general bad_row_count to drop the score
+                result.metrics.invalid_prices += int(dup_isin_count)
             
             # Dataset Size Anomaly
             # To avoid hardcoding, we would theoretically compare against `context.cache_df` or a rolling metric.

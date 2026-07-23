@@ -67,7 +67,6 @@ def load_fyers_invalid():
     return _fyers_invalid_cache if _fyers_invalid_cache is not None else set()
 
 def mark_fyers_invalid(symbol: str):
-    global _fyers_mappings_cache, _fyers_invalid_cache
     invalid = load_fyers_invalid()
     if symbol in invalid:
         return

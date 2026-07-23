@@ -151,12 +151,12 @@ class BhavcopyValidator(BaseValidator):
             # For cross-sectional data of a single day, all timestamps are identical, so it's technically monotonic.
             
             if duplicates > 0:
-                 result.historical_failures.append(ValidationFailure(
+                result.historical_failures.append(ValidationFailure(
                     code=FailureCode.HIS003,
                     severity=Severity.CRITICAL,
                     message=f"Duplicate primary key (SYMBOL + TIMESTAMP) detected: {duplicates} rows"
                 ))
-                 return
+                return
                  
             # Check for duplicate ISINs (Only if valid ISINs exist)
             if "ISIN" in df.columns and not df["ISIN"].isna().all() and (df["ISIN"] != "UNKNOWN_ISIN").all():

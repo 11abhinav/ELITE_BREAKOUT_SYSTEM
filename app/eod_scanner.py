@@ -373,7 +373,10 @@ def _start_wrapper(force: bool = False):
                                 rejection_counts["insufficient_bars"] += 1
                                 continue
 
-                            ticker = apply_indicators(ticker, timeframe="1d")
+                            # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
+                            # immediately after downloading the dataset. Doing it once there instead of 
+                            # 5000 times here eliminates 4-5 minutes of latency per batch!
+                            # ticker = apply_indicators(ticker, timeframe="1d")
 
                             if ticker is None or ticker.empty:
                                 rejection_counts["indicator_fail"] += 1
@@ -674,18 +677,18 @@ def _start_wrapper(force: bool = False):
                                 logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
                                 continue
 
+                            signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
+
                             # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                             if score < global_min_score:
                                 rejection_counts["low_score"] += 1
                                 try:
                                     from near_miss_tracker import log_near_miss
-                                    log_near_miss(symbol, "EOD", primary_signal, "score_threshold", score, global_min_score, score=score)
+                                    log_near_miss(symbol, "EOD", signal_str, "score_threshold", score, global_min_score, score=score)
                                 except Exception:
                                     pass
                                 continue
 
-
-                            signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
                             dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 
                             # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
@@ -1034,6 +1037,8 @@ def _start_wrapper(force: bool = False):
             elapsed_time = (datetime.now(IST) - start_time).total_seconds()
             logger.info("\n" + "=" * 80)
             logger.info(f"🛑🛑🛑 [COMPLETE] EOD SCANNER DONE | {elapsed_time:.2f}s | Alerts={total_alerts} | Status={status} 🛑🛑🛑")
+            logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
+            logger.info(f"📊 Final Rejections: {dict(rejection_counts)}")
             logger.info("=" * 80 + "\n")
 
             try:

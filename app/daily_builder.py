@@ -240,7 +240,6 @@ def fetch_universe() -> pd.DataFrame:
 
 def _load_blacklist():
     """Loads CSV promoter blacklist + daily live NSE ASM/GSM surveillance lists."""
-    global _BLACKLIST_SYMBOLS
     _BLACKLIST_SYMBOLS.clear()
     
     from surveillance import force_refresh_blacklist
@@ -985,8 +984,6 @@ def _main_wrapper(force_rebuild: bool = False):
     from datetime import datetime, time as dt_time
     from zoneinfo import ZoneInfo
     from config import WATCHLIST_PATH, MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST
-    
-    global _DELIVERY_DATA, _INST_BUYS
     
 
 

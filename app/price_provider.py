@@ -168,7 +168,7 @@ class PriceProvider:
                     df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True)
                 
                 duration = time.monotonic() - start_time
-                bytes_dl = df.memory_usage(deep=True).sum() if (pd is not None and hasattr(df, 'memory_usage')) else 0
+                bytes_dl = df.memory_usage(deep=False).sum() if (pd is not None and hasattr(df, 'memory_usage')) else 0
                 if isinstance(bytes_dl, pd.Series):
                     bytes_dl = bytes_dl.sum()
                 

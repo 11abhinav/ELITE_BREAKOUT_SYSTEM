@@ -113,7 +113,8 @@ class PipelineRunner:
         # ──────────────────────────────────────────────────────────
         # 2. Indicators Stage
         # ──────────────────────────────────────────────────────────
-        ticker = apply_indicators(ticker, timeframe="1d")
+        # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
+        # ticker = apply_indicators(ticker, timeframe="1d")
         
         if ticker is None or ticker.empty:
             rejection_reason = "indicator_fail"

@@ -23,7 +23,7 @@ class EmergingEngine:
                 total_conf += res.confidence
                 
         if not expected:
-             return PillarResult(name=name, score=0.0, confidence=0.0, metrics=[])
+            return PillarResult(name=name, score=0.0, confidence=0.0, metrics=[])
              
         avg_score = total_score / len(expected)
         avg_conf = total_conf / len(expected) if cat_metrics else 0.0

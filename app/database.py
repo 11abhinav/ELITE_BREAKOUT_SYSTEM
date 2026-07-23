@@ -2559,23 +2559,37 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                     "last_updated": None
                 }
 
-def get_pledge_map(symbols: list[str]) -> dict[str, float]:
+def get_pledge_map(symbols: list[str] = None) -> dict[str, float]:
     """Bulk fetch pledge percentages for a list of symbols to prevent N+1 queries in scanners."""
-    if not symbols:
-        return {}
+    from data_registry import registry
+    
+    # 1. Check in-memory DatasetRegistry
+    cached_pledge = registry.get("promoter_pledge")
+    if cached_pledge is not None:
+        if symbols:
+            return {k: v for k, v in cached_pledge.items() if k in symbols}
+        return cached_pledge
+        
     init_db()
     pledge_map = {}
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                placeholders = ','.join(['%s'] * len(symbols))
-                cur.execute(f"SELECT symbol, pledge_pct FROM promoter_pledge_cache WHERE symbol IN ({placeholders})", tuple(symbols))
+                # Fetch ALL pledge data into memory to populate the registry once
+                cur.execute("SELECT symbol, pledge_pct FROM promoter_pledge_cache")
                 for row in cur.fetchall():
                     val = row[1]
                     if val is not None and float(val) >= 0:
                         pledge_map[row[0]] = float(val)
+                
+                # Save to DatasetRegistry for future fast access
+                registry.put("promoter_pledge", pledge_map)
+                
             except Exception as e:
                 logger.exception("Error getting pledge map")
+                
+    if symbols:
+        return {k: v for k, v in pledge_map.items() if k in symbols}
     return pledge_map
 
 def has_valid_concall_cache(symbol: str) -> bool:
