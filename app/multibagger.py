@@ -624,7 +624,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                     pass
             
             msg = str(e).lower()
-            if "too many requests" in msg or "429" in msg or "crumb" in msg or "unauthorized" in msg:
+            if any(term in msg for term in ["too many requests", "429", "503", "502", "504", "crumb", "unauthorized", "connection termination", "upstream connect", "reset reason", "service unavailable"]):
                 record_rate_limit(context=f"Multibagger Scanner | {symbol}")
                 
             if attempt < 2:

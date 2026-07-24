@@ -376,7 +376,7 @@ def extract_raw_metrics(symbol, bse_code=None, ticker=None):
                 hist = ticker.history(period="1d")
             except Exception as hist_err:
                 msg = str(hist_err).lower()
-                if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                if any(term in msg for term in ["too many requests", "rate limit", "429", "503", "502", "504", "connection termination", "upstream connect", "reset reason"]):
                     record_rate_limit(context=f"extract_raw_metrics | {target_sym}")
                 raise hist_err
             finally:
