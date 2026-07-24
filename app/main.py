@@ -1085,7 +1085,8 @@ def run_system_scheduler():
             from telemetry_manager import telemetry
             telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
             with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
-                run_wealth_scan()
+                from wealth_engine import run_wealth_intraday_update
+                run_wealth_intraday_update()
             
             # [ARCHITECTURAL FIX] Multibagger Exit Monitor decoupled to run_multibagger_exit_monitor thread.
             

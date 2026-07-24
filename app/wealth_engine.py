@@ -6,7 +6,7 @@ import threading
 import pandas as pd
 from typing import Optional, Tuple
 import json
-from config import ACTIVE_ALGO_VERSION
+from config import ACTIVE_ALGO_VERSION, DATA_DIR
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
     import yf_bootstrap
@@ -39,6 +39,8 @@ WORKER_COUNT = 3  # Hardcoded to 3 to prevent OOM kills on Railway (500MB RAM li
 RETRY_ATTEMPTS = 3
 
 logger = logging.getLogger(__name__)
+
+WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 
 # =====================================================================================
 # CONSTANTS — Sector Concentration Limits
@@ -1402,3 +1404,97 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 insert_notification("admin", f"❌ Wealth Engine CRASHED (DOWN)", f"Error: {str(e)[:200]}")
                 send_push_to_all("❌ Wealth Engine DOWN", f"Crash: {str(e)[:100]}")
             except Exception as _fb_e: logger.exception(f"Fallback reporting failed: {_fb_e}")
+
+def run_wealth_intraday_update(is_test_mode=False):
+    """
+    Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
+    Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
+    updates DB position metrics, and refreshes the Wealth Engine dashboard parquet.
+    Does NOT re-download or re-calculate full 1Y historical technicals for 300+ symbols.
+    """
+    start_time = time.time()
+    logger.info("⚡ [WEALTH ENGINE 5M] Starting lightweight intraday portfolio update...")
+    
+    try:
+        if not os.path.exists(WEALTH_PATH):
+            logger.info("⚠️ WEALTH_PATH parquet not found for intraday update. Running full scan once...")
+            return run_wealth_scan(is_test_mode=is_test_mode)
+
+        wealth_df = pd.read_parquet(WEALTH_PATH)
+        if wealth_df.empty or "Stock" not in wealth_df.columns:
+            return run_wealth_scan(is_test_mode=is_test_mode)
+
+        from database import get_open_portfolio
+        portfolio_dict = get_open_portfolio()
+        open_symbols = list(portfolio_dict.keys())
+
+        realtime_metrics = {}
+        if open_symbols:
+            try:
+                from live_prices import get_live_prices
+                realtime_metrics = get_live_prices(open_symbols) or {}
+            except Exception as e:
+                logger.warning(f"Failed to fetch live prices for wealth intraday update: {e}")
+
+        # Update position CMPs and check exit triggers
+        portfolio_rows = []
+        for sym, p_info in portfolio_dict.items():
+            row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict() if sym in wealth_df["Stock"].values else {"Stock": sym}
+            row["entry_price"] = p_info["entry_price"]
+            row["entry_date"] = p_info["entry_date"]
+            if sym in realtime_metrics:
+                row["cmp"] = realtime_metrics[sym]
+                row["used_fallback_data"] = False
+            portfolio_rows.append(row)
+
+        if portfolio_rows:
+            portfolio_df = pd.DataFrame(portfolio_rows)
+            portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
+            if not portfolio_df.empty:
+                sell_signals = portfolio_df[portfolio_df["Exit_Code"] == "SELL"]
+                for _, row in sell_signals.iterrows():
+                    symbol = row.get("Stock")
+                    cmp = row.get("cmp")
+                    exit_reason = row.get("Exit_Reason")
+                    if symbol and cmp:
+                        if is_test_mode:
+                            logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason}")
+                        elif not getattr(database, "DONT_SAVE_WEALTH", False):
+                            from database import close_position
+                            close_position(symbol, cmp, exit_reason)
+
+                port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
+                for sym, info in port_map.items():
+                    if sym in wealth_df["Stock"].values:
+                        idx = wealth_df[wealth_df["Stock"] == sym].index
+                        if "Hold_Score" in wealth_df.columns:
+                            wealth_df.loc[idx, "Hold_Score"] = info.get("Hold_Score")
+                        if "hold_trend" in wealth_df.columns:
+                            wealth_df.loc[idx, "hold_trend"] = info.get("hold_trend")
+                        if info.get("Exit_Code") and "Signal_Code" in wealth_df.columns:
+                            wealth_df.loc[idx, "Signal_Code"] = info.get("Exit_Code")
+                            wealth_df.loc[idx, "Signal_Reason"] = info.get("Exit_Reason")
+
+        # Save updated parquet and DB cache
+        if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
+            wealth_df.to_parquet(WEALTH_PATH)
+            from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
+            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+            if realtime_metrics:
+                update_position_real_time_prices({s: {"price": p, "score": wealth_df[wealth_df["Stock"] == s]["Hold_Score"].iloc[0] if "Hold_Score" in wealth_df.columns and s in wealth_df["Stock"].values else None} for s, p in realtime_metrics.items()})
+
+            duration_sec = round(time.time() - start_time, 1)
+            today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
+            upsert_scanner_health(
+                scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                today_alerts=today_buys, total_count=len(wealth_df),
+                duration_seconds=duration_sec
+            )
+
+        duration_sec = round(time.time() - start_time, 1)
+        logger.info(f"⚡ [WEALTH ENGINE 5M] Intraday portfolio update completed in {duration_sec}s")
+        return wealth_df
+
+    except Exception as e:
+        logger.exception(f"Error in wealth intraday update: {e}")
+        return run_wealth_scan(is_test_mode=is_test_mode)
