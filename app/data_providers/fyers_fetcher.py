@@ -143,12 +143,8 @@ class FyersFetcher(DataFetcher):
             # Generic index format
             return f"NSE:{sym[1:]}-INDEX"
         
-        # [VERSION: FYERS_SCRIP_OVERRIDE_v1.0] Static overrides for stocks where Fyers uses
-        # BSE numeric scrip codes instead of ticker names (e.g. NSDL = BSE:544467-EQ).
-        # Add entries here whenever a stock fails with both -EQ and -BE on the name.
-        _bse_scrip_overrides = {
-            "NSDL": "BSE:544467-A",   # National Securities Depository Ltd (BOM:544467), Group A
-        }
+        # [VERSION: FYERS_SCRIP_OVERRIDE_v1.1] Static overrides for stocks where Fyers uses custom codes.
+        _bse_scrip_overrides = {}
         if sym in _bse_scrip_overrides:
             return _bse_scrip_overrides[sym]
             
@@ -527,7 +523,7 @@ class FyersFetcher(DataFetcher):
         max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
-                executor.submit(self.get_ohlcv, ns_sym, interval, period, retries, range_from, range_to): ns_sym
+                executor.submit(self.get_ohlcv, normalized_map[ns_sym][0], interval, period, retries, range_from, range_to): ns_sym
                 for ns_sym in ns_symbols
             }
             

@@ -41,6 +41,13 @@ def load_fyers_mappings():
                 rows = cur.fetchall()
                 _fyers_mappings_cache = {row[0]: row[1] for row in rows}
                 
+                # Clean up legacy poisoned invalid entries for 544467 / NSDL
+                try:
+                    cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND (original_sym LIKE '%%544467%%' OR original_sym = 'NSDL')")
+                    conn.commit()
+                except Exception:
+                    pass
+
                 # Load INVALID mappings
                 current_time = datetime.now(IST).isoformat()
                 cur.execute("""
@@ -150,3 +157,18 @@ def remove_fyers_mapping(original_sym: str):
         logger.info(f"🗑️ Removed Fyers mapping for: {original_sym}")
     except Exception as e:
         logger.warning(f"Failed to remove Fyers symbol mapping from DB: {e}")
+
+def remove_fyers_invalid(original_sym: str):
+    invalid_set = load_fyers_invalid()
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND original_sym = %s", (original_sym,))
+            conn.commit()
+            
+        if invalid_set and original_sym in invalid_set:
+            invalid_set.discard(original_sym)
+        logger.info(f"✨ Unblacklisted Fyers invalid mapping for: {original_sym}")
+    except Exception as e:
+        logger.warning(f"Failed to unblacklist Fyers symbol {original_sym}: {e}")
