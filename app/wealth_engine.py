@@ -1424,8 +1424,21 @@ def run_wealth_intraday_update(is_test_mode=False):
         if wealth_df.empty or "Stock" not in wealth_df.columns:
             return run_wealth_scan(is_test_mode=is_test_mode)
 
-        from database import get_open_portfolio
-        portfolio_dict = get_open_portfolio()
+        portfolio_dict = {}
+        try:
+            from database import get_connection
+            from psycopg2.extras import RealDictCursor
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT symbol, entry_price, added_at::date AS entry_date FROM manual_portfolio")
+                    for r in cur.fetchall():
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+                    cur.execute("SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    for r in cur.fetchall():
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+        except Exception as _pe:
+            logger.warning(f"Failed to load open portfolio: {_pe}")
+
         open_symbols = list(portfolio_dict.keys())
 
         realtime_metrics = {}
