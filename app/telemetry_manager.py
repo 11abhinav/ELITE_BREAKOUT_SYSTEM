@@ -419,8 +419,13 @@ class TelemetryManager:
             if runtime_sec > self.daily_metrics["slowest_scanner"]["time"]:
                 self.daily_metrics["slowest_scanner"] = {"name": name, "time": runtime_sec}
 
-    def log_session_timeline(self, time_str: str, event_desc: str):
-        logger.info(f"\n[SESSION TIMELINE]\n{time_str}\n{event_desc}\n")
+    # [VERSION: TELEMETRY_TIMELINE_FIX_v1.0] Flexible 1-arg or 2-arg signature support
+    def log_session_timeline(self, first_arg: str, second_arg: Optional[str] = None):
+        if second_arg is None:
+            now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+            logger.info(f"\n[SESSION TIMELINE]\n{now_str} | {first_arg}\n")
+        else:
+            logger.info(f"\n[SESSION TIMELINE]\n{first_arg}\n{second_arg}\n")
 
     # ── Daily Summary (Phase 1 — expanded) ──────────────────────────────────
 

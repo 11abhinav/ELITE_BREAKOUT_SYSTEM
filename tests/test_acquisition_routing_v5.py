@@ -108,3 +108,10 @@ def test_pipeline_telemetry_budgets():
     assert "download" in evals
     assert evals["download"]["status"] in ("PASS", "WARNING", "FAIL")
     assert evals["TOTAL"]["status"] in ("PASS", "WARNING", "FAIL")
+
+def test_telemetry_manager_log_session_timeline():
+    from telemetry_manager import telemetry
+    # Test 1-argument invocation (used across main.py and application_context.py)
+    telemetry.log_session_timeline("Started Test Event Cycle")
+    # Test 2-argument invocation
+    telemetry.log_session_timeline("2026-07-24 07:45:00 IST", "Started Test Event Cycle")
