@@ -257,7 +257,9 @@ def detect_breakouts(df: pd.DataFrame, timeframe: str = "1d") -> Dict[str, Any]:
     # ── WINDOWED BREAKOUTS ────────────────────────────────────────────────────────
     for signal_name, window in windows:
         # [VERSION: FUNC_52W_IPO_FIX] Dynamically scale window for new listings (IPO base breakouts)
-        effective_window = min(window, n - 2) if n > 2 else window
+        if n < 3:
+            continue
+        effective_window = max(2, min(window, n - 2))
         
         if n < effective_window + 1:
             continue

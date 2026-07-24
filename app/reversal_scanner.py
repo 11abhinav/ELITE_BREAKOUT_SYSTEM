@@ -485,8 +485,8 @@ def _run_scan(force: bool = False):
                     for sym, hist_df in all_ticker_data.items():
                         if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
                             snap_df = chunk_snapshots.get(sym) if chunk_snapshots else None
-                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
-                                live_price = snap_df['Close'].iloc[-1]
+                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty and not snap_df['Close'].dropna().empty:
+                                live_price = float(snap_df['Close'].dropna().iloc[-1])
                                 # Ensure we don't mutate the global cache directly
                                 hist_df = hist_df.copy()
                                 last_dt = hist_df.index[-1] if not hist_df.index.empty else None

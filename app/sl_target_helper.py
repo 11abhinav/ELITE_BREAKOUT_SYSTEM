@@ -1006,17 +1006,37 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
             c_dict["selection_state"] = "REJECTED"
         pool.append(c_dict)
 
-    t1 = targets.get("t1", entry)
-    t1_src = targets.get("t1_cluster").candidates[0].source.name if targets.get("t1_cluster") else "UNKNOWN"
-    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
-    
+    # [VERSION: EOD_TARGET_CLUSTER_FALLBACK_v1.0] Next-cluster target fallback for EOD mode.
+    # If nearest cluster (t1) R:R is < min_rr, evaluate subsequent target clusters (t2, t3) before triggering rejection.
     min_rr = MIN_NATURAL_RR.get("EOD", 2.5)
-    if natural_rr_val < min_rr:
+    risk_amount = abs(entry - sl_data["raw_sl"])
+    
+    valid_target = None
+    valid_t_src = "UNKNOWN"
+    valid_rr = 0.0
+    
+    for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
+        cand_t = targets.get(t_cand_key)
+        if cand_t and cand_t > entry and risk_amount > 0:
+            rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
+            if rr_candidate >= min_rr:
+                valid_target = cand_t
+                valid_rr = rr_candidate
+                valid_t_src = targets.get(t_clust_key).candidates[0].source.name if targets.get(t_clust_key) else "UNKNOWN"
+                break
+
+    if not valid_target:
+        t1_fallback = targets.get("t1", entry)
+        natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
             "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
             "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
+
+    t1 = valid_target
+    t1_src = valid_t_src
+    natural_rr_val = valid_rr
 
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1063,12 +1083,12 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     
     # Filter only above entry and enforce MIN_NATURAL_RR
     min_rr = MIN_NATURAL_RR.get("REVERSAL", 2.0)
-    risk = abs(entry - sl_data["raw_sl"])
+    risk = max(0.001 * entry, abs(entry - sl_data["raw_sl"]))
     
     valid_cands = []
     for c in cands:
         if c.price > entry:
-            rr = (c.price - entry) / risk if risk > 0 else 0
+            rr = (c.price - entry) / risk
             if rr >= min_rr:
                 valid_cands.append(c)
                 
@@ -1091,7 +1111,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     t3 = clusters[2].consensus_price if len(clusters) > 2 else None
     
     explanation = t1_cluster.analysis.explanation if t1_cluster and t1_cluster.analysis else {}
-    natural_rr_val = round(abs(t1 - entry) / abs(entry - sl_data["raw_sl"]), 2) if sl_data["raw_sl"] != entry else 0.0
+    natural_rr_val = round(abs(t1 - entry) / risk, 2)
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
