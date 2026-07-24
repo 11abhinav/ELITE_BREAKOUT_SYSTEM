@@ -324,18 +324,31 @@ class InstrumentedLock:
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = InstrumentedLock()
 
+def format_duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return "0.0s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}m {secs}s"
+
 def _run_performance_tracker_single():
     """Runs a single pass of the performance tracker dashboard refresh."""
     from performance_tracker import build_performance_data
     from database import upsert_scanner_health
+    start_time = time.time()
     try:
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_START")
         build_performance_data()
+        duration_sec = round(time.time() - start_time, 1)
+        logger.info(f"✅ PERFORMANCE TRACKER | Refresh completed in {format_duration(duration_sec)}")
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 5min (all day)"
+            scheduled_for="Every 5min (all day)",
+            duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
     except Exception as e:
@@ -356,16 +369,19 @@ def _run_multibagger_exit_single():
     """Runs a single pass of the Multibagger Exit Monitor."""
     from database import upsert_scanner_health
     from multibagger import run_standalone_exit_monitor
-    
+    start_time = time.time()
     try:
         logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
         run_standalone_exit_monitor()
+        duration_sec = round(time.time() - start_time, 1)
+        logger.info(f"✅ MULTIBAGGER EXIT | Completed in {format_duration(duration_sec)}")
         upsert_scanner_health(
             "MULTIBAGGER_EXIT", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 15min (market hours)"
+            scheduled_for="Every 15min (market hours)",
+            duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
     except Exception as e:
@@ -583,6 +599,7 @@ def _run_eod_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify EOD previous run status: {e}")
         
+        start_time = time.time()
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
@@ -591,18 +608,20 @@ def _run_eod_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
                     total = eod_scanner.start()   # returns int
+            duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
-                logger.info("📊 EOD | Zero alerts — no Telegram notification")
+                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
             else:
-                logger.info(f"📊 EOD | Completed — {total} alert(s) sent")
+                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
             
             upsert_scanner_health(
                 "EOD",
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="21:00 IST"
+                scheduled_for="21:00 IST",
+                duration_seconds=duration_sec
             )
             try:
                 from performance_tracker import trigger_performance_rebuild
@@ -673,6 +692,7 @@ def _run_reversal_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify REVERSAL previous run status: {e}")
         
+        start_time = time.time()
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
@@ -681,18 +701,20 @@ def _run_reversal_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
                     total = reversal_scanner.start()   # returns int
+            duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
-                logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification")
+                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
             else:
-                logger.info(f"🔄 REVERSAL | Completed — {total} alert(s) sent")
+                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
             
             upsert_scanner_health(
                 "REVERSAL",
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="21:00 IST"
+                scheduled_for="21:00 IST",
+                duration_seconds=duration_sec
             )
             try:
                 from performance_tracker import trigger_performance_rebuild
@@ -762,6 +784,7 @@ def _run_pullback_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify PULLBACK previous run status: {e}")
         
+        start_time = time.time()
         try:
             logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
@@ -770,9 +793,10 @@ def _run_pullback_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
                     total = pullback_pipeline.start()
+            duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
-            logger.info(f"📊 PULLBACK | Completed — {total} alert(s) generated")
-            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="21:00 IST")
+            logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
+            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="21:00 IST", duration_seconds=duration_sec)
             return
         except Exception as exc:
             if "actively running" in str(exc).lower():
@@ -973,6 +997,7 @@ def run_system_scheduler():
 
     def safe_run_wealth_scan_initial():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
+        start_time = time.time()
         try:
             logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
@@ -981,15 +1006,17 @@ def run_system_scheduler():
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
                 run_wealth_scan()
             
+            duration_sec = round(time.time() - start_time, 1)
             # Mark success
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="02:00 IST"
+                scheduled_for="02:00 IST",
+                duration_seconds=duration_sec
             )
-            logger.info("✅ Wealth Engine (initial) completed successfully")
+            logger.info(f"✅ Wealth Engine (initial) completed successfully in {format_duration(duration_sec)}")
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_COMPLETE")
             telemetry.log_session_timeline("Completed Wealth Engine Initial Setup Cycle Successfully")
             with MemoryProfiler("Cleanup - WEALTH", force_gc_cleanup=True):
@@ -1014,6 +1041,7 @@ def run_system_scheduler():
     def safe_run_wealth_market_hours():
         """Run Wealth Engine during market hours (5-min loop from 9:15 AM to 3:30 PM)."""
         nonlocal last_wealth_market_run
+        start_time = time.time()
         try:
             now = datetime.now(IST)
             # Only run once per 5 minutes (300 seconds)
@@ -1029,15 +1057,17 @@ def run_system_scheduler():
             # [ARCHITECTURAL FIX] Multibagger Exit Monitor decoupled to run_multibagger_exit_monitor thread.
             
             last_wealth_market_run = now
+            duration_sec = round(time.time() - start_time, 1)
             # Mark success
             now_str = now.isoformat()
             upsert_scanner_health(
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+                scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                duration_seconds=duration_sec
             )
-            logger.info("✅ Wealth Engine (market hours) completed successfully")
+            logger.info(f"✅ Wealth Engine (market hours) completed successfully in {format_duration(duration_sec)}")
             return True
         except Exception as e:
             if "actively running" in str(e).lower():
@@ -1571,16 +1601,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     
     # Run in background thread so the API returns immediately
     def _run():
+        start_time = time.time()
         try:
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
             with scanner_execution_lock:
                 logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
                 upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 stats = fn() or {}
+            duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
+            logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
                                   error_msg=None,
+                                  duration_seconds=duration_sec,
                                   total_count=stats.get("total_count") if isinstance(stats, dict) else None,
                                   processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
                                   today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
@@ -1588,7 +1622,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             try:
                 from database import insert_notification
                 # We format a nice summary for the admin notification
-                summary = f"Total Scanned: {stats.get('total_count', 'N/A')}" if isinstance(stats, dict) else "Completed."
+                dur_str = f"Time: {format_duration(duration_sec)}"
+                summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
                 # Skip duplicate notification for scanners that emit their own detailed completion notifications
                 if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine"]:
                     insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
