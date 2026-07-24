@@ -206,6 +206,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         else:
                             provider_stats_counts["SUCCESS"] += 1
 
+                        if (symbol, "PULLBACK") in cooldown_alerts:
+                            logger.info(f"REJECTION: {symbol} (Phase: COOLDOWN_GATE, Reason: Cooldown active from recent Pullback alert)")
+                            rejected["cooldown"] = rejected.get("cooldown", 0) + 1
+                            continue
+
                         df = ticker_data.copy()
                         if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
                             logger.info(f"REJECTION: {symbol} (Phase: BAR_HISTORY, Reason: Insufficient bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)}))")

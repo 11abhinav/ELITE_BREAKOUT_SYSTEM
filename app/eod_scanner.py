@@ -901,99 +901,99 @@ def _start_wrapper(force: bool = False):
                                     logger.exception(f'Failed to upsert fetch error for {symbol}')
                             continue
 
-                # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
-                if approved_candidates:
-                    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-                    from config import SCANNER_MAX_ALERTS
-                    max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
+        # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
+        if approved_candidates:
+            approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+            from config import SCANNER_MAX_ALERTS
+            max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
+            
+            if len(approved_candidates) > max_alerts:
+                logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
+                rejected_cands = approved_candidates[max_alerts:]
+                approved_candidates = approved_candidates[:max_alerts]
+                for cand in rejected_cands:
+                    rejection_counts["duplicate"] = rejection_counts.get("duplicate", 0) + 1
+                    logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
                     
-                    if len(approved_candidates) > max_alerts:
-                        logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
-                        rejected_cands = approved_candidates[max_alerts:]
-                        approved_candidates = approved_candidates[:max_alerts]
-                        for cand in rejected_cands:
-                            rejection_counts["duplicate"] = rejection_counts.get("duplicate", 0) + 1
-                            logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
-                            
-                    for cand in approved_candidates:
-                        c = dict(cand)
-                        # Remove extra keys before saving
-                        _candle_open = c.pop("_candle_open")
-                        _candle_high = c.pop("_candle_high")
-                        _candle_low = c.pop("_candle_low")
-                        _body_ratio = c.pop("_body_ratio")
-                        _close_position = c.pop("_close_position")
-                        _above_ema20 = c.pop("_above_ema20")
-                        _above_sma50 = c.pop("_above_sma50")
-                        _above_golden_cross = c.pop("_above_golden_cross")
-                        _sl_method = c.pop("_sl_method")
-                        _target_method = c.pop("_target_method")
-                        _natural_rr = c.pop("_natural_rr")
-                        _delivery_pct = c.pop("_delivery_pct")
-                        _peg = c.pop("_peg")
-                        _yoy_rev = c.pop("_yoy_rev")
-                        _yoy_profit = c.pop("_yoy_profit")
-                        _roe = c.pop("_roe")
-                        _ticker = c.pop("_ticker")
-                        
-                        if not is_test_mode:
-                            saved, reason, cap_alloc, shares = save_alert_if_new(**c)
-                        else:
-                            saved, reason, cap_alloc, shares = True, "", 0.0, 0
-                            
-                        if not saved:
-                            rejection_counts["duplicate"] += 1
-                            continue
-                            
-                        alerts_by_category.setdefault(c["category"], []).append({
-                            "symbol":           c["symbol"],
-                            "category":         c["category"],
-                            "breakout_signals": [c["signals"]],
-                            "price":            c["entry_price"],
-                            "open":             round(_candle_open, 2),
-                            "day_high":         round(_candle_high, 2),
-                            "day_low":          round(_candle_low, 2),
-                            "rsi":              c["rsi"],
-                            "volume_ratio":     c["volume_ratio"],
-                            "body_ratio":       round(_body_ratio * 100),
-                            "close_position":   round(_close_position * 100),
-                            "score":            c["score"],
-                            "above_ema20":      _above_ema20,
-                            "above_sma50":      _above_sma50,
-                            "above_golden_cross":     _above_golden_cross,
-                            "atr_stop":         c["stop_loss"],
-                            "target_price":     c["target_price"],
-                            "target_2":         c["target_2"],
-                            "target_3":         c["target_3"],
-                            "sl_method":        _sl_method,
-                            "t_method":         _target_method,
-                            "rr_ratio":         _natural_rr,
-                            "delivery_pct":     round(_delivery_pct, 1) if _delivery_pct is not None else None,
-                            "peg":              _peg,
-                            "yoy_rev":          _yoy_rev,
-                            "yoy_profit":       _yoy_profit,
-                            "roe":              _roe,
-                            "capital_allocated": cap_alloc,
-                            "shares_bought":     shares
-                        })
-                        total_alerts += 1
-                        
-                        _last_bar_date = "unknown"
-                        try:
-                            if isinstance(_ticker.index, pd.DatetimeIndex):
-                                _last_bar_date = str(_ticker.index[-1])[:10]
-                            elif "Date" in _ticker.columns:
-                                _last_bar_date = str(_ticker["Date"].iloc[-1])[:10]
-                        except Exception:
-                            pass
-                        logger.info(
-                            f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
-                            f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
-                            f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
-                            f"last_bar={_last_bar_date} | category={c['category']}"
-                        )
+            for cand in approved_candidates:
+                c = dict(cand)
+                # Remove extra keys before saving
+                _candle_open = c.pop("_candle_open")
+                _candle_high = c.pop("_candle_high")
+                _candle_low = c.pop("_candle_low")
+                _body_ratio = c.pop("_body_ratio")
+                _close_position = c.pop("_close_position")
+                _above_ema20 = c.pop("_above_ema20")
+                _above_sma50 = c.pop("_above_sma50")
+                _above_golden_cross = c.pop("_above_golden_cross")
+                _sl_method = c.pop("_sl_method")
+                _target_method = c.pop("_target_method")
+                _natural_rr = c.pop("_natural_rr")
+                _delivery_pct = c.pop("_delivery_pct")
+                _peg = c.pop("_peg")
+                _yoy_rev = c.pop("_yoy_rev")
+                _yoy_profit = c.pop("_yoy_profit")
+                _roe = c.pop("_roe")
+                _ticker = c.pop("_ticker")
                 
-                # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
+                if not is_test_mode:
+                    saved, reason, cap_alloc, shares = save_alert_if_new(**c)
+                else:
+                    saved, reason, cap_alloc, shares = True, "", 0.0, 0
+                    
+                if not saved:
+                    rejection_counts["duplicate"] += 1
+                    continue
+                    
+                alerts_by_category.setdefault(c["category"], []).append({
+                    "symbol":           c["symbol"],
+                    "category":         c["category"],
+                    "breakout_signals": [c["signals"]],
+                    "price":            c["entry_price"],
+                    "open":             round(_candle_open, 2),
+                    "day_high":         round(_candle_high, 2),
+                    "day_low":          round(_candle_low, 2),
+                    "rsi":              c["rsi"],
+                    "volume_ratio":     c["volume_ratio"],
+                    "body_ratio":       round(_body_ratio * 100),
+                    "close_position":   round(_close_position * 100),
+                    "score":            c["score"],
+                    "above_ema20":      _above_ema20,
+                    "above_sma50":      _above_sma50,
+                    "above_golden_cross":     _above_golden_cross,
+                    "atr_stop":         c["stop_loss"],
+                    "target_price":     c["target_price"],
+                    "target_2":         c["target_2"],
+                    "target_3":         c["target_3"],
+                    "sl_method":        _sl_method,
+                    "t_method":         _target_method,
+                    "rr_ratio":         _natural_rr,
+                    "delivery_pct":     round(_delivery_pct, 1) if _delivery_pct is not None else None,
+                    "peg":              _peg,
+                    "yoy_rev":          _yoy_rev,
+                    "yoy_profit":       _yoy_profit,
+                    "roe":              _roe,
+                    "capital_allocated": cap_alloc,
+                    "shares_bought":     shares
+                })
+                total_alerts += 1
+                
+                _last_bar_date = "unknown"
+                try:
+                    if isinstance(_ticker.index, pd.DatetimeIndex):
+                        _last_bar_date = str(_ticker.index[-1])[:10]
+                    elif "Date" in _ticker.columns:
+                        _last_bar_date = str(_ticker["Date"].iloc[-1])[:10]
+                except Exception:
+                    pass
+                logger.info(
+                    f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
+                    f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
+                    f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
+                    f"last_bar={_last_bar_date} | category={c['category']}"
+                )
+
+        # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
                 # Removed Telegram notifications (2026-06-17)
 
                 fired = {k: v for k, v in rejection_counts.items() if v > 0}
