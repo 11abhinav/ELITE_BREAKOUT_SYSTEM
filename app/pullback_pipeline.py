@@ -52,9 +52,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
     logger.info("=" * 80)
     
     try:
-        upsert_scanner_health("PullbackScanner", "RUNNING", error_msg="Pullback Scan in progress...")
+        upsert_scanner_health("PULLBACK", "RUNNING", error_msg="Pullback Scan in progress...")
     except Exception:
-        logger.warning("⚠️ Could not mark PullbackScanner as RUNNING")
+        logger.warning("⚠️ Could not mark PULLBACK as RUNNING")
 
     # Capture effective config snapshot at start of run (immutability)
     effective_config = dict(config)
@@ -66,7 +66,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     if market_regime == "STRONG_BEAR":
         logger.info("🛑 STRONG_BEAR regime detected — Pullback scanner disabled entirely.")
-        upsert_scanner_health("PullbackScanner", status="OK", today_alerts=0, error_msg="Disabled in STRONG_BEAR regime")
+        upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, error_msg="Disabled in STRONG_BEAR regime")
         return 0
 
     policy = REGIME_POLICIES.get(market_regime, REGIME_POLICIES["NEUTRAL"])
@@ -79,17 +79,17 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         watchlist = get_watchlist()
     except Exception as e:
         logger.exception("❌ Failed to load fundamental watchlist for Pullback Scanner")
-        upsert_scanner_health("PullbackScanner", status="DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
+        upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
         return 0
 
     if watchlist.empty:
         logger.info("🛡️ Watchlist is empty. Exiting Pullback scan cleanly.")
-        upsert_scanner_health("PullbackScanner", status="OK", today_alerts=0)
+        upsert_scanner_health("PULLBACK", status="OK", today_alerts=0)
         return 0
 
     # Step 1: Check if today's dataset is already processed/available
     sample_chunk = watchlist.head(10)
-    sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PullbackScanner")
+    sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
     
     dataset_date = None
     if sample_data:
@@ -107,8 +107,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     if dataset_date == run_date:
         logger.info(f"[PULLBACK] Using processed dataset for {dataset_date}")
-    else:
-        # Step 2: Today's dataset is not available yet. Wait for Bhavcopy acquisition logic.
+    elif not force:
+        # Step 2: Today's dataset is not available yet. Wait for Bhavcopy acquisition logic (scheduled mode).
         logger.info("[PULLBACK] Today's dataset unavailable, waiting for Bhavcopy...")
         try:
             from main import wait_for_bhavcopy_or_fallback
@@ -117,7 +117,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             logger.warning(f"Could not execute Bhavcopy wait: {bh_err}")
 
         # Re-fetch sample after Bhavcopy wait
-        sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PullbackScanner")
+        sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
         if sample_data:
             for s_df in sample_data.values():
                 if s_df is not None and not s_df.empty:
@@ -136,6 +136,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             is_historical_fallback = True
             fallback_date = dataset_date or "HISTORICAL"
             logger.info(f"[PULLBACK] Admin mode using historical dataset from {fallback_date} (read-only fallback)")
+    else:
+        # Forced/Manual trigger mode: bypass blocking wait and execute using available dataset
+        is_historical_fallback = True
+        fallback_date = dataset_date or "HISTORICAL"
+        logger.info(f"[PULLBACK] Forced/Manual trigger mode: bypassing Bhavcopy wait, using dataset from {fallback_date} (read-only fallback)")
 
     cooldown_alerts = get_recent_alerts_for_scanner("PULLBACK", PULLBACK_CONFIG.get("COOLDOWN_MINUTES", 1440))
     
@@ -418,7 +423,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             status_val = "DEGRADED"
             err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"
 
-        upsert_scanner_health("PullbackScanner", status=status_val, last_success=ist_now.isoformat(), today_alerts=alert_count, error_msg=err_val)
+        upsert_scanner_health("PULLBACK", status=status_val, last_success=ist_now.isoformat(), today_alerts=alert_count, error_msg=err_val)
     
     # ── END-OF-SCAN LOGS ──
     elapsed_time = (datetime.now(IST) - ist_now).total_seconds()

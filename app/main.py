@@ -743,10 +743,11 @@ def _run_pullback_with_retries(today_str):
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             time.sleep(wait_time)
 
+# [VERSION: PULLBACK_MANUAL_TRIGGER_FIX_v1.0] Pass force=True for manual trigger
 def _trigger_pullback():
     import pullback_pipeline
     with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-        return pullback_pipeline.start()
+        return pullback_pipeline.start(force=True)
 
 
 
