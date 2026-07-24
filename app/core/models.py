@@ -25,6 +25,55 @@ class MetricResult:
     explanation: str = ""
     score_contribution: float = 0.0
 
+# [VERSION: CORE_MODELS_DATACLASS_FIX_v1.0] Dataclass additions for core engines
+@dataclass
+class PillarResult:
+    """Represents a single evaluated pillar of metrics."""
+    name: str
+    score: float
+    confidence: float
+    weight: float = 1.0
+    metrics: List[MetricResult] = field(default_factory=list)
+
+@dataclass
+class CoreScoreResult:
+    """Core score output containing all evaluated pillars."""
+    quality: PillarResult = field(default_factory=lambda: PillarResult("Quality", 0.0, 0.0))
+    growth: PillarResult = field(default_factory=lambda: PillarResult("Growth", 0.0, 0.0))
+    value: PillarResult = field(default_factory=lambda: PillarResult("Value", 0.0, 0.0))
+    risk: PillarResult = field(default_factory=lambda: PillarResult("Risk", 0.0, 0.0))
+    capital_allocation: PillarResult = field(default_factory=lambda: PillarResult("Capital Allocation", 0.0, 0.0))
+    momentum: PillarResult = field(default_factory=lambda: PillarResult("Momentum", 0.0, 0.0))
+
+@dataclass
+class EmergingScoreResult:
+    """Layer 4.6 output specific to emerging trajectory."""
+    financial_improvement: PillarResult = field(default_factory=lambda: PillarResult("Financial Improvement", 0.0, 0.0))
+    growth_improvement: PillarResult = field(default_factory=lambda: PillarResult("Growth Improvement", 0.0, 0.0))
+    market_recognition: PillarResult = field(default_factory=lambda: PillarResult("Market Recognition", 0.0, 0.0))
+
+@dataclass
+class ImprovementResult:
+    """Layer 4.5 output for trajectory improvement detection."""
+    revenue_acceleration: bool = False
+    margin_expansion: bool = False
+    roic_improving: bool = False
+    debt_reducing: bool = False
+
+    @property
+    def has_improvement(self) -> bool:
+        return any([self.revenue_acceleration, self.margin_expansion, self.roic_improving, self.debt_reducing])
+
+@dataclass
+class FinalScannerResult:
+    """Final scanner output candidate structure."""
+    symbol: str
+    classification: Any = "Watchlist"
+    composite_score: float = 0.0
+    action: str = "HOLD"
+    reasons: List[str] = field(default_factory=list)
+    confidence: float = 0.0
+
 @dataclass
 class EngineResult:
     """Standardized output for all V5 engines."""

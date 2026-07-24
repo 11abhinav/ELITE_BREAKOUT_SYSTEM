@@ -2,7 +2,14 @@ import os
 import json
 import time
 import logging
-from pywebpush import webpush, WebPushException
+# [VERSION: PUSH_SERVICE_IMPORT_FIX_v1.0] Graceful fallback when pywebpush is uninstalled
+try:
+    from pywebpush import webpush, WebPushException
+except ImportError:
+    webpush = None
+    class WebPushException(Exception):
+        pass
+
 import database
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,10 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         for k in oldest_keys:
             del cache[k]
         logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from push_throttle cache.")
+
+    if webpush is None:
+        logger.warning("pywebpush package not installed. Cannot send push notifications.")
+        return
 
     vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
     vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")
