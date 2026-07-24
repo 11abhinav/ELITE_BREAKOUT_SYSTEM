@@ -66,6 +66,69 @@ _MODE_CONFIG = {
 _DEFAULT_CONFIG = (1.50, 0.50, 0.0050, 3.0)
 
 
+# ── Trade Structure Invariant Validator ─────────────────────────────────────
+class TradeStructureValidator:
+    """
+    Centralized Validator enforcing all Mathematical Trade Structure Invariants:
+      1. entry > 0
+      2. stop_loss < entry (rejection_code: INVALID_STOP_PLACEMENT)
+      3. risk = entry - stop_loss > 0
+      4. target_1 > entry
+      5. target_1 <= target_2 <= target_3 (when multiple targets exist)
+      6. natural_rr = (target_1 - entry) / risk >= min_rr
+    """
+    @staticmethod
+    def validate(entry: float, stop_loss: float, target_1: float,
+                 target_2: Optional[float] = None, target_3: Optional[float] = None,
+                 min_rr: float = 2.0) -> dict:
+        if not entry or entry <= 0:
+            return {
+                "is_valid": False, "rejection_code": "INVALID_ENTRY_PRICE",
+                "rejection_reason": f"INVALID_ENTRY_PRICE (Entry price ₹{entry} must be > 0)"
+            }
+        
+        if stop_loss >= entry:
+            return {
+                "is_valid": False, "rejection_code": "INVALID_STOP_PLACEMENT",
+                "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{stop_loss:.2f} >= Entry Price ₹{entry:.2f})"
+            }
+            
+        risk = entry - stop_loss
+        if risk <= 0:
+            return {
+                "is_valid": False, "rejection_code": "INVALID_RISK_AMOUNT",
+                "rejection_reason": f"INVALID_RISK_AMOUNT (Risk ₹{risk:.2f} must be > 0)"
+            }
+            
+        if not target_1 or target_1 <= entry:
+            return {
+                "is_valid": False, "rejection_code": "INVALID_TARGET_PRICE",
+                "rejection_reason": f"INVALID_TARGET_PRICE (Target 1 ₹{target_1} must be > Entry ₹{entry})"
+            }
+            
+        # Target ordering invariants (t1 <= t2 <= t3)
+        if target_2 and target_2 < target_1:
+            return {
+                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 2 ₹{target_2:.2f} < Target 1 ₹{target_1:.2f})"
+            }
+        if target_3 and target_2 and target_3 < target_2:
+            return {
+                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} < Target 2 ₹{target_2:.2f})"
+            }
+            
+        natural_rr = round(abs(target_1 - entry) / risk, 2)
+        if natural_rr < min_rr:
+            return {
+                "is_valid": False, "rejection_code": "NO_VALID_STRUCTURAL_TARGET",
+                "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr}x)",
+                "natural_rr": natural_rr
+            }
+            
+        return {"is_valid": True, "natural_rr": natural_rr, "risk": risk}
+
+
 # ── Target Engine v7 Classes ──────────────────────────────────────────────────
 from enum import Enum
 from dataclasses import dataclass, field

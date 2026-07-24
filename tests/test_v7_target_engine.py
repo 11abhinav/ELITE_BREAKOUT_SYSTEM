@@ -40,3 +40,27 @@ def test_invalid_stop_placement_rejection():
     )
     assert res.get("is_rejected")
     assert res.get("rejection_reason") in ("INVALID_STOP_PLACEMENT", "NO_VALID_STRUCTURAL_STOP")
+
+def test_trade_structure_validator_invariants():
+    """Verify centralized TradeStructureValidator enforcing mathematical trade structure invariants."""
+    from app.sl_target_helper import TradeStructureValidator
+
+    # Test 1: Stop equal to entry (raw_sl == 100, entry == 100) -> INVALID_STOP_PLACEMENT
+    res_eq = TradeStructureValidator.validate(entry=100.0, stop_loss=100.0, target_1=120.0)
+    assert not res_eq["is_valid"]
+    assert res_eq["rejection_code"] == "INVALID_STOP_PLACEMENT"
+
+    # Test 2: Stop above entry (raw_sl == 105, entry == 100) -> INVALID_STOP_PLACEMENT
+    res_above = TradeStructureValidator.validate(entry=100.0, stop_loss=105.0, target_1=120.0)
+    assert not res_above["is_valid"]
+    assert res_above["rejection_code"] == "INVALID_STOP_PLACEMENT"
+
+    # Test 3: Unordered target hierarchy (t2=115 < t1=120) -> UNORDERED_TARGET_HIERARCHY
+    res_order = TradeStructureValidator.validate(entry=100.0, stop_loss=90.0, target_1=120.0, target_2=115.0)
+    assert not res_order["is_valid"]
+    assert res_order["rejection_code"] == "UNORDERED_TARGET_HIERARCHY"
+
+    # Test 4: Valid setup -> is_valid == True
+    res_ok = TradeStructureValidator.validate(entry=100.0, stop_loss=90.0, target_1=125.0, target_2=140.0, min_rr=2.0)
+    assert res_ok["is_valid"]
+    assert res_ok["natural_rr"] == 2.50
