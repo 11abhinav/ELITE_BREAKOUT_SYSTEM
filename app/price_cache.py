@@ -958,32 +958,33 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
 
     # Quick cache check
     with _lock:
-        entry = _cache.get(cache_key)
-        if entry is not None:
-            age = time.monotonic() - entry["ts"]
-            if age < cadence_with_jitter:
-                logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s (cadence={cadence}s)")
-                # Return subset for requested symbols
-                return {s: entry["data"].get(s) for s in symbols}
+        cache_dict = _cache.get(cache_key)
+        if cache_dict:
+            now_mono = time.monotonic()
+            res = {}
+            all_hit = True
+            for s in symbols:
+                sym_entry = cache_dict.get(s)
+                if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
+                    age = now_mono - sym_entry.get("ts", 0)
+                    if age < cadence_with_jitter:
+                        res[s] = sym_entry["data"]
+                        continue
+                all_hit = False
+                break
+            if all_hit and len(res) == len(symbols):
+                logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | All {len(symbols)} symbols fresh")
+                return res
 
         # If another thread is already fetching this key, wait for it to complete
         inflight = _inflight_fetches.get(cache_key)
-        if inflight:
-            logger.debug(f"[{requester}] ⏳ Waiting for in-flight fetch for {cache_key} (wait_timeout={wait_timeout}s)")
-            # Release lock while waiting
-            # Wait outside lock
-            pass
 
     # If inflight exists, wait for completion then return cache (may still be missing)
-    inflight = _inflight_fetches.get(cache_key)
     if inflight:
         inflight.wait(wait_timeout)
         with _lock:
-            entry = _cache.get(cache_key)
-            if entry is None:
-                logger.warning(f"Intraday fetch completed but cache missing for {cache_key}")
-                return {s: None for s in symbols}
-            return {s: entry["data"].get(s) for s in symbols}
+            cache_dict = _cache.get(cache_key, {})
+            return {s: cache_dict[s]["data"] if s in cache_dict and isinstance(cache_dict[s], dict) else None for s in symbols}
 
     # No inflight — attempt to become the fetcher
     evt = threading.Event()
@@ -999,10 +1000,8 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
         # Race lost — wait for the actual fetcher
         inflight.wait(wait_timeout)
         with _lock:
-            entry = _cache.get(cache_key)
-            if entry is None:
-                return {s: None for s in symbols}
-            return {s: entry["data"].get(s) for s in symbols}
+            cache_dict = _cache.get(cache_key, {})
+            return {s: cache_dict[s]["data"] if s in cache_dict and isinstance(cache_dict[s], dict) else None for s in symbols}
 
     # This thread is responsible for fetching
     try:

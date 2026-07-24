@@ -5,7 +5,7 @@ os.environ["DATABASE_URL"] = "postgres://fake:fake@fake:5432/fake"
 os.environ["RAILWAY_ENVIRONMENT"] = "test"
 os.environ["DONT_SAVE_ALERTS"] = "1"
 
-# Mock database get_connection before importing anything that uses it
+# Mock database get_connection and psycopg2 before importing anything that uses it
 mock_conn = MagicMock()
 mock_cursor = MagicMock()
 mock_cursor.fetchone.return_value = ['{}']
@@ -13,6 +13,8 @@ mock_cursor.fetchall.return_value = []
 mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 patch('database.get_connection', return_value=mock_conn).start()
 patch('database.init_db').start()
+patch('psycopg2.connect', return_value=mock_conn).start()
+patch('psycopg2.pool.ThreadedConnectionPool', return_value=MagicMock()).start()
 
 # Import the entry wrappers for all scanners
 from eod_scanner import _start_wrapper as eod_start

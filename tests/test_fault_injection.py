@@ -29,9 +29,12 @@ def mock_scraper_api_key():
 @pytest.fixture
 def empty_delivery_cache():
     import delivery_data
+    from data_registry import registry
     delivery_data._delivery_cache = None
     delivery_data._delivery_cache_date = None
-    yield
+    registry._datasets.clear()
+    with patch('database.get_bhavcopy_cache', return_value=None):
+        yield
 
 # ==============================================================================
 # PHASE 2: PROVIDER FAILURES
