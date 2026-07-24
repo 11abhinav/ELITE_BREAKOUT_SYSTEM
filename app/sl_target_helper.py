@@ -917,10 +917,14 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
             c_dict["selection_state"] = "REJECTED"
         pool.append(c_dict)
 
-    # [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Next-cluster target fallback.
-    # If nearest cluster (t1) R:R is < min_rr, evaluate subsequent target clusters (t2, t3) before triggering rejection.
+    if sl_data["raw_sl"] >= entry:
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
+            "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
-    risk_amount = abs(entry - sl_data["raw_sl"])
+    risk_amount = entry - sl_data["raw_sl"]
     
     valid_target = None
     valid_t_src = "UNKNOWN"
@@ -1006,10 +1010,14 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
             c_dict["selection_state"] = "REJECTED"
         pool.append(c_dict)
 
-    # [VERSION: EOD_TARGET_CLUSTER_FALLBACK_v1.0] Next-cluster target fallback for EOD mode.
-    # If nearest cluster (t1) R:R is < min_rr, evaluate subsequent target clusters (t2, t3) before triggering rejection.
+    if sl_data["raw_sl"] >= entry:
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
+            "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
     min_rr = MIN_NATURAL_RR.get("EOD", 2.5)
-    risk_amount = abs(entry - sl_data["raw_sl"])
+    risk_amount = entry - sl_data["raw_sl"]
     
     valid_target = None
     valid_t_src = "UNKNOWN"
@@ -1082,8 +1090,14 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
     
     # Filter only above entry and enforce MIN_NATURAL_RR
+    if sl_data["raw_sl"] >= entry:
+        return {
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
+            "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
     min_rr = MIN_NATURAL_RR.get("REVERSAL", 2.0)
-    risk = max(0.001 * entry, abs(entry - sl_data["raw_sl"]))
+    risk = entry - sl_data["raw_sl"]
     
     valid_cands = []
     for c in cands:
