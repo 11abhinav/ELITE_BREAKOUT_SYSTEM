@@ -1943,12 +1943,12 @@
     }
 
     async function loadData() {
-      const urls = [
-        '/data/performance_data.json', '../data/performance_data.json', './data/performance_data.json', 'performance_data.json',
-      ];
       const t = new Date().getTime();
-      for (const url of urls) {
-        try { const r = await fetch(url + '?t=' + t, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch { }
+      try {
+        const r = await fetch('/data/performance_data.json?t=' + t, { cache: 'no-store' });
+        if (r.ok) return await r.json();
+      } catch (e) {
+        console.warn('Failed to load performance data from /data/performance_data.json', e);
       }
 
       console.warn('Failed to load performance data, returning empty state.');
@@ -1962,7 +1962,6 @@
         trades: [],
         by_scanner: {}, by_category: {}, equity_curve: [], monthly: [],
       };
-
     }
 
     function toggleUserManagement() {
@@ -3973,12 +3972,20 @@
     async function doRefresh(isAuto = false) {
       const btn = document.getElementById('refreshBtn');
       btn.classList.add('spinning');
-      const data = await loadData();
-      
-      // Also refresh user management and logs/errors
-      searchUsers();
-      fetchSystemLogs();
-      loadNonCriticalErrors();
+
+      // Trigger data load and background updates in parallel
+      const dataPromise = loadData();
+      Promise.all([
+        searchUsers(),
+        fetchSystemLogs(),
+        loadNonCriticalErrors(),
+        loadCapitalInfo(),
+        fetchSignalLadder(),
+        loadMultibaggerWatchlist(),
+        loadPendingUsers()
+      ]).catch(e => console.error("Error refreshing background components:", e));
+
+      const data = await dataPromise;
 
       // Alert Diffing Logic
       if (isAuto && data.trades && ALL_TRADES.length > 0) {
@@ -4010,20 +4017,16 @@
       });
       EXIT_HISTORY_CACHE.clear();
       populateFilters(ALL_TRADES);
-      await loadCapitalInfo(); // Ensure capital is always fresh on refresh
-      fetchSignalLadder(); // Refresh signal ladder
-      loadMultibaggerWatchlist(); // Refresh multibagger watchlist
       renderTradeTable();
       updateSim();
-      loadPendingUsers();
 
-  if (diagnosticsLoaded) {
-      loadDiagnostics();
-  }
+      if (diagnosticsLoaded) {
+        loadDiagnostics();
+      }
 
-  document.getElementById('gen-time').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
-  btn.classList.remove('spinning');
-}
+      document.getElementById('gen-time').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
+      btn.classList.remove('spinning');
+    }
 
 // ── Viewer Tracking
 let viewerName = 'Admin';
@@ -4351,9 +4354,7 @@ async function submitDepositFunds() {
 
 // ── MAIN
 async function initDashboard() {
-  const data = await loadData(false);
-  // Try to overlay live scanner status from API
-  const liveStatus = await loadScannerStatus();
+  const [data, liveStatus] = await Promise.all([loadData(), loadScannerStatus()]);
   if (liveStatus) {
     data.scanner_stats = {...(data.scanner_stats||{}), ...liveStatus};
   }
@@ -4362,7 +4363,6 @@ async function initDashboard() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('main').style.display = 'block';
   window.scrollTo(0, 0);
-
 
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
@@ -4376,12 +4376,16 @@ async function initDashboard() {
   ALL_TRADES = data.trades;
   EXIT_HISTORY_CACHE.clear();
   populateFilters(ALL_TRADES);
-  loadCapitalInfo(); 
   renderTradeTable();
-  fetchSignalLadder();
-  loadMultibaggerWatchlist();
-  loadPendingUsers();
-  loadAdvancedOutcomeAnalytics();
+
+  // Load secondary dashboard components concurrently
+  Promise.all([
+    loadCapitalInfo(),
+    fetchSignalLadder(),
+    loadMultibaggerWatchlist(),
+    loadPendingUsers(),
+    loadAdvancedOutcomeAnalytics()
+  ]).catch(e => console.error("Error loading secondary dashboard components:", e));
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
 

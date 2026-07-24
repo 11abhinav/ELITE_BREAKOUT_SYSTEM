@@ -88,6 +88,63 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
+# [VERSION: DASHBOARD_PERF_FIX_v1.0] Gzip compression for all JSON/HTML responses.
+# The 260KB admin dashboard HTML compresses to ~30KB. 10MB performance_data.json → ~500KB.
+# Uses Python built-in gzip — no external dependency needed.
+import gzip as _gzip
+_GZIP_MIN_SIZE = 500  # Don't bother compressing tiny responses
+
+@app.after_request
+def gzip_response(response):
+    """Compress responses > 500 bytes when client supports gzip."""
+    if (response.status_code < 200 or response.status_code >= 300 or
+        response.direct_passthrough or
+        'Content-Encoding' in response.headers or
+        'gzip' not in request.headers.get('Accept-Encoding', '').lower()):
+        return response
+    
+    content_type = response.content_type or ''
+    if not any(ct in content_type for ct in ('text/', 'application/json', 'application/javascript')):
+        return response
+    
+    data = response.get_data()
+    if len(data) < _GZIP_MIN_SIZE:
+        return response
+    
+    compressed = _gzip.compress(data, compresslevel=6)
+    response.set_data(compressed)
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Content-Length'] = len(compressed)
+    response.headers['Vary'] = 'Accept-Encoding'
+    return response
+
+# [VERSION: DASHBOARD_PERF_FIX_v1.0] Session validation cache.
+# check_session_validity() hits the DB on EVERY request via login_required decorator.
+# On page load with ~10 API calls, that's 10 redundant DB round-trips.
+# Cache the result for 60 seconds per (user_id, session_token) pair.
+_session_cache = {}  # (user_id, token) -> (is_valid, timestamp)
+_SESSION_CACHE_TTL = 60  # seconds
+
+def _cached_check_session(user_id, session_token):
+    """Check session validity with 60s in-memory cache to avoid DB on every API call."""
+    cache_key = (user_id, session_token)
+    now = time.time()
+    cached = _session_cache.get(cache_key)
+    if cached and (now - cached[1]) < _SESSION_CACHE_TTL:
+        return cached[0]
+    
+    result = database.check_session_validity(user_id, session_token)
+    _session_cache[cache_key] = (result, now)
+    
+    # Prune stale entries periodically (keep cache small)
+    if len(_session_cache) > 100:
+        cutoff = now - _SESSION_CACHE_TTL
+        stale = [k for k, v in _session_cache.items() if v[1] < cutoff]
+        for k in stale:
+            _session_cache.pop(k, None)
+    
+    return result
+
 # ── Auth Decorators ──────────────────────────────────────────────────────────
 
 def login_required(f):
@@ -98,7 +155,7 @@ def login_required(f):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect('/login')
             
-        if not database.check_session_validity(session['user_id'], session['session_token']):
+        if not _cached_check_session(session['user_id'], session['session_token']):
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Session expired or revoked'}), 401
@@ -115,7 +172,7 @@ def admin_required(f):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect('/login')
             
-        if not database.check_session_validity(session['user_id'], session['session_token']):
+        if not _cached_check_session(session['user_id'], session['session_token']):
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Session expired or revoked'}), 401
@@ -1906,21 +1963,26 @@ _cached_worker_symbols_time = 0
 def api_scanner_status():
     """
     Return per-scanner health stats and today's trades — all sourced from Postgres.
-    scanner_health table holds status/last_success/error.
-    alerts table is queried live for today's trades per scanner.
+
+    [VERSION: DASHBOARD_PERF_FIX_v1.0] Replaced N+1 query pattern with single batch query.
+    Previously called get_scanner_today_trades() once per scanner (~10 separate DB round-trips).
+    Now uses get_all_scanners_today_trades() for 1 query total.
     """
     try:
         import os
-        from database import get_all_scanner_health, get_scanner_today_trades
+        from database import get_all_scanner_health, get_all_scanners_today_trades
         from datetime import datetime
         from zoneinfo import ZoneInfo
         today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
 
         health_rows = get_all_scanner_health()
+        # [PERF] Single batch query replaces N+1 loop
+        all_today_trades = get_all_scanners_today_trades(today_str)
+
         result = {}
         for row in health_rows:
             sc = row["scanner_name"]
-            today_trades = get_scanner_today_trades(sc, today_str)
+            today_trades = all_today_trades.get(sc, [])
             
             # Special case for Wealth Engine: It doesn't write to the alerts table.
             # We must parse its parquet file to get today's trades for the tooltip to work!
@@ -1965,25 +2027,33 @@ def api_scanner_status():
                     logger.exception("Failed to query fallback pledge stats")
             elif sc == "AI Worker" and (processed_count is None or total_count is None or total_count == 0):
                 try:
+                    global _cached_worker_symbols, _cached_worker_symbols_time
+                    now_ts = time.time()
+                    # Cache the expensive symbol set for 5 minutes
+                    if not _cached_worker_symbols or (now_ts - _cached_worker_symbols_time) > 300:
+                        from database import get_ai_concall_stats
+                        from database import get_connection
+                        symbols_set = set()
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                symbols_set.update(r[0] for r in cur.fetchall())
+                                cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                symbols_set.update(r[0] for r in cur.fetchall())
+                        try:
+                            from constituent_service import ConstituentService
+                            if ConstituentService._cached_symbols:
+                                symbols_set.update(ConstituentService._cached_symbols)
+                            else:
+                                import threading
+                                threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
+                        except Exception:
+                            pass
+                        _cached_worker_symbols = symbols_set
+                        _cached_worker_symbols_time = now_ts
+                    
+                    symbols = list(_cached_worker_symbols)
                     from database import get_ai_concall_stats
-                    from database import get_connection
-                    symbols_set = set()
-                    with get_connection() as conn:
-                        with conn.cursor() as cur:
-                            cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                            symbols_set.update(r[0] for r in cur.fetchall())
-                            cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                            symbols_set.update(r[0] for r in cur.fetchall())
-                    try:
-                        from constituent_service import ConstituentService
-                        if ConstituentService._cached_symbols:
-                            symbols_set.update(ConstituentService._cached_symbols)
-                        else:
-                            import threading
-                            threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
-                    except Exception:
-                        pass
-                    symbols = list(symbols_set)
                     stats = get_ai_concall_stats(symbols)
                     processed_count = stats.get("total_cached", 0)
                     total_count = len(symbols)
@@ -2018,7 +2088,6 @@ def api_scanner_status():
                             "target_3":     float(t.get("target_3", 0)) if t.get("target_3") else None,
                             "target_price": float(t["target_price"]) if t["target_price"] else None,
                             "exit_price":   float(t.get("exit_price", 0)) if t.get("exit_price") else None,
-                            "exit_price":   float(t["exit_price"]) if t["exit_price"] else None,
                             "closed_at":    t["closed_at"],
                             "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
                             "status":       t["status"] or "OPEN",

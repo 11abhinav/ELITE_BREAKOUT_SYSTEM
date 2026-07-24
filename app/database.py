@@ -2336,7 +2336,39 @@ def get_scanner_today_trades(scanner_name: str, today_str: str) -> list[dict]:
                 logger.exception(f"❌ get_scanner_today_trades failed for {scanner_name}")
                 return []
 
-    logger.debug("🗑️  cleanup_old_alerts called — deletion disabled, all data retained.")
+
+# [VERSION: DASHBOARD_PERF_FIX_v1.0] Batch query to replace N+1 loop in /api/scanner_status.
+# Previously the dashboard called get_scanner_today_trades() once per scanner (~10 separate
+# SQL queries). This single query fetches ALL scanners' today trades in one round-trip.
+def get_all_scanners_today_trades(today_str: str) -> dict:
+    """
+    Return today's alerts for ALL scanners in a single query.
+    Returns dict[scanner_name] -> list[dict] of trades.
+    """
+    init_db()
+    result = {}
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                cur.execute("""
+                    SELECT
+                        scanner,
+                        symbol, category, signals, entry_price, alert_time,
+                        stop_loss, initial_stop_loss, target_1, target_2, target_3,
+                        target_price, pnl_pct, status, score,
+                        exit_price, closed_at
+                    FROM alerts
+                    WHERE alert_date = %s
+                    ORDER BY alert_time DESC
+                """, (today_str,))
+                for row in cur.fetchall():
+                    row_dict = dict(row)
+                    scanner = row_dict.pop("scanner", "UNKNOWN")
+                    result.setdefault(scanner, []).append(row_dict)
+            except Exception:
+                logger.exception("❌ get_all_scanners_today_trades failed")
+    return result
+
 
 
 def get_todays_alerts(today_str: str) -> list[dict]:
