@@ -1083,8 +1083,8 @@ def run_system_scheduler():
             
             last_wealth_market_run = now
             duration_sec = round(time.time() - start_time, 1)
-            # Mark success
-            now_str = now.isoformat()
+            # Mark success — capture completion time AFTER the scan finishes (not the start time)
+            now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(
                 "Wealth Engine",
                 status="OK",
