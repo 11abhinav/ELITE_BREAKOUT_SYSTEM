@@ -256,6 +256,14 @@ def _run(name, fn):
             pass
 
 class InstrumentedLock:
+    """
+    Central process-level mutex protecting scanner execution.
+    
+    GUARANTEES:
+      1. Only one heavy scanner or calculation thread executes at a time.
+      2. Protects shared database writes and state transitions from concurrency races.
+      3. Excludes long non-mutating wait loops (e.g. Bhavcopy wait, cool-down sleeps).
+    """
     def __init__(self, name="scanner_execution_lock"):
         self.lock = threading.Lock()
         self.name = name
@@ -265,13 +273,19 @@ class InstrumentedLock:
         self.lock.acquire()
         wait_time = time.time() - wait_start
         self._acquire_time = time.time()
-        logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
+        if wait_time > 10.0:
+            logger.warning(f"⚠️ [LOCK_CONTENTION] {self.name} wait time exceeded threshold: {wait_time:.2f}s (Thread: {threading.current_thread().name})")
+        else:
+            logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
         hold_time = time.time() - self._acquire_time
         self.lock.release()
-        logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
+        if hold_time > 120.0:
+            logger.warning(f"⚠️ [LOCK_LONG_HOLD] {self.name} hold time exceeded threshold: {hold_time:.2f}s (Thread: {threading.current_thread().name})")
+        else:
+            logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
 
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = InstrumentedLock()
