@@ -77,5 +77,145 @@ class TestAuditFixes(unittest.TestCase):
         is_valid = check_session_validity(1, 'abc')
         self.assertFalse(is_valid)
 
+    # ── V8.2 Audit Remediation Regression Tests ──
+
+    @patch('psycopg2.connect')
+    def test_process_lock_returns_false_on_db_exception(self, mock_connect):
+        """Verify ProcessLock.acquire() returns False (not True) when DB connection raises OperationalError."""
+        import psycopg2
+        mock_connect.side_effect = psycopg2.OperationalError("Connection timeout")
+        
+        from lock_utils import ProcessLock
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost:5432/db"}):
+            lock = ProcessLock("test_lock_audit_fix")
+            acquired = lock.acquire(blocking=False)
+            self.assertFalse(acquired, "ProcessLock MUST return False when DB advisory lock connection fails")
+
+    def test_unified_fetcher_duplicate_symbols_discard(self):
+        """Verify UnifiedFetcher.fetch_live_quotes handles duplicate input symbols without raising KeyError."""
+        from data_providers.unified_fetcher import UnifiedFetcher
+        fetcher = UnifiedFetcher()
+        
+        # Mock fyers and yfinance quote responses
+        with patch.object(fetcher, 'fyers') as mock_fyers:
+            mock_fyers._normalize_symbol.side_effect = lambda s: f"NSE:{s}-EQ"
+            with patch('fyers_auth.get_fyers_client') as mock_get_client:
+                mock_client = MagicMock()
+                mock_get_client.return_value = mock_client
+                mock_client.quotes.return_value = {
+                    "s": "ok",
+                    "d": [
+                        {"s": "ok", "n": "NSE:RELIANCE-EQ", "v": {"lp": 2500.0}}
+                    ]
+                }
+                # Input contains duplicate "RELIANCE"
+                results = fetcher.fetch_live_quotes(["RELIANCE", "RELIANCE"], consumer="TEST")
+                self.assertIn("RELIANCE", results)
+                self.assertEqual(results["RELIANCE"]["v"]["cmd"]["c"], 2500.0)
+
+    def test_unified_fetcher_multiindex_extraction(self):
+        """Verify MultiIndex column extraction works for both (symbol, field) and (field, symbol) level ordering."""
+        import pandas as pd
+        from data_providers.unified_fetcher import UnifiedFetcher
+        fetcher = UnifiedFetcher()
+        
+        # Level order 1: (Field, Symbol) -> ('Close', 'RELIANCE.NS')
+        cols1 = pd.MultiIndex.from_tuples([('Close', 'RELIANCE.NS'), ('Open', 'RELIANCE.NS')])
+        df1 = pd.DataFrame([[2500.0, 2480.0]], columns=cols1)
+        
+        # Level order 2: (Symbol, Field) -> ('RELIANCE.NS', 'Close')
+        cols2 = pd.MultiIndex.from_tuples([('RELIANCE.NS', 'Close'), ('RELIANCE.NS', 'Open')])
+        df2 = pd.DataFrame([[2500.0, 2480.0]], columns=cols2)
+        
+        with patch('yfinance.download') as mock_download:
+            mock_download.return_value = df1
+            with patch('yf_rate_limiter.acquire'), patch('yf_rate_limiter.release'):
+                with patch.object(fetcher.selector, 'get_providers', return_value=['yahoo']):
+                    res1 = fetcher.fetch_live_quotes(["RELIANCE"], consumer="TEST")
+                    self.assertEqual(res1.get("RELIANCE", {}).get("v", {}).get("cmd", {}).get("c"), 2500.0)
+                    
+            mock_download.return_value = df2
+            with patch('yf_rate_limiter.acquire'), patch('yf_rate_limiter.release'):
+                with patch.object(fetcher.selector, 'get_providers', return_value=['yahoo']):
+                    res2 = fetcher.fetch_live_quotes(["RELIANCE"], consumer="TEST")
+                    self.assertEqual(res2.get("RELIANCE", {}).get("v", {}).get("cmd", {}).get("c"), 2500.0)
+
+    def test_indicator_manager_history_levels(self):
+        """Verify IndicatorManager computes indicators dynamically based on exact history length boundaries (14, 20, 50, 200)."""
+        import numpy as np
+        from indicator_manager import IndicatorManager
+        mgr = IndicatorManager()
+        
+        # Helper to generate test df
+        def make_df(n):
+            dates = pd.date_range("2026-01-01", periods=n, freq="D")
+            prices = 100.0 + np.arange(n) * 0.5
+            return pd.DataFrame({"Open": prices, "High": prices+1, "Low": prices-1, "Close": prices}, index=dates)
+
+        # 10 bars -> All indicators None
+        b10 = mgr.compute_base_indicators(make_df(10), "TEST10")
+        self.assertIsNone(b10.atr_14)
+        self.assertIsNone(b10.ema_20)
+
+        # 15 bars -> ATR14 & RSI14 set; EMA20, SMA50, SMA200 None
+        b15 = mgr.compute_base_indicators(make_df(15), "TEST15")
+        self.assertIsNotNone(b15.atr_14)
+        self.assertIsNotNone(b15.rsi_14)
+        self.assertIsNone(b15.ema_20)
+        self.assertIsNone(b15.sma_50)
+
+        # 25 bars -> EMA20 & SMA20 set; SMA50 & SMA200 None
+        b25 = mgr.compute_base_indicators(make_df(25), "TEST25")
+        self.assertIsNotNone(b25.ema_20)
+        self.assertIsNotNone(b25.sma_20)
+        self.assertIsNone(b25.ema_50)
+
+        # 60 bars -> EMA50 & SMA50 set; SMA200 None
+        b60 = mgr.compute_base_indicators(make_df(60), "TEST60")
+        self.assertIsNotNone(b60.ema_50)
+        self.assertIsNotNone(b60.sma_50)
+        self.assertIsNone(b60.sma_200)
+
+        # 210 bars -> ALL indicators set including SMA200
+        b210 = mgr.compute_base_indicators(make_df(210), "TEST210")
+        self.assertIsNotNone(b210.sma_200)
+
+    @patch('delivery_data.requests.Session')
+    def test_delivery_data_series_prioritization(self, mock_session_cls):
+        """Verify delivery data fetcher prioritizes EQ series over BE series when a symbol appears under both."""
+        import datetime
+        from delivery_data import fetch_delivery_data
+        from validation.result import ValidationStatus
+        
+        # Build sample CSV with all required Bhavcopy columns
+        header = "SYMBOL,SERIES,DELIV_PER,DATE1,OPEN_PRICE,HIGH_PRICE,LOW_PRICE,CLOSE_PRICE,LAST_PRICE,PREV_CLOSE,TTL_TRD_QNTY,TURNOVER_LACS,NO_OF_TRADES\n"
+        target_rows = (
+            "RELIANCE,BE,95.0,24-07-2026,2500,2550,2490,2540,2540,2500,10000,250,100\n"  # BE series row appears first
+            "RELIANCE,EQ,45.2,24-07-2026,2500,2550,2490,2540,2540,2500,100000,2500,1000\n" # EQ series row appears second
+        )
+        dummy_rows = "".join([f"DUMMY{i},EQ,50.0,24-07-2026,100,105,99,102,102,100,1000,10,50\n" for i in range(25)])
+        csv_data = header + target_rows + dummy_rows
+        
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = csv_data
+        
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_resp
+        mock_session_cls.return_value.__enter__.return_value = mock_session
+        
+        mock_val_res = MagicMock()
+        mock_val_res.status = ValidationStatus.VALID
+        mock_val_res.score = 100
+        mock_val_res.result.has_warnings = False
+        mock_val_res.result.warnings = []
+        
+        with patch('pledge_scraper.get_scraper_api_key', return_value='test_key'), \
+             patch('database.get_bhavcopy_cache', return_value=None), \
+             patch('database.save_bhavcopy_cache'), \
+             patch('delivery_data.ValidationEngine.process', return_value=mock_val_res):
+            res = fetch_delivery_data(datetime.date(2026, 7, 24), skip_db_save=True)
+            self.assertEqual(res.get("RELIANCE"), 45.2, "EQ series delivery percentage (45.2%) MUST be prioritized over BE series (95.0%)")
+
 if __name__ == '__main__':
     unittest.main()

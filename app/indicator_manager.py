@@ -29,37 +29,60 @@ class IndicatorManager:
     def compute_base_indicators(self, df: pd.DataFrame, symbol: str) -> IndicatorBundle:
         """
         Computes the base indicators (EMA, ATR, RSI, Pivots) for a symbol's historical dataframe.
+        Indicators are computed dynamically based on each indicator's specific minimum history length:
+          - ATR14, RSI14: len(df) >= 14
+          - EMA20, SMA20: len(df) >= 20
+          - EMA50, SMA50: len(df) >= 50
+          - EMA200, SMA200: len(df) >= 200
         """
         bundle = IndicatorBundle()
-        if df.empty or len(df) < 200:
+        if df is None or df.empty or len(df) < 14:
             return bundle
             
         try:
-            # 1. EMAs & SMAs
-            bundle.ema_20 = df['Close'].ewm(span=20, adjust=False).mean()
-            bundle.ema_50 = df['Close'].ewm(span=50, adjust=False).mean()
-            bundle.ema_200 = df['Close'].ewm(span=200, adjust=False).mean()
-            bundle.sma_20 = df['Close'].rolling(window=20).mean()
-            bundle.sma_50 = df['Close'].rolling(window=50).mean()
-            bundle.sma_200 = df['Close'].rolling(window=200).mean()
+            n_bars = len(df)
             
-            # 2. ATR 14
-            prev_close = df['Close'].shift()
-            high_low = df['High'] - df['Low']
-            high_close = np.abs(df['High'] - prev_close)
-            low_close = np.abs(df['Low'] - prev_close)
-            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            bundle.atr_14 = tr.rolling(window=14).mean()
+            # 1. Short-window indicators (>= 14 bars)
+            if n_bars >= 14 and 'High' in df.columns and 'Low' in df.columns and 'Close' in df.columns:
+                # ATR 14
+                prev_close = df['Close'].shift()
+                high_low = df['High'] - df['Low']
+                high_close = np.abs(df['High'] - prev_close)
+                low_close = np.abs(df['Low'] - prev_close)
+                tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                bundle.atr_14 = tr.rolling(window=14).mean()
+                
+                # RSI 14
+                delta = df['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                bundle.rsi_14 = 100 - (100 / (1 + rs))
             
-            # 3. RSI 14
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            bundle.rsi_14 = 100 - (100 / (1 + rs))
+            # 2. Medium-window indicators (>= 20 bars)
+            if n_bars >= 20 and 'Close' in df.columns:
+                bundle.ema_20 = df['Close'].ewm(span=20, adjust=False).mean()
+                bundle.sma_20 = df['Close'].rolling(window=20).mean()
+                
+            # 3. 50-bar indicators (>= 50 bars)
+            if n_bars >= 50 and 'Close' in df.columns:
+                bundle.ema_50 = df['Close'].ewm(span=50, adjust=False).mean()
+                bundle.sma_50 = df['Close'].rolling(window=50).mean()
+                
+            # 4. Long-window indicators (>= 200 bars)
+            if n_bars >= 200 and 'Close' in df.columns:
+                bundle.ema_200 = df['Close'].ewm(span=200, adjust=False).mean()
+                bundle.sma_200 = df['Close'].rolling(window=200).mean()
             
-            # 4. Save to registry
-            self.registry.put(f"indicator_{symbol}", bundle)
+            # 5. Save to registry (Dynamically register indicator dataset if not already registered)
+            registry_key = f"indicator_{symbol}"
+            if not self.registry.get_entry(registry_key):
+                from data_registry import DatasetEntry, StorageTier
+                self.registry.register_dataset(DatasetEntry(
+                    id=registry_key, owner="IndicatorManager",
+                    tier=StorageTier.EPHEMERAL, cadence=86400
+                ))
+            self.registry.put(registry_key, bundle)
             
         except Exception as e:
             logger.error(f"Error computing base indicators for {symbol}: {e}")

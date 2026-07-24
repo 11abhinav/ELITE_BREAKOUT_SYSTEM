@@ -175,7 +175,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
             # Momentum Quality Evaluation
             from wealth_momentum_filter import calculate_momentum_quality_score
-            mom_score, mom_conf = calculate_momentum_quality_score(hist)
+            mom_score, mom_conf = calculate_momentum_quality_score(hist, symbol=symbol)
 
             return {
                 "sma_200": _safe_num(last_row['sma_200']) if not pd.isna(last_row['sma_200']) else None,

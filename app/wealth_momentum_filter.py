@@ -30,12 +30,13 @@ def _safe_last(series: pd.Series):
         return None
 
 
-def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
+def calculate_momentum_quality_score(hist: pd.DataFrame, symbol: str = None) -> Tuple[int, str]:
     """Compute a simple momentum-quality score and confidence label.
 
     Inputs
     - hist: expected to contain at least columns ['Close','High','Low','Volume']
             and an 'attrs' dict with 'symbol' key if populated by pipeline.
+    - symbol: optional explicit symbol string override.
 
     The score is a deterministic aggregation of:
       - 6-month return
@@ -61,9 +62,9 @@ def calculate_momentum_quality_score(hist: pd.DataFrame) -> Tuple[int, str]:
         # Normalize length; if very short, return low confidence
         confidence = "HIGH" if len(df) >= 200 else ("MEDIUM" if len(df) >= 60 else "LOW")
 
-        symbol = df.attrs.get('symbol', 'UNKNOWN')
+        sym = symbol or df.attrs.get('symbol', 'UNKNOWN')
         from indicator_manager import manager
-        bundle = manager.compute_base_indicators(df, symbol)
+        bundle = manager.compute_base_indicators(df, sym)
 
         # 6-month return estimate (approx 126 trading days). If not available, use full-range
         if len(df) >= 126:

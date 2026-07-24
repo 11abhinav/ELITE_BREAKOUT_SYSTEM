@@ -4,6 +4,7 @@ from typing import Optional, Dict
 from .fyers_fetcher import FyersFetcher
 from .provider_selector import selector
 from data_registry import registry
+from yf_rate_limiter import acquire as yf_acquire, release as yf_release
 
 import threading
 
@@ -59,12 +60,21 @@ class UnifiedFetcher:
                     import yfinance as yf
                     yf_symbol = symbol + ".NS"
                     logger.info(f"🔄 [Yahoo] Falling back to {yf_symbol}")
-                    df = yf.download(yf_symbol, interval=interval, period=period, progress=False)
+                    # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Rate-limited yf.download with strict timeouts & single-threading
+                    yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
+                    try:
+                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
+                    finally:
+                        yf_release()
+                        
                     if df is not None and not df.empty:
                         df = df.reset_index()
                         if "Date" in df.columns:
                             df.rename(columns={"Date": "Datetime"}, inplace=True)
-                        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = df.columns.get_level_values(0)
+                        else:
+                            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
                         logger.info(f"✅ [Yahoo] Successfully fetched historical {symbol}")
                         entry = self.registry.get_entry(dataset_id)
                         if entry:
@@ -87,12 +97,20 @@ class UnifiedFetcher:
                     import yfinance as yf
                     yf_symbol = symbol + ".BO"
                     logger.info(f"🔄 [BSE] Falling back to {yf_symbol}")
-                    df = yf.download(yf_symbol, interval=interval, period=period, progress=False)
+                    yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
+                    try:
+                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
+                    finally:
+                        yf_release()
+
                     if df is not None and not df.empty:
                         df = df.reset_index()
                         if "Date" in df.columns:
                             df.rename(columns={"Date": "Datetime"}, inplace=True)
-                        df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = df.columns.get_level_values(0)
+                        else:
+                            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
                         logger.info(f"✅ [BSE] Successfully fetched historical {symbol}")
                         entry = self.registry.get_entry(dataset_id)
                         if entry:
@@ -153,12 +171,11 @@ class UnifiedFetcher:
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
                                     for item in resp.get("d", []):
                                         if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                            sym = item["n"].split("-")[-1] # Simple extract
-                                            # Match back
                                             for orig in chunk:
                                                 if self.fyers._normalize_symbol(orig) == item["n"]:
                                                     results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
-                                                    pending.remove(orig)
+                                                    # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Use discard instead of remove to avoid KeyError
+                                                    pending.discard(orig)
                                                     break
                         except Exception as e:
                             logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
@@ -172,21 +189,31 @@ class UnifiedFetcher:
                         chunk = pending_list[i:i+chunk_size]
                         yf_symbols = [s + ".NS" for s in chunk]
                         try:
-                            df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
-                            if len(chunk) == 1:
-                                if not df.empty and "Close" in df.columns:
-                                    val = float(df["Close"].iloc[-1])
-                                    if val > 0:
-                                        results[chunk[0]] = {"v": {"cmd": {"c": val}}}
-                                        pending.remove(chunk[0])
-                            elif hasattr(df.columns, 'levels'):
+                            yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
+                            try:
+                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
+                            finally:
+                                yf_release()
+                                
+                            if not df.empty:
                                 for y_sym, orig in zip(yf_symbols, chunk):
-                                    if y_sym in df.columns.levels[0]:
-                                        if not df[y_sym].empty:
-                                            val = float(df[y_sym]["Close"].iloc[-1])
+                                    try:
+                                        sub_df = None
+                                        if isinstance(df.columns, pd.MultiIndex):
+                                            if y_sym in df.columns.get_level_values(0):
+                                                sub_df = df[y_sym]
+                                            elif y_sym in df.columns.get_level_values(1):
+                                                sub_df = df.xs(y_sym, axis=1, level=1)
+                                        elif "Close" in df.columns:
+                                            sub_df = df
+                                            
+                                        if sub_df is not None and not sub_df.empty and "Close" in sub_df.columns:
+                                            val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                pending.remove(orig)
+                                                pending.discard(orig)
+                                    except Exception:
+                                        pass
                         except Exception as e:
                             logger.warning(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
                         
@@ -199,21 +226,31 @@ class UnifiedFetcher:
                         chunk = pending_list[i:i+chunk_size]
                         yf_symbols = [s + ".BO" for s in chunk]
                         try:
-                            df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True)
-                            if len(chunk) == 1:
-                                if not df.empty and "Close" in df.columns:
-                                    val = float(df["Close"].iloc[-1])
-                                    if val > 0:
-                                        results[chunk[0]] = {"v": {"cmd": {"c": val}}}
-                                        pending.remove(chunk[0])
-                            elif hasattr(df.columns, 'levels'):
+                            yf_acquire(context="UnifiedFetcher.fetch_live_quotes | BSE")
+                            try:
+                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
+                            finally:
+                                yf_release()
+                                
+                            if not df.empty:
                                 for y_sym, orig in zip(yf_symbols, chunk):
-                                    if y_sym in df.columns.levels[0]:
-                                        if not df[y_sym].empty:
-                                            val = float(df[y_sym]["Close"].iloc[-1])
+                                    try:
+                                        sub_df = None
+                                        if isinstance(df.columns, pd.MultiIndex):
+                                            if y_sym in df.columns.get_level_values(0):
+                                                sub_df = df[y_sym]
+                                            elif y_sym in df.columns.get_level_values(1):
+                                                sub_df = df.xs(y_sym, axis=1, level=1)
+                                        elif "Close" in df.columns:
+                                            sub_df = df
+                                            
+                                        if sub_df is not None and not sub_df.empty and "Close" in sub_df.columns:
+                                            val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                pending.remove(orig)
+                                                pending.discard(orig)
+                                    except Exception:
+                                        pass
                         except Exception as e:
                             logger.warning(f"⚠️ [BSE] Batch quote fetch failed: {e}")
 

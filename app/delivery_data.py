@@ -228,6 +228,12 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     # Drop NaN values to prevent PostgreSQL invalid JSON token errors
                     df = df.dropna(subset=["DELIV_PER"])
                 
+                    # [VERSION: BHAVCOPY_SERIES_PRIORITY_v1.0] Prioritize EQ > BE > SM > BZ when a symbol appears across multiple series
+                    series_order = {'EQ': 0, 'BE': 1, 'SM': 2, 'BZ': 3}
+                    df['_series_rank'] = df['SERIES'].map(lambda s: series_order.get(s, 99))
+                    df = df.sort_values(by=['_series_rank']).drop_duplicates(subset=['SYMBOL'], keep='first')
+                    df.drop(columns=['_series_rank'], inplace=True, errors='ignore')
+
                     final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
                 
                     # 2. Save to database cache

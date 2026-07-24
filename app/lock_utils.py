@@ -76,8 +76,19 @@ class ProcessLock:
             self.thread_lock.release()
             return False
         except Exception as e:
+            # [VERSION: PROCESS_LOCK_EXC_FIX_v1.0] On DB or system exception, release thread lock and return False
             logger.error(f"Error acquiring distributed lock {self.lock_name}: {e}")
-            return True
+            if self.db_conn:
+                try:
+                    self.db_conn.close()
+                    self.db_conn = None
+                except Exception:
+                    pass
+            try:
+                self.thread_lock.release()
+            except Exception:
+                pass
+            return False
 
     def release(self):
         # 1. Release Postgres lock by simply closing the dedicated connection
