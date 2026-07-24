@@ -1000,9 +1000,20 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch intraday snapshots for ALL symbols once.
         # Previously called inside the batch loop (once per 50-symbol chunk = 7x per cycle).
         # One bulk call populates the cache for all 308 symbols in a single API round-trip.
+        #
+        # [VERSION: WEALTH_CADENCE_OPT_v1.0] cadence_override=900 (15 min) allows reuse of the
+        # SystemScheduler's already-fetched 5m cache instead of triggering a full 10-minute
+        # re-fetch of 302 symbols on every 5-minute scan cycle. The live-price stitching at
+        # lines 1030–1068 patches the 1D candle with the intraday CMP, so 15-min-old intraday
+        # data is sufficient for scoring accuracy. This is the primary fix for the 18-minute
+        # market-hours runtime — intraday re-fetch was consuming ~10 of those 18 minutes.
         logger.info(f"💰 [WEALTH ENGINE] Pre-fetching intraday snapshots for {len(all_symbols_to_fetch)} symbols...")
         try:
-            all_snapshots = get_intraday_snapshot(all_symbols_to_fetch, interval="5m", period="1d") or {}
+            all_snapshots = get_intraday_snapshot(
+                all_symbols_to_fetch, interval="5m", period="1d",
+                cadence_override=900,  # Tolerate up to 15-min stale cache to avoid re-fetch
+                requester="WealthEngine"
+            ) or {}
         except Exception as _snap_e:
             logger.warning(f"⚠️ [WEALTH ENGINE] Snapshot pre-fetch failed: {_snap_e}. Falling back to empty snapshots.")
             all_snapshots = {}

@@ -869,7 +869,7 @@ _TTL_JITTER: dict[str, int] = {
 _inflight_fetches: dict[tuple, threading.Event] = {}
 
 
-def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str = "5d", wait_timeout: int = 30, requester: str = None) -> dict[str, pd.DataFrame]:
+def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str = "5d", wait_timeout: int = 30, requester: str = None, cadence_override: int = None) -> dict[str, pd.DataFrame]:
     requester = requester or threading.current_thread().name or "Unknown"
     """
     Return cached intraday frames for (interval, period) for the provided symbols.
@@ -877,11 +877,16 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
     will wait up to `wait_timeout` seconds for the result. This guarantees only one
     fetch per cache key is in-flight at any time.
 
+    cadence_override: If set, overrides the default per-interval cadence for the stale check.
+    Use this when the caller can tolerate slightly older data to avoid unnecessary re-fetches.
+    Example: Wealth Engine passes 900s (15 min) so it reuses cached data instead of
+    triggering a full 10-minute re-fetch of 302 symbols on every scan cycle.
+
     Returns the raw mapping: { symbol: DataFrame }
     """
     cache_key = (interval, period)
-    cadence = _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
-    jitter = _TTL_JITTER.get(interval, 0)
+    cadence = cadence_override if cadence_override is not None else _INTERVAL_CADENCE.get(interval, CACHE_TTL_SECONDS)
+    jitter = _TTL_JITTER.get(interval, 0) if cadence_override is None else 0
     cadence_with_jitter = cadence + jitter
 
     # Quick cache check
@@ -890,7 +895,7 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
         if entry is not None:
             age = time.monotonic() - entry["ts"]
             if age < cadence_with_jitter:
-                logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s")
+                logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | age={age:.1f}s (cadence={cadence}s)")
                 # Return subset for requested symbols
                 return {s: entry["data"].get(s) for s in symbols}
 
