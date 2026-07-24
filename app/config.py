@@ -308,6 +308,12 @@ MIN_NATURAL_RR = {
     "REVERSAL": 2.0,
 }
 
+# =====================================================================================
+# LOCK CONTENTION TELEMETRY CONFIGURATION
+# =====================================================================================
+LOCK_WAIT_WARNING_SECONDS = float(os.environ.get("LOCK_WAIT_WARNING_SECONDS", "10.0"))
+LOCK_HOLD_WARNING_SECONDS = float(os.environ.get("LOCK_HOLD_WARNING_SECONDS", "120.0"))
+
 MAX_REASONABLE_RR = {
     "MULTI_TF": 6.0,
     "EOD": 8.0,

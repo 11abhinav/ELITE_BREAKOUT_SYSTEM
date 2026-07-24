@@ -260,32 +260,66 @@ class InstrumentedLock:
     Central process-level mutex protecting scanner execution.
     
     GUARANTEES:
-      1. Only one heavy scanner or calculation thread executes at a time.
-      2. Protects shared database writes and state transitions from concurrency races.
-      3. Excludes long non-mutating wait loops (e.g. Bhavcopy wait, cool-down sleeps).
+      1. Protects critical sections that mutate shared scanner state or persist scanner results,
+         ensuring those operations are not executed concurrently.
+      2. Excludes long non-mutating wait loops (e.g. Bhavcopy wait, cool-down sleeps).
     """
     def __init__(self, name="scanner_execution_lock"):
         self.lock = threading.Lock()
         self.name = name
+        self.acquisitions_count = 0
+        self.total_wait_seconds = 0.0
+        self.max_wait_seconds = 0.0
+        self.total_hold_seconds = 0.0
+        self.max_hold_seconds = 0.0
+        self.contention_events_count = 0
+        self._stats_lock = threading.Lock()
         
     def __enter__(self):
         wait_start = time.time()
         self.lock.acquire()
         wait_time = time.time() - wait_start
         self._acquire_time = time.time()
-        if wait_time > 10.0:
-            logger.warning(f"⚠️ [LOCK_CONTENTION] {self.name} wait time exceeded threshold: {wait_time:.2f}s (Thread: {threading.current_thread().name})")
-        else:
-            logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
+        
+        from config import LOCK_WAIT_WARNING_SECONDS
+        with self._stats_lock:
+            self.acquisitions_count += 1
+            self.total_wait_seconds += wait_time
+            if wait_time > self.max_wait_seconds:
+                self.max_wait_seconds = wait_time
+            if wait_time > LOCK_WAIT_WARNING_SECONDS:
+                self.contention_events_count += 1
+                logger.warning(f"⚠️ [LOCK_CONTENTION] {self.name} wait time exceeded threshold: {wait_time:.2f}s (Thread: {threading.current_thread().name})")
+            else:
+                logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
         hold_time = time.time() - self._acquire_time
         self.lock.release()
-        if hold_time > 120.0:
-            logger.warning(f"⚠️ [LOCK_LONG_HOLD] {self.name} hold time exceeded threshold: {hold_time:.2f}s (Thread: {threading.current_thread().name})")
-        else:
-            logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
+        
+        from config import LOCK_HOLD_WARNING_SECONDS
+        with self._stats_lock:
+            self.total_hold_seconds += hold_time
+            if hold_time > self.max_hold_seconds:
+                self.max_hold_seconds = hold_time
+            if hold_time > LOCK_HOLD_WARNING_SECONDS:
+                logger.warning(f"⚠️ [LOCK_LONG_HOLD] {self.name} hold time exceeded threshold: {hold_time:.2f}s (Thread: {threading.current_thread().name})")
+            else:
+                logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
+
+    def get_stats(self) -> dict:
+        with self._stats_lock:
+            avg_wait = self.total_wait_seconds / self.acquisitions_count if self.acquisitions_count > 0 else 0.0
+            avg_hold = self.total_hold_seconds / self.acquisitions_count if self.acquisitions_count > 0 else 0.0
+            return {
+                "acquisitions_count": self.acquisitions_count,
+                "contention_events_count": self.contention_events_count,
+                "avg_wait_seconds": round(avg_wait, 3),
+                "max_wait_seconds": round(self.max_wait_seconds, 3),
+                "avg_hold_seconds": round(avg_hold, 3),
+                "max_hold_seconds": round(self.max_hold_seconds, 3),
+            }
 
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = InstrumentedLock()
