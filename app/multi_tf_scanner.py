@@ -129,7 +129,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         with BatchMemoryTracker(SCANNER_MULTI_TF, batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
             
             # 1. Fetch chunk
-            ticker_data = fetch_watchlist_data(chunk_df, period="1mo", interval="1h")
+            # [VERSION: MTF_1H_BAR_FIX_v1.0] Use period="3mo" for 1H candles to get ~435 bars so SMA200 is non-NaN.
+            # Previously period="1mo" returned only ~148 bars, causing SMA200 to return NaN and reject 100% of symbols.
+            ticker_data = fetch_watchlist_data(chunk_df, period="3mo", interval="1h")
             if not ticker_data:
                 continue
                 

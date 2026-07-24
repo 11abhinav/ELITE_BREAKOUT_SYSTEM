@@ -427,6 +427,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
     
     # ── END-OF-SCAN LOGS ──
     elapsed_time = (datetime.now(IST) - ist_now).total_seconds()
+    try:
+        from funnel_telemetry import log_funnel_metrics
+        log_funnel_metrics("PULLBACK", market_regime, len(watchlist), rejected, alert_count)
+    except Exception as _fte:
+        logger.warning(f"Failed to log PULLBACK funnel telemetry: {_fte}")
+
     logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
     logger.info(f"📊 Final Rejections: {dict(rejected)}")
     if not is_historical_fallback:
