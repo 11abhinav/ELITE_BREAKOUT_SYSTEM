@@ -1063,29 +1063,38 @@ def _run_scan(force: bool = False):
             logger.warning(f"⚠️ REVERSAL data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). Results may be incomplete.")
         else:
             logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for REVERSAL phase")
-        logger.info(
-            f"[REVERSAL] rejection summary: "
-            f"no_data={rejected.get('no_data', 0)}, "
-            f"missing_col={rejected.get('missing_col', 0)}, "
-            f"indicator_nan={rejected.get('indicator_nan', 0)}, "
-            f"zero_52w_high={rejected.get('zero_52w_high', 0)}, "
-            f"insufficient_bars={rejected.get('insufficient_bars', 0)}, "
-            f"stale_data={rejected.get('stale_data', 0)}, "
-            f"cooldown={rejected.get('cooldown', 0)}, "
-            f"failed_pattern={rejected.get('failed_pattern', 0)}, "
-            f"drop_band={rejected.get('drop_band', 0)}, "
-            f"low_price={rejected.get('low_price', 0)}, "
-            f"low_liquidity={rejected.get('low_liquidity', 0)}, "
-            f"fundamental_filter={rejected.get('fundamental_filter', 0)}, "
-            f"ema_filter={rejected.get('ema_filter', 0)}, "
-            f"not_above_sma50={rejected.get('not_above_sma50', 0)}, "
-            f"low_volume={rejected.get('low_volume', 0)}, "
-            f"no_macd_cross={rejected.get('no_macd_cross', 0)}, "
-            f"low_score={rejected.get('low_score', 0)}, "
-            f"climax_top={rejected.get('climax_top', 0)}, "
-            f"thin_spread={rejected.get('thin_spread', 0)}, "
-            f"low_rr={rejected.get('low_rr', 0)}"
-        )
+        fired_rev = {k: v for k, v in rejected.items() if v > 0}
+        elapsed_rev = round((datetime.now(IST) - ist_now).total_seconds(), 1)
+        total_symbols = len(watchlist)
+        stale_count = rejected.get("stale_data", 0)
+        no_data_count = rejected.get("no_data", 0)
+        fresh_count = max(0, total_fetched_count - stale_count)
+        data_status = "DEGRADED (Stale Data > 20%)" if (stale_count / max(total_symbols, 1)) > 0.20 else "OK"
+
+        summary_lines = [
+            "======================================================================",
+            "=== [REVERSAL SCANNER PIPELINE SUMMARY] ===",
+            "======================================================================",
+            "📊 DATA QUALITY SNAPSHOT:",
+            f"  • Total Watchlist Requested : {total_symbols}",
+            f"  • Fresh Data OK             : {fresh_count}",
+            f"  • Stale Data                : {stale_count}",
+            f"  • Missing / No Data         : {no_data_count}",
+            f"  • Data Health Status        : {data_status}",
+            "",
+            "🎯 CRITERIA & FILTER BREAKDOWN:"
+        ]
+        for k, v in fired_rev.items():
+            summary_lines.append(f"  • {k:<27}: {v}")
+
+        summary_lines.extend([
+            "",
+            "🏆 FINAL OUTCOME:",
+            f"  • Shortlisted Alerts        : {len(shortlisted_alerts)}",
+            f"  • Total Execution Time      : {elapsed_rev}s",
+            "======================================================================"
+        ])
+        logger.info("\n".join(summary_lines))
         # ── VALIDATION COMPLETE ──
 
         # ── PERSISTENCE ───────────────────────────────────────────────────────────

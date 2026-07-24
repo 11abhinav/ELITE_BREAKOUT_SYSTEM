@@ -280,14 +280,21 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     else:
         logger.info(f"✅ Successfully fetched {fetched_count} symbols for 1H hourly phase")
 
-    # ── Log the funnel so we can see exactly where stocks drop off ────────
-    logger.info(
-        f"📊 Phase A Funnel: total={funnel['total']} → data_ok={funnel['data_ok']} → "
-        f"indicators_ok={funnel['indicators_ok']} → price_ok={funnel['price_ok']} → "
-        f"ema_only_pass={funnel['ema_only_pass']} → adx_only_pass={funnel['adx_only_pass']} → "
-        f"ema_and_adx_pass={funnel['ema_and_adx_pass']} → dist_pass={funnel['dist_pass']} → "
-        f"approved={funnel['approved']}"
-    )
+    summary_lines = [
+        "======================================================================",
+        "=== [MULTI-TF PHASE A PIPELINE SUMMARY] ===",
+        "======================================================================",
+        f"Total Evaluated       : {funnel['total']} symbols",
+        f"Hourly Approved       : {funnel['approved']}",
+        "Funnel Stage Breakdown:",
+        f"  • Data Available      : {funnel['data_ok']}",
+        f"  • Indicators OK       : {funnel['indicators_ok']}",
+        f"  • EMA Filter Pass     : {funnel['ema_only_pass']}",
+        f"  • ADX Filter Pass     : {funnel['adx_only_pass']}",
+        f"  • Distance Gate Pass  : {funnel['dist_pass']}",
+        "======================================================================"
+    ]
+    logger.info("\n".join(summary_lines))
 
     if stale_1h > 0:
         logger.info(f"📊 Stale data summary | 1H: {stale_1h}")

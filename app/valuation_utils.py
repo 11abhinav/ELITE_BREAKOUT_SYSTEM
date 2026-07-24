@@ -124,11 +124,23 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             
     return pd.DataFrame()
 
+_peer_medians_cache: dict = {"ts": 0.0, "data": {}}
+_peer_medians_lock = threading.Lock()
+
 def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     Compute median P/E, P/B, and ROE per stock dynamically using a peer subset from the overall market universe.
+    Cached for 1 hour in-memory to eliminate ~50s of repeat filtering overhead per scan.
     Returns {symbol: {"median_pe": ..., "median_pb": ..., "median_roe": ...}}
     """
+    global _peer_medians_cache
+    now = time.time()
+    with _peer_medians_lock:
+        if _peer_medians_cache["data"] and (now - _peer_medians_cache["ts"]) < 3600:
+            cached = _peer_medians_cache["data"]
+            if all(s in cached for s in symbols):
+                return {s: cached[s] for s in symbols if s in cached}
+
     try:
         universe_df = fetch_full_universe_for_valuation()
     except Exception as e:
@@ -316,6 +328,10 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             "dispersion_iqr_median": float(dispersion) if not pd.isna(dispersion) else None,
             "source_type": source_type
         }
+
+    with _peer_medians_lock:
+        _peer_medians_cache["ts"] = time.time()
+        _peer_medians_cache["data"].update(medians_map)
         
     return medians_map
 def norm_num(x):

@@ -914,8 +914,37 @@ def _start_wrapper(force: bool = False):
                 # Removed Telegram notifications (2026-06-17)
 
                 fired = {k: v for k, v in rejection_counts.items() if v > 0}
-                if fired:
-                    logger.info("   Rejections: " + " | ".join(f"{k}={v}" for k, v in fired.items()))
+                duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
+                total_symbols = len(watchlist)
+                stale_count = rejection_counts.get("stale_data", 0)
+                no_data_count = rejection_counts.get("no_data", 0)
+                fresh_count = max(0, total_fetched_count - stale_count)
+                data_status = "DEGRADED (Stale Data > 30%)" if (stale_count / max(total_symbols, 1)) > 0.30 else "OK"
+
+                summary_lines = [
+                    "======================================================================",
+                    "=== [EOD SCANNER PIPELINE SUMMARY] ===",
+                    "======================================================================",
+                    "📊 DATA QUALITY SNAPSHOT:",
+                    f"  • Total Watchlist Requested : {total_symbols}",
+                    f"  • Fresh Data OK             : {fresh_count}",
+                    f"  • Stale Data                : {stale_count}",
+                    f"  • Missing / No Data         : {no_data_count}",
+                    f"  • Data Health Status        : {data_status}",
+                    "",
+                    "🎯 CRITERIA & FILTER BREAKDOWN:"
+                ]
+                for k, v in fired.items():
+                    summary_lines.append(f"  • {k:<27}: {v}")
+
+                summary_lines.extend([
+                    "",
+                    "🏆 FINAL OUTCOME:",
+                    f"  • Alerts Generated          : {total_alerts}",
+                    f"  • Total Execution Time      : {duration_sec}s",
+                    "======================================================================"
+                ])
+                logger.info("\n".join(summary_lines))
 
                 # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
                 if total_alerts > 0 and not is_test_mode:

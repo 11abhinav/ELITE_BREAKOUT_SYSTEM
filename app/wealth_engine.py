@@ -1382,6 +1382,46 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             
         _prof_l4.__exit__(None, None, None)
 
+        # ── WEALTH ENGINE MANDATORY PIPELINE SUMMARY LOG ──
+        total_eval = len(all_symbols_to_fetch)
+        buy_count = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
+        core_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "CORE"]) if "Portfolio_Bucket" in wealth_df.columns else 0
+        watch_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "WATCH"]) if "Portfolio_Bucket" in wealth_df.columns else 0
+        review_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "REVIEW"]) if "Portfolio_Bucket" in wealth_df.columns else 0
+        
+        stale_count = rejection_counts.get("stale_data", 0)
+        no_data_count = rejection_counts.get("no_data", 0)
+        fresh_count = max(0, total_eval - stale_count - no_data_count)
+        data_status = "DEGRADED (Stale Data > 10%)" if (stale_count / max(total_eval, 1)) > 0.10 else "OK"
+        duration_sec = round(time.time() - start_time, 1)
+
+        summary_lines = [
+            "======================================================================",
+            "=== [WEALTH ENGINE PIPELINE SUMMARY] ===",
+            "======================================================================",
+            "📊 DATA QUALITY SNAPSHOT:",
+            f"  • Total Watchlist Requested : {total_eval}",
+            f"  • Fresh Data OK             : {fresh_count}",
+            f"  • Stale Data                : {stale_count}",
+            f"  • Missing / No Data         : {no_data_count}",
+            f"  • Data Health Status        : {data_status}",
+            "",
+            "🎯 CRITERIA & FILTER BREAKDOWN:"
+        ]
+        for k, v in rejection_counts.items():
+            if v > 0:
+                summary_lines.append(f"  • {k:<27}: {v}")
+
+        summary_lines.extend([
+            "",
+            "🏆 FINAL OUTCOME:",
+            f"  • BUY Signals Generated     : {buy_count}",
+            f"  • Bucket Allocation         : CORE={core_count} | WATCH={watch_count} | REVIEW={review_count}",
+            f"  • Total Execution Time      : {duration_sec}s",
+            "======================================================================"
+        ])
+        logger.info("\n".join(summary_lines))
+
         try:
             from memory_profiler import run_purge_with_telemetry
             run_purge_with_telemetry("Wealth Engine Complete")

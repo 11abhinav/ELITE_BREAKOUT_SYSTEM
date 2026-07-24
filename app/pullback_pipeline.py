@@ -425,16 +425,39 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
         upsert_scanner_health("PULLBACK", status=status_val, last_success=ist_now.isoformat(), today_alerts=alert_count, error_msg=err_val)
     
-    # ── END-OF-SCAN LOGS ──
-    elapsed_time = (datetime.now(IST) - ist_now).total_seconds()
-    try:
-        from funnel_telemetry import log_funnel_metrics
-        log_funnel_metrics("PULLBACK", market_regime, len(watchlist), rejected, alert_count)
-    except Exception as _fte:
-        logger.warning(f"Failed to log PULLBACK funnel telemetry: {_fte}")
+    fired_pb = {k: v for k, v in rejected.items() if v > 0}
+    elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
+    total_symbols = len(watchlist)
+    stale_count = rejected.get("stale_data", 0)
+    no_data_count = rejected.get("no_data", 0)
+    fresh_count = max(0, total_fetched_count - stale_count)
+    data_status = "DEGRADED (Stale Data > 20%)" if (stale_count / max(total_symbols, 1)) > 0.20 else "OK"
 
-    logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
-    logger.info(f"📊 Final Rejections: {dict(rejected)}")
+    summary_lines = [
+        "======================================================================",
+        "=== [PULLBACK SCANNER PIPELINE SUMMARY] ===",
+        "======================================================================",
+        "📊 DATA QUALITY SNAPSHOT:",
+        f"  • Total Watchlist Requested : {total_symbols}",
+        f"  • Fresh Data OK             : {fresh_count}",
+        f"  • Stale Data                : {stale_count}",
+        f"  • Missing / No Data         : {no_data_count}",
+        f"  • Data Health Status        : {data_status}",
+        "",
+        "🎯 CRITERIA & FILTER BREAKDOWN:"
+    ]
+    for k, v in fired_pb.items():
+        summary_lines.append(f"  • {k:<27}: {v}")
+
+    summary_lines.extend([
+        "",
+        "🏆 FINAL OUTCOME:",
+        f"  • Alerts Generated          : {alert_count}",
+        f"  • Total Execution Time      : {elapsed_time}s",
+        "======================================================================"
+    ])
+    logger.info("\n".join(summary_lines))
+
     if not is_historical_fallback:
         logger.info(f"✅ [COMPLETE] PULLBACK SCANNER DONE | {elapsed_time:.2f}s | Alerts={alert_count} | Status={status_val}")
     else:
