@@ -117,9 +117,9 @@ def _clear_down(name: str):
 # [VERSION: SCHEDULER_REFINEMENT_v1.0]
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
-    "multi_tf": (dt_time(10, 17), dt_time(15, 30)),
-    "eod":      (dt_time(21, 0), dt_time(23, 59, 59)),
-    "reversal": (dt_time(21, 0), dt_time(23, 59, 59)),
+    "multi_tf": (dt_time(9, 30), dt_time(15, 0)),
+    "eod":      (dt_time(18, 0), dt_time(23, 59, 59)),
+    "reversal": (dt_time(18, 0), dt_time(23, 59, 59)),
 }
 
 
@@ -595,8 +595,19 @@ def _run_eod_with_retries(today_str):
                 if rec.get("scanner_name") == "EOD" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             
             if already_ran:
                 logger.info("📊 EOD SCAN | Already successfully executed today.")
@@ -682,8 +693,19 @@ def _run_reversal_with_retries(today_str):
                 if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["reversal"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("🔄 REVERSAL SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             
             if already_ran:
                 logger.info("🔄 REVERSAL SCAN | Already successfully executed today.")
@@ -767,8 +789,19 @@ def _run_pullback_with_retries(today_str):
                 if rec.get("scanner_name") == "PULLBACK" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        already_ran = True
-                        break
+                        try:
+                            from dateutil.parser import isoparse
+                            ls_dt = isoparse(last_success_str)
+                            start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= start_time:
+                                already_ran = True
+                                break
+                            else:
+                                logger.info("📊 PULLBACK SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
+                        except Exception as e:
+                            logger.warning(f"Could not parse last_success: {e}")
+                            already_ran = True
+                            break
             if already_ran:
                 logger.info("📊 PULLBACK SCAN | Already successfully executed today.")
                 return
