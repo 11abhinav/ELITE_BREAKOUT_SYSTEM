@@ -1091,6 +1091,13 @@ def _run_scan(force: bool = False):
 
         # ── PERSISTENCE ───────────────────────────────────────────────────────────
         total_alerts = 0
+        if shortlisted_alerts:
+            logger.info(f"📊 Reversal Candidates Discovered: {len(shortlisted_alerts)}")
+            for cand in shortlisted_alerts:
+                logger.info(f"  • 🟢 {cand['symbol']} @ ₹{cand['entry_price']:.2f} (Score: {cand['score']}, RSI: {cand['rsi']}, Vol Ratio: {cand['volume_ratio']:.2f}x)")
+        else:
+            logger.info("📊 Reversal Candidates Discovered: 0")
+
         if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
                 if shortlisted_alerts:

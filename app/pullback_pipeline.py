@@ -405,7 +405,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
             if saved:
                 alert_count += 1
-                logger.info(f"✅ ALERTED [PULLBACK] {c.symbol} @ ₹{entry_val:.2f} (Score: {c.final_score:.1f})")
+                logger.info(
+                    f"✅ [PULLBACK] PASSED ALL FILTERS: {c.symbol} | "
+                    f"score={final_score_val} | entry=₹{entry_val:.2f} | "
+                    f"depth={c.structure.depth_pct:.1f}% | volume_ratio={c.structure.volume_ratio:.2f} | "
+                    f"category=PULLBACK"
+                )
                 try:
                     from telegram_engine import send_telegram_message
                     msg = (
@@ -424,6 +429,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                     send_telegram_message(msg, scan_type="EOD")
                 except Exception as tg_err:
                     logger.warning(f"⚠️ Could not dispatch Telegram message for {c.symbol}: {tg_err}")
+            else:
+                logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
 
     # ── CRITICAL BLOCKER GUARD ──
     no_data_count = rejected.get("no_data", 0)

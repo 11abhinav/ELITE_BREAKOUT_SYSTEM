@@ -903,7 +903,14 @@ def _start_wrapper(force: bool = False):
 
         # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
         if approved_candidates:
+            logger.info(f"📊 EOD Candidates Discovered: {len(approved_candidates)}")
+            for cand in approved_candidates:
+                logger.info(f"  • 🟢 {cand['symbol']} @ ₹{cand['entry_price']:.2f} (Score: {cand['score']}, RSI: {cand['rsi']:.1f}, Vol Ratio: {cand['volume_ratio']:.2f}x)")
             approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+        else:
+            logger.info("📊 EOD Candidates Discovered: 0")
+
+        if approved_candidates:
             from config import SCANNER_MAX_ALERTS
             max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
             
