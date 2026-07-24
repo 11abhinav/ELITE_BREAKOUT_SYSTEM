@@ -2,6 +2,17 @@
 
 All notable changes to the Elite Breakout System architecture and capabilities will be documented in this file.
 
+## [v8.4.2] - Line-by-Line Scanner Audit, Intraday Cache Struct & Resilient Memory Release (2026-07-24)
+### Fixed & Improved
+*   **EOD Scanner Per-Batch Truncation Fix (`app/eod_scanner.py`)**: Moved candidate accumulation, `SCANNER_MAX_ALERTS` ranking, and DB persistence outside the 50-stock batch loop (`chunk_iterable`). Enables candidate evaluation across the entire watchlist universe before truncating to top-10 alerts.
+*   **Reversal Scanner Live Price Stitching Fix (`app/reversal_scanner.py`)**: Corrected conditional logic during intraday snapshot stitching. Prevents setting `Close = None` and dropping today's trading candle when intraday snapshots are missing or empty.
+*   **Multi-TF ProviderResult Guard (`app/multi_tf_scanner.py`)**: Added explicit `isinstance(df, pd.DataFrame)` guards before calling `.empty` or `.iloc[-1]` on `data_15m` and `data_30m` entries, eliminating `AttributeError` crashes when providers return `ProviderResult` status enums.
+*   **Pullback Pipeline Cooldown Deduplication (`app/pullback_pipeline.py`)**: Added missing `cooldown_alerts` check (`(symbol, "PULLBACK") in cooldown_alerts`) inside the candidate loop, preventing identical duplicate pullback alerts on consecutive days.
+*   **Intraday Cache `KeyError: 'ts'` Fix (`app/price_cache.py`)**: Updated `get_intraday_snapshot()` to inspect symbol-level dictionary entries (`_cache[cache_key][symbol]["ts"]`) instead of querying top-level `'ts'`, restoring fast intraday snapshot retrieval for Wealth Engine and Reversal Scanner.
+*   **Permanent `NON_MONOTONIC_TIMESTAMPS` Resolution (`app/price_cache.py`)**: Enforced `pd.to_datetime(..., errors='coerce')`, NaN removal, deduplication, and chronological sorting inside `validate_ohlcv_structure()` and `_download_all_robust()`. Solved lexicographical string sorting mismatches on provider timestamps (e.g., Fyers/Yahoo `^NSEI` 15m candles).
+*   **Multibagger Candidate Truncation (`app/multibagger.py`)**: Enforced `SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)` ranking and truncation prior to live price fetching and DB persistence.
+*   **Test Suite & Registry Isolation (`tests/`)**: Updated `test_scanner_runtime.py`, `test_fault_injection.py`, `test_architecture_verification_suite.py`, and `test_institutional_scoring.py` with mock isolation to prevent connection leaks and preserve `DatasetRegistry` schema definitions.
+
 ## [v8.4.1] - Per-Symbol Granular Cache & Single-Pass Bulk Pre-Fetch Release (2026-07-24)
 ### Fixed & Improved
 *   **Per-Symbol Granular RAM Cache Architecture (`app/price_cache.py`)**: Refactored `_cache` from chunk-overwriting dictionary pointers to an explicit 3-tier per-symbol structure: `_cache[(interval, period)][symbol] = {"data": df, "ts": time.monotonic(), "data_as_of": dt, "schema_version": "v8.4.0"}`. Enables independent per-symbol freshness tracking, partial symbol refreshes, and eliminates cache destruction across chunked scanner runs.

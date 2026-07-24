@@ -1510,3 +1510,15 @@ CREATE TABLE IF NOT EXISTS parquet_cache (
     PRIMARY KEY (name, date)
 );
 ```
+
+---
+
+## 8. Scanner Execution Guarantees & Cache Rules
+
+### 8.1 Scanner Engine Contracts
+1. **Full-Universe Candidate Collection**: All scanners (`EOD`, `MULTIBAGGER`, `REVERSAL`, `PULLBACK`) must accumulate candidates across all 50-stock chunks before executing global sorting, `SCANNER_MAX_ALERTS` truncation (top 10), and DB persistence.
+2. **Safe Live Price Stitching**: Live intraday price stitching must only mutate daily candles when `snap_df` contains a valid, non-null close. Missing intraday snapshots must never overwrite `Close` with `None` or cause row drops during `dropna()`.
+3. **ProviderResult Handling**: All data consumers must verify `isinstance(df, pd.DataFrame)` before dereferencing `.empty` or `.iloc` to prevent `AttributeError` crashes on provider status enums (`ProviderResult.NOT_FOUND`).
+4. **Cooldown Deduplication**: All scanners must check `cooldown_alerts` (`(symbol, scanner_name) in cooldown_alerts`) prior to candidate alerting to prevent duplicate alerts on consecutive days.
+5. **Timestamp Normalization**: `validate_ohlcv_structure()` and `_download_all_robust()` enforce `pd.to_datetime(..., errors='coerce')`, NaN removal, deduplication, and chronological sorting before structure validation to prevent string sorting errors on provider timestamps.
+

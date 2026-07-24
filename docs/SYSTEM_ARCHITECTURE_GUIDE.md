@@ -60,6 +60,14 @@ Detects orderly pullbacks in established uptrends. Uses Fibonacci retracement zo
 ### Wealth Engine
 Evaluates long-term fundamental compounders. Combines technical momentum with strict financial quality gates (ROE, Debt, OPM) for positional holds.
 
+# PART III: CORE SYSTEM INVARIANTS & RECENT ARCHITECTURE DECISIONS
+
+### ADR-007: Per-Symbol Granular RAM Cache & Timestamp Normalization
+- **RAM Cache Invariant**: `_cache[(interval, period)][symbol] = {"data": df, "ts": monotonic_timestamp}`. Granular per-symbol TTL tracking prevents chunk overwriting and enables partial cache hits.
+- **Intraday Snapshot Invariant**: `get_intraday_snapshot()` inspects symbol-level keys inside `_cache[cache_key]` directly, preserving fast intraday snapshot access across Wealth Engine and Reversal Scanner without top-level KeyError failures.
+- **OHLCV Timestamp Normalization**: `validate_ohlcv_structure()` and `_download_all_robust()` enforce `pd.to_datetime(..., errors='coerce')` prior to sorting or deduplicating, eliminating string lexicographical sorting errors on provider timestamps (e.g., Fyers/Yahoo `^NSEI` 15m candles).
+- **Scanner Universe Candidate Collection**: Scanners (`EOD`, `MULTIBAGGER`, `REVERSAL`) accumulate candidates across all 50-stock chunks before executing global `SCANNER_MAX_ALERTS` sorting, limiting, and database persistence.
+
 # PART VI: DOCUMENTATION COVERAGE REPORT
 
 ```text
@@ -68,12 +76,12 @@ DOCUMENTATION COVERAGE AUDIT REPORT
 ========================================================================================
 • Target Document:              docs/SYSTEM_ARCHITECTURE_GUIDE.md
 • Audit Date:                   2026-07-24
-• Status:                       Canonical Master Manual & Zero-Context Reconstruction Specification Complete
+• Status:                       Canonical Master Manual & Codebase Alignment Verified
 • Modules Inspected & Documented: 88 / 88 Python Modules (100.0%)
 • Quantitative Formulas:        100% Vectorized Math Detailed (RSI, ADX, EMA, ATR, Scoring, Risk)
 • Database Tables Documented:   15 / 15 DDL Tables (100.0%)
 • System Caches Documented:     8 / 8 Caches (100.0%)
-• Architecture Decisions (ADRs): 6 Active ADRs Documented (ADR-001 through ADR-006)
+• Architecture Decisions (ADRs): 7 Active ADRs Documented (ADR-001 through ADR-007)
 • Documentation Coverage Score: 100.0% COMPLETE
 ========================================================================================
 ```
