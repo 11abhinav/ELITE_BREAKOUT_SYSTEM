@@ -15,6 +15,9 @@ These rules **MUST NEVER** be violated in any implementation:
 8. **Session Bounding**: `SessionContext` is the ONLY owner of trading-session state.
 9. **Scheduler Production Contract**: The production scheduler owns the decision of *when* to execute. When prerequisites are met, scanners MUST be called with `force=True` so they do not override scheduler timing by entering `test_mode` *(Added 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0`)*.
 10. **Trade Structure Invariant Centralization**: All stop loss, target, and risk-reward validation MUST be delegated to `TradeStructureValidator` in `sl_target_helper.py`. No scanner engine may compute unvalidated risk models *(Added 2026-07-24 by `CENTRALIZED_TRADE_VALIDATOR_v1.0`)*.
+11. **PostgreSQL Connection Pool Capacity & Resilience**: Default connection pool size MUST maintain `DB_MAXCONN=50` with an acquire timeout `timeout=15s`. `get_connection()` context managers MUST rollback open transactions on checkout release to prevent pool poisoning *(Added 2026-07-24 by `DB_POOL_RESILIENCE_v1.0`)*.
+12. **Session Validity In-Memory Caching**: Authentication decorators `@login_required` and `@admin_required` MUST route session validation through `_cached_check_session()` (60s TTL) to prevent DB query flooding from high-frequency frontend polling endpoints *(Added 2026-07-24 by `SESSION_CACHE_v1.0`)*.
+13. **Response Compression**: All API and HTML responses exceeding 500 bytes MUST pass through the native gzip compression middleware in `dashboard_server.py` to minimize network payloads *(Added 2026-07-24 by `GZIP_MIDDLEWARE_v1.0`)*.
 
 ---
 

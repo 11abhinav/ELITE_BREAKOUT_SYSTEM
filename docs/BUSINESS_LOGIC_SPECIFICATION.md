@@ -101,7 +101,7 @@ The system uses advanced SL placement to avoid "Operator Stop Hunts" and enforce
   - **Reversal Buffer:** max(1.0x ATR, 1.00%). (Wider to accommodate volatility).
 - **ADX-Aware Widening:** Stocks in strong trends (ADX > 35) receive a 30% wider SL buffer to survive deeper natural pullbacks without being swept.
 
-### 3.2 Target Placement & Caps
+### 3.3 Target Placement & Caps
 Targets are aggregated using a `CandidateGenerator` that builds levels from:
 - Equal Highs (Liquidity sweeps)
 - R1 / R2 / Resistance Pivots
@@ -112,6 +112,20 @@ Targets are aggregated using a `CandidateGenerator` that builds levels from:
 - 15m capped at `5x ATR`.
 - 1H capped at `8x ATR`.
 - EOD capped at `12x ATR`.
+
+### 3.4 Trade Ranking Engine & Numerical Invariants
+Candidates are sorted hierarchically using `TradeRankingEngine` (`app/trade_ranking_engine.py`):
+1. Technical Quality (`0-100`)
+2. Institutional Footprint (`Volume Ratio + Delivery %`)
+3. Structural Reward Quality (`capped at 5x RR`)
+4. Market Context Alignment (`0-100`)
+5. Freshness Decay (`soft multiplier`)
+- **NaN / Inf Safeguards**: All inputs pass through `_safe_float()` enforcing `math.isnan()` and `math.isinf()` filtering to guarantee deterministic candidate sorting without runtime exceptions.
+
+### 3.5 Multibagger Exit Monitor & Suspended Stock Protections
+The Multibagger Exit Monitor (`app/multibagger.py`) runs every 15 minutes during market hours:
+- Tracks active positions for catastrophic loss (drawdown >= max_loss_pct), 200-DMA breakdown (3+ closes below & >7% deep), quality score decay (<55), or fundamental kill-gate breaches.
+- **Delisted / Suspended Stock Review**: If market price data is missing for an active symbol, the system triggers a `SELL_REVIEW` alert, writing to both `exit_signal` and `exit_reason` columns on `alerts` table without throwing database schema errors.
 
 ---
 

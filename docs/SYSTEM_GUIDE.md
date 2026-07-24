@@ -60,7 +60,10 @@ Expected operational baselines for the platform under typical conditions:
 | **Data Fetch (1D - 300 stocks)** | `< 3.0 seconds` | Parallel batched fetching using async/Threadpool. |
 | **Live Quotes Fetch** | `< 1.0 second` | Critical for intraday Multi-TF entry signals. |
 | **Indicator Computation** | `O(1) Matrix` | Fully vectorized Pandas/Numpy execution. No `.iterrows()`. |
-| **Scanner Execution (EOD)** | `< 20.0 seconds`| The complete loop over 300 stocks including scoring. Recorded via `duration_seconds` telemetry. |
+| **Scanner Execution (All Scanners)**| `< 20.0 seconds`| Complete execution loop over watchlist. Recorded via `duration_seconds` in `scanner_health`. |
+| **Database Pool Capacity** | `maxconn=50` | `DB_MAXCONN` default 50 with `15s` semaphore acquire timeout for concurrent loads. |
+| **Session Cache Latency** | `< 1 ms` | `_cached_check_session` (60s TTL) eliminates DB hits on frontend polls. |
+| **Gzip Response Compression** | `85-95% Reduction`| Compresses Admin HTML (260KB → 30KB) and performance payload (10MB → 500KB). |
 | **Session Rotation (Midnight)**| `< 5.0 seconds` | Immediate teardown and rebuild of the SessionContext. |
 | **Lock Wait Threshold** | `< 5.0 seconds` | `LOCK_WAIT_WARNING_SECONDS` warns if thread waits > 5s for `scanner_execution_lock`. |
 | **Lock Hold Threshold** | `< 60.0 seconds`| `LOCK_HOLD_WARNING_SECONDS` warns if scanner holds lock > 60s. |

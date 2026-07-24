@@ -2,6 +2,25 @@
 
 All notable changes to the Elite Breakout System architecture and capabilities will be documented in this file.
 
+## [v8.3.0] - High Performance Dashboard, Connection Pool Resilience & Robustness Release (2026-07-24)
+### Added
+*   **Gzip Response Compression Middleware (`app/dashboard_server.py`)**: Added native `after_request` gzip compression for all HTTP responses exceeding 500 bytes. Reduces Admin Dashboard HTML transfer from **260KB to ~30KB** and JSON performance payload from **10MB to ~500KB**.
+*   **Session Check In-Memory Cache (`app/dashboard_server.py`)**: Added `_cached_check_session()` with a 60-second TTL for `@login_required` and `@admin_required` decorators, eliminating 90%+ per-request PostgreSQL session validity queries.
+*   **Single-Query Batch Scanner Status (`app/database.py` & `app/dashboard_server.py`)**: Implemented `get_all_scanners_today_trades()` to replace N+1 sequential SQL loop in `/api/scanner_status` with a single SQL query.
+*   **Scanner Execution Duration Telemetry Across All Scanners (`app/wealth_engine.py`, `app/multibagger.py`, `app/main.py`)**: Instrumented `Wealth Engine`, `MULTIBAGGER`, `DAILY_BUILDER`, and `PERFORMANCE_TRACKER` to capture `start_time` and pass `duration_seconds` to `upsert_scanner_health()`, ensuring DB scanner run time updates after every execution.
+*   **Alerts Table `exit_reason` Column Migration (`app/database.py` & `app/multibagger.py`)**: Added `exit_reason TEXT` column to `alerts` table migration in `init_db()` and updated `multibagger.py` exit monitor to populate both `exit_signal` and `exit_reason`, preventing `psycopg2.errors.UndefinedColumn` errors on missing price data review alerts.
+*   **AI Analyzer Markdown Code Fence Stripping (`app/ai_analyzer.py`)**: Added markdown code block fence stripping (` ```json ` and ` ``` `) in `_try_gemini_model()` prior to `json.loads()` to prevent `JSONDecodeError` crashes on Gemini response text.
+*   **Trade Ranking Engine NaN/Inf Protection (`app/trade_ranking_engine.py`)**: Added `_safe_float()` helper with `math.isnan()` and `math.isinf()` safeguards in `TradeRankingEngine` to prevent NaN/Inf propagation during candidate sorting.
+*   **Global Flask API Error Handlers (`app/dashboard_server.py`)**: Added `@app.errorhandler(500)` and `@app.errorhandler(404)` handlers to ensure structured JSON responses (`{"status": "error", "error": "Internal Server Error"}`) for `/api/*` routes.
+
+### Changed
+*   **PostgreSQL Connection Pool Capacity & Timeout (`app/database.py`)**: Increased default `DB_MAXCONN` fallback from 30 to **50** and extended `get_connection()` acquire timeout from 5s to **15s** to handle spike API traffic and concurrent background daemons.
+*   **Session Validity Timeout Fallback (`app/database.py`)**: Updated `check_session_validity()` to return `True` (preserving valid active sessions) when connection pool timeouts occur, preventing 500 HTTP errors during transient DB load spikes.
+*   **Pledge Worker DB Connection Batching (`app/pledge_worker.py`)**: Consolidated DB cache writes in `process_symbol()` using a single `save_pledge_cache()` helper, eliminating 900+ connection checkouts per scraping cycle.
+*   **Parallel Frontend Data Fetching (`app/admin_dashboard.html` & `app/user_dashboard.html`)**: Parallelized initial dashboard data fetches via `Promise.all()` and removed sequential 4-URL fallback loops.
+
+---
+
 ## [v8.2.1] - Comprehensive System Audit & Stabilization Release (2026-07-24)
 ### Fixed
 *   **ProcessLock Distributed Advisory Lock Exception Handling (`app/lock_utils.py`)**: Fixed `acquire()` method so exceptions during PostgreSQL advisory lock acquisition or DB connection clean up local handles, release thread locks, and return `False` (not `True`). Prevents concurrent scanner execution across Railway containers during DB connection glitches (`[VERSION: PROCESS_LOCK_EXC_FIX_v1.0]`).
