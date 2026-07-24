@@ -355,6 +355,12 @@ class FyersFetcher(DataFetcher):
                 # Cap span to 365 days to avoid Fyers 'Invalid input'
                 start_date = end_date - timedelta(days=365)
                 range_from = start_date.strftime("%Y-%m-%d")
+        else:
+            # Fyers API enforces a strict 100-day cap for intraday resolutions (1m to 240m / 1h)
+            span_days = (end_date - start_date).days
+            if span_days > 99:
+                start_date = end_date - timedelta(days=99)
+                range_from = start_date.strftime("%Y-%m-%d")
 
         client = fyers_auth.get_fyers_client()
         if not client:
