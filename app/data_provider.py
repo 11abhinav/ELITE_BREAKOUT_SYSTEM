@@ -71,6 +71,15 @@ class YFinanceFetcher(DataFetcher):
 
         if base_sym.isdigit():
             is_bse = True
+            
+        # Strip broker series suffixes if present before appending .NS or .BO
+        for suffix in ("-EQ", "-BE", "-SM", "-ST", "-A", "-B", "-T", "-M", "-X", "-XC", "-XD", "-XT"):
+            if base_sym.endswith(suffix):
+                base_sym = base_sym[:-len(suffix)]
+                break
+                
+        if base_sym.isdigit():
+            is_bse = True
         
         # Fix ampersand symbols.
         from daily_builder import SYMBOL_CORRECTIONS
