@@ -764,13 +764,12 @@ function openChart(symbol, cmp) {
   }
 
 async function loadData(forceRebuild = false) {
-  const urls = [
-    
-    '/data/performance_data.json', '../data/performance_data.json', './data/performance_data.json', 'performance_data.json',
-  ];
   const t = new Date().getTime();
-  for (const url of urls) {
-    try { const r = await fetch(url + '?t=' + t + (forceRebuild ? '&rebuild=true' : ''), {cache: 'no-store'}); if (r.ok) return await r.json(); } catch {}
+  try {
+    const r = await fetch('/data/performance_data.json?t=' + t + (forceRebuild ? '&rebuild=true' : ''), {cache: 'no-store'});
+    if (r.ok) return await r.json();
+  } catch (e) {
+    console.warn('Failed to load performance data from /data/performance_data.json', e);
   }
 
   console.warn('Failed to load performance data, returning empty state.');
@@ -784,7 +783,6 @@ async function loadData(forceRebuild = false) {
     trades: [],
     by_scanner: {}, by_category: {}, equity_curve: [], monthly: [],
   };
-
 }
 
 
@@ -1654,9 +1652,11 @@ async function doRefresh(isAuto = false) {
   window.scrollTo(0, 0);
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
-  await loadCapitalInfo();
-  // [VERSION: MANUAL_REFRESH_REBUILD_v1.0] Force rebuild performance data on manual refresh
-  const data = await loadData(!isAuto);
+  
+  const [_, data] = await Promise.all([
+    loadCapitalInfo(),
+    loadData(!isAuto)
+  ]);
   window.DATA_GENERATED_AT = data.generated_at;
 
   ALL_TRADES = data.trades || [];
@@ -1673,23 +1673,19 @@ async function doRefresh(isAuto = false) {
 // ── Viewer Tracking
 async function pingViewer() {
   try {
-    const urls = ['/api/viewers'];
-    let data = null;
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({})
-        });
-        if (res.ok) { data = await res.json(); break; }
-      } catch (e) {}
-    }
-    if (data && data.active_count) {
-      document.getElementById('vCountVal').textContent = data.active_count;
-      document.getElementById('viewerCount').title = 'Active: ' + data.viewers.join(', ');
+    const res = await fetch('/api/viewers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.active_count) {
+        document.getElementById('vCountVal').textContent = data.active_count;
+        document.getElementById('viewerCount').title = 'Active: ' + data.viewers.join(', ');
+      }
     }
   } catch(e) {}
 }
