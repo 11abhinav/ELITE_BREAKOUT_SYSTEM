@@ -42,7 +42,14 @@ def _try_gemini_model(model_name: str, gemini_key: str, text: str) -> dict:
     if res.status_code == 200:
         data = res.json()
         try:
-            content_str = data["candidates"][0]["content"]["parts"][0]["text"]
+            content_str = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if content_str.startswith("```json"):
+                content_str = content_str[7:]
+            if content_str.startswith("```"):
+                content_str = content_str[3:]
+            if content_str.endswith("```"):
+                content_str = content_str[:-3]
+            content_str = content_str.strip()
             result = json.loads(content_str)
             result["model_used"] = model_name
             return result

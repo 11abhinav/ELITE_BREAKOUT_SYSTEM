@@ -10,12 +10,27 @@ Sort Hierarchy (primary to tie-breaker):
 """
 
 
+import math
+
 class TradeRankingEngine:
+
+    @staticmethod
+    def _safe_float(val, default: float) -> float:
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            if math.isnan(f) or math.isinf(f):
+                return default
+            return f
+        except (ValueError, TypeError):
+            return default
 
     @staticmethod
     def _technical_score(candidate: dict) -> int:
         """0-100 technical quality from the scoring engine."""
-        return max(0, min(100, candidate.get("technical_score", 0)))
+        raw = TradeRankingEngine._safe_float(candidate.get("technical_score"), 0.0)
+        return max(0, min(100, int(raw)))
 
     @staticmethod
     def _institutional_score(candidate: dict) -> int:
@@ -24,13 +39,13 @@ class TradeRankingEngine:
         Volume Ratio + Delivery %.
         Future: Candle quality, gap quality.
         """
-        vol_ratio = candidate.get("volume_ratio") or 1.0
-        delivery_pct = candidate.get("delivery_pct")
+        vol_ratio = TradeRankingEngine._safe_float(candidate.get("volume_ratio"), 1.0)
+        delivery_pct = TradeRankingEngine._safe_float(candidate.get("delivery_pct"), 0.0)
 
         vol_capped = min(5.0, max(1.0, vol_ratio))
         vol_score = ((vol_capped - 1.0) / 4.0) * 100
 
-        if delivery_pct and delivery_pct > 0:
+        if delivery_pct > 0:
             del_capped = min(75.0, max(20.0, delivery_pct))
             del_score = ((del_capped - 20.0) / 55.0) * 100
             return int((vol_score * 0.5) + (del_score * 0.5))
@@ -41,7 +56,7 @@ class TradeRankingEngine:
         """
         0-100 structural reward quality. Capped at 5x RR so RR never dominates.
         """
-        rr = candidate.get("rr_ratio") or 1.5
+        rr = TradeRankingEngine._safe_float(candidate.get("rr_ratio"), 1.5)
         rr_capped = min(5.0, max(1.5, rr))
         return int(((rr_capped - 1.5) / 3.5) * 100)
 

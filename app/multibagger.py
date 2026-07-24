@@ -956,6 +956,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                                 cur.execute("""
                                     UPDATE alerts 
                                     SET status = 'SELL_REVIEW', 
+                                        exit_signal = 'Review Alert: No price data returned by provider. Stock may be delisted or suspended.',
                                         exit_reason = 'Review Alert: No price data returned by provider. Stock may be delisted or suspended.',
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE id = %s

@@ -333,6 +333,7 @@ def init_db():
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_pct      REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS closed_at    TEXT",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_signal  TEXT",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_reason  TEXT",
                     # Portfolio tracking columns
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS capital_allocated REAL DEFAULT 0.0",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shares_bought     INTEGER DEFAULT 0",

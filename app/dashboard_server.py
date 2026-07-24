@@ -2928,3 +2928,18 @@ def get_multibagger_positions():
     except Exception as e:
         logger.exception(f"Failed to fetch multibagger positions")
         return jsonify({"error": str(e)}), 500
+
+# ── Global Error Handlers ───────────────────────────────────────────────
+
+@app.errorhandler(500)
+def handle_500_error(e):
+    logger.exception(f"Unhandled 500 Server Error: {e}")
+    if request.path.startswith('/api/'):
+        return jsonify({"status": "error", "error": "Internal Server Error", "message": str(e)}), 500
+    return "Internal Server Error", 500
+
+@app.errorhandler(404)
+def handle_404_error(e):
+    if request.path.startswith('/api/'):
+        return jsonify({"status": "error", "error": "Endpoint Not Found"}), 404
+    return "Page Not Found", 404
