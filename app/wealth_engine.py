@@ -1054,34 +1054,29 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                                 valid_closes = snap_df['Close'].dropna()
                                 if not valid_closes.empty:
                                     live_price = float(valid_closes.iloc[-1])
-                                else:
-                                    logger.debug(f"[LIVE_PATCH] {sym} No valid close found in intraday snapshot. Skipped live patch.")
-                                    continue
-                            else:
-                                live_price = None
-                                # Ensure we don't mutate the global cache directly
-                                hist_df = hist_df.copy()
-                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
-                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
-                                if t_col:
-                                    last_dt = hist_df[t_col].iloc[-1]
-                                
-                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
-                                
-                                if last_dt_str == today_date_str:
-                                    # Update today's existing candle
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
-                                else:
-                                    # Append a new live candle for today
-                                    new_row = hist_df.iloc[-1:].copy()
+                                    # Ensure we don't mutate the global cache directly
+                                    hist_df = hist_df.copy()
+                                    last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                                    t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
                                     if t_col:
-                                        new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                        last_dt = hist_df[t_col].iloc[-1]
+                                    
+                                    last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                    
+                                    if last_dt_str == today_date_str:
+                                        # Update today's existing candle
+                                        hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
                                     else:
-                                        new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
-                                    new_row['Close'] = live_price
-                                    hist_df = pd.concat([hist_df, new_row])
-                                
-                                chunk_historical_data[sym] = hist_df
+                                        # Append a new live candle for today
+                                        new_row = hist_df.iloc[-1:].copy()
+                                        if t_col:
+                                            new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                        else:
+                                            new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                        new_row['Close'] = live_price
+                                        hist_df = pd.concat([hist_df, new_row])
+                                    
+                                    chunk_historical_data[sym] = hist_df
                                 
                     
                 valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
