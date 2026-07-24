@@ -1095,6 +1095,19 @@ def run_system_scheduler():
                     from wealth_engine import run_wealth_scan
                     run_wealth_scan()
                 last_wealth_full_scan_run = now
+                # [VERSION: WEALTH_HEALTH_FIX_v1.0] Only the 15-min full scan updates
+                # scanner health. The 5-min exit monitor is a lightweight CMP/exit check
+                # and should not masquerade as a full scan heartbeat.
+                duration_sec = round(time.time() - start_time, 1)
+                now_str = datetime.now(IST).isoformat()
+                upsert_scanner_health(
+                    "Wealth Engine",
+                    status="OK",
+                    last_success=now_str,
+                    scheduled_for="Every 15m (9:15 AM - 3:30 PM)",
+                    duration_seconds=duration_sec
+                )
+                logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
             else:
                 logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
                 from telemetry_manager import telemetry
@@ -1102,18 +1115,10 @@ def run_system_scheduler():
                 with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                     from wealth_engine import run_wealth_intraday_update
                     run_wealth_intraday_update()
+                duration_sec = round(time.time() - start_time, 1)
+                logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
             
             last_wealth_market_run = now
-            duration_sec = round(time.time() - start_time, 1)
-            now_str = datetime.now(IST).isoformat()
-            upsert_scanner_health(
-                "Wealth Engine",
-                status="OK",
-                last_success=now_str,
-                scheduled_for="Every 5m/15m (9:15 AM - 3:30 PM)",
-                duration_seconds=duration_sec
-            )
-            logger.info(f"✅ Wealth Engine (market hours) completed successfully in {format_duration(duration_sec)}")
             return True
         except Exception as e:
             if "actively running" in str(e).lower():
@@ -1320,7 +1325,7 @@ def check_scanner_staleness(now):
     SCANNER_CADENCE = {
         "MULTI_TF":            20,   # runs every 5 min → stale if no heartbeat in 20 min
         "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
-        "Wealth Engine":       20,   # runs every 5 min during market hours
+        "Wealth Engine":       45,   # [VERSION: WEALTH_HEALTH_FIX_v1.0] health only updates on 15-min full scan → stale if no heartbeat in 45 min
         "DAILY_BUILDER":       "DAILY",
         "EOD":                 "DAILY",
         "REVERSAL":            "DAILY"
