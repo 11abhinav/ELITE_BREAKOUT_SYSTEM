@@ -543,7 +543,7 @@ def _run_eod_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
                     total = eod_scanner.start()   # returns int
-                time.sleep(15)
+            time.sleep(15)
             if total == 0:
                 logger.info("📊 EOD | Zero alerts — no Telegram notification")
             else:
@@ -633,7 +633,7 @@ def _run_reversal_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
                     total = reversal_scanner.start()   # returns int
-                time.sleep(15)
+            time.sleep(15)
             if total == 0:
                 logger.info("🔄 REVERSAL | Zero alerts — no Telegram notification")
             else:
@@ -722,7 +722,7 @@ def _run_pullback_with_retries(today_str):
             with scanner_execution_lock:
                 with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
                     total = pullback_pipeline.start()
-                time.sleep(5)
+            time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed — {total} alert(s) generated")
             upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="21:00 IST")
             return
@@ -1152,12 +1152,11 @@ def run_system_scheduler():
                 from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
                 wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
                 evening_scanners_ran = True
-                with scanner_execution_lock:
-                    logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
-                    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-                    _run_eod_with_retries(today_str)
-                    _run_reversal_with_retries(today_str)
-                    _run_pullback_with_retries(today_str)
+                logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                _run_eod_with_retries(today_str)
+                _run_reversal_with_retries(today_str)
+                _run_pullback_with_retries(today_str)
             elif now.hour < 18:
                 evening_scanners_ran = False
                 
@@ -1530,7 +1529,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
                 upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 stats = fn() or {}
-                time.sleep(15)
+            time.sleep(15)
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
                                   error_msg=None,
