@@ -951,6 +951,7 @@ def run_system_scheduler():
     wealth_initial_ran = False
     verify_scans_ran = False
     last_wealth_market_run = None  # Track last market-hours wealth run
+    last_wealth_full_scan_run = None  # Track last market-hours full scan (15m BUY alert cycle)
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
@@ -1072,8 +1073,8 @@ def run_system_scheduler():
             return False
 
     def safe_run_wealth_market_hours():
-        """Run Wealth Engine during market hours (5-min loop from 9:15 AM to 3:30 PM)."""
-        nonlocal last_wealth_market_run
+        """Run Wealth Engine during market hours (5-min position CMP/Exit update, 15-min full BUY alert scan)."""
+        nonlocal last_wealth_market_run, last_wealth_full_scan_run
         start_time = time.time()
         try:
             now = datetime.now(IST)
@@ -1081,24 +1082,35 @@ def run_system_scheduler():
             if last_wealth_market_run and (now - last_wealth_market_run).total_seconds() < 300:
                 return False
             
-            logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine (market hours - 5min loop)")
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
-            with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
-                from wealth_engine import run_wealth_intraday_update
-                run_wealth_intraday_update()
-            
-            # [ARCHITECTURAL FIX] Multibagger Exit Monitor decoupled to run_multibagger_exit_monitor thread.
+            # Check if 15 minutes have elapsed since last full BUY alert scan
+            should_run_full_scan = False
+            if last_wealth_full_scan_run is None or (now - last_wealth_full_scan_run).total_seconds() >= 900:
+                should_run_full_scan = True
+
+            if should_run_full_scan:
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (15-min BUY alert cycle)")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
+                with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
+                    from wealth_engine import run_wealth_scan
+                    run_wealth_scan()
+                last_wealth_full_scan_run = now
+            else:
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
+                with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
+                    from wealth_engine import run_wealth_intraday_update
+                    run_wealth_intraday_update()
             
             last_wealth_market_run = now
             duration_sec = round(time.time() - start_time, 1)
-            # Mark success — capture completion time AFTER the scan finishes (not the start time)
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                scheduled_for="Every 5m/15m (9:15 AM - 3:30 PM)",
                 duration_seconds=duration_sec
             )
             logger.info(f"✅ Wealth Engine (market hours) completed successfully in {format_duration(duration_sec)}")

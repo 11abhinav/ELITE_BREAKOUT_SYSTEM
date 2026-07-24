@@ -76,7 +76,7 @@ def test_no_cache_full_fetch_healthy(mock_get_fetcher, mock_watchlist, base_hist
     # 3. Cache populated
     cache_key = ("1d", "1y")
     assert cache_key in _cache
-    assert not _cache[cache_key]["data"]["TEST1.NS"].empty
+    assert not _cache[cache_key]["TEST1.NS"]["data"].empty
 
 @patch("app.price_cache.get_fetcher")
 def test_healthy_cache_delta_fetch(mock_get_fetcher, mock_watchlist, base_history, setup_test_env):
@@ -221,7 +221,7 @@ def test_provider_returns_one_row_cache_repaired(mock_get_fetcher, base_history,
     }
     
     # Reset TTL to trigger fetch again (set it far in the past)
-    _cache[("1d", "1y")]["ts"] = -1000000
+    _cache[("1d", "1y")]["TEST1.NS"]["ts"] = -1000000
     
     with patch("app.price_cache._is_cache_up_to_date", return_value=False):
         result2 = fetch_watchlist_data(watchlist, period="1y", interval="1d")

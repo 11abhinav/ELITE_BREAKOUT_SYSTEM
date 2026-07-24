@@ -234,27 +234,35 @@ def get_dynamic_cadence(interval: str) -> int:
 # [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.
 @profile_function("Price Fetch", budget_mb=500.0)
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
+    global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
     requester = requester or threading.current_thread().name or "Unknown"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
+    now_mono = time.monotonic()
 
     with _lock:
-        entry = _cache.get(cache_key)
-        if entry is not None:
-            age = time.monotonic() - entry["ts"]
-            if age < cadence:
-                cached_data = entry["data"]
-                missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
-                if not missing_symbols:
-                    pass
-                    logger.debug(f"📦 Price cache hit | {interval} | {period} | age={age:.1f}s < cadence={cadence:.0f}s")
-                    return {s: cached_data[s] for s in watchlist["Stock"]}
-            else:
-                pass
-                logger.info(f"Price cache stale for {interval} (age={age:.1f}s >= cadence={cadence:.0f}s). Forcing fresh download.")
+        cache_dict = _cache.get(cache_key, {})
+        cached_result = {}
+        missing_symbols = []
+        
+        for s in watchlist["Stock"]:
+            sym_entry = cache_dict.get(s)
+            if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
+                age = now_mono - sym_entry["ts"]
+                if age < cadence:
+                    cached_result[s] = sym_entry["data"]
+                    continue
+            missing_symbols.append(s)
+            
+        if not missing_symbols:
+            _cache_hits += len(watchlist)
+            logger.debug(f"📦 Price cache hit | {interval} | {period} | All {len(watchlist)} symbols fresh in RAM")
+            return cached_result
         else:
-            pass
+            _cache_hits += len(cached_result)
+            _cache_misses += len(missing_symbols)
+            logger.debug(f"📦 Price cache partial/miss | {interval} | {period} | Cached: {len(cached_result)}, Fetching: {len(missing_symbols)}")
 
     # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
     # This prevents thundering herd where 5+ scanners fetch simultaneously
@@ -263,29 +271,36 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
     with _fetch_lock:
         logger.debug(f"🔓 Global fetch lock acquired for {interval}|{period}")
         
-        # Double-check cache in case another thread just populated it while we waited for lock
+        # Double-check cache for missing symbols in case concurrent thread populated them while waiting for lock
         with _lock:
-            entry = _cache.get(cache_key)
-            if entry is not None:
-                age = time.monotonic() - entry["ts"]
-                if age < cadence:
-                    cached_data = entry["data"]
-                    missing_symbols = [s for s in watchlist["Stock"] if s not in cached_data]
-                    if not missing_symbols:
-                        pass
-                        logger.info(f"📦 Cache was populated by concurrent thread; reusing instead of refetching.")
-                        return {s: cached_data[s] for s in watchlist["Stock"]}
-        
-        # Cache miss or stale — download fresh data
-        pass
-        result = _download_all_robust(watchlist, period=period, interval=interval, requester=requester)
+            cache_dict = _cache.get(cache_key, {})
+            still_missing = []
+            now_mono = time.monotonic()
+            for s in missing_symbols:
+                sym_entry = cache_dict.get(s)
+                if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
+                    if (now_mono - sym_entry["ts"]) < cadence:
+                        cached_result[s] = sym_entry["data"]
+                        continue
+                still_missing.append(s)
+                
+            if not still_missing:
+                logger.info(f"📦 Cache populated by concurrent thread for all requested symbols; reusing.")
+                return {s: cached_result[s] for s in watchlist["Stock"] if s in cached_result}
 
-    # Determine oldest timestamp in batch
+        # Fetch only the missing symbols
+        fetch_sub_watchlist = watchlist[watchlist["Stock"].isin(still_missing)].copy()
+        if fetch_sub_watchlist.empty:
+            return cached_result
+            
+        result = _download_all_robust(fetch_sub_watchlist, period=period, interval=interval, requester=requester)
+
+    # Determine data_as_of timestamp from freshly fetched data
     data_as_of = None
     if result:
         timestamps = []
         for symbol, df in result.items():
-            if df is not None and not df.empty:
+            if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
                 try:
                     ts = None
                     if "Datetime" in df.columns:
@@ -304,9 +319,7 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                     logger.warning(f"Failed to parse timestamp for {symbol} in price_cache: {e}")
                     pass
                     
-        # CRITICAL FIX: If we expected timestamps (result is not empty) but failed to parse ALL of them,
-        # we cannot confidently determine data freshness. We must invalidate this fetch.
-        if not timestamps and any(df is not None and not df.empty for df in result.values()):
+        if not timestamps and any(isinstance(df, pd.DataFrame) and not df.empty for df in result.values()):
             logger.error("DataFetchError: All dataframes returned malformed or missing timestamps. Aborting cache update.")
             raise ValueError("DataFetchError: Malformed timestamps across entire batch.")
             
@@ -318,14 +331,27 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
                 data_as_of = data_as_of.astimezone(IST)
 
     with _lock:
+        if cache_key not in _cache:
+            _cache[cache_key] = {}
+        now_mono = time.monotonic()
+        
+        for symbol, df in result.items():
+            if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
+                provider_name = getattr(df, 'attrs', {}).get('provider', 'unknown')
+                _cache[cache_key][symbol] = {
+                    "data": df,
+                    "ts": now_mono,
+                    "data_as_of": data_as_of,
+                    "provider": provider_name,
+                    "schema_version": "v8.4.0",
+                    "fetch_interval": interval,
+                    "fetch_period": period
+                }
+                cached_result[symbol] = df
+            else:
+                cached_result[symbol] = None
 
-        _cache[cache_key] = {
-            "data": result,
-            "ts": time.monotonic(),
-            "data_as_of": data_as_of
-        }
-
-    return result
+    return {s: cached_result.get(s) for s in watchlist["Stock"]}
 
 
 import os

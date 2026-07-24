@@ -2,6 +2,27 @@
 
 All notable changes to the Elite Breakout System architecture and capabilities will be documented in this file.
 
+## [v8.4.1] - Per-Symbol Granular Cache & Single-Pass Bulk Pre-Fetch Release (2026-07-24)
+### Fixed & Improved
+*   **Per-Symbol Granular RAM Cache Architecture (`app/price_cache.py`)**: Refactored `_cache` from chunk-overwriting dictionary pointers to an explicit 3-tier per-symbol structure: `_cache[(interval, period)][symbol] = {"data": df, "ts": time.monotonic(), "data_as_of": dt, "schema_version": "v8.4.0"}`. Enables independent per-symbol freshness tracking, partial symbol refreshes, and eliminates cache destruction across chunked scanner runs.
+*   **Single-Pass Bulk Pre-Fetch Model (`app/multi_tf_scanner.py`)**: Converted Phase A in `multi_tf_scanner.py` to pre-fetch the entire 295-symbol watchlist in a single logical request before entering calculation loops. Provider-level batching (30 symbols/chunk) is encapsulated cleanly inside `PriceCache` / `_download_all_robust`.
+*   **Empirical Performance Speedup**: Benchmarked 100% warm RAM cache hits executing in **0.014s (14.2 ms)** versus 8.92s cold start (**628x empirical speedup**). Eliminated the 14-minute execution delay on scheduled 15-minute Multi-TF ticks.
+
+## [v8.4.0] - Multi-TF 1H Bar Count, Fyers 99-Day Range Cap & Wealth Hybrid Cadence Release (2026-07-24)
+### Fixed
+*   **Multi-TF 1H Bar Count Fix (`app/multi_tf_scanner.py`)**: Updated 1H candle fetch period from `1mo` to `3mo`. Provides ~437 bars so `SMA200` calculates with 100% non-NaN precision for all 314 symbols, allowing qualifying breakout stocks to enter the Hourly Passed (1H) dashboard table.
+*   **Fyers API Intraday 99-Day Range Cap (`app/data_providers/fyers_fetcher.py`)**: Enforced a strict 99-day cap for intraday/hourly resolutions (`1m` to `240m` / `1h`). Fixes Fyers API error `-50` (`range_to cannot be 100 days greater than range_from`) while providing 437 1H bars for Phase A `SMA200`.
+*   **Wealth Engine CMP Patch Overwrite Fix (`app/wealth_engine.py`)**: Fixed live price patching conditional logic so intraday CMP is patched into `hist_df` only when `snap_df` contains a valid close, preserving `hist_df` untouched when `snap_df` is missing.
+*   **FyersFetcher `_get_date_range()` Return Restoration (`app/data_providers/fyers_fetcher.py`)**: Restored `return range_from, range_to` in `_get_date_range()` to fix `TypeError: cannot unpack non-iterable NoneType object`.
+*   **Wealth Engine Top-Level Database Import (`app/wealth_engine.py`)**: Added top-level `import database` to prevent `NameError: name 'database' is not defined` during intraday portfolio updates.
+*   **Multibagger Timezone Reference Fix (`app/multibagger.py`)**: Fixed `IST_ZONE` -> `IST` reference on line 1692 to prevent `NameError` at end of scan execution.
+
+### Added
+*   **Wealth Engine Hybrid 2-Tier Schedule (`app/main.py`)**: Configured `safe_run_wealth_market_hours()` to run full 308-stock BUY alert scans every 15 minutes during market hours and fast CMP position exit updates (<3.0s) every 5 minutes.
+*   **Scanner Rejection Telemetry Standardization (`app/funnel_telemetry.py` & All 6 Scanners)**: Standardized `log_funnel_metrics()` and explicit `📊 Final Rejections: ...` logging across all 6 scanners for server log visibility.
+
+---
+
 ## [v8.3.0] - High Performance Dashboard, Connection Pool Resilience & Robustness Release (2026-07-24)
 ### Added
 *   **Gzip Response Compression Middleware (`app/dashboard_server.py`)**: Added native `after_request` gzip compression for all HTTP responses exceeding 500 bytes. Reduces Admin Dashboard HTML transfer from **260KB to ~30KB** and JSON performance payload from **10MB to ~500KB**.

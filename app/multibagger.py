@@ -1689,7 +1689,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",
             status="OK",
-            last_success=datetime.now(IST_ZONE).isoformat(),
+            last_success=datetime.now(IST).isoformat(),
             today_alerts=alerts_count,
             processed_count=len(results),
             total_count=len(fundamentals_list),
