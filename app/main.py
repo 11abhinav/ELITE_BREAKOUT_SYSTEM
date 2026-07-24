@@ -19,6 +19,7 @@ import socket
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 import random
+from typing import Optional, Dict, Any, List
 from memory_profiler import MemoryProfiler
 from forensics import forensics
 
@@ -567,10 +568,25 @@ def block_until_watchlist_ready():
 #   • Once it finishes successfully    → do NOT run again until the next day's window.
 # =====================================================================================
 
+# [VERSION: SCHEDULER_CORRECTNESS_v1.0]
+# PRODUCTION CONTRACT: These _run_*_with_retries functions are called exclusively
+# by the production scheduler after it has already:
+#   (1) waited for Bhavcopy to be available, and
+#   (2) determined that the correct execution window has been reached.
+#
+# Therefore, scanners are called with force=True so they treat this as a
+# production run regardless of the wall-clock time. The scheduler owns the
+# decision of WHEN to run; the scanner owns the decision of HOW to scan.
+#
+# force=True must NOT be removed — doing so causes the scanners to silently
+# enter test_mode and discard all alert results whenever they run before 21:00.
 def _run_eod_with_retries(today_str):
     retry_count = 0
     while True:
-        # Check database if we already succeeded today
+        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
+        # today (regardless of time-of-day) counts as the authoritative production run.
+        # The prior 21:00 time-gate is removed because the real production run now
+        # happens at ~18:30-19:00 (when Bhavcopy arrives), not at 21:00.
         try:
             from database import get_all_scanner_health
             health_records = get_all_scanner_health()
@@ -579,19 +595,8 @@ def _run_eod_with_retries(today_str):
                 if rec.get("scanner_name") == "EOD" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 21:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
+                        already_ran = True
+                        break
             
             if already_ran:
                 logger.info("📊 EOD SCAN | Already successfully executed today.")
@@ -607,7 +612,10 @@ def _run_eod_with_retries(today_str):
             import eod_scanner
             with scanner_execution_lock:
                 with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
-                    total = eod_scanner.start()   # returns int
+                    # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler has
+                    # validated prerequisites (Bhavcopy ready). Scanner must not override
+                    # this by re-applying its internal time-window check.
+                    total = eod_scanner.start(force=True)   # returns int
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -620,7 +628,7 @@ def _run_eod_with_retries(today_str):
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="21:00 IST",
+                scheduled_for="After Bhavcopy (18:30-19:30 IST)",
                 duration_seconds=duration_sec
             )
             try:
@@ -644,12 +652,12 @@ def _run_eod_with_retries(today_str):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="21:00 IST")
+                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
                 return
             
             logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="21:00 IST")
+            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
             
             if retry_count == 1:
                 try:
@@ -664,6 +672,8 @@ def _run_eod_with_retries(today_str):
 def _run_reversal_with_retries(today_str):
     retry_count = 0
     while True:
+        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
+        # today counts. The prior 21:00 time-gate is removed — see _run_eod_with_retries.
         try:
             from database import get_all_scanner_health
             health_records = get_all_scanner_health()
@@ -672,19 +682,8 @@ def _run_reversal_with_retries(today_str):
                 if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["reversal"]
-                            if ls_dt.time() >= start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("🔄 REVERSAL SCAN | Previous run today was BEFORE 21:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
+                        already_ran = True
+                        break
             
             if already_ran:
                 logger.info("🔄 REVERSAL SCAN | Already successfully executed today.")
@@ -700,7 +699,8 @@ def _run_reversal_with_retries(today_str):
             import reversal_scanner
             with scanner_execution_lock:
                 with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
-                    total = reversal_scanner.start()   # returns int
+                    # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
+                    total = reversal_scanner.start(force=True)   # returns int
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -713,7 +713,7 @@ def _run_reversal_with_retries(today_str):
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="21:00 IST",
+                scheduled_for="After Bhavcopy (18:30-19:30 IST)",
                 duration_seconds=duration_sec
             )
             try:
@@ -737,12 +737,12 @@ def _run_reversal_with_retries(today_str):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="21:00 IST")
+                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
                 return
             
             logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="21:00 IST")
+            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
             
             if retry_count == 1:
                 try:
@@ -757,6 +757,8 @@ def _run_reversal_with_retries(today_str):
 def _run_pullback_with_retries(today_str):
     retry_count = 0
     while True:
+        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
+        # today counts. The prior 21:00 time-gate is removed — see _run_eod_with_retries.
         try:
             from database import get_all_scanner_health
             health_records = get_all_scanner_health()
@@ -765,19 +767,8 @@ def _run_pullback_with_retries(today_str):
                 if rec.get("scanner_name") == "PULLBACK" and rec.get("status") == "OK" and rec.get("last_success"):
                     last_success_str = str(rec["last_success"])
                     if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("📊 PULLBACK SCAN | Previous run today was BEFORE 21:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
+                        already_ran = True
+                        break
             if already_ran:
                 logger.info("📊 PULLBACK SCAN | Already successfully executed today.")
                 return
@@ -792,11 +783,12 @@ def _run_pullback_with_retries(today_str):
             import pullback_pipeline
             with scanner_execution_lock:
                 with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-                    total = pullback_pipeline.start()
+                    # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
+                    total = pullback_pipeline.start(force=True)
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
-            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="21:00 IST", duration_seconds=duration_sec)
+            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="After Bhavcopy (18:30-19:30 IST)", duration_seconds=duration_sec)
             return
         except Exception as exc:
             if "actively running" in str(exc).lower():
@@ -807,11 +799,11 @@ def _run_pullback_with_retries(today_str):
             now = datetime.now(IST)
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — PULLBACK scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="21:00 IST")
+                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
                 return
             logger.critical(f"💀 PULLBACK scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="21:00 IST")
+            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             time.sleep(wait_time)
 
@@ -1139,10 +1131,10 @@ def run_system_scheduler():
     # Main scheduler loop state variables
     last_mb_exit = None
     last_perf = None
+    last_multi_tf = None          # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Tracks last 15-min candle-aligned Multi-TF execution
     daily_builder_ran = False
     wealth_initial_ran = False
     verify_scans_ran = False
-    multi_tf_ran = False
     multibagger_ran = False
     evening_scanners_ran = False
     
@@ -1212,18 +1204,21 @@ def run_system_scheduler():
                     # 3. Wealth Engine
                     safe_run_wealth_market_hours()
                 
+                # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Multi-TF: 15-min candle-aligned cadence
+                # Runs on completed 15-minute bar boundaries (09:30, 09:45, 10:00 … 14:45).
+                # Stops at 15:00 — Phase D (5m trigger) signals generated past 14:45 would
+                # leave fewer than 45 minutes for position entry and risk management before close.
+                # Aligned to :00 and :15 and :30 and :45 of each hour.
+                if now.hour < 15:  # Do not start new cycles after 14:59
+                    current_slot = now.replace(second=0, microsecond=0)
+                    current_slot = current_slot.replace(minute=(now.minute // 15) * 15)
+                    if last_multi_tf is None or current_slot > last_multi_tf:
+                        last_multi_tf = current_slot
+                        logger.info(f"🚀 MULTI_TF SCAN | Starting candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
+                        with scanner_execution_lock:
+                            _trigger_multi_tf()
+                
                 check_scanner_staleness(now)
-            
-            now = datetime.now(IST)
-            
-            # 15:00 - Multi-TF Scanner
-            if now.hour == 15 and now.minute >= 0 and not multi_tf_ran:
-                multi_tf_ran = True
-                logger.info(f"🚀 MULTI_TF SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-                with scanner_execution_lock:
-                    _trigger_multi_tf()
-            elif now.hour != 15:
-                multi_tf_ran = False
                 
             # 18:00 - Evening Scanners (EOD, Reversal, Pullback)
             if now.hour >= 18 and not evening_scanners_ran:

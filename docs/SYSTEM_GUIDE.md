@@ -7,16 +7,22 @@
 The system is a fully governed, quantitative trading platform operating autonomously 24/7. 
 
 ### 1.1 The Daily Schedule (IST)
-The `scheduler.py` drives the platform's heartbeat:
-- **00:01 - Session Rotation:** The `LifecycleManager` forces a burn-down of yesterday's `SessionContext` and initializes a fresh trading day context. Ephemeral data is wiped.
-- **09:10 - Watchlist & Universe Generation:** The `DailyBuilder` cross-references wealth constraints, verifies symbols aren't delisted, and locks in the fundamental trading universe for the day.
+The `run_system_scheduler()` in `app/main.py` drives the platform's heartbeat:
+- **00:00 - Session Rotation:** The `ApplicationContext` / `SessionContext` forces a burn-down of yesterday's trading session and clears daily state.
+- **01:00 - Daily Builder:** The `DailyBuilder` screens fundamental metrics, verifies symbols aren't delisted, and locks in the fundamental trading universe parquet file (`watchlist.parquet`).
+- **02:00 - Wealth Engine (Initial):** Evaluates fundamental watchlist against 1D historical technical positioning to classify stocks into BUY / HOLD / WATCH tiers.
+- **08:30 - Verify Scans Checkpoint:** Validates system file readiness and cache freshness before market open.
 - **09:15 to 15:30 - Live Market Hunting:**
-  - `MultiTFScanner` runs aggressively (e.g. every 15 mins).
-  - Scanners request data -> `UnifiedFetcher` fetches -> `IndicatorManager` computes bundles -> Scanners generate signals.
-- **18:00 - Data Acquisition (Post-Market):** Fetches official NSE Bhavcopy, Delivery Percentages, and institutional Block/Bulk Deals using the residential proxy (ScraperAPI).
-- **21:00 to 23:59 - EOD Processing:** 
-  - The heavy `EOD Breakout`, `Reversal`, and `Pullback` scanners execute on perfectly settled, adjusted daily candles.
-  - Final alerts are generated and dispatched via Telegram / stored in DB for the dashboard.
+  - `Wealth Engine` market-hours loop runs every 5 minutes updating BUY zone proximity.
+  - `MultiTFScanner` runs every 15 minutes on completed candle boundaries (`:00`, `:15`, `:30`, `:45`) from 09:30 AM to 14:45 PM IST.
+  - `Multibagger Exit Monitor` runs every 15 minutes.
+  - `Performance Tracker` updates dashboard metrics every 5 minutes (async/debounced).
+- **18:00+ - Post-Market Evening Scanners:**
+  - The scheduler calls `wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")`.
+  - As soon as NSE Bhavcopy is ready (~18:30–19:30 IST), the scheduler sequentially executes `_run_eod_with_retries`, `_run_reversal_with_retries`, and `_run_pullback_with_retries`.
+  - All three scanners are called with `force=True` *(Added 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0`)* so the scheduler's timing decision is authoritative and alerts are saved to the database immediately.
+- ~~**21:00 to 23:59 - Legacy Fixed EOD Window**~~: *(Replaced on 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0`)* Scanners no longer require wall-clock time to be ≥ 21:00 IST to save alerts. `force=True` allows immediate production alert persistence upon Bhavcopy delivery (~18:30-19:30 IST).
+- **19:00 - Multibagger Scanner:** Daily execution of long-term fundamental quality + technical buy-zone screener.
 
 ---
 
@@ -41,7 +47,7 @@ The system is designed to degrade gracefully rather than crash. If a dependency 
 
 ### 2.4 Database Unreachable (PostgreSQL)
 - **Symptom:** Connection refused on DB writes.
-- **Recovery:** The system leverages local SQLite fallback caches (for internal state) or drops the alert gracefully with a loud logger error. It attempts reconnection on the next cycle.
+- **Recovery:** The system leverages local fallback caches or logs an error and retries. Upserts to `scanner_health` handle transient connection failures gracefully.
 
 ---
 
@@ -54,8 +60,10 @@ Expected operational baselines for the platform under typical conditions:
 | **Data Fetch (1D - 300 stocks)** | `< 3.0 seconds` | Parallel batched fetching using async/Threadpool. |
 | **Live Quotes Fetch** | `< 1.0 second` | Critical for intraday Multi-TF entry signals. |
 | **Indicator Computation** | `O(1) Matrix` | Fully vectorized Pandas/Numpy execution. No `.iterrows()`. |
-| **Scanner Execution (EOD)** | `< 20.0 seconds`| The complete loop over 300 stocks including scoring. |
+| **Scanner Execution (EOD)** | `< 20.0 seconds`| The complete loop over 300 stocks including scoring. Recorded via `duration_seconds` telemetry. |
 | **Session Rotation (Midnight)**| `< 5.0 seconds` | Immediate teardown and rebuild of the SessionContext. |
+| **Lock Wait Threshold** | `< 5.0 seconds` | `LOCK_WAIT_WARNING_SECONDS` warns if thread waits > 5s for `scanner_execution_lock`. |
+| **Lock Hold Threshold** | `< 60.0 seconds`| `LOCK_HOLD_WARNING_SECONDS` warns if scanner holds lock > 60s. |
 | **Container Memory Target** | `250MB - 400MB`| Stable operating window. Should never breach 512MB hard limit. |
 
 ---
@@ -64,9 +72,11 @@ Expected operational baselines for the platform under typical conditions:
 
 If manual intervention is needed:
 
-- **Forcing a Blacklist Refresh:**
-  Run `force_refresh_blacklist()` to pull the latest NSE ban list immediately.
-- **Re-running an EOD Scan:**
-  Run `eod_scanner.start(force=True)`. The `force=True` flag overrides the 21:00-23:59 time lock.
+- **Manual Scanner Trigger via Admin Dashboard / API:**
+  Call `/api/trigger-scanner` with `scanner_key`. Triggers run asynchronously in background threads with `force=True`, acquiring `scanner_execution_lock` and saving alerts to DB.
+- **Lock Telemetry Monitoring:**
+  Check `/api/lock-stats` to inspect `acquisitions_count`, `avg_wait_seconds`, `max_wait_seconds`, `avg_hold_seconds`, `max_hold_seconds`, and `contention_events_count`.
+- **Forcing a Watchlist Rebuild:**
+  Trigger `DAILY_BUILDER` from Admin Dashboard or invoke `daily_builder.main(force_rebuild=True)`.
 - **Purging the Fundamentals Cache:**
-  If fundamental categories (Wealth Compounders) look stale, delete the local parquet files or invoke the `DailyBuilder` manually.
+  If fundamental categories look stale, delete local parquet files or invoke `DailyBuilder` manually.

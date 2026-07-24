@@ -8,7 +8,7 @@ The system runs four distinct scanners, each targeting a specific market regime 
 
 ### 1.1 EOD Breakout Scanner
 **Focus:** Daily momentum breakouts. Holds days to weeks.
-**Execution:** Runs end-of-day (21:00 - 23:59 IST).
+**Execution:** Runs post-market after NSE Bhavcopy delivery data is published (~18:30 - 19:30 IST) with `force=True` passed by the production scheduler.
 **Funnel & Hard Gates:**
 1. **Minimum Price:** ₹100
 2. **Minimum Liquidity:** Requires minimum average daily volume (e.g. > 100k shares).
@@ -25,17 +25,19 @@ The system runs four distinct scanners, each targeting a specific market regime 
 
 ### 1.2 Multi-Timeframe (Multi-TF) Scanner
 **Focus:** Intraday momentum transitioning into swing trades.
-**Execution:** Intraday schedule. 
+**Execution:** Runs on a 15-minute candle-aligned schedule (`:00`, `:15`, `:30`, `:45`) during market hours (09:30 AM to 14:45 PM IST). Stops at 14:45 PM IST to ensure at least 45 minutes before market close for Phase D execution and risk management. *(Updated 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0`)*
+~~**Legacy 15:00 Single Trigger**~~: *(Replaced on 2026-07-24)* The single once-at-15:00 trigger was replaced with the recurring 15-minute candle-aligned cadence.
 **Logic Structure:**
 - **Phase A (Hourly Filter):** Scans the universe on a 1H timeframe. Requires trend permission: Price > 200 EMA, EMAs in correct stacking order (9 > 20 > 50), and ADX > 20. Symbols that pass are added to an `HOURLY_APPROVED` watchlist.
-- **Phase B (15-Minute Hunting):** Scans only the `HOURLY_APPROVED` watchlist on a 15-minute timeframe. Looks for fresh base breakouts or volume surges.
+- **Phase B (15-Minute Hunting):** Scans the `HOURLY_APPROVED` watchlist on a 15-minute timeframe. Looks for fresh base breakouts, Bollinger consolidation, and proximity to trigger levels.
+- **Phase C & D (Entry & Trigger):** Validates 15m EMA reclaim and 5m engulfing/volume confirmation to generate `TRADE_ACTIVE` buy alerts.
 - **Data Handling:** Explicitly strips "forming" (incomplete) candles based on strict IST timezone validation to prevent look-ahead bias.
 
 ### 1.3 Reversal Scanner (Mean Reversion)
 **Focus:** High-quality, fundamentally strong stocks recovering from deep discounts.
-**Execution:** End of Day.
+**Execution:** End of Day (runs sequentially after EOD scanner post-Bhavcopy).
 **Key Constraints:**
-- **Strict Trend Structure (v6):** A close `> SMA50` is now **MANDATORY**. The scanner requires a confirmed recovery structure, not just a falling-knife bounce.
+- **Strict Trend Structure (v6):** A close `> SMA50` is **MANDATORY**. Requires a confirmed recovery structure.
 - **Discount Band:** Drop from 52-week high must be within 20% to 45% (lowered to 15% for ultra-quality compounders/blue chips).
 - **RSI Curl:** Must have recently been deep oversold (RSI < 25) in the last 15 bars, and now recovering/curling up.
 - **MACD Cross:** Must have a fresh MACD Bullish Cross within the last 10 bars.
@@ -43,7 +45,7 @@ The system runs four distinct scanners, each targeting a specific market regime 
 
 ### 1.4 Pullback Continuation Scanner (Pipeline V8-PB)
 **Focus:** Orderly pullbacks in established, strong uptrends.
-**Execution:** Nightly, orchestrated pipeline pattern.
+**Execution:** Nightly, orchestrated pipeline pattern post-EOD and Reversal.
 **Logic Phases:**
 - **Phase A (Eligibility):** Established uptrend (Close > SMA50 > SMA200).
 - **Phase B (Impulse & Orderly Pullback):** 
@@ -76,11 +78,19 @@ Every candidate that passes a scanner's hard gates is scored out of 100. Alerts 
 
 ---
 
-## 3. Stop-Loss (SL) & Target Engine (Anti-Trap V5)
+## 3. Stop-Loss (SL) & Target Engine & Centralized Invariants
 
-The system uses advanced SL placement to avoid "Operator Stop Hunts." Operators know retail places SL precisely at the exact swing low and sweep it before reversing.
+The system uses advanced SL placement to avoid "Operator Stop Hunts" and enforces centralized trade invariants via `TradeStructureValidator` in `sl_target_helper.py` *(Added 2026-07-24 by `CENTRALIZED_TRADE_VALIDATOR_v1.0`)*.
 
-### 3.1 Anti-Trap Stop-Loss Placement
+### 3.1 Centralized Invariants & Anti-Trap SL
+- **Centralized Invariant Enforcement:** All stop-loss and target calculations pass through `TradeStructureValidator.validate_trade_structure()`. It enforces:
+  - `entry_price > 0`
+  - `raw_sl < entry_price` (Stop loss MUST be below entry price)
+  - `risk > 0` (`entry_price - stop_loss > 0`)
+  - `target_1 >= entry_price`
+  - `entry_price <= target_1 <= target_2 <= target_3` (Ordered structural targets)
+  - `RR >= min_rr`
+  - Explicit `INVALID_STOP_PLACEMENT` rejection if `raw_sl >= entry_price`.
 - **Multi-Swing Clustering:** Scans recent swing lows. If 2+ cluster within 1% of each other, it groups them into a highly-reliable support zone.
 - **Dynamic Anchoring:** 
   - Priority: Swing Low Cluster > True Pivot Swing Low > S1 > Rolling Swing Low > S2.

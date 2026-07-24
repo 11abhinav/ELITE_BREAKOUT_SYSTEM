@@ -13,6 +13,8 @@ These rules **MUST NEVER** be violated in any implementation:
 6. **NSE Protection**: Official NSE datasets (Bhavcopy, Block Deals, Pledges) MUST retain the `ScraperAPI` residential proxy acquisition path.
 7. **Application Singleton**: `ApplicationContext` is the ONLY application singleton.
 8. **Session Bounding**: `SessionContext` is the ONLY owner of trading-session state.
+9. **Scheduler Production Contract**: The production scheduler owns the decision of *when* to execute. When prerequisites are met, scanners MUST be called with `force=True` so they do not override scheduler timing by entering `test_mode` *(Added 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0`)*.
+10. **Trade Structure Invariant Centralization**: All stop loss, target, and risk-reward validation MUST be delegated to `TradeStructureValidator` in `sl_target_helper.py`. No scanner engine may compute unvalidated risk models *(Added 2026-07-24 by `CENTRALIZED_TRADE_VALIDATOR_v1.0`)*.
 
 ---
 
@@ -27,7 +29,7 @@ The `DatasetRegistry` governs memory sharing. Every dataset must be declared wit
 | `price_15m` | HistoricalData | `fyers` | `yahoo`, `bse` | EPHEMERAL | Memory Pressure |
 | `price_1m` | HistoricalData | `fyers` | `yahoo`, `bse` | EPHEMERAL | Memory Pressure |
 | `live_quotes` | UnifiedFetcher | `fyers` | `yahoo`, `bse` | EPHEMERAL | 5-minute TTL |
-| `bhavcopy_delivery` | DeliveryData | `nse` (ScraperAPI)| None | DURABLE | Daily (18:00 IST) |
+| `bhavcopy_delivery` | DeliveryData | `nse` (ScraperAPI)| None | DURABLE | Daily (18:30-19:30 IST) |
 | `block_deals` | InstitutionalData| `nse` (nsearchives)| None | EPHEMERAL | Memory Pressure |
 | `blacklist` | Surveillance | `nse` (ScraperAPI)| None | EPHEMERAL | New Session |
 | `promoter_pledge` | HistoricalData | `nse` (ScraperAPI)| None | DURABLE | Monthly |
@@ -41,7 +43,7 @@ df.attrs = {
     "dataset": "price_1d",
     "provider": "yahoo",
     "fallback_used": False,
-    "fetch_timestamp": "2026-07-23T15:00:00+05:30"
+    "fetch_timestamp": "2026-07-24T18:30:00+05:30"
 }
 ```
 
@@ -68,17 +70,26 @@ The system is designed to run indefinitely (months of uptime) within fixed RAM c
 
 ## 4. Concurrency & Lock Mechanics
 
-The system heavily parallelizes CPU-bound scanner loops while strictly synchronizing I/O to avoid rate limits.
+The system heavily parallelizes CPU-bound scanner loops while strictly synchronizing I/O and shared scanner executions.
 
 ### ProcessLock (`lock_utils.py`)
-- Used to ensure that only a single instance of a scanner is running globally across processes/threads.
-- E.g., `_scan_lock = ProcessLock("eod_scanner")`.
-- If a scanner is triggered while already running, the lock rejects the request cleanly.
+- Used per scanner module to prevent concurrent executions of the same scanner.
+- E.g., `_scan_lock = ProcessLock("eod_scanner")` (or `threading.Lock()`).
+- If a scanner is triggered while already running, the lock rejects the request cleanly with a `RuntimeError("actively running")` without marking health as DOWN.
+
+### InstrumentedLock (`main.py`)
+- Replaces raw `threading.Lock()` for process-level `scanner_execution_lock`.
+- **Guarantees:**
+  1. Protects critical sections that mutate shared scanner state or persist scanner results.
+  2. Excludes long non-mutating wait loops (e.g. Bhavcopy wait, cool-down sleeps).
+- **De-nested Architecture:** Evening scanners (EOD, Reversal, Pullback) individually acquire and release `scanner_execution_lock` around their execution blocks, rather than holding a single outer lock across the batch. Post-scan `time.sleep(15)` cool-downs run outside the lock context.
+- **Telemetry Tracking:** Counts `acquisitions_count`, `total_wait_seconds`, `max_wait_seconds`, `total_hold_seconds`, `max_hold_seconds`, and `contention_events_count`.
+- **Threshold Warnings:** Logs structured warnings if wait > `LOCK_WAIT_WARNING_SECONDS` (5.0s) or hold > `LOCK_HOLD_WARNING_SECONDS` (60.0s). Exposes metrics via `/api/lock-stats`.
 
 ### GlobalFetchLock (`unified_fetcher.py`)
-- Wrapping the external boundaries of the UnifiedFetcher.
-- Prevents concurrent bursts to the Fyers/Yahoo APIs that would result in HTTP 429 (Too Many Requests).
-- Scales out CPU (many scanners evaluating data simultaneously) while serializing Network I/O.
+- Wraps the external boundaries of the UnifiedFetcher.
+- Prevents concurrent bursts to Fyers/Yahoo APIs that would cause HTTP 429 (Too Many Requests).
+- Scales out CPU (scanners evaluating data simultaneously) while serializing Network I/O.
 
 ---
 
@@ -88,6 +99,6 @@ If rebuilding, follow this mapping to trace component logic:
 - **Registry / Memory:** `app/data_registry.py`, `app/lifecycle.py`, `app/memory_profiler.py`
 - **Data Acquisition:** `app/unified_fetcher.py`, `app/provider_selector.py`, `app/delivery_data.py`
 - **Scanners:** `app/eod_scanner.py`, `app/reversal_scanner.py`, `app/multi_tf_scanner.py`, `app/pullback_pipeline.py`
-- **Business Logic:** `app/scoring_engine.py`, `app/sl_target_helper.py`, `app/swing_utils.py`
-- **Configuration:** `app/config.py`
-- **Scheduling/Entry:** `app/main.py`, `app/scheduler.py`
+- **Business Logic & Invariants:** `app/scoring_engine.py`, `app/sl_target_helper.py` (`TradeStructureValidator`), `app/swing_utils.py`
+- **Configuration & Locks:** `app/config.py`, `app/main.py` (`InstrumentedLock`)
+- **Scheduling & Orchestration:** `app/main.py` (`run_system_scheduler`), `app/scheduler.py`
