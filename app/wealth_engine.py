@@ -845,6 +845,8 @@ def run_wealth_scan(is_test_mode=False):
         _scan_lock.release()
 
 def _run_wealth_scan_wrapper(is_test_mode=False):
+    import time
+    start_time = time.time()
     from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
     from datetime import datetime
@@ -1372,9 +1374,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 del tech_df, candidate_tech, prev_wealth_df
                 
                 from database import upsert_scanner_health
+                duration_sec = round(time.time() - start_time, 1)
                 upsert_scanner_health(
                     scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
-                    today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df)
+                    today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df),
+                    duration_seconds=duration_sec
                 )
             except Exception as _sh_e: logger.exception(f"Error updating scanner health: {_sh_e}")
             

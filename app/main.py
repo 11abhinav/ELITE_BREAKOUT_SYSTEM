@@ -410,11 +410,14 @@ def run_performance_tracker():
     try:
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
+        start_pt_boot = time.time()
         build_performance_data()
+        dur_pt_boot = round(time.time() - start_pt_boot, 1)
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 5min (all day)"
+            scheduled_for="Every 5min (all day)",
+            duration_seconds=dur_pt_boot
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
     except Exception as e:
@@ -436,11 +439,14 @@ def run_performance_tracker():
             try:
                 from telemetry_manager import telemetry
                 telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_START")
+                start_pt_loop = time.time()
                 build_performance_data()
+                dur_pt_loop = round(time.time() - start_pt_loop, 1)
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 5min (all day)"
+                    scheduled_for="Every 5min (all day)",
+                    duration_seconds=dur_pt_loop
                 )
                 telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
             except Exception as e:
@@ -985,12 +991,14 @@ def run_system_scheduler():
             
             # Mark success
             now_str = datetime.now(IST).isoformat()
+            dur_db = round(time.time() - start_time, 1)
             try:
                 upsert_scanner_health(
                     "DAILY_BUILDER",
                     status="OK",
                     last_success=now_str,
-                    scheduled_for="01:00 IST"
+                    scheduled_for="01:00 IST",
+                    duration_seconds=dur_db
                 )
             except Exception:
                 logger.warning("⚠️ Could not update Daily Builder health status")
@@ -1450,11 +1458,13 @@ def _run_multibagger_scanner_single():
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
         telemetry.log_session_timeline("Started Multibagger Scanner Cycle")
+        start_mb_single = time.time()
         with scanner_execution_lock:
             with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
                 stats = multibagger.start() or {}
             time.sleep(15)
         
+        dur_mb_single = round(time.time() - start_mb_single, 1)
         # Mark success in health table
         upsert_scanner_health(
             "MULTIBAGGER",
@@ -1463,7 +1473,8 @@ def _run_multibagger_scanner_single():
             scheduled_for="Daily 19:00 IST",
             total_count=stats.get("total_count"),
             processed_count=stats.get("processed_count"),
-            today_alerts=stats.get("today_alerts", 0)
+            today_alerts=stats.get("today_alerts", 0),
+            duration_seconds=dur_mb_single
         )
         # Rebuild performance data on scanner completion (debounced, async)
         try:

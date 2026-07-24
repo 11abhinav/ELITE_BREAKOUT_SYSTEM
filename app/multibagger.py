@@ -867,6 +867,8 @@ def format_telegram_message(categorized_stocks: dict) -> list:
 
 def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     """Main execution orchestrator for Multibagger Scanner V5."""
+    import time
+    start_time = time.time()
     logger.info("=================================================================")
     logger.info("🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0")
     logger.info("=================================================================")
@@ -1680,13 +1682,23 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
     logger.info("✅ Multibagger Scanner execution finished.")
     alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
+    duration_sec = round(time.time() - start_time, 1)
     try:
-        from database import insert_notification
-        insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks.")
+        from database import insert_notification, upsert_scanner_health
+        upsert_scanner_health(
+            scanner_name="MULTIBAGGER",
+            status="OK",
+            last_success=datetime.now(IST_ZONE).isoformat(),
+            today_alerts=alerts_count,
+            processed_count=len(results),
+            total_count=len(fundamentals_list),
+            duration_seconds=duration_sec
+        )
+        insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks in {duration_sec}s.")
         from push_service import send_push_to_all
         send_push_to_all("🚀 MULTIBAGGER Scanner OK", f"Found {alerts_count} new alerts.", bypass_throttle=True)
     except Exception as e:
-        logger.error(f"Could not insert admin notification: {e}")
+        logger.error(f"Could not update health/notification for Multibagger: {e}")
     # ── Memory Cleanup Phase ──────────────────────────────────────────────
     
     # Store counts before deleting variables

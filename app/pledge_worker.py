@@ -106,8 +106,21 @@ def discover_trendlyne_url(symbol: str) -> str:
     except Exception as e:
         logger.warning(f"Google search fallback failed for {clean_symbol}: {e}")
 
-    # 3. Fallback to the fast_url so it fails naturally downstream
-    return fast_url
+def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False):
+    """Save or update promoter pledge cache with single connection checkout."""
+    try:
+        updated_expr = "NOW()" if not is_not_found else "NOW() - INTERVAL '21 days'"
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                    VALUES (%s, %s, {updated_expr}, NOW())
+                    ON CONFLICT (symbol) DO UPDATE 
+                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = {updated_expr}, last_attempted_at = NOW()
+                """, (symbol, pledge_val))
+                conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to save pledge cache for {symbol}: {e}")
 
 def worker_loop():
     logger.info("🚀 Starting Pledge Worker Daemon")
@@ -288,43 +301,18 @@ def worker_loop():
                                             pledge_val = float(m.group(1))
                                             break
                         # [VERSION: PLEDGE_WORKER_STAT_v1.0] Update cache inserts to populate last_attempted_at column
+                        # Streamlined single connection checkout per symbol save
+                        save_pledge_cache(sym, pledge_val if pledge_val is not None else -1.0, is_not_found=(pledge_val is None))
                         if pledge_val is not None:
-                            with get_connection() as conn:
-                                with conn.cursor() as cur:
-                                    cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                                        VALUES (%s, %s, NOW(), NOW())
-                                        ON CONFLICT (symbol) DO UPDATE 
-                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW(), last_attempted_at = NOW()
-                                    """, (sym, pledge_val))
-                                    conn.commit()
                             logger.info(f"✅ Saved pledge for {sym}: {pledge_val}%")
                         else:
                             logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Saving -1.0 (Not Found) - retrying in 7 days")
-                            with get_connection() as conn:
-                                with conn.cursor() as cur:
-                                    cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                                        VALUES (%s, -1.0, NOW() - INTERVAL '21 days', NOW())
-                                        ON CONFLICT (symbol) DO UPDATE 
-                                        SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days', last_attempted_at = NOW()
-                                    """, (sym,))
-                                    conn.commit()
                         mark_success('scraperapi')
                         return "FOUND" if pledge_val is not None else "MISSING"
                     elif res.status_code == 404:
                         logger.warning(f"❌ 404 Not Found for {sym} at {target_url}")
                         mark_failure('scraperapi', f"404 Not Found: {target_url}")
-                        # Cache the 404 temporarily so we don't spam it, retry in 7 days
-                        with get_connection() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute("""
-                                    INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                                    VALUES (%s, %s, NOW() - INTERVAL '21 days', NOW())
-                                    ON CONFLICT (symbol) DO UPDATE 
-                                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = NOW() - INTERVAL '21 days', last_attempted_at = NOW()
-                                """, (sym, -1.0))
-                                conn.commit()
+                        save_pledge_cache(sym, -1.0, is_not_found=True)
                         return "404"
                     else:
                         logger.warning(f"❌ HTTP {res.status_code} for {sym}")

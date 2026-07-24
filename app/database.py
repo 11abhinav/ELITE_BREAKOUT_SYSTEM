@@ -72,26 +72,26 @@ def _get_pool() -> pool.ThreadedConnectionPool:
                 "DATABASE_URL env var is not set. "
                 "Add the Railway Postgres addon and it will be injected automatically."
             )
-        # Configure pool size via env override if provided (fallback to 30)
-        maxconn = int(os.getenv("DB_MAXCONN", "30"))
+        # Configure pool size via env override if provided (fallback to 50)
+        maxconn = int(os.getenv("DB_MAXCONN", "50"))
         minconn = int(os.getenv("DB_MINCONN", "2"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
             dsn=db_url,
-            connect_timeout=5  # Add 5s timeout instead of hanging indefinitely
+            connect_timeout=10  # 10s connection timeout for Railway Postgres
         )
         try:
             # Initialize semaphore to mirror pool capacity
             _conn_semaphore = threading.BoundedSemaphore(value=maxconn)
         except Exception:
             _conn_semaphore = None
-        logger.info(f"✅ Postgres connection pool created (5s timeout) | min={minconn} max={maxconn}")
+        logger.info(f"✅ Postgres connection pool created | min={minconn} max={maxconn}")
         return _pool
 
 
 @contextmanager
-def get_connection(timeout: int = 5):
+def get_connection(timeout: int = 15):
     """Get DB connection with circuit breaker pattern.
 
     Acquires an internal semaphore before checking out a connection from the pool.
@@ -107,7 +107,7 @@ def get_connection(timeout: int = 5):
         # Ensure semaphore exists (in case pool was created elsewhere)
         if _conn_semaphore is None:
             try:
-                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 30))
+                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 50))
             except Exception:
                 _conn_semaphore = None
         if _conn_semaphore is not None:
@@ -5491,10 +5491,10 @@ def check_session_validity(user_id: int, session_token: str) -> bool:
         return False
     except Exception as e:
         import psycopg2
-        if isinstance(e, psycopg2.OperationalError):
-            logger.warning(f"Session validation skipped due to DB timeout, preserving session: {e}")
-            raise  # Let it 500 instead of destroying the session
-        logger.exception(f"Session validation failed")
+        if isinstance(e, (psycopg2.OperationalError, Exception)) and "Connection pool exhausted" in str(e):
+            logger.warning(f"Session validation skipped due to DB pool timeout, preserving session: {e}")
+            return True  # Preserve session gracefully instead of throwing a 500 error
+        logger.exception(f"Session validation failed: {e}")
         return False
 
 # ── PWA Push Notifications ───────────────────────────────────────────────────
