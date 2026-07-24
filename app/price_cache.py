@@ -59,14 +59,22 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
         return False, "EMPTY_DATAFRAME"
         
     try:
-        # 1. Monotonicity
+        # 1. Monotonicity & Timestamp Normalization
         time_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
         if time_col:
-            ts_series = pd.to_datetime(df[time_col])
+            df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+            df.dropna(subset=[time_col], inplace=True)
+            df.drop_duplicates(subset=[time_col], keep='last', inplace=True)
+            df.sort_values(time_col, inplace=True)
+            df.reset_index(drop=True, inplace=True)
+            ts_series = df[time_col]
         else:
-            ts_series = pd.to_datetime(df.index)
+            df.index = pd.to_datetime(df.index, errors='coerce')
+            df = df[df.index.notna()]
+            df = df[~df.index.duplicated(keep='last')].sort_index()
+            ts_series = df.index
             
-        if not ts_series.is_monotonic_increasing:
+        if ts_series.empty or not ts_series.is_monotonic_increasing:
             return False, "NON_MONOTONIC_TIMESTAMPS"
             
         # 2. Price Sanity
@@ -744,8 +752,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             # [VERSION: FRESH_DATA_SORT_FIX_v1.0] Deduplicate and sort fresh DataFrames by date before validation
                             if time_col:
+                                new_df[time_col] = pd.to_datetime(new_df[time_col])
                                 new_df = new_df.drop_duplicates(subset=[time_col], keep='last').sort_values(time_col).reset_index(drop=True)
                             elif not new_df.index.empty:
+                                new_df.index = pd.to_datetime(new_df.index)
                                 new_df = new_df[~new_df.index.duplicated(keep='last')].sort_index()
                             all_data[sym] = new_df
                             
