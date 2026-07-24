@@ -217,7 +217,18 @@ def get_dynamic_cadence(interval: str) -> int:
     secs = (next_boundary - now_dt).total_seconds()
     
     # Add a small 5s buffer to allow broker data to settle on their end before fetching
-    return max(5, int(secs) + 5)
+    raw_cadence = max(5, int(secs) + 5)
+
+    # [VERSION: CACHE_FLOOR_FIX_v1.0] Enforce a minimum cache floor per interval.
+    # Problem: near a candle boundary (e.g. 11:14 AM for 1H candle at 11:15),
+    # get_dynamic_cadence("1h") returned only ~60s. Any scanner run that started before
+    # the boundary and checked the cache after would always get a miss, triggering a full
+    # delta re-fetch for ALL symbols on EVERY run near that boundary.
+    # Fix: floor = 50% of the interval's duration in seconds. Data within the same candle
+    # period is always reused regardless of where in the cycle the scan falls.
+    # Floors by interval: 5m→150s, 15m→450s, 30m→900s, 1h→1800s
+    interval_floor_secs = int(val * 60 * 0.5)  # 50% of interval duration
+    return max(raw_cadence, interval_floor_secs)
 
 
 # [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.

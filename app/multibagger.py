@@ -147,36 +147,46 @@ def save_fundamentals_cache(cache_data: dict):
 
 
 def batch_download_market_data(symbols: list) -> dict:
-    """Download historical price/volume data in bulk for all tickers using AutoSwitchingFetcher in memory-efficient chunks."""
-    from data_provider import get_fetcher
+    """Download historical price/volume data in bulk for all tickers using the unified price cache.
+
+    [VERSION: MULTIBAGGER_CACHE_FIX_v1.0] Previously called fetcher.get_batch_ohlcv() directly,
+    bypassing price_cache entirely. This caused two problems:
+    1. Every call re-fetched all symbols from YFinance with no caching (double-fetch observed in logs).
+    2. The exit monitor and main scanner both fetched independently even within the same run.
+    Now routes through fetch_unified_historical → fetch_watchlist_data → price_cache, which:
+    - Caches 1D data until market close (TTL = seconds until 15:30 IST)
+    - Shares the cache with EOD, Reversal, and Wealth Engine (1d, 1y key)
+    - Eliminates redundant YFinance calls within the same scan cycle
+    """
+    from price_cache import fetch_unified_historical
     from market_utils import is_market_open
     import os, psutil, gc, time
-    
-    fetcher = get_fetcher()
-    
+
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "50"))
     logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")
-    
+
     ist_now = datetime.now(IST)
     strip_forming = is_market_open(ist_now)
-    
+
     results = {}
-    
+
     from memory_profiler import chunk_iterable, BatchMemoryTracker
     total_batches = (len(symbols) + BATCH_SIZE - 1) // BATCH_SIZE
-    
+
     # Process symbols in chunks to flatten Peak Memory (O(BATCH_SIZE) instead of O(N))
     for batch_num, chunk in enumerate(chunk_iterable(symbols, BATCH_SIZE), start=1):
         with BatchMemoryTracker("MULTIBAGGER", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
-            
-            # 1. Fetch chunk DataFrames
-            batch_res = fetcher.get_batch_ohlcv(chunk, period="1y", interval="1d", caller="multibagger")
-            if not batch_res:
+
+            # 1. Fetch chunk DataFrames via price_cache (shared cache, avoids redundant API calls)
+            raw_dict = fetch_unified_historical(chunk, period="1y", interval="1d", requester="multibagger")
+            if not raw_dict:
                 continue
-                
+
             from core_enums import ProviderResult
-            rows_fetched = sum(len(df.dataframe) if hasattr(df, "dataframe") else len(df) for df in batch_res.values() if df is not None and not isinstance(df, ProviderResult))
+            rows_fetched = sum(len(df) for df in raw_dict.values() if df is not None and isinstance(df, pd.DataFrame) and not df.empty)
             tracker.mark_fetch_complete(row_count=rows_fetched)
+            batch_res = {sym: type("_MD", (), {"dataframe": df})() for sym, df in raw_dict.items() if df is not None}
+
         
         # 2. Convert DataFrames to StockPriceData
             for sym, md in batch_res.items():

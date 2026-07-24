@@ -469,15 +469,26 @@ def _run_scan(force: bool = False):
     from memory_profiler import chunk_iterable, BatchMemoryTracker
     total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
+    # [VERSION: REVERSAL_PREFETCH_OPT_v1.0] Pre-fetch intraday snapshots for ALL symbols once.
+    # Previously called get_intraday_snapshot inside each batch chunk (up to 6x per scan).
+    # One bulk call populates the cache for all watchlist symbols in a single API round-trip.
+    from price_cache import get_intraday_snapshot
+    all_symbols = watchlist["Stock"].tolist()
+    logger.info(f"📥 [REVERSAL] Pre-fetching intraday snapshots for {len(all_symbols)} symbols...")
+    try:
+        all_snapshots = get_intraday_snapshot(all_symbols, interval="5m", period="1d", requester="ReverseScanner") or {}
+    except Exception as _snap_e:
+        logger.warning(f"⚠️ [REVERSAL] Snapshot pre-fetch failed: {_snap_e}. Falling back to empty snapshots.")
+        all_snapshots = {}
+
     with MemoryProfiler("Process Symbols"):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             with BatchMemoryTracker("REVERSAL", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                 all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
-                
-                from price_cache import get_intraday_snapshot
-                
+
                 chunk_symbols = chunk_df["Stock"].tolist()
-                chunk_snapshots = get_intraday_snapshot(chunk_symbols, interval="5m", period="1d")
+                # Slice from pre-fetched dict — no additional API call per batch
+                chunk_snapshots = {sym: all_snapshots.get(sym) for sym in chunk_symbols}
                 
                 if all_ticker_data:
                     now_ist = datetime.now(IST)
