@@ -2,6 +2,15 @@
 
 All notable changes to the Elite Breakout System architecture and capabilities will be documented in this file.
 
+## [v8.2.1] - Comprehensive System Audit & Stabilization Release (2026-07-24)
+### Fixed
+*   **ProcessLock Distributed Advisory Lock Exception Handling (`app/lock_utils.py`)**: Fixed `acquire()` method so exceptions during PostgreSQL advisory lock acquisition or DB connection clean up local handles, release thread locks, and return `False` (not `True`). Prevents concurrent scanner execution across Railway containers during DB connection glitches (`[VERSION: PROCESS_LOCK_EXC_FIX_v1.0]`).
+*   **UnifiedFetcher Live Quote Batch `KeyError` Crash (`app/data_providers/unified_fetcher.py`)**: Replaced `pending.remove(...)` with `pending.discard(...)` across quote fetchers to safely handle duplicate or missing input symbols without raising fatal `KeyError` crashes (`[VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0]`).
+*   **UnifiedFetcher Yahoo MultiIndex Column Extraction (`app/data_providers/unified_fetcher.py`)**: Updated quote price parsing to dynamically inspect both level 0 and level 1 MultiIndex hierarchies regardless of batch chunk size (`[VERSION: UNIFIED_FETCHER_MULTIINDEX_FIX_v1.1]`).
+*   **IndicatorManager Dynamic History-Aware Computations (`app/indicator_manager.py`)**: Replaced single 200-bar minimum requirement with indicator-specific history thresholds (14 bars for ATR/RSI, 20 for EMA20/SMA20, 50 for EMA50/SMA50, 200 for EMA200/SMA200). Added auto-registration for dynamic `indicator_{symbol}` keys in `DatasetRegistry` to prevent `ValueError` logs (`[VERSION: INDICATOR_REGULAR_HISTORY_v1.0]`).
+*   **Delivery Data Series Prioritization (`app/delivery_data.py`)**: Added series rank sorting (`EQ` > `BE` > `SM` > `BZ`) prior to dictionary extraction to preserve primary equity delivery percentages when a symbol appears under multiple series (`[VERSION: BHAVCOPY_SERIES_PRIORITY_v1.0]`).
+*   **Audit Regression Test Suite (`tests/test_audit_fixes.py`)**: Added 5 dedicated regression unit tests covering `ProcessLock` exception behavior, `UnifiedFetcher` duplicate symbol safety, MultiIndex column extraction, `IndicatorManager` history levels, and Bhavcopy series prioritization.
+
 ## [v8.2.0] - Scheduler Correctness, Lock Telemetry & Invariants Release (2026-07-24)
 ### Added
 *   **Scheduler Production Contract (`force=True`)**: `_run_eod_with_retries`, `_run_reversal_with_retries`, and `_run_pullback_with_retries` in `app/main.py` pass `force=True` when invoking scanner entrypoints. The scheduler owns the decision of when to execute (after Bhavcopy verification), ensuring scanners do not enter `test_mode` and discard alerts when running before 21:00 IST.
