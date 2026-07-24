@@ -2185,7 +2185,13 @@ def upsert_scanner_health(
         is_ack = False  # NEW ERROR: mark unacknowledged
     elif status == 'OK':
         # AUTO-RECOVERY: Clear errors and mark as acknowledged
-        error_msg = None
+        # NOTE:
+        # error_msg serves two purposes:
+        # 1. Error description when status != OK
+        # 2. Live progress/status text when explicitly supplied by the caller.
+        #
+        # Therefore, do not automatically clear it simply because status == "OK".
+        # Only clear it when the caller did not provide a replacement.
         error_severity = None
         is_ack = True
         if last_success is None:
@@ -2255,6 +2261,25 @@ def upsert_scanner_health(
                     status = 'IDLE'
                 
                 insert_vals = [scanner_name, status, now_str]
+                
+                if last_success is not None:
+                    insert_cols.append("last_success")
+                    insert_vals.append(last_success)
+                if today_alerts is not None:
+                    insert_cols.append("today_alerts")
+                    insert_vals.append(today_alerts)
+                if error_msg is not None:
+                    insert_cols.append("error_msg")
+                    insert_vals.append(error_msg)
+                if is_ack is not None:
+                    insert_cols.append("is_acknowledged")
+                    insert_vals.append(is_ack)
+                if error_severity is not None:
+                    insert_cols.append("error_severity")
+                    insert_vals.append(error_severity)
+                if scheduled_for is not None:
+                    insert_cols.append("scheduled_for")
+                    insert_vals.append(scheduled_for)
                 
                 if processed_count is not None:
                     insert_cols.append("processed_count")

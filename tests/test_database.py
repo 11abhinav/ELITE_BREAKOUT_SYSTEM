@@ -217,3 +217,68 @@ def test_get_recent_concall_analysis_returns_none_when_not_found(mocker):
 
     result = get_recent_concall_analysis("NOSUCHSYMBOL", max_age_days=60)
     assert result is None
+
+def test_upsert_scanner_health_first_insert(mocker):
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    
+    # Simulate first insert with last_success and error_msg
+    upsert_scanner_health(
+        scanner_name="NEW_SCANNER", 
+        status="OK", 
+        last_success="2026-07-24T12:00:00",
+        error_msg="Status: Progress message"
+    )
+    
+    execute_calls = mock_cur.execute.call_args_list
+    assert len(execute_calls) > 0
+    
+    target_sql = None
+    target_params = None
+    for call in execute_calls:
+        sql = call[0][0]
+        if "INSERT INTO scanner_health" in sql:
+            target_sql = sql
+            target_params = call[0][1]
+            break
+            
+    assert target_sql is not None, "Failed to find INSERT query"
+    
+    # Assert columns are dynamically added
+    assert "last_success" in target_sql
+    assert "error_msg" in target_sql
+    
+    # Assert values are dynamically added
+    assert "2026-07-24T12:00:00" in target_params
+    assert "Status: Progress message" in target_params
+    
+def test_upsert_scanner_health_update(mocker):
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+    
+    # Simulate update with last_success and error_msg
+    upsert_scanner_health(
+        scanner_name="EXISTING_SCANNER", 
+        status="OK", 
+        last_success="2026-07-24T15:00:00",
+        error_msg="Status: Updated progress"
+    )
+    
+    execute_calls = mock_cur.execute.call_args_list
+    
+    target_sql = None
+    target_params = None
+    for call in execute_calls:
+        sql = call[0][0]
+        if "UPDATE" in sql and "SET" in sql:
+            target_sql = sql
+            target_params = call[0][1]
+            break
+            
+    assert target_sql is not None, "Failed to find UPDATE query"
+    
+    # The ON CONFLICT DO UPDATE SET should contain our parameters
+    assert "last_success = %s" in target_sql
+    assert "error_msg = %s" in target_sql
+    assert "2026-07-24T15:00:00" in target_params
+    assert "Status: Updated progress" in target_params
