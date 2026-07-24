@@ -138,7 +138,7 @@ def select_pullback_origin(pivots: List[SwingPoint], historical_view: pd.DataFra
         gain_pct = (pivot.price - min_price) / min_price * 100
         
         pivot_atr = atr[pivot.index]
-        if pivot_atr <= 0:
+        if pivot_atr is None or pivot_atr <= 0 or np.isnan(pivot_atr):
             continue
             
         atr_mult = (pivot.price - min_price) / pivot_atr
@@ -262,7 +262,8 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
         ps.closed_below_sma50 = False
         
     if 'RSI' in pb.columns:
-        ps.min_rsi_during_pullback = float(np.min(pb['RSI'].values))
+        rsi_vals = pb['RSI'].dropna().values
+        ps.min_rsi_during_pullback = float(np.nanmin(rsi_vals)) if len(rsi_vals) > 0 else None
     
     ps.pullback_count_in_trend = count_confirmed_pullbacks_since_trend_start(historical_view)
     

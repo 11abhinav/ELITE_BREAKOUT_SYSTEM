@@ -138,4 +138,5 @@ class PullbackCandidate:
     status: CandidateState = CandidateState.NEW
     suppressed_by: Optional[str] = None
     config_version: str = ""
+    sector: Optional[str] = None
 

@@ -311,11 +311,6 @@ def batch_download_market_data(symbols: list) -> dict:
                     logger.debug(f"Error parsing market data for {sym}: {e}")
                 
         del batch_res
-        locals().pop('ticker_df', None)
-        locals().pop('md', None)
-        locals().pop('close_series', None)
-        locals().pop('vol_series', None)
-        locals().pop('sma_200_series', None)
             
     logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
     return results
@@ -331,6 +326,8 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     Hard pre-scoring quality gate for Multibagger alerts.
     """
+    if not isinstance(f, dict):
+        return False, "Invalid fundamental dataset"
     # [VERSION: MULTIBAGGER_GATE_FIX_v1.1] Fixed missing data penalties & added minimum known metrics floor
     known_metrics_count = 0
     

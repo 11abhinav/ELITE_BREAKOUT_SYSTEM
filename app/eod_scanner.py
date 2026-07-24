@@ -448,7 +448,7 @@ def _start_wrapper(force: bool = False):
                                 avg_volume = float(ticker["Volume"].iloc[:-1].mean())
 
                             if avg_volume <= 0:
-                                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 3] Rejection counters updated for zero volume and candle range
+                                logger.info(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
                                 rejection_counts["zero_avg_volume"] += 1
                                 continue
 
@@ -571,11 +571,6 @@ def _start_wrapper(force: bool = False):
                                     logger.info(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
                                     rejection_counts["weak_adx"] += 1
                                     continue
-
-                            if score < min_score:
-                                logger.info(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {min_score})")
-                            else:
-                                logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
 
                             # MACD is no longer mandatory, shifted to scoring engine
 
@@ -701,12 +696,15 @@ def _start_wrapper(force: bool = False):
                             # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                             if score < global_min_score:
                                 rejection_counts["low_score"] += 1
+                                logger.info(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss
                                     log_near_miss(symbol, "EOD", signal_str, "score_threshold", score, global_min_score, score=score)
                                 except Exception:
                                     pass
                                 continue
+
+                            logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
 
                             dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 

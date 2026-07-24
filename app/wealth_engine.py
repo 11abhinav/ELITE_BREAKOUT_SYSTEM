@@ -262,10 +262,10 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))) / 100.0,
         'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))) / 100.0,
         'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))) / 100.0,
-        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')), default=15.0) / 100.0,
+        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')), default=15.0) / 100.0, # [PROXY] 1Y YoY used as 3Y CAGR (not in screener data)
         'revenue_growth_1y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')), default=15.0) / 100.0,
-        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0,
-        'fcf_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # Proxy FCF growth with Profit growth
+        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] 1Y YoY used as 3Y CAGR
+        'fcf_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] FCF growth proxied with YoY Profit
         'reinvestment_rate': 0.50, # Proxy 50% retention if missing
         'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio')), default=1.0),
         'pe': pe,

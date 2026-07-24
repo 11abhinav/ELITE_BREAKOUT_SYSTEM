@@ -559,7 +559,7 @@ def _run_scan(force: bool = False):
                             ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
 
                         if ticker_data is None:
-                            logger.debug(f"[REVERSAL] {symbol} rejected: no historical data")
+                            logger.info(f"REJECTION: {symbol} (Phase: FETCH, Reason: Missing historical data)")
                             rejected["no_data"] += 1
                             provider_stats_counts["EMPTY_DATA"] += 1
                             scan_failures.append(ScanFailure(symbol=symbol, scanner_name="REVERSAL", provider="unknown", failure_reason="missing data", scan_id=scan_id, stage="data_fetch"))

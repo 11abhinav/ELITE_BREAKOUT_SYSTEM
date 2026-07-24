@@ -274,6 +274,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                             entry_price=trig.entry_price,
                             warnings=[],
                             config_version=effective_config.get("VERSION", "pb-1.0.0"),
+                            sector=sector,
                             status=CandidateState.NEW
                         )
                         candidates.append(cand)
@@ -341,7 +342,6 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         if sl_result.get("is_rejected"):
             logger.info(f"REJECTION: {c.symbol} (Phase: SL_TARGET_ENGINE, Reason: {sl_result.get('rejection_reason')})")
             continue
-            continue
 
         c.status = CandidateState.ALERTED
         if is_historical_fallback:
@@ -356,7 +356,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
 
             sector_rankings_dict = compute_sector_regime_rankings()
-            sector_info = sector_rankings_dict.get(sector, {}) if 'sector' in locals() else {}
+            sector_info = sector_rankings_dict.get(c.sector, {}) if c.sector else {}
             sector_status = sector_info.get("effective_status", "NEUTRAL")
             sector_name_val = sector_info.get("sector_name", "")
             sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
