@@ -207,8 +207,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                             provider_stats_counts["SUCCESS"] += 1
 
                         df = ticker_data.copy()
-                        if df.empty or len(df) < effective_config.get("MIN_HISTORY", 260):
-                            logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 260)})")
+                        if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
+                            logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)})")
                             rejected["insufficient_bars"] += 1
                             continue
 

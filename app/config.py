@@ -186,7 +186,7 @@ PULLBACK_CONFIG = {
     "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
     "OUTAGE_THRESHOLD_BUMP": 3,
-    "MIN_HISTORY": 260,
+    "MIN_HISTORY": 200,   # [VERSION: PB_BAR_FIX_v1.0] Lowered from 260 to 200 bars (1y daily data has ~250 trading bars)
     "MODE": "LIVE", "DEBUG_SWINGS": False,
 }
 
