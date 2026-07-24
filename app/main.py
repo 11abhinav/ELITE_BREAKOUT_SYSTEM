@@ -1196,6 +1196,7 @@ def run_system_scheduler():
     verify_scans_ran = False
     multibagger_ran = False
     evening_scanners_ran = False
+    warmup_ran = False
     
     # Run boot items sequentially
     try:
@@ -1245,6 +1246,26 @@ def run_system_scheduler():
                 verify_scans()
             elif now.hour != 8:
                 verify_scans_ran = False
+                
+            # 09:14:30 - Precision Warmup for Intraday Scanners
+            if now.hour == 9 and now.minute == 14 and now.second >= 30 and not warmup_ran:
+                warmup_ran = True
+                logger.info("🚀 SCHEDULER | [09:14:30] Executing Precision Warmup Sequence (15m Cache Initialization)")
+                try:
+                    from price_cache import fetch_watchlist_data
+                    from config import WATCHLIST_PATH
+                    import pandas as pd
+                    wl_df = pd.read_parquet(WATCHLIST_PATH)
+                    fetch_watchlist_data(wl_df, "10d", "15m", requester="SCHEDULER_WARMUP")
+                    logger.info("✅ SCHEDULER | Precision Warmup Complete")
+                except Exception as e:
+                    logger.error(f"❌ SCHEDULER | Precision Warmup Failed: {e}")
+            elif now.hour == 9 and now.minute == 15 and not warmup_ran:
+                logger.error("🚨 CRITICAL: 09:15 reached but Warmup did not complete! Scans will suffer severe cache misses.")
+                # We do not set warmup_ran = True here so we know it failed, but we avoid re-triggering.
+                # It will naturally reset at 10:00.
+            elif now.hour != 9 or now.minute > 15:
+                warmup_ran = False
             
             from market_utils import is_market_open
             # Market hours strict sequential loop (9:15 AM - 3:30 PM)
@@ -1282,15 +1303,46 @@ def run_system_scheduler():
             # 18:00 - Evening Scanners (EOD, Reversal, Pullback)
             if now.hour >= 18 and not evening_scanners_ran:
                 from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
-                wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
                 evening_scanners_ran = True
-                logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
-                today_str = datetime.now(IST).strftime("%Y-%m-%d")
-                _run_eod_with_retries(today_str)
-                _run_reversal_with_retries(today_str)
-                _run_pullback_with_retries(today_str)
+                
+                def _run_evening_batch_async():
+                    import concurrent.futures
+                    wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
+                    logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback with hard deadlines.")
+                    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                    
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        try:
+                            logger.info("Starting EOD Scanner (Timeout: 10m)...")
+                            future_eod = executor.submit(_run_eod_with_retries, today_str)
+                            future_eod.result(timeout=600)
+                            
+                            logger.info("Starting Reversal Scanner (Timeout: 10m)...")
+                            future_rev = executor.submit(_run_reversal_with_retries, today_str)
+                            future_rev.result(timeout=600)
+                            
+                            logger.info("Starting Pullback Pipeline (Timeout: 10m)...")
+                            future_pb = executor.submit(_run_pullback_with_retries, today_str)
+                            future_pb.result(timeout=600)
+                            
+                        except concurrent.futures.TimeoutError:
+                            logger.error("🚨 CRITICAL: Evening Batch step exceeded 10-minute timeout! Aborting remaining batch.")
+                        except Exception as e:
+                            logger.error(f"🚨 CRITICAL: Evening Batch crashed: {e}")
+                    
+                import threading
+                threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
             elif now.hour < 18:
                 evening_scanners_ran = False
+                
+            # 18:55 - Hard Release for Evening Batch Lock
+            if now.hour == 18 and now.minute >= 55:
+                if scanner_execution_lock.locked():
+                    logger.error("🚨 CRITICAL: [18:55] Evening Batch exceeded absolute deadline! Forcing scanner lock release.")
+                    try:
+                        scanner_execution_lock.release()
+                    except Exception as e:
+                        pass
                 
             # 19:00 - Multibagger Scanner
             if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
@@ -1311,8 +1363,8 @@ def run_system_scheduler():
                 except Exception as _me:
                     logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
 
-        # Sleep tight, loop runs approximately every minute
-        time.sleep(60)
+        # Sleep tight, loop runs approximately every 15 seconds for precision timing
+        time.sleep(15)
 
 
 def check_scanner_staleness(now):
@@ -1477,10 +1529,31 @@ def _run_multibagger_scanner_single():
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
         telemetry.log_session_timeline("Started Multibagger Scanner Cycle")
         start_mb_single = time.time()
-        with scanner_execution_lock:
+        
+        lock_acquired = False
+        max_retries = 30
+        for i in range(max_retries):
+            if scanner_execution_lock.acquire(blocking=False):
+                lock_acquired = True
+                break
+            
+            logger.info(f"⏳ MULTIBAGGER SCAN | Waiting for scanner_execution_lock (attempt {i+1}/{max_retries}). Another scanner is currently running.")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("MULTIBAGGER", status="DEFERRED", error_msg=f"Deferred: Waiting for scanner lock (attempt {i+1}/{max_retries})")
+            except Exception:
+                pass
+            time.sleep(60)
+            
+        if not lock_acquired:
+            raise RuntimeError(f"Could not acquire scanner_execution_lock after {max_retries} minutes. Evening batch might be stuck.")
+            
+        try:
             with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
                 stats = multibagger.start() or {}
             time.sleep(15)
+        finally:
+            scanner_execution_lock.release()
         
         dur_mb_single = round(time.time() - start_mb_single, 1)
         # Mark success in health table

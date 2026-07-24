@@ -162,9 +162,21 @@ REVERSAL_CONFIG = {
 }
 
 ALERT_COOLDOWN_MINUTES = {
-    "EOD": 5760,       # 96 hours (Prevents duplicate alert generation on market holidays via fallback data)
-    "REVERSAL": 5760,  # 96 hours
-    "PULLBACK": 1440   # 24 hours
+    "WEALTH": 1440,       # 24 hours
+    "MULTI_TF": 720,      # 12 hours
+    "EOD": 1440,          # 24 hours
+    "REVERSAL": 10080,    # 7 days
+    "PULLBACK": 10080,    # 7 days
+    "MULTIBAGGER": 43200  # 30 days
+}
+
+SCANNER_MAX_ALERTS = {
+    "WEALTH": 50,
+    "MULTI_TF": 100,
+    "EOD": 10,
+    "REVERSAL": 10,
+    "PULLBACK": 10,
+    "MULTIBAGGER": 10,
 }
 
 # =====================================================================================

@@ -324,7 +324,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     alertable = [c for c in survivors if c.status != CandidateState.SUPPRESSED]
     alertable.sort(key=lambda x: x.final_score, reverse=True)
-    max_alerts = policy.get("max_new_positions_per_day", 3)
+    from config import SCANNER_MAX_ALERTS
+    max_alerts = min(policy.get("max_new_positions_per_day", 3), SCANNER_MAX_ALERTS.get("PULLBACK", 10))
+    if len(alertable) > max_alerts:
+        logger.info(f"Limiting PULLBACK alerts from {len(alertable)} to {max_alerts}")
+        for c in alertable[max_alerts:]:
+            logger.info(f"🚫 {c.symbol} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {c.final_score:.1f})")
     alertable = alertable[:max_alerts]
 
     # ---------------- RISK ENGINE & SIGNAL DISPATCH ----------------

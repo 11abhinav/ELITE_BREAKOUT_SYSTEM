@@ -86,9 +86,16 @@ def start(force: bool = False):
         _scan_lock.release()
 
 def _start_wrapper(force: bool = False):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    start_time = datetime.now(IST)
+    total_alerts = 0
+    total_fetched_count = 0
+    duration_sec = 0.0
+
     is_test_mode = True  # Safe default
     init_db()
-    
     # Initialize the fundamentals cache into the DatasetRegistry (DURABLE)
     from fundamentals_cache import init_fundamentals_registry
     init_fundamentals_registry()
@@ -278,7 +285,8 @@ def _start_wrapper(force: bool = False):
         import gc, time
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
         
-        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 2880))
+        from config import ALERT_COOLDOWN_MINUTES
+        cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 1440))
         
         total_fetched_count = 0
         logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE}...")
@@ -286,6 +294,7 @@ def _start_wrapper(force: bool = False):
         from memory_profiler import chunk_iterable, BatchMemoryTracker
         total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
+        approved_candidates = []
         with MemoryProfiler("Process Symbols"):
             for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
                 with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
@@ -829,91 +838,56 @@ def _start_wrapper(force: bool = False):
                                 base_score_val = int(score)
                                 final_score_val = min(100, base_score_val + total_momentum_bonus)
 
-                                saved, reason, cap_alloc, shares = save_alert_if_new(
-                                    symbol,
-                                    "EOD",
-                                    ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                                    scanner="EOD",
-                                    category=category,
-                                    entry_price=round(candle_close, 2),
-                                    signals=signal_str,
-                                    score=final_score_val,
-                                    rsi=round(rsi_val, 1),
-                                    volume_ratio=round(volume_ratio, 2),
-                                    stop_loss=suggested_stop,
-                                    target_1=sl_result.get("target_1"),
-                                    target_2=sl_result.get("target_2"),
-                                    target_3=sl_result.get("target_3"),
-                                    target_price=target_price,
-                                    context=context,
-                                    model_version=model_version,
-                                    bayesian_regime=_bayesian_regime,
-                                    bayesian_weights=bayesian_weights,
-                                    structural_failure_stop=sl_result.get("structural_failure_stop"),
-                                    target_quality_score=sl_result.get("target_quality"),
-                                    base_score=base_score_val,
-                                    rs_bonus=rs_bonus_val,
-                                    sector_bonus=sector_bonus_val,
-                                    rs_percentile=rs_pct_val,
-                                    sector_name=sector_name_val,
-                                    regime_score=_regime_score
-                                )
-
+                                cand = {
+                                    "symbol": symbol,
+                                    "breakout_type": "EOD",
+                                    "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                                    "scanner": "EOD",
+                                    "category": category,
+                                    "entry_price": round(candle_close, 2),
+                                    "signals": signal_str,
+                                    "score": final_score_val,
+                                    "rsi": round(rsi_val, 1),
+                                    "volume_ratio": round(volume_ratio, 2),
+                                    "stop_loss": suggested_stop,
+                                    "target_1": sl_result.get("target_1"),
+                                    "target_2": sl_result.get("target_2"),
+                                    "target_3": sl_result.get("target_3"),
+                                    "target_price": target_price,
+                                    "context": context,
+                                    "model_version": model_version,
+                                    "bayesian_regime": _bayesian_regime,
+                                    "bayesian_weights": bayesian_weights,
+                                    "structural_failure_stop": sl_result.get("structural_failure_stop"),
+                                    "target_quality_score": sl_result.get("target_quality"),
+                                    "base_score": base_score_val,
+                                    "rs_bonus": rs_bonus_val,
+                                    "sector_bonus": sector_bonus_val,
+                                    "rs_percentile": rs_pct_val,
+                                    "sector_name": sector_name_val,
+                                    "regime_score": _regime_score,
+                                    # Extra data for logging and tracking
+                                    "_candle_open": candle_open,
+                                    "_candle_high": candle_high,
+                                    "_candle_low": candle_low,
+                                    "_body_ratio": body_ratio,
+                                    "_close_position": close_position,
+                                    "_above_ema20": above_ema20,
+                                    "_above_sma50": above_sma50,
+                                    "_above_golden_cross": above_golden_cross,
+                                    "_sl_method": sl_result.get("sl_method"),
+                                    "_target_method": sl_result.get("target_method"),
+                                    "_natural_rr": sl_result.get("natural_rr"),
+                                    "_delivery_pct": delivery_pct,
+                                    "_peg": row.get("PEG Ratio"),
+                                    "_yoy_rev": row.get("YOY Revenue %"),
+                                    "_yoy_profit": row.get("YOY Profit %"),
+                                    "_roe": row.get("ROE %"),
+                                    "_ticker": ticker
+                                }
+                                approved_candidates.append(cand)
                             else:
-                                saved, reason, cap_alloc, shares = True, "", 0.0, 0
-
-                            if not saved:
-                                rejection_counts["duplicate"] += 1
-                                continue
-
-                            alerts_by_category.setdefault(category, []).append({
-                                "symbol":           symbol,
-                                "category":         category,
-                                "breakout_signals": list(signals.keys()) if isinstance(signals, dict) else signals,
-                                "price":            round(candle_close, 2),
-                                "open":             round(candle_open, 2),
-                                "day_high":         round(candle_high, 2),
-                                "day_low":          round(candle_low, 2),
-                                "rsi":              round(rsi_val, 1),
-                                "volume_ratio":     round(volume_ratio, 2),
-                                "body_ratio":       round(body_ratio * 100),
-                                "close_position":   round(close_position * 100),
-                                "score":            score,
-                                "above_ema20":      above_ema20,
-                                "above_sma50":      above_sma50,
-                                "above_golden_cross":     above_golden_cross,
-                                "atr_stop":         suggested_stop,
-                                "target_price":     target_price,
-                                "target_2":         sl_result.get("target_2"),
-                                "target_3":         sl_result.get("target_3"),
-                                "sl_method":        sl_result.get("sl_method"),
-                                "t_method":         sl_result.get("target_method"),
-                                "rr_ratio":         sl_result.get("natural_rr"),
-                                "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                                "peg":              row.get("PEG Ratio"),
-                                "yoy_rev":          row.get("YOY Revenue %"),
-                                "yoy_profit":       row.get("YOY Profit %"),
-                                "roe":              row.get("ROE %"),
-                                "capital_allocated": cap_alloc,
-                                "shares_bought":     shares
-                            })
-                            total_alerts += 1
-
-                            # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every stock that passes ALL filters
-                            _last_bar_date = "unknown"
-                            try:
-                                if isinstance(ticker.index, pd.DatetimeIndex):
-                                    _last_bar_date = str(ticker.index[-1])[:10]
-                                elif "Date" in ticker.columns:
-                                    _last_bar_date = str(ticker["Date"].iloc[-1])[:10]
-                            except Exception:
                                 pass
-                            logger.info(
-                                f"✅ [EOD] PASSED ALL FILTERS: {symbol} | "
-                                f"score={score} | vol_ratio={volume_ratio:.2f} | rsi={rsi_val:.1f} | "
-                                f"entry=₹{candle_close:.2f} | sl=₹{suggested_stop} | t1=₹{target_price} | "
-                                f"last_bar={_last_bar_date} | category={category}"
-                            )
 
                         # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
                         except Exception as e:
@@ -927,6 +901,98 @@ def _start_wrapper(force: bool = False):
                                     logger.exception(f'Failed to upsert fetch error for {symbol}')
                             continue
 
+                # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
+                if approved_candidates:
+                    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+                    from config import SCANNER_MAX_ALERTS
+                    max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
+                    
+                    if len(approved_candidates) > max_alerts:
+                        logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
+                        rejected_cands = approved_candidates[max_alerts:]
+                        approved_candidates = approved_candidates[:max_alerts]
+                        for cand in rejected_cands:
+                            rejection_counts["duplicate"] = rejection_counts.get("duplicate", 0) + 1
+                            logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
+                            
+                    for cand in approved_candidates:
+                        c = dict(cand)
+                        # Remove extra keys before saving
+                        _candle_open = c.pop("_candle_open")
+                        _candle_high = c.pop("_candle_high")
+                        _candle_low = c.pop("_candle_low")
+                        _body_ratio = c.pop("_body_ratio")
+                        _close_position = c.pop("_close_position")
+                        _above_ema20 = c.pop("_above_ema20")
+                        _above_sma50 = c.pop("_above_sma50")
+                        _above_golden_cross = c.pop("_above_golden_cross")
+                        _sl_method = c.pop("_sl_method")
+                        _target_method = c.pop("_target_method")
+                        _natural_rr = c.pop("_natural_rr")
+                        _delivery_pct = c.pop("_delivery_pct")
+                        _peg = c.pop("_peg")
+                        _yoy_rev = c.pop("_yoy_rev")
+                        _yoy_profit = c.pop("_yoy_profit")
+                        _roe = c.pop("_roe")
+                        _ticker = c.pop("_ticker")
+                        
+                        if not is_test_mode:
+                            saved, reason, cap_alloc, shares = save_alert_if_new(**c)
+                        else:
+                            saved, reason, cap_alloc, shares = True, "", 0.0, 0
+                            
+                        if not saved:
+                            rejection_counts["duplicate"] += 1
+                            continue
+                            
+                        alerts_by_category.setdefault(c["category"], []).append({
+                            "symbol":           c["symbol"],
+                            "category":         c["category"],
+                            "breakout_signals": [c["signals"]],
+                            "price":            c["entry_price"],
+                            "open":             round(_candle_open, 2),
+                            "day_high":         round(_candle_high, 2),
+                            "day_low":          round(_candle_low, 2),
+                            "rsi":              c["rsi"],
+                            "volume_ratio":     c["volume_ratio"],
+                            "body_ratio":       round(_body_ratio * 100),
+                            "close_position":   round(_close_position * 100),
+                            "score":            c["score"],
+                            "above_ema20":      _above_ema20,
+                            "above_sma50":      _above_sma50,
+                            "above_golden_cross":     _above_golden_cross,
+                            "atr_stop":         c["stop_loss"],
+                            "target_price":     c["target_price"],
+                            "target_2":         c["target_2"],
+                            "target_3":         c["target_3"],
+                            "sl_method":        _sl_method,
+                            "t_method":         _target_method,
+                            "rr_ratio":         _natural_rr,
+                            "delivery_pct":     round(_delivery_pct, 1) if _delivery_pct is not None else None,
+                            "peg":              _peg,
+                            "yoy_rev":          _yoy_rev,
+                            "yoy_profit":       _yoy_profit,
+                            "roe":              _roe,
+                            "capital_allocated": cap_alloc,
+                            "shares_bought":     shares
+                        })
+                        total_alerts += 1
+                        
+                        _last_bar_date = "unknown"
+                        try:
+                            if isinstance(_ticker.index, pd.DatetimeIndex):
+                                _last_bar_date = str(_ticker.index[-1])[:10]
+                            elif "Date" in _ticker.columns:
+                                _last_bar_date = str(_ticker["Date"].iloc[-1])[:10]
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
+                            f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
+                            f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
+                            f"last_bar={_last_bar_date} | category={c['category']}"
+                        )
+                
                 # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
                 # Removed Telegram notifications (2026-06-17)
 

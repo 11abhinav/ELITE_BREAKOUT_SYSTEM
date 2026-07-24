@@ -61,9 +61,18 @@ component is driven by exactly **one timing source**: the `Scheduler`.
        │  Transitions SessionContext → READY                       │
        └────────────────────────────────────────────────────────────┘
        │
+ 09:14 ┌────────────────────────────────────────────────────────────┐
+       │  PRE-MARKET WARMUP (09:14:30)                             │
+       │  Owner: Scheduler                                         │
+       │  Action: Force fetches initial prices + indicators for    │
+       │          Multi-TF Scanner to prevent 09:15 timeouts.      │
+       └────────────────────────────────────────────────────────────┘
+       │
  09:15 ┌────────────────────────────────────────────────────────────┐
        │  MARKET OPEN                                              │
        │  SessionContext transitions → MARKET_OPEN                 │
+       │  Note: First evaluations (09:15) use prior day's close    │
+       │  for intraday candles until the first bar fully forms.    │
        │                                                           │
        │  ┌──────── INTRADAY LOOP (sequential, locked) ─────────┐ │
        │  │                                                      │ │
@@ -90,11 +99,13 @@ component is driven by exactly **one timing source**: the `Scheduler`.
        │  EVENING BATCH (sequential, after Bhavcopy)               │
        │                                                           │
        │  1. Wait for Bhavcopy availability (poll every 5 min)     │
-       │  2. EOD Scanner                                           │
-       │  3. Reversal Scanner                                      │
-       │  4. Pullback Scanner                                      │
+       │  2. EOD Scanner (max 10m hard timeout)                    │
+       │  3. Reversal Scanner (max 10m hard timeout)               │
+       │  4. Pullback Scanner (max 10m hard timeout)               │
        │  5. Post-batch memory purge                               │
        │  6. Verify all three succeeded via DB health records      │
+       │  *CRITICAL GATE: All evening scanners MUST release locks  │
+       │   by 18:55:00 to ensure Multibagger starts on time.       │
        └────────────────────────────────────────────────────────────┘
        │
  19:00 ┌────────────────────────────────────────────────────────────┐
@@ -191,6 +202,11 @@ Lock Hierarchy:
 4. Lock acquisition order MUST be: `scanner_execution_lock` → `ProcessLock` → `_fetch_lock` → `_lock`
 5. Violating this order causes deadlock. There are no exceptions.
 
+**Locking Policy**:
+- **Acquire lock → Run scanner → Release lock.**
+- **Never hold the lock while**: polling, sleeping, waiting for APIs, waiting for Bhavcopy, or retrying.
+- For deferred scanners (e.g., Multibagger waiting on Evening Batch): Use a timed/non-blocking acquisition, retry after a short delay, and emit telemetry indicating why it was deferred.
+
 ---
 
 ## 2. Ownership Matrix
@@ -222,7 +238,7 @@ Lock Hierarchy:
 | Sector Rankings | `MarketRegimeService` | Durable (Postgres) | Daily | EOD, Multi-TF (sector bonus) |
 | RS Ratings | `MarketRegimeService` | Durable (Postgres) | Daily | EOD, Multi-TF (RS bonus) |
 | Bayesian Weights | `BayesianService` | Durable (Postgres) | Daily | EOD, Multi-TF, Reversal scoring |
-| Surveillance Blacklist | `SurveillanceService` | Ephemeral (RAM, TTL) | Hourly | All scanners |
+| Surveillance Blacklist | `SurveillanceService` | Ephemeral (RAM, TTL) | TTL-based (5 min) | All scanners |
 | Block Deals | `InstitutionalService` | Ephemeral (RAM) | Daily | EOD, Reversal (inst bonus) |
 | Scanner Health | `HealthService` | Durable (Postgres) | On every scanner completion | Dashboard, Staleness monitor |
 | Alerts | `AlertService` | Durable (Postgres) | On every alert creation | Dashboard, Telegram |
@@ -251,7 +267,7 @@ ApplicationContext (process-lifetime singleton)
     │   └── DeliveryStore   { symbol → delivery_pct }  refresh=ON_DEMAND
     │
     ├── MarketRegimeManager
-    │   └── cache { ret_6m, dist_52w, ts }             refresh=EVERY_60_MIN
+    │   └── cache { ret_6m, dist_52w, ts }             refresh=EVERY_5_MIN
     │
     ├── CacheManager  (named slots)
     │   ├── dead_symbols    { symbol → expiry_ts }
@@ -306,7 +322,24 @@ Load Universe → Fetch Data → Compute Indicators → Apply Business Rules →
 No scanner may invent its own execution flow. The pipeline is defined as a **list of steps**,
 and each step comes from a shared **step library**.
 
-### 3.2 Abstract Pipeline
+### 3.1 Architecture Status Matrix
+
+To prevent confusion between the currently deployed code and the V9 Target Architecture, the following matrix defines the implementation status of major subsystems.
+
+| Component | Current Implementation | Target Architecture (V9) |
+|-----------|------------------------|---------------------------|
+| Scheduler | Procedural (`main.py`) | Orchestrator |
+| Scanner | Functional/Script-based | `PipelineContext` / `PipelineStep` |
+| Session | Time guards | `SessionContext` State Machine |
+| Alerts | Mixed | Unified `AlertService` |
+| Wealth | Monolithic (`wealth_engine.py`) | TBD |
+| Cache | Mixed (Global dicts, partial classes) | `CacheManager` |
+
+### 3.2 Current Implementation (Procedural Execution)
+
+Today, scanners execute as procedural functions (e.g., `_start_wrapper`) directly scheduled by `main.py` using time guards (`is_market_open()`). The `PipelineContext` and `PipelineStep` abstractions defined below represent the **Target Architecture** (V9), intended to unify the currently disparate, script-based scanner implementations.
+
+### 3.3 Target Architecture (Abstract Pipeline)
 
 ```python
 class PipelineStep(ABC):
@@ -378,6 +411,12 @@ the per-symbol loop begins.
 | `RankingStep` | All passing symbols + scores | Ranked list (top N) | EOD, Multi-TF |
 | `AlertCreationStep` | Ranked candidates | Alert payloads | All scanners |
 | `DeduplicationStep` | `ctx.recent_alerts`, alert | CONTINUE or REJECT | All scanners |
+
+#### DeduplicationStep Contract
+The `DeduplicationStep` enforces cooldowns to prevent spam.
+- **Key**: `(symbol, scanner_name, breakout_type)`
+- **Scoping**: Cooldowns are isolated *per scanner*.
+- **Creation Time**: The cooldown timer starts exactly at the alert creation timestamp.
 
 ### 3.4 Scanner Definitions
 
@@ -484,6 +523,15 @@ PULLBACK_PIPELINE = ScannerPipeline("PULLBACK", [
     AlertCreationStep(scanner="PULLBACK"),
     DeduplicationStep(cooldown_minutes=7200),
 ])
+
+# Wealth Engine (Exception to standard Pipeline)
+# The Wealth Engine follows a monolithic execution model rather than discrete steps.
+# - Ownership: Owned by WealthService, executed via `run_wealth_scan()`
+# - Execution Path: Internal bulk loops (`_run_wealth_scan_wrapper`)
+# - Persistence: Direct database writes to `wealth_portfolio` and `wealth_buy_alert` tables
+# - Alert Flow: Generates internal BUY/HOLD/EXIT signals based on fundamentals + technicals.
+# - Deviation Rationale: Wealth Engine manages a stateful, long-term portfolio requiring CMP
+#   and exit monitoring, diverging from the stateless momentum trigger model of other scanners.
 ```
 
 ### 3.5 Pre-Loop Data Loading
@@ -1127,3 +1175,338 @@ prevents API rate-limit violations and simplifies cache reasoning.
 It does NOT trigger subsequent actions. The orchestrator controls flow.
 **Rationale**: Command buses introduce hidden control flow. The pipeline's explicit
 step-by-step execution is easier to debug, test, and reason about.
+
+
+## 8. Exact Technical Thresholds & Scanning Rules
+
+### 8.1 Hard Disqualifiers (All Scanners)
+1. **Illiquidity**: 20-bar average volume must be > 50,000 (adjusts per timeframe).
+2. **Distribution Candle**: If current bar volume > 2.0x average AND close is in bottom 50% of candle.
+3. **Rejection Wick**: Upper wick > 40% of total candle range.
+4. **Weak Trend (ADX)**:
+   - Daily: ADX < 25 (strict)
+   - 1H: ADX < 20
+   - 15m: ADX < 18
+5. **RSI Divergence**: Price makes a higher high over 14 bars, but RSI makes a lower high.
+6. **Volume-less Extension**: Price > Bollinger Upper Band with volume < 2.0x (1d), 1.5x (1h), 1.3x (15m).
+7. **Exhaustion**: 3 dojis/narrow-range candles on low volume in the last 4 bars.
+8. **Climax Top**: Highest volume in lookback window, but upper wick > 25% and close in bottom 40%.
+9. **Lower-High Pattern**: Breakout failed retest (current high < 3-bar ago high < 6-bar ago high).
+10. **Thin Spread Trap**: Candle range < 0.3% of price (or < 5 ticks).
+
+### 8.2 EOD Breakout Scoring (Max 100)
+- **Category Base (Max 30)**:
+  - Wealth Compounder, Debt-Free Cash Generator, Top Bank: +30 pts.
+  - Long Term Compounder: +28 pts.
+  - Dividend Aristocrat: +27 pts.
+  - Capital Efficient: +26 pts.
+  - Recovery Play: +8 pts.
+- **Breakout Signals (Max 25)**: +8 per technical signal. +4 bonus for 52W breakout, +2 for Monthly breakout.
+- **RSI Quality (Max 15)**: Sweet spot 60–70 (15 pts). Ranges taper to 0 outside 57–82.
+- **Volume Quality (Max 20)**: >4.0x (20 pts), >3.0x (15 pts), >2.5x (12 pts), >2.0x (7 pts), >1.5x (3 pts).
+- **Trend Strength (Max 10)**: EMA20 > SMA50 (+3), SMA50 > SMA200 (+3), ADX >= 30 (+2), MACD Bullish (+8).
+- **Bonuses**:
+  - +5 RSI Rising
+  - +5 Nifty Relative Strength Outperformance
+  - +4 Tight Base Consolidation
+  - +3 Sustained Volume (3-bar avg > 1.5x 20-bar avg)
+  - +6 Delivery Conviction (>60% same-day delivery)
+  - Institutional Footprint (+6 to +8 from block deals)
+- **Penalties**:
+  - -6 Extended above SMA50 (>5% gap)
+  - -5 Extreme RSI (> 78)
+  - -4 Unsustained volume drop-off
+  - -4 Choppy approach (Base width > volatility threshold)
+  - -15 Late Stage Base (Declining 200 SMA YoY)
+
+### 8.3 Risk Management (SL & Targets)
+**Buffers**: Stop Losses are placed below structural support (Swing Low, VWAP, S1) with an anti-trap buffer.
+- EOD Buffer: `max(0.80 * ATR, 0.75% of price)`
+- Multi-TF Buffer: `max(0.50 * ATR, 0.50% of price)`
+- Reversal Buffer: `max(1.00 * ATR, 1.00% of price)`
+- Max Stop Loss Cap: 3.0x ATR.
+
+**Minimum Required R:R**:
+- EOD/Reversal/Pullback: 2.0
+- Multi-TF: 1.5
+
+## 9. Complete Database Schema (Postgres)
+
+Below are the critical schemas required to reconstruct the backend.
+
+```sql
+CREATE TABLE IF NOT EXISTS alerts (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    breakout_type TEXT NOT NULL,
+    alert_time TEXT NOT NULL,
+    alert_date TEXT NOT NULL DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE IF NOT EXISTS breakout_watchlist (
+    symbol TEXT PRIMARY KEY,
+    category TEXT,
+    current_state TEXT,
+    h1_status TEXT,
+    m30_status TEXT,
+    m15_status TEXT,
+    m5_status TEXT,
+    breakout_level REAL,
+    support_level REAL,
+    invalidated_at TIMESTAMPTZ,
+    cooldown_until TIMESTAMPTZ,
+    session_date TEXT,
+    last_updated TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS scanner_health (
+    scanner_name TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'IDLE',
+    last_success TEXT,
+    today_alerts INTEGER NOT NULL DEFAULT 0,
+    error_msg TEXT,
+    is_acknowledged BOOLEAN DEFAULT TRUE,
+    updated_at TEXT NOT NULL,
+    error_severity TEXT DEFAULT NULL,
+    error_count INTEGER DEFAULT 0,
+    first_error_at TEXT DEFAULT NULL,
+    retry_count INTEGER DEFAULT 0,
+    scheduled_for TEXT DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS funnel_telemetry (
+    id SERIAL PRIMARY KEY,
+    scanner TEXT NOT NULL,
+    run_date TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    gate TEXT NOT NULL,
+    passed BOOLEAN NOT NULL,
+    observed_value REAL,
+    threshold_value REAL,
+    comparator TEXT,
+    message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bayesian_model_updates (
+    id SERIAL PRIMARY KEY,
+    regime TEXT NOT NULL,
+    proposed_version TEXT NOT NULL,
+    current_version TEXT NOT NULL,
+    current_weights JSONB NOT NULL,
+    proposed_weights JSONB NOT NULL,
+    trades_analyzed INTEGER NOT NULL,
+    win_rate REAL NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    admin_comment TEXT,
+    approved_by TEXT,
+    approved_at TEXT,
+    rejected_at TEXT,
+    applied_at TEXT,
+    created_at TEXT NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS wealth_buy_alert (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    alert_price REAL NOT NULL,
+    alert_date TEXT NOT NULL DEFAULT CURRENT_DATE
+);
+```
+*(Note: Refer to `app/database.py` for all 42 schemas. The above are the critical path schemas.)*
+
+## 10. Dashboard & UI/UX Specifications
+
+### 10.1 Aesthetics (Glassmorphism & Dark Mode)
+- **Background**: Deep space dark mode (`#0B0E14` or similar).
+- **Cards**: Glassmorphism effect with `backdrop-filter: blur(12px)`, background `rgba(255,255,255,0.03)`, and 1px borders with linear-gradients.
+- **Typography**: `Inter` or `Outfit` for modern sans-serif feel.
+- **Colors**:
+  - Bullish/Success: Neon Emerald (`#10b981` with glow).
+  - Bearish/Danger: Crimson Red (`#ef4444`).
+  - Warning/Neutral: Amber (`#f59e0b`).
+  - Brand Primary: Electric Blue (`#3b82f6`).
+- **Micro-animations**: Hover states must lift cards by `translateY(-2px)` and increase box-shadow intensity. Transitions should be `0.2s ease-in-out`.
+
+### 10.2 Data Streaming Contracts
+- **Scanner Health**: Dashboard polls `/api/health` every 15 seconds. Payload maps `scanner_name` to `status` (OK/ERROR/RUNNING).
+- **Live Alerts**: Dashboard subscribes via WebSockets. Payload is the `AlertSchema` defined in Section 4.2.
+- **Funnel Telemetry**: Dashboard polls `/api/funnel` on demand to render D3.js/Recharts funnel diagrams showing drop-off at each stage of the pipeline.
+
+## 11. External Integration Contracts
+
+### 11.1 Environment Variables Required
+- `DATABASE_URL`: Postgres connection string (Railway managed).
+- `TELEGRAM_BOT_TOKEN`: Token from BotFather for alert broadcasting.
+- `TELEGRAM_CHAT_ID`: Channel ID where alerts are routed.
+- `FYERS_CLIENT_ID` / `FYERS_SECRET_KEY`: For real-time intraday data fetching.
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: For browser Push API notifications.
+- `REDIS_URL`: (Optional) for distributed locking if multi-container.
+
+### 11.2 External APIs
+- **NSE Bhavcopy**: Downloaded daily post-market for institutional delivery data. Must handle 403s with proper user-agents.
+- **Yahoo Finance (yfinance)**: Used as fallback for EOD data. Throttle to 5 req/sec to prevent IP bans.
+- **TradingView**: Webhooks are received on `/api/webhooks/tv`. Payload contains `{{ticker}}` and `{{strategy.order.action}}`.
+
+
+
+## 12. Complete Repository Module Inventory
+ (`app/`)
+
+### 2.1 Core Orchestration & Scheduler
+- `app/main.py`: Main system entrypoint and 24/7 background scheduler (`run_system_scheduler()`). Manages daily task state, locks, and scanner execution triggers.
+- `app/application_context.py`: Singleton context (`ApplicationContext`) holding process-wide state, market regime managers, and dataset registries.
+- `app/session_context.py`: Session rotation context (`SessionContext`) managing midnight state tear-down and daily trade boundary tracking.
+
+### 2.2 Quantitative Scanner Engines
+- `app/wealth_engine.py`: Fundamental screening, BUY signal generation, and 5m/15m market-hours portfolio CMP and exit monitoring.
+- `app/multi_tf_scanner.py`: Intraday 4-stage cascade scanner (1H Phase A → 30m Phase B → 15m Phase C → 5m Phase D).
+- `app/eod_scanner.py`: Post-market daily momentum breakout scanner operating post-Bhavcopy delivery.
+- `app/reversal_scanner.py`: Deep discount mean-reversion scanner with oversold RSI curl and MACD crossover filters.
+- `app/pullback_pipeline.py`: Uptrend pullback continuation pipeline detecting orderly swing pullbacks in established trends.
+- `app/multibagger.py`: Long-term fundamental compounder screener and 15-minute market-hours exit monitor.
+
+### 2.3 Analytics, Risk & Scoring Engines
+- `app/scoring_engine.py`: Centralized 0–100 candidate scoring engine evaluating category quality, technical momentum, volume expansion, and RSI location.
+- `app/sl_target_helper.py`: Dynamic stop-loss/target calculation engine (`compute_sl_and_target`) and invariant validation (`TradeStructureValidator`).
+- `app/trade_ranking_engine.py`: Multi-factor candidate sorter ranking setups by quality, volume expansion, risk-reward, and regime alignment.
+- `app/macro_utils.py`: Macro market regime engine (`MarketRegimeEngine`) evaluating Nifty 6-month returns and 52W high distance.
+- `app/strategy_policy.py`: Strategy policy engine (`StrategyPolicyEngine`) supplying regime-specific filter adjustments.
+- `app/valuation_utils.py`: Peer valuation calculator (`compute_peer_medians`) computing sector P/E, P/B, and EV/EBITDA medians.
+
+### 2.4 Data Acquisition & Fetchers
+- `app/data_provider.py`: High-level data provider boundary managing candidate symbol canonicalization and fetch routing.
+- `app/data_providers/unified_fetcher.py`: Unified fetcher (`UnifiedFetcher`) enforcing primary/secondary fallback chains.
+- `app/data_providers/fyers_fetcher.py`: Fyers REST API client (`FyersFetcher`) with 99-day range capping for intraday resolutions.
+- `app/price_provider.py`: Price provider (`PriceProvider`) enforcing BSE `.BO` fallback mappings and rate limit backoffs.
+- `app/yf_rate_limiter.py`: YFinance rate limiter enforcing circuit breakers on HTTP 429 throttling.
+- `app/pledge_scraper.py` & `app/pledge_worker.py`: ScraperAPI residential proxy worker scraping NSE promoter pledge datasets.
+- `app/delivery_data.py`: NSE Bhavcopy delivery metrics scraper with 0-to-4 day lookback fallback logic.
+
+### 2.5 Cache & Storage Infrastructure
+- `app/price_cache.py`: Centralized price cache managing in-memory `_cache` dict, dynamic TTLs, and disk parquet persistence.
+- `app/dataset_registry.py`: Centralized memory registry (`DatasetRegistry`) managing `PERSISTENT`, `SESSION`, and `EPHEMERAL` dataset lifecycles.
+- `app/database.py`: Primary PostgreSQL interface containing pool initialization (`DB_MAXCONN=50`), schema migrations, and CRUD helpers.
+- `app/watchlist_cache.py`: Watchlist disk parquet cache manager.
+
+---
+
+
+## 13. MATHEMATICAL FORMULAS & QUANTITATIVE ALGORITHMS
+
+## 1. Vectorized Technical Indicator Formulas
+
+### 1.1 Relative Strength Index (RSI - 14 Period)
+Let $\Delta P_t = \text{Close}_t - \text{Close}_{t-1}$.
+$$\text{Gain}_t = \max(\Delta P_t, 0), \quad \text{Loss}_t = \max(-\Delta P_t, 0)$$
+Using Wilder's Exponential Smoothing over period $N = 14$:
+$$\text{AvgGain}_t = \frac{\text{AvgGain}_{t-1} \times 13 + \text{Gain}_t}{14}, \quad \text{AvgLoss}_t = \frac{\text{AvgLoss}_{t-1} \times 13 + \text{Loss}_t}{14}$$
+$$\text{RS}_t = \frac{\text{AvgGain}_t}{\text{AvgLoss}_t}, \quad \text{RSI}_t = 100 - \frac{100}{1 + \text{RS}_t}$$
+
+### 1.2 Average Directional Index (ADX - 14 Period)
+Let $\text{TR}_t = \max(\text{High}_t - \text{Low}_t, |\text{High}_t - \text{Close}_{t-1}|, |\text{Low}_t - \text{Close}_{t-1}|)$.
+$$\text{+DM}_t = \text{High}_t - \text{High}_{t-1} \quad \text{if } \text{High}_t - \text{High}_{t-1} > \text{Low}_{t-1} - \text{Low}_t \text{ else } 0$$
+$$\text{-DM}_t = \text{Low}_{t-1} - \text{Low}_t \quad \text{if } \text{Low}_{t-1} - \text{Low}_t > \text{High}_t - \text{High}_{t-1} \text{ else } 0$$
+Smoothed via Wilder's formula over $N = 14$:
+$$\text{+DI}_{14} = 100 \times \frac{\text{Smooth(+DM)}}{\text{Smooth(TR)}}, \quad \text{-DI}_{14} = 100 \times \frac{\text{Smooth(-DM)}}{\text{Smooth(TR)}}$$
+$$\text{DX} = 100 \times \frac{|\text{+DI} - \text{-DI}|}{\text{+DI} + \text{-DI}}, \quad \text{ADX}_{14} = \text{WilderSmooth}(\text{DX}, 14)$$
+
+### 1.3 Exponential Moving Average (EMA)
+$$\alpha = \frac{2}{N + 1}, \quad \text{EMA}_t = (\text{Close}_t \times \alpha) + (\text{EMA}_{t-1} \times (1 - \alpha))$$
+
+---
+
+## 2. Fundamental & Candidate Scoring Logic
+
+### 2.1 Fundamental Quality Score (`FM_Score`)
+Calculated from financial metrics in `data/watchlist.parquet`:
+- **Financial Sector Rule (Banks & NBFCs):**
+  $$\text{Financial\_Pass} = (\text{ROE} \ge 15.0) \land (\text{DebtToEquity} \le 3.0) \land (\text{YoY\_Revenue\_Growth} \ge 10.0)$$
+- **Non-Financial Sector Rule:**
+  $$\text{NonFinancial\_Pass} = (\text{ROCE} \ge 15.0) \land (\text{DebtToEquity} \le 1.0) \land (\text{YoY\_Revenue\_Growth} \ge 10.0)$$
+$$\text{FM\_Score} = \text{BasePoints}(40) + \min(\text{ROE}, 30) \times 1.0 + \min(\text{RevenueGrowth}, 30) \times 0.5 - (\text{PledgePct} \times 2.0)$$
+
+### 2.2 Centralized Candidate Scoring Engine (`scoring_engine.py`)
+Outputs a normalized score $S \in [0, 100]$:
+$$S = S_{\text{Category}} + S_{\text{Momentum}} + S_{\text{Volume}} + S_{\text{RSI\_Location}}$$
+- $S_{\text{Category}}$: `DEBT_FREE_CASH` = 30 pts, `WEALTH_COMPOUNDER` = 25 pts, `BLUE_CHIP` = 20 pts.
+- $S_{\text{Momentum}}$: $+15$ pts if Close > EMA9 > EMA20 > SMA50.
+- $S_{\text{Volume}}$: $+25 \times \min\left(\frac{\text{Volume}_t}{\text{SMA20(Volume)}}, 3.0\right) / 3.0$.
+- $S_{\text{RSI\_Location}}$: $+20$ pts if $55 \le \text{RSI} \le 68$.
+
+---
+
+## 3. Dynamic Stop-Loss & Target Engine (`sl_target_helper.py`)
+
+$$\text{Initial\_SL} = \min(\text{SwingPivotLow}_{10}, \text{Entry} - (1.5 \times \text{ATR}_{14}))$$
+$$\text{Target}_1 = \text{Entry} + 1.5 \times (\text{Entry} - \text{SL})$$
+$$\text{Target}_2 = \text{Entry} + 2.5 \times (\text{Entry} - \text{SL})$$
+$$\text{Target}_3 = \text{Entry} + 4.0 \times (\text{Entry} - \text{SL})$$
+$$\text{Risk-Reward Ratio } (R:R) = \frac{\text{Target}_1 - \text{Entry}}{\text{Entry} - \text{SL}} \ge 2.0$$
+
+---
+
+
+## 14. COMPLETE REST API SPECIFICATIONS
+
+| Endpoint URL | Method | Auth Level | Description | Response JSON Schema |
+| :--- | :--- | :--- | :--- | :--- |
+| `/api/scanner_status` | `GET` | Public | Status & health of all 6 scanners. | `{"status": "ok", "scanners": [{"scanner_name": "MULTI_TF", "status": "HEALTHY", "duration_seconds": 5.2}]}` |
+| `/api/trigger-scanner` | `POST` | Admin | Async trigger for a specific scanner. | `{"status": "success", "message": "Scanner MULTI_TF triggered"}` |
+| `/api/lock-stats` | `GET` | Admin | Mutex contention telemetry. | `{"acquisitions": 142, "max_wait_sec": 0.12, "contention_events": 0}` |
+| `/api/wealth_data` | `GET` | Public | Parsed Wealth Engine portfolio data. | `{"status": "ok", "data": [{"Stock": "RELIANCE", "CMP": 2450.0, "HoldScore": 88}]}` |
+| `/api/multi_tf_data` | `GET` | Public | Intraday cascade stage tables. | `{"hourly_passed": [...], "setup_armed": [...], "entry_ready": [...]}` |
+
+---
+
+
+## 15. TARGET VERSION 9 (v9.0.0) CLEAN ARCHITECTURE SPECIFICATION
+
+## 1. Clean 5-Layer Layout (`src/`)
+- `src/domain/`: Pure business logic models, indicators, risk, and strategy rules.
+- `src/application/`: Application services, pipeline steps (`IPipelineStep`), and context objects (`PipelineContext`).
+- `src/infrastructure/`: API fetchers, PostgreSQL repositories (`AlertRepository`, `HealthRepository`), and `PriceRepository`.
+- `src/interfaces/`: Flask REST API server and 24/7 background scheduler (`TaskScheduler`).
+- `src/common/`: Lock instrumentations, IEEE 754 float sanitizers, and exceptions.
+
+## 2. Encapsulated Repository Contracts
+```python
+from abc import ABC, abstractmethod
+from typing import Optional, Dict
+import pandas as pd
+
+class IPriceRepository(ABC):
+    @abstractmethod
+    def get(self, symbol: str, interval: str, period: str) -> Optional[pd.DataFrame]:
+        ...
+
+    @abstractmethod
+    def fetch_watchlist_data(
+        self, watchlist: pd.DataFrame, period: str, interval: str
+    ) -> Dict[str, Optional[pd.DataFrame]]:
+        ...
+
+    @abstractmethod
+    def evict(self, symbol: str, interval: str, period: str) -> None:
+        ...
+
+    @abstractmethod
+    def purge(self) -> int:
+        ...
+```
+
+---
+
+
+### parquet_cache
+```sql
+CREATE TABLE IF NOT EXISTS parquet_cache (
+    name TEXT NOT NULL,
+    date DATE NOT NULL,
+    data BYTEA NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (name, date)
+);
+```

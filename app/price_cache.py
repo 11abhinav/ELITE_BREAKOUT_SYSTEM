@@ -75,11 +75,11 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
                 return False, "HIGH_LESS_THAN_LOW"
                 
         if "Close" in df.columns and "High" in df.columns and "Low" in df.columns:
-            if (df["Close"] > df["High"] * 1.001).any() or (df["Close"] < df["Low"] * 0.999).any():
+            if (df["Close"] > df["High"] * 1.002).any() or (df["Close"] < df["Low"] * 0.998).any():
                 return False, "CLOSE_OUT_OF_BOUNDS"
                 
         if "Open" in df.columns and "High" in df.columns and "Low" in df.columns:
-            if (df["Open"] > df["High"] * 1.001).any() or (df["Open"] < df["Low"] * 0.999).any():
+            if (df["Open"] > df["High"] * 1.002).any() or (df["Open"] < df["Low"] * 0.998).any():
                 return False, "OPEN_OUT_OF_BOUNDS"
                 
         if "Volume" in df.columns:
@@ -668,6 +668,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 new_df[time_col] = new_df[time_col].dt.tz_localize('Asia/Kolkata')
                             else:
                                 new_df[time_col] = new_df[time_col].dt.tz_convert('Asia/Kolkata')
+                            
+                            # [VERSION: TIME_COLUMN_MERGE_FIX] Standardize to 'Datetime' to prevent NaN gaps during concat
+                            if time_col == 'Date':
+                                new_df = new_df.rename(columns={'Date': 'Datetime'})
+                                time_col = 'Datetime'
+                                
                         elif not new_df.index.empty:
                             new_df.index = pd.to_datetime(new_df.index)
                             if new_df.index.tz is None:
@@ -685,12 +691,34 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                     cached_df[c_time_col] = cached_df[c_time_col].dt.tz_localize('Asia/Kolkata')
                                 else:
                                     cached_df[c_time_col] = cached_df[c_time_col].dt.tz_convert('Asia/Kolkata')
+                                    
+                                # [VERSION: TIME_COLUMN_MERGE_FIX] Standardize to 'Datetime' to prevent NaN gaps during concat
+                                if c_time_col == 'Date':
+                                    cached_df = cached_df.rename(columns={'Date': 'Datetime'})
+                                    c_time_col = 'Datetime'
+                                    
                             elif not cached_df.index.empty:
                                 cached_df.index = pd.to_datetime(cached_df.index)
                                 if cached_df.index.tz is None:
                                     cached_df.index = cached_df.index.tz_localize('Asia/Kolkata')
                                 else:
                                     cached_df.index = cached_df.index.tz_convert('Asia/Kolkata')
+
+                            # [VERSION: CACHE_MERGE_ALIGNMENT_FIX] Align structural mismatch (time in column vs index)
+                            if time_col and not c_time_col:
+                                cached_df = cached_df.reset_index()
+                                if 'Date' in cached_df.columns:
+                                    cached_df = cached_df.rename(columns={'Date': 'Datetime'})
+                                elif 'index' in cached_df.columns:
+                                    cached_df = cached_df.rename(columns={'index': 'Datetime'})
+                                c_time_col = 'Datetime'
+                            elif c_time_col and not time_col:
+                                new_df = new_df.reset_index()
+                                if 'Date' in new_df.columns:
+                                    new_df = new_df.rename(columns={'Date': 'Datetime'})
+                                elif 'index' in new_df.columns:
+                                    new_df = new_df.rename(columns={'index': 'Datetime'})
+                                time_col = 'Datetime'
 
                             # Merge them
                             combined = pd.concat([cached_df, new_df])
@@ -714,9 +742,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             
                             all_data[sym] = combined
                         else:
-                            # [VERSION: CACHE_INDEX_FIX] Normalize index for fresh data too
+                            # [VERSION: FRESH_DATA_SORT_FIX_v1.0] Deduplicate and sort fresh DataFrames by date before validation
                             if time_col:
-                                new_df = new_df.reset_index(drop=True)
+                                new_df = new_df.drop_duplicates(subset=[time_col], keep='last').sort_values(time_col).reset_index(drop=True)
+                            elif not new_df.index.empty:
+                                new_df = new_df[~new_df.index.duplicated(keep='last')].sort_index()
                             all_data[sym] = new_df
                             
                         # [VERSION: V5_ACQUISITION_ROUTING_V1.0] OHLCV Validation Stage before indicator calculation

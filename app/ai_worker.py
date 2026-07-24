@@ -214,7 +214,7 @@ def run_worker_loop():
         total_watch = 0
         processed_count = 0
         
-    upsert_scanner_health("AI Worker", "IDLE", last_success=None, today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Status: Booting up")
+    upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Status: Booting up")
     
     while True:
         # Re-calculate on each loop iteration

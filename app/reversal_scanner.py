@@ -1099,6 +1099,16 @@ def _run_scan(force: bool = False):
         total_alerts = 0
         if not is_test_mode and not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
+                if shortlisted_alerts:
+                    shortlisted_alerts.sort(key=lambda x: x["score"], reverse=True)
+                    from config import SCANNER_MAX_ALERTS
+                    max_alerts = SCANNER_MAX_ALERTS.get("REVERSAL", 10)
+                    if len(shortlisted_alerts) > max_alerts:
+                        logger.info(f"Limiting REVERSAL alerts from {len(shortlisted_alerts)} to {max_alerts}")
+                        for alert in shortlisted_alerts[max_alerts:]:
+                            logger.info(f"🚫 {alert['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {alert['score']})")
+                        shortlisted_alerts = shortlisted_alerts[:max_alerts]
+
                 for alert in shortlisted_alerts:
                     # [REV_SAVE_ALERT_FIX_v1.0] BUG-6 FIX: alert["dedup_key"] was incorrectly passed as 2nd positional arg
                     # (the breakout_type slot). This stored "CATEGORY|SYMBOL|DATE|REVERSAL" in the breakout_type DB column

@@ -1176,7 +1176,13 @@ def start(debug_limit: int = None, is_test_mode: bool = False):
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     """Main scanning wrapper."""
+    import time
     start_time = time.time()
+    duration_sec = 0.0
+    alerts_count = 0
+    results = []
+    fundamentals_list = []
+    
     logger.info("🚀 Multibagger Scanner execution started...")
     init_db()
     
@@ -1561,8 +1567,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     if alert_candidates:
         # Sort by tier, total_score desc, cqs desc
         alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
+        
+        from config import SCANNER_MAX_ALERTS
+        max_alerts = SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)
+        if len(alert_candidates) > max_alerts:
+            logger.info(f"Limiting MULTIBAGGER alerts from {len(alert_candidates)} to {max_alerts}")
+            for cand in alert_candidates[max_alerts:]:
+                logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
+            alert_candidates = alert_candidates[:max_alerts]
+
         top_n = alert_candidates
-        logger.info(f"🏆 All {len(alert_candidates)} valid candidates selected.")
+        logger.info(f"🏆 Top {len(alert_candidates)} valid candidates selected.")
         
         # Batch fetch live prices
         try:
