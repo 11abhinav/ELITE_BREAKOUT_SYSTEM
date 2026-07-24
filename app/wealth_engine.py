@@ -32,6 +32,7 @@ def _safe_num(val, default=0):
 from config import ENABLE_AI_SENTIMENT_SCORE
 from collections import defaultdict
 import concurrent.futures
+import database
 from database import get_recent_concall_analysis
 
 # Concurrency and retry tuning

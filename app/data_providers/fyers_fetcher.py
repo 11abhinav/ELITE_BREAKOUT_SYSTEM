@@ -213,6 +213,10 @@ class FyersFetcher(DataFetcher):
             days_back = 30
             buffer_days = max(3, int(days_back * 0.2))
 
+        range_from = (today - timedelta(days=days_back + buffer_days)).strftime("%Y-%m-%d")
+        range_to = today.strftime("%Y-%m-%d")
+        return range_from, range_to
+
     def _generate_fyers_candidate_symbols(self, symbol: str) -> list[str]:
         """
         Generates an exhaustive, multi-exchange & multi-series candidate list for Fyers API.
