@@ -110,6 +110,9 @@ def test_bonus_modifiers_and_caps(monkeypatch):
     }
     
     # Inject into memory cache via registry
+    if not bd_registry.get_entry("block_deals"):
+        from data_registry import DatasetEntry, StorageTier
+        bd_registry.register_dataset(DatasetEntry(id="block_deals", owner="BlockDealDetector", tier=StorageTier.PERSISTENT, cadence=86400))
     bd_registry.put("block_deals", {
         "date": str(datetime.now(IST).date()),
         "version": 1,

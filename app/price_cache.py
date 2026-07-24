@@ -59,22 +59,14 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
         return False, "EMPTY_DATAFRAME"
         
     try:
-        # 1. Monotonicity & Timestamp Normalization
+        # 1. Monotonicity
         time_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
         if time_col:
-            df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
-            df.dropna(subset=[time_col], inplace=True)
-            df.drop_duplicates(subset=[time_col], keep='last', inplace=True)
-            df.sort_values(time_col, inplace=True)
-            df.reset_index(drop=True, inplace=True)
-            ts_series = df[time_col]
+            ts_series = pd.to_datetime(df[time_col])
         else:
-            df.index = pd.to_datetime(df.index, errors='coerce')
-            df = df[df.index.notna()]
-            df = df[~df.index.duplicated(keep='last')].sort_index()
-            ts_series = df.index
+            ts_series = pd.to_datetime(df.index)
             
-        if ts_series.empty or not ts_series.is_monotonic_increasing:
+        if not ts_series.is_monotonic_increasing:
             return False, "NON_MONOTONIC_TIMESTAMPS"
             
         # 2. Price Sanity

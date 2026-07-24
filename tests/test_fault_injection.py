@@ -32,7 +32,9 @@ def empty_delivery_cache():
     from data_registry import registry
     delivery_data._delivery_cache = None
     delivery_data._delivery_cache_date = None
-    registry._datasets.clear()
+    for k in list(registry._data.keys()):
+        if "bhavcopy" in k:
+            del registry._data[k]
     with patch('database.get_bhavcopy_cache', return_value=None):
         yield
 
