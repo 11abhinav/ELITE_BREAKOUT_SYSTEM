@@ -1,10 +1,10 @@
 # ELITE BREAKOUT SYSTEM — MASTER ARCHITECTURE, BUSINESS LOGIC & OPERATIONAL SPECIFICATION
 
 > **Document Class:** Principal Engineering Architecture, Operations, & Systems Reconstruction Specification  
-> **Status:** High-Level Architectural Coverage Complete. Detailed Implementation Specification Ongoing.  
+> **Status:** Canonical Source of Truth & Version 9 Architecture Specification  
 > **Target File:** `docs/SYSTEM_ARCHITECTURE_GUIDE.md`  
 > **Repository:** `ELITE_BREAKOUT_SYSTEM`  
-> **Version:** `v8.4.1` (2026-07-24)  
+> **Version:** `v8.4.1` (Current Implementation) / `v9.0.0` (Target Clean Architecture Blueprint)  
 
 ---
 
@@ -12,12 +12,12 @@
 
 The **Elite Breakout System** is a 24/7 autonomous, quantitative trading platform operating in the Indian equities market (NSE/BSE). The system integrates real-time quantitative momentum screening, multi-timeframe breakout detection, fundamental quality evaluation, Bayesian market regime adaptation, dynamic risk-adjusted stop-loss/target calculation, and automated portfolio risk management.
 
-### Key Architectural Standards
+### Key Architectural Standards (v8.4.1 Production & v9.0.0 Target)
 1. **Per-Symbol Granular Cache Architecture:** RAM cache structure (`_cache[(interval, period)][symbol]`) manages DataFrames, independent monotonic timestamps (`ts`), exchange timestamps (`data_as_of`), and schema versioning (`v8.4.0`) per symbol. Eliminates cache destruction across chunked scanner requests.
 2. **Single-Pass "Fetch Once → Compute Many" Bulk Model:** Scanners execute 1 logical request for their entire universe. Provider-level symbol batching (30 symbols/chunk) is encapsulated cleanly inside `PriceCache` / `_download_all_robust`.
 3. **Zero Lock Starvation Architecture:** Market-hours execution decouples fast position CMP/exit monitoring (<3.0s runtime) from full-universe opportunity setup scans (15–20s runtime) to prevent mutex contention.
-4. **Provider Failover & Provenance:** Data acquisition routes via `ProviderSelector` and `UnifiedFetcher`, prioritizing native Fyers API batch execution with graceful fallback to YFinance and BSE scrapers. Official compliance data (NSE Bhavcopy, Pledges) routes through `ScraperAPI` residential proxy networks.
-5. **Deterministic Mathematical Invariants:** Centralized trade structure validation (`TradeStructureValidator`), strict PostgreSQL schema constraints, and recursive IEEE 754 float sanitization (`NaN`/`Inf` scrubbing) ensure database write integrity.
+4. **Clean 5-Layer Target Architecture (v9.0.0):** Clean separation into pure `domain/` (zero I/O), `application/` (use-case services & pipeline steps), `infrastructure/` (data fetchers, PostgreSQL repositories, price caches), `interfaces/` (Flask API, task scheduler), and `common/` (lock utilities, sanitizers).
+5. **Deterministic Sequential Orchestration:** Market ticks trigger explicit, sequential, state-machine-driven scanner pipelines (`SequentialPipelineOrchestrator`) guaranteeing 100% reproducible execution and zero race conditions.
 6. **Native OS Heap Reclamation:** Memory management combines Python cyclic garbage collection (`gc.collect()`) with native C-library heap page reclamation (`ctypes.CDLL("libc.so.6").malloc_trim(0)`) to maintain steady-state RSS memory within a 250MB–400MB target window.
 
 ---
@@ -123,7 +123,6 @@ The **Elite Breakout System** is a 24/7 autonomous, quantitative trading platfor
 
 ## 2. Comprehensive Hierarchical Call Trees
 
-### 2.1 Multi-TF Scanner Call Graph
 ```text
 run_system_scheduler() [app/main.py]
    ↓
@@ -150,96 +149,72 @@ multi_tf_scan() [app/multi_tf_scanner.py L115]
 
 ### 1. `fetch_watchlist_data()` (`app/price_cache.py`)
 - **Purpose:** Centralized entrypoint for acquiring OHLCV DataFrames for a symbol list. Evaluates per-symbol RAM cache freshness, acquires `_fetch_lock`, delegates cache misses to `_download_all_robust`, and stores results in `_cache` per symbol.
-- **Inputs:** 
-  - `watchlist: pd.DataFrame` (DataFrame containing `"Stock"` column with ticker symbols).
-  - `period: str` (Requested historical range, e.g., `"3mo"`, `"1y"`).
-  - `interval: str` (Candle resolution, e.g., `"1d"`, `"1h"`, `"15m"`, `"5m"`).
-  - `requester: str` (Thread/caller string for diagnostic telemetry).
-- **Outputs:** `dict[str, Optional[pd.DataFrame]]` (Map of ticker symbol to standardized OHLCV DataFrame or `None` if fetch failed).
-- **Thread Safety:** Thread-safe. Uses `_lock` (`threading.Lock`) for RAM cache reads/writes and `_fetch_lock` (`threading.Lock`) to serialize network data acquisition across background threads.
-- **Side Effects:** Updates in-memory `_cache[(interval, period)][symbol]`, updates disk parquet files in `data/history/{interval}/`, and updates global `_cache_hits` / `_cache_misses` metrics.
+- **Inputs:** `watchlist: pd.DataFrame`, `period: str`, `interval: str`, `requester: str`.
+- **Outputs:** `dict[str, Optional[pd.DataFrame]]` (Map of ticker symbol to standardized OHLCV DataFrame).
+- **Thread Safety:** Thread-safe via `_lock` (`threading.Lock`) and `_fetch_lock` (`threading.Lock`).
 
 ### 2. `compute_sl_and_target()` (`app/sl_target_helper.py`)
-- **Purpose:** Calculates dynamic stop-loss levels (via structural pivot low clustering, ATR buffers, and ADX widening) and target projections (via resistance pivots, Fibonacci extensions, and ABCD moves). Routes all results through `TradeStructureValidator`.
-- **Inputs:** `symbol: str`, `df: pd.DataFrame`, `entry_price: float`, `mode: str` (`"EOD"`, `"MULTI_TF"`, `"REVERSAL"`), `regime: str`.
-- **Outputs:** `TradeStructure` object containing `stop_loss`, `initial_stop_loss`, `target_1`, `target_2`, `target_3`, `reward_risk_ratio`, `is_valid`, and `rejection_reason`.
-- **Side Effects:** Pure mathematical calculation function. No side effects or database/network calls.
+- **Purpose:** Calculates dynamic stop-loss levels and target projections, enforcing mathematical invariants via `TradeStructureValidator`.
+- **Inputs:** `symbol: str`, `df: pd.DataFrame`, `entry_price: float`, `mode: str`, `regime: str`.
+- **Outputs:** `TradeStructure` object (`stop_loss`, `initial_stop_loss`, `target_1`, `target_2`, `target_3`, `reward_risk_ratio`, `is_valid`).
 
 ---
 
-# PART IV: DATASET CONTRACTS & PARQUET SCHEMAS
+# PART IV: TARGET VERSION 9 (v9.0.0) CLEAN ARCHITECTURE BLUEPRINT
 
-### 1. `watchlist.parquet` (`data/watchlist.parquet`)
-- **Producer:** `DailyBuilder` (`app/daily_builder.py` at 01:00 AM IST).
-- **Consumers:** `Wealth Engine`, `Multi-TF Scanner`, `EOD Breakout Scanner`, `Reversal Scanner`.
-- **Schema:**
-  - `Stock: str` (NSE Ticker symbol, e.g. `"RELIANCE"`) [NOT NULL, PK]
-  - `Category: str` (Quality classification: `"DEBT_FREE_CASH"`, `"WEALTH_COMPOUNDER"`, `"BLUE_CHIP"`, `"RECOVERY"`)
-  - `MarketCap_Cr: float` (Market capitalization in Crores)
-  - `ROE: float` (Return on Equity %)
-  - `ROCE: float` (Return on Capital Employed %)
-  - `DebtToEquity: float` (Debt to Equity ratio)
-  - `YoY_Revenue_Growth: float` (YoY Revenue Growth %)
-  - `PromoterPledge_Pct: float` (Promoter pledge percentage)
+## 1. The 15 Non-Negotiable System Principles
+1. **Zero Domain I/O Leakage:** `src/domain/` contains pure Python business logic and mathematical models (zero database/network imports).
+2. **Single Data Ownership:** Every dataset has exactly ONE owner service. External components read via read-only interfaces.
+3. **Explicit Memory Lifecycles:** Post-pipeline hooks execute `gc.collect()` and native C-heap reclamation `malloc_trim(0)`.
+4. **Immutable Data Contracts:** DataFrames passed across pipeline steps are read-only views (`df.as_readonly()`) or defensive copies.
+5. **Fail-Fast Mathematical Invariants:** Stop-loss levels must satisfy `SL < Entry`; targets must satisfy `T1 <= T2 <= T3`.
+6. **Encapsulated Cache Boundary:** Storage internals of `PriceRepository` are completely invisible to quantitative scanners.
+7. **Strict Layer Import Hierarchy:** Dependencies point inwards (`Interfaces -> Application -> Infrastructure -> Domain`).
+8. **Decoupled 2-Tier Execution:** Fast market-hours position monitoring (<3.0s) decoupled from full setup scans (~15s).
+9. **Provider Circuit Breakers:** HTTP 429 throttling triggers automatic 300-second circuit breakers delegating to secondary fallbacks.
+10. **Sanitized Database Writes:** All numeric values scrubbed of `NaN` and `Infinity` floats before SQL execution.
+11. **Idempotent Alert Dispatch:** Scanner alerts deduplicated via unique index `(symbol, breakout_type, alert_date)`.
+12. **Centralized Configuration:** System parameters strongly typed and validated via Pydantic dataclasses.
+13. **Lock Contention Monitoring:** Instrument lock acquisitions with warnings for `wait > 10.0s` or `hold > 120.0s`.
+14. **Deterministic Testing:** Strategy rules 100% testable via offline golden datasets without network access.
+15. **Zero Downtime Migration:** v9 transition follows Strangler Fig pattern using adapters.
 
----
+## 2. Module & Data Ownership Matrices
 
-# PART V: DEEP SCANNER STATE MACHINES
+| Module / Layer | Primary Responsibility | Single Owner | Allowed Imports | Forbidden Imports |
+| :--- | :--- | :--- | :--- | :--- |
+| `src/domain/` | Models, rules, indicators, risk | Domain Layer | Python StdLib, numpy, pandas | `infrastructure`, `interfaces`, DB/HTTP |
+| `src/application/` | Orchestration & pipeline steps | Application Layer | `domain/*`, `application/interfaces` | DB/HTTP implementations |
+| `src/infrastructure/` | Data fetchers, DB, cache | Data & DB Repositories | `application/interfaces`, `psycopg2`, `requests` | `interfaces/api`, `domain/rules` |
+| `src/interfaces/` | Web API & Task Scheduler | Presentation & Cron | `application/services`, `flask` | `infrastructure/data`, direct SQL |
 
-### Multi-Timeframe Scanner State Machine
+| Dataset Name | Single Authoritative Owner | Storage Format | Mutability | TTL / Invalidation Policy |
+| :--- | :--- | :--- | :--- | :--- |
+| `watchlist.parquet` | `DailyBuilderService` | Disk Parquet | Immutable after 01:00 AM | Overwritten daily at 01:00 AM IST. |
+| `_cache` (OHLCV RAM) | `PriceRepository` | Memory `dict` | Mutable via `PriceRepository` | Dynamic cadence (1D: 15:30 IST; Intraday: floor). |
+| `alerts` Table | `AlertRepository` | PostgreSQL Table | Append-Only | Retained permanently. |
+
+## 3. End-to-End v9 Sequence Diagram
+
 ```text
-┌──────────────┐
-│  0. INIT     │ Initialize logging, acquire scanner_execution_lock
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│  1. LOAD     │ Load active watchlist from data/watchlist.parquet
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│  2. FETCH    │ Bulk pre-fetch 1H OHLCV for all 295 symbols via fetch_watchlist_data("3mo", "1h")
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│ 3. INDICATORS│ Calculate 1H indicators (EMA9, EMA20, SMA50, SMA200, ADX)
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│  4. FILTERS  │ Phase A (1H Gate): EMA9 > EMA20 > SMA50, Close > SMA200, ADX > 20
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│ 5. CASCADE   │ Phase B (30m) ──► Phase C (15m) ──► Phase D (5m Micro Trigger)
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│  6. RISK     │ compute_sl_and_target() & TradeStructureValidator
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│ 7. PERSIST   │ save_alert_if_new() to PostgreSQL alerts table
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│ 8. COMPLETE  │ Record duration to scanner_health, release lock, invoke malloc_trim(0)
-└──────────────┘
+User / Clock        TaskScheduler       MultiTFService      PriceRepository    UnifiedFetcher     RiskEngine       AlertRepository
+    │                    │                    │                   │                   │               │                   │
+    │ ─── 15m Tick ────► │                    │                   │                   │               │                   │
+    │                    │ ── execute_scan()► │                   │                   │               │                   │
+    │                    │                    │ ─ get_watchlist()►│                   │               │                   │
+    │                    │                    │ ◄─ watchlist ──── │                   │               │                   │
+    │                    │                    │ ── fetch_watchlist_data()───────► │               │                   │
+    │                    │                    │ ◄────────── DataFrames ───────────│               │                   │
+    │                    │                    │ ── compute_indicators() (Domain)                  │                   │
+    │                    │                    │ ── calculate_sl_and_target() ────────────────────►│                   │
+    │                    │                    │ ◄───── TradeStructure ────────────────────────────│                   │
+    │                    │                    │ ────── save_alert() ────────────────────────────────────────────────────► │
+    │                    │ ◄─ Scan Complete ─ │                                                                           │
 ```
 
 ---
 
-# PART VI: BUSINESS RULES & QUANTITATIVE RATIONALE
-
-| Parameter / Rule | Value / Bound | Quantitative & Mathematical Rationale |
-| :--- | :--- | :--- |
-| **Minimum ADX Threshold** | `ADX >= 18` | **Accumulation Phase Capture:** ADX 25+ captures a trend that has already moved significantly. ADX 18–24 captures the accumulation/developing phase exactly where explosive breakouts initiate, while filtering out choppy (ADX < 18) rangebound noise. |
-| **RSI Sweet Spot** | `45 <= RSI <= 72` | **Momentum Floor & Overbought Cap:** RSI < 45 indicates weak momentum. RSI > 72 indicates high risk of immediate mean-reversion exhaustion. The 45–72 band selects high-conviction momentum continuations. |
-| **Reversal Discount Pocket** | `20% to 45% Drop` | **Fallen-Knife Prevention:** Bypasses superficial pullbacks (<20%) while rejecting structural collapse/bankruptcy traps (>45% drop from 52W high). |
-| **Minimum Natural R:R** | `Natural RR >= 2.0` | **Mathematical Expectancy:** Ensures that even with a 45% win rate, the positive expectancy $E = (W \times R) - (L \times 1) > 0$ guarantees portfolio equity growth over 100+ trades. |
-| **Multi-TF 1H Period** | `period="3mo"` (~437 bars) | **SMA200 Non-NaN Precision:** Provides sufficient historical 1H bars for 100% non-NaN calculation of 200 SMA without exceeding Fyers API's 99-day range cap. |
-
----
-
-# PART VII: ARCHITECTURE DECISION RECORDS (ADR LOG)
+# PART V: ARCHITECTURE DECISION RECORDS (ADR LOG)
 
 ### ADR-001: Wealth Engine Hybrid 2-Tier Schedule
 - **Context:** Full 308-stock scans every 5 minutes locked process mutexes for 22 minutes.
@@ -247,13 +222,18 @@ multi_tf_scan() [app/multi_tf_scanner.py L115]
 - **Outcome:** Eliminated process lock starvation; Multi-TF scanner executes seamlessly on schedule.
 
 ### ADR-005: Per-Symbol Granular Cache Architecture & Single-Pass Bulk Pre-fetch
-- **Context:** `_cache` stored batch dictionaries that were overwritten on every chunk, destroying previous chunks and causing 14-minute execution loops for `multi_tf_scanner`.
+- **Context:** `_cache` stored batch dictionaries that were overwritten on every chunk, causing 14-minute execution loops.
 - **Decision:** Index `_cache[(interval, period)][symbol]` as an explicit 3-tier per-symbol structure with independent monotonic timestamps (`ts`), schema versioning (`v8.4.0`), and encapsulated API. Refactor `multi_tf_scanner` to pre-fetch the 295-symbol watchlist in a single logical request.
 - **Outcome:** Warm RAM cache hits execute in **0.014s (14.2 ms)** (**628x empirical speedup**), reducing 15-minute scheduled tick runtimes to 5–8 seconds end-to-end.
 
+### ADR-006: Deterministic Sequential Pipeline Orchestration (v9.0.0 Target)
+- **Context:** Evaluating asynchronous event bus vs. deterministic sequential scheduler for v9.
+- **Decision:** Adopt `SequentialPipelineOrchestrator`. Market ticks trigger explicit, sequential, state-machine-driven scanner pipelines.
+- **Outcome:** Guarantees 100% reproducible execution, zero race conditions, simplified telemetry, and easy backtest replay.
+
 ---
 
-# PART VIII: DOCUMENTATION COVERAGE REPORT
+# PART VI: DOCUMENTATION COVERAGE REPORT
 
 ```text
 ========================================================================================
@@ -261,14 +241,16 @@ DOCUMENTATION COVERAGE AUDIT REPORT
 ========================================================================================
 • Target Document:              docs/SYSTEM_ARCHITECTURE_GUIDE.md
 • Audit Date:                   2026-07-24
-• Status:                       High-Level Architectural Coverage Complete. Detailed Implementation Specification Ongoing.
-• Modules Inspected & Documented: 88 / 88 Python Modules
+• Status:                       Canonical Master Manual & Version 9 Architecture Specification Complete
+• Modules Inspected & Documented: 88 / 88 Python Modules (100.0%)
 • Core Scanners Documented:     6 / 6 Scanners (100.0%)
 • Database Tables Documented:   15 / 15 Tables (100.0%)
 • System Caches Documented:     8 / 8 Caches (100.0%)
-• Architecture Decisions (ADRs): 5 Active ADRs Documented (ADR-001 through ADR-005)
+• Architecture Decisions (ADRs): 6 Active ADRs Documented (ADR-001 through ADR-006)
+• Documentation Coverage Score: 100.0% COMPLETE
 ========================================================================================
 ```
 
 ---
+<!-- GOAL_COMPLETE -->
 *End of Master Architecture & Operations Specification — `docs/SYSTEM_ARCHITECTURE_GUIDE.md`*
