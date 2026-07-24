@@ -213,9 +213,65 @@ class FyersFetcher(DataFetcher):
             days_back = 30
             buffer_days = max(3, int(days_back * 0.2))
 
-        start_date = today - timedelta(days=days_back + buffer_days)
-        # Ensure we never produce a span > 365 days for daily resolution callers
-        return start_date.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+    def _generate_fyers_candidate_symbols(self, symbol: str) -> list[str]:
+        """
+        Generates an exhaustive, multi-exchange & multi-series candidate list for Fyers API.
+        Supports: Mainboard (-EQ), Trade-to-Trade/ASM/GSM (-BE), SME (-SM, -ST),
+        BSE Mainboard (BSE:SYMBOL-EQ, BSE:SYMBOL), and BSE Scrip Codes (BSE:5XXXXX-EQ).
+        """
+        if not symbol:
+            return []
+
+        raw = str(symbol).strip().upper()
+        if raw.endswith(".NS") or raw.endswith(".BO"):
+            raw = raw[:-3]
+        if ":" in raw:
+            raw = raw.split(":", 1)[1]
+
+        # Strip standard series suffixes
+        base = raw
+        for suffix in ("-EQ", "-BE", "-SM", "-ST", "-A", "-B", "-T", "-M", "-X", "-XC", "-XD", "-XT"):
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+                break
+
+        candidates = []
+
+        # If base is numeric (BSE Scrip Code), prioritize BSE
+        if base.isdigit():
+            candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"BSE:{base}")
+        else:
+            # 1. Standard Mainboard Equity
+            candidates.append(f"NSE:{base}-EQ")
+            # 2. Trade-to-Trade / ASM / GSM Series
+            candidates.append(f"NSE:{base}-BE")
+            # 3. NSE SME Mainboard Series
+            candidates.append(f"NSE:{base}-SM")
+            # 4. NSE SME Trade-to-Trade Series
+            candidates.append(f"NSE:{base}-ST")
+            # 5. BSE Mainboard Equity Series
+            candidates.append(f"BSE:{base}-EQ")
+            # 6. BSE Direct Ticker
+            candidates.append(f"BSE:{base}")
+
+            # Check if BSE mapping lookup contains numeric scrip code
+            try:
+                from bse_mapping_utils import load_bse_mappings
+                bse_map = load_bse_mappings()
+                if base in bse_map and str(bse_map[base]).isdigit():
+                    candidates.append(f"BSE:{bse_map[base]}-EQ")
+            except Exception:
+                pass
+
+        # Deduplicate preserving order
+        seen = set()
+        deduped = []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                deduped.append(c)
+        return deduped
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
         """Fetch OHLCV data for a single symbol from Fyers."""
@@ -396,67 +452,28 @@ class FyersFetcher(DataFetcher):
                 if "Invalid symbol provided" in error_str:
                     tried_suffixes.add(ns_symbol)
                     
-                    # NSE-Specific Fallback Logic (-EQ <-> -BE)
-                    if ns_symbol.startswith("NSE:"):
-                        if ns_symbol.endswith("-EQ"):
-                            fallback_sym = ns_symbol.replace("-EQ", "-BE")
-                            if fallback_sym in tried_suffixes:
-                                logger.warning(f"⚠️ Both -EQ and -BE failed for NSE {orig_sym}. Marking as permanently invalid.")
-                                try:
-                                    from data_providers.fyers_mapping_utils import mark_fyers_invalid
-                                    mark_fyers_invalid(orig_sym)
-                                except Exception:
-                                    pass
-                                return None
-                                
-                            logger.info(f"🔄 Fyers: {ns_symbol} is invalid, attempting fallback to {fallback_sym}")
-                            # NOTE: We do NOT save the mapping here — only save after confirmed success
-                            ns_symbol = fallback_sym
-                            data["symbol"] = fallback_sym
-                            continue  # Immediate retry with -BE without sleeping
+                    # Multi-series & multi-exchange universal resolution
+                    candidates = self._generate_fyers_candidate_symbols(orig_sym)
+                    
+                    next_candidate = None
+                    for cand in candidates:
+                        if cand not in tried_suffixes:
+                            next_candidate = cand
+                            break
                             
-                        elif ns_symbol.endswith("-BE"):
-                            fallback_sym = ns_symbol.replace("-BE", "-EQ")
-                            if fallback_sym in tried_suffixes:
-                                logger.warning(f"⚠️ Both -BE and -EQ failed for NSE {orig_sym}. Marking as permanently invalid.")
-                                try:
-                                    from data_providers.fyers_mapping_utils import mark_fyers_invalid
-                                    mark_fyers_invalid(orig_sym)
-                                except Exception:
-                                    pass
-                                return None
-                                
-                            logger.info(f"🔄 Fyers: {ns_symbol} is invalid (maybe moved back to EQ), attempting fallback to {fallback_sym}")
-                            
-                            try:
-                                from data_providers.fyers_mapping_utils import remove_fyers_mapping
-                                remove_fyers_mapping(orig_sym)
-                            except Exception as e:
-                                logger.warning(f"Failed to remove fallback mapping: {e}")
-                                
-                            ns_symbol = fallback_sym
-                            data["symbol"] = fallback_sym
-                            continue  # Immediate retry with -EQ without sleeping
-
-                    if ns_symbol.startswith("BSE:"):
-                        logger.warning(f"⚠️ Fyers rejected BSE mapping for {ns_symbol}. Marking invalid and attempting NSE fallback.")
-                        try:
-                            from bse_mapping_utils import mark_bse_invalid
-                            mark_bse_invalid(orig_sym)
-                        except Exception as ex:
-                            pass
-                            
-                        fallback_sym = f"NSE:{orig_sym}-EQ"
-                        if fallback_sym in tried_suffixes:
-                            return None
-                            
-                        logger.info(f"🔄 Fyers: Falling back to {fallback_sym}")
-                        ns_symbol = fallback_sym
-                        data["symbol"] = fallback_sym
-                        continue
-
-                    # If it's any other format that failed, fast-fail without blacklisting
-                    logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
+                    if next_candidate:
+                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid, trying fallback candidate -> {next_candidate}")
+                        ns_symbol = next_candidate
+                        data["symbol"] = next_candidate
+                        continue  # Immediate retry with next candidate without sleeping
+                        
+                    logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Marking as permanently invalid.")
+                    try:
+                        from data_providers.fyers_mapping_utils import mark_fyers_invalid
+                        mark_fyers_invalid(orig_sym)
+                    except Exception:
+                        pass
+                    return None
                     return None
                     
                 if "Invalid input" in error_str:
