@@ -257,7 +257,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                                 'force': True
                             })
                         funnel["approved"] += 1
-                        logger.info(f"✅ {symbol} upgraded to HOURLY_APPROVED (dist: {dist_to_breakout*100:.2f}%).")
+                        logger.info(f"📍 PICKED [MULTI-TF: HOURLY_APPROVED]: {symbol} @ ₹{close:.2f} (Dist: {dist_to_breakout*100:.2f}%, ADX: {adx_val:.1f})")
+                    else:
+                        logger.info(f"REJECTION: {symbol} (Phase: 1H_TREND_PERMISSION, Reason: Failed 1H EMA/ADX/Distance gate (ema_ok={ema_ok}, adx_ok={adx_ok}, dist_ok={dist_ok}))")
     
                 except Exception as e:
                     logger.exception(f"Fault isolation caught exception for Phase A: {e}")

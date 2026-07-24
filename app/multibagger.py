@@ -1179,6 +1179,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False):
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     """Main scanning wrapper."""
+    start_time = time.time()
     logger.info("🚀 Multibagger Scanner execution started...")
     init_db()
     
@@ -1503,11 +1504,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if alert_triggered:
             skip_alert = False
             if sym in open_symbols:
-                logger.info(f"⏭️ Skipping alert generation for {sym} - already an open MULTIBAGGER position.")
+                logger.info(f"REJECTION: {sym} (Phase: OPEN_POSITION_SUPPRESSION, Reason: Already an open MULTIBAGGER position)")
                 skip_alert = True
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 
             if not skip_alert:
+                logger.info(f"📍 PICKED [MULTIBAGGER: IN BETWEEN]: {sym} @ ₹{price_data.price:.2f} (Tier: {tier}, Score: {total:.1f}, CQS: {cqs:.1f})")
                 tier_val = 2 if "Prime" in tier else 1
                 alert_candidates.append({
                     "symbol": sym,

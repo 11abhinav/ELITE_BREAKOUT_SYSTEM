@@ -633,7 +633,7 @@ def _run_scan(force: bool = False):
                         effective_min_drop = 15.0 if is_quality_cat else MIN_DROP_FROM_52W_HIGH
             
                         if drop_pct < effective_min_drop or drop_pct > MAX_DROP_FROM_52W_HIGH:
-                            # reject drawdowns outside configured band
+                            logger.info(f"REJECTION: {symbol} (Phase: DROP_BAND, Reason: Drop from 52W High {drop_pct:.1f}% outside {effective_min_drop:.1f}%-{MAX_DROP_FROM_52W_HIGH:.1f}% band)")
                             rejected["drop_band"] += 1
                             continue
 
@@ -641,17 +641,19 @@ def _run_scan(force: bool = False):
                         # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
                         forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
                         if forensic_tier == "REJECT":
+                            logger.info(f"REJECTION: {symbol} (Phase: FORENSIC_RISK, Reason: Rejected by Forensic Engine (Tier: REJECT))")
                             rejected["forensic_reject"] = rejected.get("forensic_reject", 0) + 1
-                            logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
                             continue
 
                         if close_price < MIN_STOCK_PRICE:
+                            logger.info(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
                             rejected["low_price"] += 1
                             continue
 
                         # ── QUALITY FILTER 2: minimum liquidity ─────────────────────────────────
                         avg_vol_20d = float(ticker["Volume"].iloc[-21:-1].mean())
                         if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
+                            logger.info(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg 20D volume {avg_vol_20d:.0f} < {MIN_AVG_DAILY_VOLUME})")
                             rejected["low_liquidity"] += 1
                             continue
 
@@ -662,6 +664,7 @@ def _run_scan(force: bool = False):
                             if sma200 > 0:
                                 pct_below_sma200 = (sma200 - close_price) / sma200 * 100
                                 if pct_below_sma200 > MAX_DROP_BELOW_SMA200:
+                                    logger.info(f"REJECTION: {symbol} (Phase: SMA200_DISCOUNT_CAP, Reason: {pct_below_sma200:.1f}% below SMA200 exceeds {MAX_DROP_BELOW_SMA200:.1f}% max)")
                                     rejected["drop_band"] += 1
                                     continue
 
@@ -671,6 +674,7 @@ def _run_scan(force: bool = False):
                         if roe is not None and not pd.isna(roe):
                             try:
                                 if float(roe) < MIN_ROE:
+                                    logger.info(f"REJECTION: {symbol} (Phase: FUNDAMENTALS, Reason: ROE {float(roe):.1f}% < {MIN_ROE:.1f}%)")
                                     rejected["fundamental_filter"] += 1
                                     continue
                             except (ValueError, TypeError):
@@ -678,6 +682,7 @@ def _run_scan(force: bool = False):
                         if yoy_rev is not None and not pd.isna(yoy_rev):
                             try:
                                 if float(yoy_rev) < MIN_YOY_REVENUE_GROWTH:
+                                    logger.info(f"REJECTION: {symbol} (Phase: FUNDAMENTALS, Reason: YoY Revenue {float(yoy_rev):.1f}% < {MIN_YOY_REVENUE_GROWTH:.1f}%)")
                                     rejected["fundamental_filter"] += 1
                                     continue
                             except (ValueError, TypeError):
@@ -688,17 +693,20 @@ def _run_scan(force: bool = False):
                         current_rsi = float(latest["RSI"])
                         recent_rsi = ticker["RSI"].dropna().iloc[-16:-1]
                         if len(recent_rsi) < 5:
+                            logger.info(f"REJECTION: {symbol} (Phase: RSI_LOOKBACK, Reason: Insufficient RSI history bars ({len(recent_rsi)} < 5))")
                             rejected["insufficient_bars"] += 1
                             continue
                         past_15_rsi = recent_rsi.min()
 
                         if current_rsi < RSI_CURL_MIN or past_15_rsi > RSI_OVERSOLD_THRESHOLD:
+                            logger.info(f"REJECTION: {symbol} (Phase: RSI_CURL, Reason: Current RSI {current_rsi:.1f} < {RSI_CURL_MIN} or min RSI {past_15_rsi:.1f} > {RSI_OVERSOLD_THRESHOLD})")
                             rejected["failed_pattern"] += 1
                             continue
 
                         # ── Must be holding above 20 EMA (immediate momentum) ───────────────────
                         ema20 = float(latest["EMA20"])
                         if close_price < ema20:
+                            logger.info(f"REJECTION: {symbol} (Phase: EMA20_HOLD, Reason: Close ₹{close_price:.2f} < EMA20 ₹{ema20:.2f})")
                             rejected["ema_filter"] += 1
                             continue
 
@@ -719,13 +727,10 @@ def _run_scan(force: bool = False):
 
                         # If neither EMA20 > EMA50 nor EMA20 slope positive, skip
                         if ema20_gt_ema50 is not True and ema20_slope_pos is not True:
-                            logger.debug(f"  ⊘ {symbol} EMA20 trend filter failed — skipping")
+                            logger.info(f"REJECTION: {symbol} (Phase: EMA20_TREND_FILTER, Reason: EMA20 not > EMA50 and EMA20 slope not positive)")
                             rejected["ema_filter"] += 1
                             continue
 
-                        # ── [FIX 2] TREND STRUCTURE — STRICT close > SMA50 IS NOW MANDATORY ──────
-                        # This is the core shift from "bounce detection" to "recovery detection".
-                        # Without an SMA50 reclaim, an oversold bounce is just noise.
                         above_sma50 = None
                         above_sma200 = None
                         if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
@@ -735,14 +740,8 @@ def _run_scan(force: bool = False):
                             sma200_val = float(latest["SMA200"])
                             above_sma200 = bool(close_price >= sma200_val)
 
-                        # [FIX P1] SOFT SMA50 GATE:
-                        # Allow stocks that are below SMA50 to pass. Deep discount reversals
-                        # will trigger MACD cross far below the SMA50. The scoring engine
-                        # already handles this by granting fewer trend points (10 instead of 18)
-                        # if above_sma50 is False.
                         if above_sma50 is not True:
                             above_sma50 = False
-                            logger.debug(f"  ✓ {symbol} below SMA50 — soft pass (relies on EMA20 + MACD)")
 
                         # ── Volume confirmation — single threshold (FIX 4) ──────────────────────
                         vol_now = float(latest["Volume"])
@@ -751,14 +750,11 @@ def _run_scan(force: bool = False):
                             continue
 
                         vol_ratio = vol_now / avg_vol_20d
-                        if vol_ratio < MIN_VOLUME_RATIO:   # [FIX 4] the ONLY volume gate now
+                        if vol_ratio < MIN_VOLUME_RATIO:
+                            logger.info(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
                             rejected["low_volume"] += 1
                             continue
 
-                        # ── [VERSION: REVERSAL_PATCH_v1.0] FRESH MACD BULLISH CROSSOVER (LAST 10 BARS) ──────────
-                        # [FINDING-3 FIX] Expanded from 5 bars → 10 bars. Mean-reversion setups develop
-                        # slower than breakouts. A MACD cross 7 days ago with continued follow-through
-                        # is still a valid reversal signal. 5 bars was rejecting ~60% of valid setups.
                         macd_bullish_cross_recent = False
                         if len(ticker) >= 11:
                             try:
@@ -768,12 +764,14 @@ def _run_scan(force: bool = False):
                                     for i in range(1, 11)  # Check last 10 bars
                                 )
                             except (KeyError, TypeError, ValueError):
-                                pass  # MACD columns missing or invalid
+                                pass
 
                         if not macd_bullish_cross_recent:
-                            logger.debug(f"  ⊘ {symbol} no fresh MACD cross (last 10 bars) — skipping")
+                            logger.info(f"REJECTION: {symbol} (Phase: MACD_CROSSOVER, Reason: No fresh MACD bullish cross in last 10 bars)")
                             rejected["no_macd_cross"] += 1
                             continue
+
+                        logger.info(f"📍 PICKED [REVERSAL: IN BETWEEN]: {symbol} @ ₹{close_price:.2f} (Drop: {drop_pct:.1f}%, RSI: {current_rsi:.1f})")
 
                         reversal_signals = [
                             f"📉 -{drop_pct:.1f}% from 52W High",

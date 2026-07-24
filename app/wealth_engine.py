@@ -1219,7 +1219,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                         _last_bar_date = "live/cache"
                         
                     logger.info(
-                        f"✅ [WEALTH ENGINE] PASSED ALL FILTERS: {symbol} | "
+                        f"📍 PICKED [WEALTH ENGINE: BUY SIGNAL]: {symbol} @ ₹{cmp:.2f} | "
                         f"fm_score={row.get('FM_Score', 0):.1f} | mom={row.get('momentum_score', 0)} | "
                         f"bucket={row.get('Portfolio_Bucket', 'Unknown')} | entry=₹{cmp:.2f} | last_bar={_last_bar_date}"
                     )
@@ -1238,7 +1238,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                             engine_version=ACTIVE_ALGO_VERSION, config_version=json.dumps({"WEALTH_ENGINE_ENABLED": True})
                         )
                     if not inserted:
-                        # Mutate the dataframe to reflect suppression so parquet dashboard is correct
+                        logger.info(f"REJECTION: {symbol} (Phase: DB_IDEMPOTENCY, Reason: Rejected by DB Idempotency/Guard)")
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Code"] = "SUPPRESSED"
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Reason"] = "Rejected by DB Idempotency/Guard"
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal"] = "SUPPRESSED (Rejected by DB)"

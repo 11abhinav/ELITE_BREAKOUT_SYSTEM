@@ -193,13 +193,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                             ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
 
                         if ticker_data is None:
-                            logger.debug(f"[PULLBACK] {symbol} rejected: missing historical data")
+                            logger.info(f"REJECTION: {symbol} (Phase: FETCH, Reason: Missing historical data)")
                             rejected["no_data"] += 1
                             provider_stats_counts["EMPTY_DATA"] += 1
                             continue
 
                         if isinstance(ticker_data, ProviderResult):
-                            logger.debug(f"[PULLBACK] {symbol} rejected: Provider error ({ticker_data.name})")
+                            logger.info(f"REJECTION: {symbol} (Phase: FETCH, Reason: Provider error ({ticker_data.name}))")
                             provider_stats_counts[ticker_data.name] = provider_stats_counts.get(ticker_data.name, 0) + 1
                             rejected["provider_error"] += 1
                             continue
@@ -208,7 +208,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
                         df = ticker_data.copy()
                         if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
-                            logger.debug(f"[PULLBACK] {symbol} rejected: insufficient historical bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)})")
+                            logger.info(f"REJECTION: {symbol} (Phase: BAR_HISTORY, Reason: Insufficient bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)}))")
                             rejected["insufficient_bars"] += 1
                             continue
 
@@ -221,7 +221,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         try:
                             swing_utils.check_data_quality(historical_view)
                         except DataQualityError as dqe:
-                            logger.debug(f"⏭️ {symbol} failed data quality check: {dqe}")
+                            logger.info(f"REJECTION: {symbol} (Phase: DATA_QUALITY, Reason: {dqe})")
                             rejected["data_quality"] += 1
                             continue
 
@@ -233,17 +233,20 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
                         if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
+                            logger.info(f"REJECTION: {symbol} (Phase: UPTREND_GATE, Reason: Price not > SMA50 > SMA200)")
                             rejected["no_uptrend"] += 1
                             continue
 
                         # PHASE B: IMPULSE & ORDERLY PULLBACK STRUCTURE
                         pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])
                         if not pivots:
+                            logger.info(f"REJECTION: {symbol} (Phase: PIVOT_DETECTION, Reason: No confirmed swing pivots)")
                             rejected["no_pivots"] += 1
                             continue
 
                         impulse = swing_utils.select_pullback_origin(pivots, historical_view, effective_config)
                         if not impulse:
+                            logger.info(f"REJECTION: {symbol} (Phase: IMPULSE_WAVE, Reason: No valid impulse origin)")
                             rejected["no_impulse"] += 1
                             continue
 
@@ -251,15 +254,18 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         save_funnel_telemetry("PULLBACK", run_date, symbol, ps.stage_results)
                     
                         if not ps.valid:
+                            logger.info(f"REJECTION: {symbol} (Phase: PULLBACK_STRUCTURE, Reason: Invalid pullback depth/volume structure)")
                             rejected["pullback_invalid"] += 1
                             continue
 
                         # PHASE C: RESUMPTION TRIGGER
                         trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
                         if not trig.valid:
+                            logger.info(f"REJECTION: {symbol} (Phase: RESUMPTION_TRIGGER, Reason: No valid trigger bar)")
                             rejected["no_trigger"] += 1
                             continue
 
+                        logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {symbol} @ ₹{trig.entry_price:.2f} (Depth: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
                         cand = PullbackCandidate(
                             symbol=symbol,
                             as_of_date=ist_now.date(),
@@ -279,6 +285,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             import gc; gc.collect()
 
     logger.info(f"📊 Pullback Candidates Discovered: {len(candidates)}")
+    for c in candidates:
+        logger.info(f"  • 🟢 {c.symbol} @ ₹{c.entry_price:.2f} (Depth: {c.structure.depth_pct:.1f}%, Vol Ratio: {c.structure.volume_ratio:.2f}x)")
 
     # ---------------- SCORING & MODIFIERS ----------------
     for c in candidates:
@@ -299,6 +307,10 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         c.final_score = c.base_score + eligible_bonus
 
     # Filter out scores below threshold
+    for c in candidates:
+        if c.final_score < required_threshold:
+            logger.info(f"REJECTION: {c.symbol} (Phase: SCORE_GATE, Reason: Final score {c.final_score:.1f} < required {required_threshold})")
+
     survivors = [c for c in candidates if c.final_score >= required_threshold]
 
     # ---------------- SAME-NIGHT EOD SUPPRESSION ----------------
@@ -307,7 +319,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         if (c.symbol, "EOD") in tonight_eod_alerts:
             c.status = CandidateState.SUPPRESSED
             c.suppressed_by = "EOD"
-            logger.info(f"🛡️ Suppressing Pullback candidate {c.symbol} (EOD alert primary)")
+            logger.info(f"REJECTION: {c.symbol} (Phase: EOD_SUPPRESSION, Reason: Primary EOD alert already generated tonight)")
 
     alertable = [c for c in survivors if c.status != CandidateState.SUPPRESSED]
     alertable.sort(key=lambda x: x.final_score, reverse=True)
@@ -327,7 +339,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         )
 
         if sl_result.get("is_rejected"):
-            logger.info(f"⏭️ {c.symbol} rejected by SL/Target Engine: {sl_result.get('rejection_reason')}")
+            logger.info(f"REJECTION: {c.symbol} (Phase: SL_TARGET_ENGINE, Reason: {sl_result.get('rejection_reason')})")
+            continue
             continue
 
         c.status = CandidateState.ALERTED

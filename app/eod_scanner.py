@@ -472,42 +472,53 @@ def _start_wrapper(force: bool = False):
                             rsi_val        = _safe_float(latest.get("RSI"))
 
                             if body_ratio < MIN_BODY_RATIO:
+                                logger.info(f"REJECTION: {symbol} (Phase: CANDLE_BODY, Reason: Body ratio {body_ratio:.2f} < {MIN_BODY_RATIO:.2f})")
                                 rejection_counts["weak_body"] += 1
                                 continue
                             if candle_close <= candle_open:
+                                logger.info(f"REJECTION: {symbol} (Phase: CANDLE_TYPE, Reason: Bearish candle (Close ₹{candle_close:.2f} <= Open ₹{candle_open:.2f}))")
                                 rejection_counts["bearish_candle"] += 1
                                 continue
                             if close_position < MIN_CLOSE_POSITION:
+                                logger.info(f"REJECTION: {symbol} (Phase: CLOSE_POSITION, Reason: Close position {close_position:.2f} < {MIN_CLOSE_POSITION:.2f})")
                                 rejection_counts["weak_close_pos"] += 1
                                 continue
                             if wick_ratio > MAX_UPPER_WICK_RATIO:
+                                logger.info(f"REJECTION: {symbol} (Phase: UPPER_WICK, Reason: Upper wick ratio {wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO:.2f})")
                                 rejection_counts["upper_wick"] += 1
                                 continue
                             if volume_ratio < MIN_VOLUME_RATIO:
+                                logger.info(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
                                 rejection_counts["low_volume"] += 1
                                 continue
                             if avg_volume < MIN_AVG_VOLUME_SHARES:
+                                logger.info(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
                                 rejection_counts["low_avg_volume"] += 1
                                 continue
                             if candle_close < MIN_STOCK_PRICE:
+                                logger.info(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
                                 rejection_counts["penny_stock"] += 1
                                 continue
                             if not (MIN_RSI <= rsi_val <= MAX_RSI):
+                                logger.info(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
                                 rejection_counts["rsi_range"] += 1
                                 continue
 
                             # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
                             # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
                             if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
+                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
                                 rejection_counts["missing_atr"] += 1
                                 continue
 
                             prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
                             if prior_high <= 0:
+                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
                                 rejection_counts["no_structural_breakout"] += 1
                                 continue
 
                             if candle_close <= prior_high:
+                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
                                 rejection_counts["no_structural_breakout"] += 1
                                 continue
 
@@ -532,31 +543,39 @@ def _start_wrapper(force: bool = False):
                 
                             # ATR Expansion
                             if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2):
+                                logger.info(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < 1.2)")
                                 rejection_counts["no_atr_expansion"] += 1
                                 continue
 
                             if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
                                 bb_width_pctile = _safe_float(latest.get("BB_WIDTH_PCTILE"))
                                 if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
+                                    logger.info(f"REJECTION: {symbol} (Phase: BASE_TIGHTNESS, Reason: BB Width percentile {bb_width_pctile:.2f} > 0.80)")
                                     rejection_counts["base_too_wide"] += 1
                                     continue
 
                             if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
                                 if candle_close < _safe_float(latest.get("EMA20")):
+                                    logger.info(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
                                     rejection_counts["below_ema20"] += 1
                                     continue
 
                             if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
                                 if candle_close < _safe_float(latest.get("SMA50")):
+                                    logger.info(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
                                     rejection_counts["below_sma50"] += 1
                                     continue
 
-                            # Golden Cross is no longer mandatory, shifted to scoring engine
-
                             if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
                                 if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
+                                    logger.info(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
                                     rejection_counts["weak_adx"] += 1
                                     continue
+
+                            if score < min_score:
+                                logger.info(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {min_score})")
+                            else:
+                                logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
 
                             # MACD is no longer mandatory, shifted to scoring engine
 
