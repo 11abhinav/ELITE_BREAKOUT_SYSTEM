@@ -1027,7 +1027,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
                     
                     # Base threshold by market cap
-                    mcap_cr = fund.get("market_cap", 0) / 10000000.0 if fund else 0
+                    mcap_cr = (safe_float(fund.get("market_cap")) / 10000000.0) if fund else 0.0
                     if mcap_cr > 20000:
                         max_loss_pct = 20.0  # Large Cap
                         cap_tier = "Large Cap"
