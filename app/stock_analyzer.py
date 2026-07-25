@@ -232,14 +232,50 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
     import re
     q_clean = query.strip().upper()
-    m = _load_master_symbol_dictionary()
+
+    # 1. Dynamically load get_watchlist() to support mock objects in tests and live updates
+    wl_items = {}
+    try:
+        wl = get_watchlist()
+        if wl is not None and not wl.empty:
+            stock_col = "Stock" if "Stock" in wl.columns else ("symbol" if "symbol" in wl.columns else None)
+            comp_col = "Company" if "Company" in wl.columns else ("company_name" if "company_name" in wl.columns else None)
+            sec_col = "Sector" if "Sector" in wl.columns else ("sector" if "sector" in wl.columns else None)
+            if stock_col:
+                for _, r in wl.iterrows():
+                    s = str(r[stock_col]).upper().strip()
+                    c = str(r[comp_col]).strip() if comp_col and pd.notna(r[comp_col]) else s
+                    sec = str(r[sec_col]).strip() if sec_col and pd.notna(r[sec_col]) else "EQUITY"
+                    if s:
+                        wl_items[s] = {"symbol": s, "company_name": c if c != "nan" else s, "sector": sec if sec != "nan" else "EQUITY"}
+    except Exception:
+        pass
+
+    m = _load_master_symbol_dictionary().copy()
+    m.update(wl_items)
 
     exact_matches = []
     prefix_matches = []
     contains_matches = []
     seen = set()
 
+    # If get_watchlist returned non-empty wl_items, prioritize them
+    if wl_items:
+        for sym, item in wl_items.items():
+            comp = item["company_name"].upper()
+            if sym == q_clean:
+                exact_matches.append(item)
+                seen.add(sym)
+            elif sym.startswith(q_clean):
+                prefix_matches.append(item)
+                seen.add(sym)
+            elif q_clean in sym or q_clean in comp:
+                contains_matches.append(item)
+                seen.add(sym)
+
     for sym, item in m.items():
+        if sym in seen:
+            continue
         comp = item["company_name"].upper()
         if sym == q_clean:
             exact_matches.append(item)
@@ -253,8 +289,8 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
     results = (exact_matches + prefix_matches + contains_matches)[:limit]
 
-    # Always ensure user can select what they typed if it's a valid symbol string (2-20 chars)
-    if q_clean not in seen and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
+    # If no results matched pre-indexed lists, ensure user can select what they typed as a fallback (2-20 chars)
+    if len(results) == 0 and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
         results.append({
             "symbol": q_clean,
             "company_name": f"Select '{q_clean}' (NSE/BSE)",
@@ -262,6 +298,7 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
         })
 
     return results
+
 
 
 
