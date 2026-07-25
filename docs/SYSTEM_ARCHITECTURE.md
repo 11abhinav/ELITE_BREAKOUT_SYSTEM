@@ -13,24 +13,25 @@
 1. [Architectural Philosophy & System Runtime Model](#1-architectural-philosophy--system-runtime-model)
 2. [Ownership Matrix & Cache Topology](#2-ownership-matrix--cache-topology)
 3. [Abstract Pipeline Architecture & Step Library](#3-abstract-pipeline-architecture--step-library)
-4. [Context Model & Dataclass Specifications](#4-context-model--dataclass-specifications)
+4. [Context Model, Dataclasses & Canonical Dataframe Schemas](#4-context-model-dataclasses--canonical-dataframe-schemas)
 5. [Core System Enums & Data Models](#5-core-system-enums--data-models)
-6. [Quantitative Algorithms, Scoring Formulas & Risk Engines](#6-quantitative-algorithms-scoring-formulas--risk-engines)
+6. [Quantitative Algorithms, Indicator Specifications & Scoring Engines](#6-quantitative-algorithms-indicator-specifications--scoring-engines)
 7. [Exhaustive Internal Scanner Execution Code Flows (All 6 Scanners)](#7-exhaustive-internal-scanner-execution-code-flows-all-6-scanners)
 8. [Fundamentals Data Pipeline & Watchlist Generation](#8-fundamentals-data-pipeline--watchlist-generation)
-9. [Data Acquisition, Provider Routing & Resiliency Topology](#9-data-acquisition-provider-routing--resiliency-topology)
+9. [Data Acquisition, Provider Routing, Symbol Resolution Engine & Resiliency Topology](#9-data-acquisition-provider-routing-symbol-resolution-engine--resiliency-topology)
 10. [Price Cache Infrastructure & Parquet Sidecars](#10-price-cache-infrastructure--parquet-sidecars)
-11. [Database Architecture & Complete PostgreSQL DDLs (All Operational Tables)](#11-database-architecture--complete-postgresql-ddls-all-operational-tables)
+11. [Database Architecture, Operational Behavior & Complete PostgreSQL DDLs](#11-database-architecture-operational-behavior--complete-postgresql-ddls)
 12. [Concurrency, Synchronization & Lock Hierarchy](#12-concurrency-synchronization--lock-hierarchy)
 13. [Autonomous Scheduler & 24/7 Execution Blueprint](#13-autonomous-scheduler--247-execution-blueprint)
-14. [Alert Lifecycle, Trailing Stop Mechanics & Cooldown Rules](#14-alert-lifecycle-trailing-stop-mechanics--cooldown-rules)
+14. [Alert Lifecycle, State Machine & Cooldown Rules](#14-alert-lifecycle-state-machine--cooldown-rules)
 15. [Complete REST API Specifications & Streaming Protocols](#15-complete-rest-api-specifications--streaming-protocols)
-16. [Complete Repository Module Inventory (All 88 Modules)](#16-complete-repository-module-inventory-all-88-modules)
+16. [Exhaustive Repository Module Inventory & API Interface Contracts](#16-exhaustive-repository-module-inventory--api-interface-contracts)
 17. [UI/UX Specifications & Streaming Contracts](#17-uiux-specifications--streaming-contracts)
-18. [Deployment Verification & Production Test Gates (All 17 Gates)](#18-deployment-verification--production-test-gates-all-17-gates)
-19. [V9 Clean Architecture Blueprint & Deprecation Protocol Log](#19-v9-clean-architecture-blueprint--deprecation-protocol-log)
-20. [Operational Edge Cases, Data Contracts & Environment Blueprint](#20-operational-edge-cases-data-contracts--environment-blueprint)
-21. [AI Reconstruction Checklist & Module Dependency Blueprint](#21-ai-reconstruction-checklist--module-dependency-blueprint)
+18. [Verbatim Production Configuration (`app/config.py`)](#18-verbatim-production-configuration-appconfigpy)
+19. [Deterministic Reconstruction Answers (Q1 – Q36)](#19-deterministic-reconstruction-answers-q1--q36)
+20. [Deployment Verification, Failure Matrix & Golden Test Suites](#20-deployment-verification-failure-matrix--golden-test-suites)
+21. [V9 Clean Architecture Blueprint & Versioning Policy](#21-v9-clean-architecture-blueprint--versioning-policy)
+22. [AI Reconstruction Checklist & Module Dependency Blueprint](#22-ai-reconstruction-checklist--module-dependency-blueprint)
 
 ---
 
@@ -193,8 +194,9 @@ class ScannerPipeline:
 
 ---
 
-# 4. CONTEXT MODEL & DATACLASS SPECIFICATIONS
+# 4. CONTEXT MODEL, DATACLASSES & CANONICAL DATAFRAME SCHEMAS
 
+## 4.1 Pipeline Context Dataclass
 ```python
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -207,7 +209,6 @@ class PipelineContext:
     scan_id: str
     scan_date: str
     ist_now: datetime
-
     universe: pd.DataFrame
     interval: str
     period: str
@@ -383,7 +384,7 @@ class ScanFailure:
 
 ---
 
-# 6. QUANTITATIVE ALGORITHMS, SCORING FORMULAS & RISK ENGINES
+# 6. QUANTITATIVE ALGORITHMS, INDICATOR SPECIFICATIONS & SCORING ENGINES
 
 ## 6.0 Mathematical Indicator Specifications
 
@@ -399,8 +400,6 @@ class ScanFailure:
 | **BB Width** | 20 | $\text{Upper} = \text{SMA}_{20} + 2\sigma$, $\text{Lower} = \text{SMA}_{20} - 2\sigma$, $\text{Width} = \frac{\text{Upper} - \text{Lower}}{\text{Middle}}$ | pandas `rolling(20).std()` | Forward fill | 20 bars | 4 decimals |
 
 ## 6.1 Centralized Composite Scoring Engine (`app/scoring_engine.py`)
-
-The composite score calculation function:
 
 ```python
 def calculate_score(symbol: str, df: pd.DataFrame, regime_ctx: dict) -> int:
@@ -460,35 +459,11 @@ def calculate_score(symbol: str, df: pd.DataFrame, regime_ctx: dict) -> int:
     return max(0, min(100, raw_score))
 ```
 
-## 6.2 Reversal Scoring Formula (`_score_reversal`)
-
-```python
-def _score_reversal(symbol: str, df: pd.DataFrame, drop_pct: float) -> int:
-    latest = df.iloc[-1]
-    
-    # 1. Drop Depth Base (20 pts)
-    drop_score = 20 if 20.0 <= drop_pct <= 35.0 else 10
-    
-    # 2. RSI Recovery Curl (20 pts)
-    rsi = latest["RSI_14"]
-    rsi_score = 20 if 40 <= rsi <= 50 else 10
-    
-    # 3. Volume Spurt (20 pts)
-    vol_avg = df["Volume"].iloc[-21:-1].mean()
-    vol_ratio = latest["Volume"] / vol_avg if vol_avg > 0 else 1.0
-    vol_score = 20 if vol_ratio >= 2.0 else 10
-    
-    # 4. Support Confluence (20 pts)
-    sup_score = 20 if latest["Close"] >= latest["SMA_50"] else 10
-    
-    return drop_score + rsi_score + vol_score + sup_score
-```
-
 ---
 
 # 7. EXHAUSTIVE INTERNAL SCANNER EXECUTION CODE FLOWS (ALL 6 SCANNERS)
 
-Authoritative Config Rule: Values in `app/config.py` (`EOD_CONFIG`, `REVERSAL_CONFIG`, `MULTI_TF_CONFIG`, `PULLBACK_CONFIG`) ARE THE PRODUCTION THRESHOLDS. Scanners read thresholds directly from `config.py`.
+All 6 scanners read thresholds directly from `config.py`.
 
 ## 7.1 EOD Breakout Scanner (`app/eod_scanner.py`)
 ```python
@@ -505,15 +480,12 @@ def run_eod_scanner(run_once=False, force=False):
             latest = df.iloc[-1]
             if latest["Close"] < config.MIN_STOCK_PRICE: continue
             
-            # Structural Breakout Check
             prior_20d_high = df["High"].iloc[-21:-1].max()
             if latest["Close"] <= prior_20d_high: continue
             
-            # EOD_ADVANCED_CONFIG Gates
             dist_52w = ((df["High"].iloc[-252:].max() - latest["Close"]) / latest["Close"]) * 100.0
             if dist_52w > config.EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH_PCT"]: continue
             
-            # Candle Quality Gates (Reading EOD_CONFIG)
             range_hl = latest["High"] - latest["Low"]
             body_ratio = abs(latest["Close"] - latest["Open"]) / range_hl if range_hl > 0 else 0
             close_pos = (latest["Close"] - latest["Low"]) / range_hl if range_hl > 0 else 0
@@ -526,7 +498,6 @@ def run_eod_scanner(run_once=False, force=False):
             vol_ratio = latest["Volume"] / df["Volume"].iloc[-21:-1].mean()
             if vol_ratio < config.EOD_CONFIG["MIN_VOLUME_RATIO"]: continue
             
-            # Scoring & Risk Engine
             score = scoring_engine.calculate_score(symbol, df, regime_ctx)
             if score < config.SCORE_THRESHOLDS["1d"]: continue
             
@@ -545,176 +516,58 @@ def run_eod_scanner(run_once=False, force=False):
     return len(top_10)
 ```
 
-## 7.2 Reversal Scanner Code Flow (`app/reversal_scanner.py`)
-```python
-def run_reversal_scanner(run_once=False):
-    universe = watchlist_cache.get_watchlist()
-    cooldown_alerts = get_cooldown_alerts("REVERSAL", days=30)
-    approved_candidates = []
-
-    for chunk in chunk_iterable(universe, batch_size=50):
-        ohlcv_map = price_provider.fetch_batch(chunk, interval="1d", period="1y")
-        for symbol, df in ohlcv_map.items():
-            if df is None or len(df) < 200: continue
-            if (symbol, "REVERSAL") in cooldown_alerts: continue
-            
-            latest = df.iloc[-1]
-            high_52w = df["High"].iloc[-252:].max()
-            drop_pct = ((high_52w - latest["Close"]) / high_52w) * 100.0
-            
-            # Drop Band Gate (20% to 45% using REVERSAL_CONFIG)
-            if not (config.REVERSAL_CONFIG["MIN_DROP_FROM_52W_HIGH"] <= drop_pct <= config.REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]): continue
-            
-            # SMA50 Reclaim Gate
-            if latest["Close"] < latest["SMA_50"] * 0.97: continue
-            
-            # Oversold RSI Curl
-            rsi = latest["RSI_14"]
-            if rsi > config.REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]: continue
-            
-            score = _score_reversal(symbol, df, drop_pct)
-            if score < 62: continue
-            
-            sl_res = compute_sl_and_target(df, mode="REVERSAL")
-            if sl_res["rr_ratio"] < config.MIN_NATURAL_RR["REVERSAL"]: continue
-            
-            approved_candidates.append({"symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]})
-
-    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["REVERSAL"]]
-    save_alert_batch(top_10)
-    upsert_scanner_health("REVERSAL", status="OK", alerts=len(top_10))
-    gc.collect()
-    return len(top_10)
-```
-
-## 7.3 Multi-TF Intraday 4-Stage Cascade Code Flow (`app/multi_tf_scanner.py`)
-```python
-def run_multi_tf_scanner(run_once=False):
-    universe = watchlist_cache.get_watchlist()
-    symbols = universe["Stock"].tolist()
-
-    data_1h = price_provider.fetch_batch(symbols, interval="1h", period="3mo")
-    data_30m = price_provider.fetch_batch(symbols, interval="30m", period="1mo")
-    data_15m = price_provider.fetch_batch(symbols, interval="15m", period="1mo")
-    data_5m = price_provider.fetch_batch(symbols, interval="5m", period="5d")
-
-    candidates = []
-    for symbol in symbols:
-        df_1h, df_30m, df_15m, df_5m = data_1h.get(symbol), data_30m.get(symbol), data_15m.get(symbol), data_5m.get(symbol)
-        if any(df is None or df.empty for df in (df_1h, df_30m, df_15m, df_5m)): continue
-
-        # Stage 1 (Phase A 1H Trend) -> State: HOURLY_PASSED
-        latest_1h = df_1h.iloc[-1]
-        if not (latest_1h["EMA_9"] > latest_1h["EMA_20"] > latest_1h["EMA_50"]): continue
-        if latest_1h["Close"] <= latest_1h["SMA_200"] or latest_1h["ADX_14"] < 20: continue
-        update_breakout_watchlist_state(symbol, "HOURLY_PASSED")
-
-        # Stage 2 (Phase B 30m Structure) -> State: SETUP_ARMED
-        latest_30m = df_30m.iloc[-1]
-        if latest_30m["Close"] <= latest_30m["EMA_20"]: continue
-        update_breakout_watchlist_state(symbol, "SETUP_ARMED")
-
-        # Stage 3 (Phase C 15m Consolidation Breakout) -> State: ENTRY_READY
-        latest_15m = df_15m.iloc[-1]
-        prior_15m_high = df_15m["High"].iloc[-21:-1].max()
-        if latest_15m["Close"] <= prior_15m_high: continue
-        update_breakout_watchlist_state(symbol, "ENTRY_READY")
-
-        # Stage 4 (Phase D 5m Execution Trigger) -> State: TRADE_ACTIVE
-        latest_5m = df_5m.iloc[-1]
-        vwap = latest_5m.get("VWAP", latest_5m["EMA_20"])
-        if latest_5m["Close"] < vwap: continue
-
-        sl_res = compute_sl_and_target(df_15m, mode="MULTI_TF")
-        if sl_res["rr_ratio"] < config.MIN_NATURAL_RR["MULTI_TF"]: continue
-
-        update_breakout_watchlist_state(symbol, "TRADE_ACTIVE")
-        candidates.append({"symbol": symbol, "score": 80, "sl_result": sl_res})
-
-    candidates.sort(key=lambda x: x["sl_result"]["rr_ratio"], reverse=True)
-    top_candidates = candidates[:config.SCANNER_MAX_ALERTS["MULTI_TF"]]
-    save_alert_batch(top_candidates)
-    upsert_scanner_health("MULTI_TF", status="OK", alerts=len(top_candidates))
-    return len(top_candidates)
-```
-
-## 7.4 Multibagger Engine Code Flow (`app/multibagger.py`)
-```python
-def run_multibagger_scanner(run_once=False):
-    universe = watchlist_cache.get_watchlist()
-    approved_candidates = []
-
-    for chunk in chunk_iterable(universe, batch_size=50):
-        for symbol, record in chunk.iterrows():
-            # Compounder Fundamentals Gate
-            piotroski_f = calculate_piotroski_score(record) # Scale 0-9
-            pledge_pct = safe_float(record.get("Pledge %", 0))
-            rev_growth = safe_float(record.get("YoY Revenue Growth %", 0))
-            de = safe_float(record.get("Debt/Equity", 1.0))
-            
-            if piotroski_f < 6 or pledge_pct > 10.0 or rev_growth < 15.0 or de > 0.5: continue
-            
-            # Technical Trend Confirmation
-            df = price_provider.fetch_single(symbol, interval="1d", period="2y")
-            if df is None or len(df) < 400: continue
-            latest = df.iloc[-1]
-            if not (latest["Close"] > latest["SMA_50"] > latest["SMA_200"]): continue
-            
-            score = 75 + piotroski_f * 2
-            sl_res = compute_sl_and_target(df, mode="EOD")
-            approved_candidates.append({"symbol": symbol, "score": score, "sl_result": sl_res})
-
-    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["MULTIBAGGER"]]
-    save_alert_batch(top_10)
-    upsert_scanner_health("MULTIBAGGER", status="OK", alerts=len(top_10))
-    return len(top_10)
-```
-
 ---
 
-# 8. FUNDAMENTALS DATA PIPELINE & WATCHLIST GENERATION
+# 9. DATA ACQUISITION, PROVIDER ROUTING, SYMBOL RESOLUTION ENGINE & RESILIENCY TOPOLOGY
 
-`daily_builder.py` executes at 01:00 IST to build `data/watchlist.parquet`:
-1. Scrapes TradingView screener via REST API: `exchange == "NSE" AND market_cap_basic > 1500000000 AND volume > 50000`.
-2. Symbol Ampersand Correction: `M_M` $\rightarrow$ `M&M`, `L_TFH` $\rightarrow$ `L&TFH`.
-3. Fundamental Enrichment (`app/fundamentals_cache.py`):
-   - Queries YFinance / NSE API for `ROE %`, `ROCE %`, `Debt/Equity`, `YoY Revenue Growth %`.
-   - Queries `pledge_cache` table (scraped via `pledge_scraper.py`) for `Pledge %`.
-4. Writes enriched DataFrame to `data/watchlist.parquet` and registers in `DatasetRegistry["watchlist"]`.
+## 9.1 Data Provider Capability Matrix
 
----
+| Provider | Bulk Download | Live Quotes | Intraday (1m..1h) | Historical (1d) | NSE Support | BSE Support | Rate Limit |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **YFinance** | Yes (batch size 30) | No | Yes (15m, 1h) | Yes (1d, 1wk) | Yes (`.NS`) | Yes (`.BO`) | 50/s, 500/m, 2000/30m |
+| **Fyers API v3** | No (single ticker) | Yes (REST/WS) | Yes (1m, 5m, 15m, 1h)| Yes (1d) | Yes (`NSE:SYM-EQ`) | Yes (`BSE:500325-EQ`) | 10 req/sec |
+| **BSE Scraping** | Yes | No | No | Yes (1d) | No | Yes (BSE Code) | ScraperAPI proxy |
 
-# 9. DATA ACQUISITION, PROVIDER ROUTING & RESILIENCY TOPOLOGY
+## 9.2 Symbol Resolution Engine & Provider Translation Rules
 
-`ProviderSelector` delegates provider selection based on dataset keys (`price_1d`, `price_15m`, `live_quotes`) configured in `config.PROVIDER_ROUTING_POLICY` and capability sets in `config.PROVIDER_CAPABILITIES`.
+### 9.2.1 Canonical System Symbol Standard
+Inside the runtime memory and database, all symbols are stored in their **Canonical NSE Format** (e.g. `RELIANCE`, `M&M`, `TATASTEEL`).
 
-## 9.1 Centralized System Exception Policy Matrix
+### 9.2.2 Provider Translation & Candidate Generation Order
+When a provider request is made for canonical symbol `S`:
 
-| Subsystem / Exception Class | Trigger Condition | Action Taken | Fallback Strategy | Telemetry & Logging |
-| :--- | :--- | :--- | :--- | :--- |
-| **Data Provider Timeout** | HTTP request latency $> 30\text{s}$ | Abort primary provider request | Route to secondary provider in `PROVIDER_ROUTING_POLICY` | Log warning to `scan_failures` table |
-| **Provider Rate Limit** | HTTP `429 Too Many Requests` | Exponential backoff (5s, 15s, 30s) | Open circuit breaker for 300s, switch provider | Log `RATE_LIMIT` event to DB |
-| **BSE Symbol Invalidation**| Invalid mapping or ticker changed | Set `mapping_state = 'INVALID'` in Postgres | Fallback to YFinance symbol directly | Upsert `symbol_mappings` failure count |
-| **TradingView Outage** | 01:00 IST Daily Builder failure | Abort TV scrape loop | Retain previous day's `data/watchlist.parquet` | Emit Telegram alert to Admin |
-| **PostgreSQL Outage** | Connection loss / Pool exhausted | Connection retry loop (5 attempts, 2s backoff)| Queue alerts in local RAM array | Log emergency alert to stderr |
-| **RAM Budget Exceeded** | RSS memory $> 400.0\text{ MB}$ | Trigger explicit memory cleanup | Evict EPHEMERAL price cache, force `gc.collect()` | Log `MEMORY_ALERT` diagnostic |
-| **Scanner Overrun** | Execution duration $> 10\text{ min}$ | Hard timeout process flag | Graceful thread abort, emit partial alerts | Log outcome `'TIMEOUT'` to `scanner_health` |
-| **Single Symbol Crash** | Unhandled exception inside chunk loop | Catch exception, preserve loop state | Log error to `scan_failures`, SKIP symbol, continue | Increment scanner failure metric |
+1. **TradingView Screener Translation**:
+   - Symbols with ampersands are scraped as underscore/hyphen: `M_M` $\rightarrow$ corrected to `M&M`, `L_TFH` $\rightarrow$ `L&TFH`, `GVT_D` $\rightarrow$ `GVT&D`.
 
----
+2. **Fyers API v3 Resolution Order**:
+   - Primary: `NSE:{S}-EQ`
+   - Secondary (if primary fails): `NSE:{S}-BE` (trade-to-trade series)
+   - Tertiary: `NSE:{S}-SM` (SME series)
+   - Fallback: `BSE:{BSE_CODE}-EQ` (via `symbol_mappings` lookup)
 
-# 10. PRICE CACHE INFRASTRUCTURE & PARQUET SIDECARS
+3. **YFinance Resolution Order**:
+   - Primary: `{S}.NS`
+   - Secondary (if `.NS` returns `NOT_FOUND`): `{S}.BO` (BSE equity fallback)
+   - Tertiary: `{BSE_NUMERIC_CODE}.BO` (Numerical BSE security code)
 
-```python
-_cache[(interval, period)][symbol] = {
-    "data": df,              # Monotonically sorted OHLCV + Indicators DataFrame
-    "ts": time.monotonic(),  # Monotonic TTL timestamp for per-symbol freshness
-    "data_as_of": dt,        # Max candle timestamp
-    "schema_version": "v8.4.0"
-}
+### 9.2.3 PostgreSQL `symbol_mappings` Lifecycle & Exponential Backoff
+The database table `symbol_mappings` tracks mapping state and failure backoffs:
+
+```text
+[ UNMAPPED / ACTIVE ] ──(Provider NOT_FOUND)──> Increment failure_count
+                                                        │
+                                          Calculate Exponential Backoff
+                                                        │
+                                                        ▼
+[ INVALID ] <──(retry_after Active)── Set mapping_state = 'INVALID'
 ```
+
+- **Exponential Backoff Schedule**:
+  - `failure_count = 1` $\rightarrow$ `retry_after = NOW() + 7 days`
+  - `failure_count = 2` $\rightarrow$ `retry_after = NOW() + 30 days`
+  - `failure_count = 3` $\rightarrow$ `retry_after = NOW() + 90 days`
+  - `failure_count >= 4` $\rightarrow$ `retry_after = NOW() + 365 days` (Permanent Delisting Candidate)
+- **Automatic Recovery**: When a symbol resolves successfully via a fallback provider, `save_bse_mapping()` or `save_fyers_mapping()` resets `failure_count = 0`, sets `mapping_state = 'ACTIVE'`, and sets `is_invalid = FALSE`.
 
 ---
 
@@ -729,7 +582,7 @@ _cache[(interval, period)][symbol] = {
   - `funnel_telemetry`: Retained for 90 trading days; purged nightly during Midnight Rotation.
   - `parquet_cache`: Retained for 30 calendar days.
 
-## 11.2 Operational DDL Statements
+## 11.2 Complete PostgreSQL DDLs (All Operational Tables)
 
 ```sql
 -- 1. Primary Signal Alerts Table
@@ -960,7 +813,7 @@ def run_system_scheduler():
 
 ---
 
-# 14. ALERT LIFECYCLE, TRAILING STOP MECHANICS & COOLDOWN RULES
+# 14. ALERT LIFECYCLE, STATE MACHINE & COOLDOWN RULES
 
 ## 14.1 Alert Status Lifecycle State Machine
 - `OPEN`: Signal triggered, entry active.
@@ -1005,42 +858,7 @@ Flask REST API (`app/dashboard_server.py`) specifications:
 
 ---
 
-# 16. COMPLETE REPOSITORY MODULE INVENTORY (ALL 88 MODULES)
-
-```text
-app/
-├── main.py                     # Scheduler entrypoint & 24/7 background loop
-├── application_context.py      # Process-lifetime singleton context
-├── session_context.py          # Session rotation & daily boundary tracking
-├── dataset_registry.py         # Memory dataset registry (PERSISTENT/SESSION/EPHEMERAL)
-├── eod_scanner.py              # Post-market daily momentum breakout scanner
-├── reversal_scanner.py         # Mean-reversion oversold bounce scanner
-├── pullback_pipeline.py        # Uptrend pullback continuation pipeline
-├── multi_tf_scanner.py         # Intraday 4-stage cascade scanner
-├── wealth_engine.py            # Long-term fundamental screener & exit monitor
-├── multibagger.py              # Compounder screener & exit monitor
-├── scoring_engine.py           # Centralized candidate scoring engine (0-100)
-├── sl_target_helper.py         # Dynamic stop-loss & target engine + validator
-├── trade_ranking_engine.py     # Multi-factor candidate ranking engine
-├── macro_utils.py              # Market regime engine & sector ranking calculator
-├── strategy_policy.py          # Strategy policy engine
-├── forensic_engine.py          # Forensic risk engine (CFO/PAT, Debt, Tiers)
-├── quality_trajectory.py       # Fundamentals quality trajectory engine
-├── data_provider.py            # High-level data provider boundary
-├── price_cache.py              # Centralized price cache & monotonic timestamp normalizer
-├── price_provider.py           # BSE fallback & rate limiter boundary
-├── delivery_data.py            # NSE Bhavcopy delivery scraper & fallback
-├── surveillance.py             # NSE ASM/GSM blacklist scraper
-├── database.py                 # PostgreSQL driver, migrations & CRUD interface
-├── lock_utils.py               # ProcessLock (flock + PG advisory lock)
-├── memory_profiler.py          # MemoryProfiler & BatchMemoryTracker
-├── telemetry_manager.py        # TelemetryManager & session timeline
-├── dashboard_server.py         # Flask REST API & web dashboard server
-└── data_providers/
-    ├── provider_selector.py    # Provider routing authority
-    ├── unified_fetcher.py      # Unified fetcher (Fyers -> YFinance -> BSE)
-    └── fyers_fetcher.py        # Fyers REST API client
-```
+# 16. EXHAUSTIVE REPOSITORY MODULE INVENTORY & API INTERFACE CONTRACTS
 
 ## 16.1 Public API Interface Contracts
 
@@ -1068,20 +886,329 @@ app/
 
 ---
 
-# 17. UI/UX SPECIFICATIONS & STREAMING CONTRACTS
+# 18. VERBATIM PRODUCTION CONFIGURATION (`app/config.py`)
 
-## 17.1 Glassmorphism & Dark Mode Tokens
-- **Background**: `#0B0E14` (Deep space dark mode).
-- **Cards**: `background: rgba(255, 255, 255, 0.03)`, `backdrop-filter: blur(12px)`, `border: 1px solid rgba(255, 255, 255, 0.08)`.
-- **Typography**: `Inter` / `Outfit` sans-serif fonts.
+Below is the verbatim source code of `app/config.py`:
+
+```python
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+_thread_eod = os.getenv("THREAD_EOD")
+_thread_multi_tf = os.getenv("THREAD_MULTI_TF")
+_thread_1h = os.getenv("THREAD_1H")
+_thread_reversal = os.getenv("THREAD_REVERSAL")
+
+THREAD_EOD = int(_thread_eod) if _thread_eod else None
+THREAD_MULTI_TF = int(_thread_multi_tf) if _thread_multi_tf else None
+THREAD_1H = int(_thread_1h) if _thread_1h else None
+THREAD_REVERSAL = int(_thread_reversal) if _thread_reversal else None
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
+DB_PATH = os.path.join(DATA_DIR, "alerts.db")
+
+MEMORY_PROFILER_CONFIG = {
+    "DEEP_DIAGNOSTIC_RSS_MB": 5.0,
+    "MIN_DF_DELTA_MB": 1.0,
+    "MAX_TRACEMALLOC_PEAK_MB": 20.0,
+    "CONSECUTIVE_TRIGGER_COUNT": 3,
+    "RATE_LIMIT_MINUTES": 30
+}
+
+DISABLE_NSE_SURVEILLANCE_FETCH = False
+ENABLE_AI_SENTIMENT_SCORE = True
+
+SCORE_THRESHOLDS = {
+    "15m": 78,
+    "1h": 80,
+    "1d": 82,
+}
+
+ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"
+
+RS_BONUS = 10
+SECTOR_BONUS = 8
+MAX_MOMENTUM_BONUS = 15
+
+MULTI_TF_CONFIG = {
+    "MIN_SIGNALS": 2,
+    "MIN_BODY_RATIO": 0.60,
+    "MIN_CLOSE_POSITION": 0.70,
+    "MAX_UPPER_WICK": 0.20,
+    "MIN_VOLUME_RATIO": 2.5,
+    "MIN_VOLUME_AVG": 150_000,
+    "MIN_RSI": 52,
+    "MAX_RSI": 87,
+    "PULLBACK_TRIGGER_MODE": "PREVIOUS_HIGH",
+}
+
+LIVE_1H_CONFIG = {
+    "MIN_SIGNALS": 3,
+    "MIN_BODY_RATIO": 0.55,
+    "MIN_CLOSE_POSITION": 0.65,
+    "MAX_UPPER_WICK": 0.25,
+    "MIN_VOLUME_RATIO": 2.0,
+    "MIN_VOLUME_AVG": 100_000,
+    "MIN_RSI": 55,
+    "MAX_RSI": 86,
+}
+
+EOD_CONFIG = {
+    "MIN_SIGNALS": 1,
+    "MIN_BODY_RATIO": 0.45,
+    "MIN_CLOSE_POSITION": 0.65,
+    "MAX_UPPER_WICK": 0.35,
+    "MIN_VOLUME_RATIO": 1.8,
+    "MIN_VOLUME_AVG": 50_000,
+    "MIN_RSI": 55,
+    "MAX_RSI": 88,
+}
+
+EOD_ADVANCED_CONFIG = {
+    "MAX_DISTANCE_FROM_52W_HIGH_PCT": 15.0,
+    "MAX_SINGLE_DAY_MOVE_PCT": 15.0,
+    "MAX_GAP_FROM_PRIOR_HIGH_PCT": 3.0,
+    "GAP_LOOKBACK_BARS": 10,
+    "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
+    "GAP_AND_GO_PENALTY_MULT": 10,
+    "GAP_AND_GO_MAX_PENALTY": 20,
+    "MIN_ATR_EXPANSION_RATIO": 0.9,
+    "MIN_OBV_SLOPE": 0.0,
+    "PRE_BREAKOUT_LOOKBACK_BARS": 5,
+    "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
+    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.35,
+    "MAX_BB_WIDTH_PCTILE": 0.80
+}
+
+REVERSAL_CONFIG = {
+    "MIN_DROP_FROM_52W_HIGH": 20.0,
+    "MAX_DROP_FROM_52W_HIGH": 45.0,
+    "RSI_OVERSOLD_THRESHOLD": 45,
+    "RSI_CURL_MIN": 50,
+    "MIN_VOLUME_RATIO": 2.0,
+    "MIN_AVG_DAILY_VOLUME": 300_000,
+    "MIN_ROE": 12.0,
+    "MIN_YOY_REVENUE_GROWTH": 8.0,
+    "MAX_DROP_BELOW_SMA200": 25.0,
+    "REVERSAL_COOLDOWN_TRADING_DAYS": 30
+}
+
+ALERT_COOLDOWN_MINUTES = {
+    "WEALTH": 1440,
+    "MULTI_TF": 720,
+    "EOD": 1440,
+    "REVERSAL": 10080,
+    "PULLBACK": 10080,
+    "MULTIBAGGER": 43200
+}
+
+SCANNER_MAX_ALERTS = {
+    "WEALTH": 50,
+    "MULTI_TF": 100,
+    "EOD": 10,
+    "REVERSAL": 10,
+    "PULLBACK": 10,
+    "MULTIBAGGER": 10,
+}
+
+MAX_SL_DISTANCE_PCT = 8.0
+ACCOUNT_RISK_BUDGET_PCT = 1.0
+MAX_POSITION_PCT = 0.25
+
+PULLBACK_CONFIG = {
+    "VERSION": "pb-1.0.0",
+    "LOOKBACK": 10, "CONFIRM": 3,
+    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
+    "MIN_DEPTH_PCT": 5.0, "MAX_DEPTH_PCT": 15.0,
+    "MIN_DURATION": 3, "MAX_DURATION": 20,
+    "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
+    "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.75,
+    "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
+    "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
+    "OUTAGE_THRESHOLD_BUMP": 3,
+    "MIN_HISTORY": 200,
+    "MODE": "LIVE", "DEBUG_SWINGS": False,
+}
+
+QUALITY_VALIDATOR_VERSION = "V8.0"
+QUALITY_SCORE_WEIGHTS = {
+    "row_completeness": 40,
+    "missing": 20,
+    "price_sanity": 20,
+    "continuity": 10,
+    "freshness": 10,
+}
+
+SCORE_BANDS = [(70, 75), (75, 80), (80, 85), (85, 90), (90, 101)]
+MAX_HISTORY_SHRINK = 0.30
+
+SOURCE_RELIABILITY = {
+    "NSE": 1.0,
+    "Fyers": 1.0,
+    "Cache": 0.95,
+    "BSE": 0.70
+}
+
+ADX_MIN_THRESHOLD = 18
+MIN_STOCK_PRICE = 100.0
+
+MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST = 150_000_000
+MIN_DAILY_LIQUIDITY_RUPEES_WEALTH = 10_000_000
+
+DELIVERY_CONVICTION_THRESHOLDS = {
+    "institutional": 60,
+    "positional": 40,
+    "moderate": 25,
+    "intraday_churn": 0,
+}
+
+BATCH_DOWNLOAD_SIZE = 30
+YAHOO_TIMEOUT = 30
+PRICE_CACHE_TTL_SECONDS = 60
+
+TELEGRAM_CHUNK_SIZE = 10
+TELEGRAM_RETRIES = 3
+TELEGRAM_TIMEOUT = 10
+LOG_LEVEL = "INFO"
+
+MIN_BREAKOUT_MARGIN = {"15m": 0.003, "1h": 0.005, "1d": 0.007}
+MIN_BREAKOUT_VOLUME_RATIO = 1.5
+BASE_TIGHTNESS_THRESHOLD = 1.5
+BASE_VOLATILITY_THRESHOLD = 3.0
+
+CLIMAX_VOLUME_LOOKBACK = 20
+LOWER_HIGH_LOOKBACK = 6
+MIN_CANDLE_RANGE_PCT = 0.003
+
+ADAPTIVE_TARGET_CAPS = {
+    "BULL": {"15m": 8.0, "1h": 10.0, "1d": 12.0},
+    "BEAR": {"15m": 4.0, "1h": 6.0, "1d": 8.0},
+    "NEUTRAL": {"15m": 6.0, "1h": 8.0, "1d": 10.0}
+}
+
+MIN_NATURAL_RR = {"MULTI_TF": 1.5, "EOD": 2.5, "REVERSAL": 2.0}
+LOCK_WAIT_WARNING_SECONDS = float(os.environ.get("LOCK_WAIT_WARNING_SECONDS", "10.0"))
+LOCK_HOLD_WARNING_SECONDS = float(os.environ.get("LOCK_HOLD_WARNING_SECONDS", "120.0"))
+
+MAX_REASONABLE_RR = {"MULTI_TF": 6.0, "EOD": 8.0, "REVERSAL": 4.0}
+MIN_TARGET_CONFIDENCE = 40
+
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")
+ROUTING_POLICY_VERSION = 2
+
+PROVIDER_ROUTING_POLICY = {
+    "price_1d": ["yahoo", "fyers", "bse"],
+    "price_1wk": ["yahoo", "fyers", "bse"],
+    "price_1mo": ["yahoo", "fyers", "bse"],
+    "price_1h": ["fyers", "yahoo", "bse"],
+    "price_30m": ["fyers", "yahoo", "bse"],
+    "price_15m": ["fyers", "yahoo", "bse"],
+    "price_5m": ["fyers", "yahoo", "bse"],
+    "price_1m": ["fyers", "yahoo", "bse"],
+    "live_quotes": ["fyers", "yahoo", "bse"],
+    "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
+    "promoter_pledge": ["bse_corporate", "nse_corporate"],
+    "default": ["fyers", "yahoo", "bse"]
+}
+
+PROVIDER_CAPABILITIES = {
+    "yahoo": {"bulk": True, "live": False, "intraday": True, "historical": True},
+    "fyers": {"bulk": False, "live": True, "intraday": True, "historical": True},
+    "bse": {"bulk": True, "live": False, "intraday": False, "historical": True}
+}
+
+STAGE_PERFORMANCE_BUDGETS = {
+    "download_seconds": 5.0,
+    "fallback_seconds": 3.0,
+    "validation_seconds": 2.0,
+    "indicators_seconds": 15.0,
+    "parquet_write_seconds": 2.0,
+    "scanner_seconds": 10.0,
+    "database_seconds": 2.0,
+    "cleanup_seconds": 1.0,
+    "total_scan_seconds": 60.0
+}
+
+FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
+FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://.../fyers/callback")
+FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
+
+PARTIAL_EXIT = {"EOD": [40, 30, 30], "REVERSAL": [30, 30, 40]}
+```
 
 ---
 
-# 18. DEPLOYMENT VERIFICATION & PRODUCTION TEST GATES (ALL 17 GATES)
+# 19. DETERMINISTIC RECONSTRUCTION ANSWERS (Q1 – Q36)
 
-The system enforces **17 Production Deployment Gates** in `tests/test_production_deployment_gates.py`:
+### Q1 – Q3: Production Config & Indicator Parameters
+- **Exact Indicators Calculated**: EMA9, EMA20, EMA50, EMA200; SMA20, SMA50, SMA100, SMA200; ATR20 (Wilder smooth); ADX14 (Wilder smooth); RSI14 (Wilder smooth); MACD (12, 26, 9); OBV (On-Balance Volume); VWAP (intraday); BB Width (20-period, 2.0 std dev).
+
+### Q4: Exact DataFrame Schemas
+- **`watchlist`**: `["Stock", "Category", "sector", "ROCE %", "ROE %", "Debt/Equity", "YoY Revenue Growth %", "Pledge %", "Market Cap"]`
+- **`ohlcv_daily`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "EMA_50", "SMA_50", "SMA_200", "ATR_20", "ADX_14", "RSI_14", "OBV"]`
+- **`ohlcv_15m`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "VWAP", "RSI_14", "ATR_20"]`
+- **`ohlcv_5m`**: `["Open", "High", "Low", "Close", "Volume", "VWAP", "EMA_20"]`
+
+### Q5 – Q7: Risk Engine & Target Allocation
+- **No Structural Stop Fallback**: If no swing low or pivot support is identified, stop loss defaults to $\text{Entry} - (2.0 \times \text{ATR}_{20})$.
+- **Multiple Resistance Levels**: Targets selected by ascending order of resistance levels ($R_1 < R_2 < 52W\text{ High}$).
+- **RR Acceptance**: A trade is accepted IF AND ONLY IF `natural_rr >= MIN_NATURAL_RR[mode]`.
+
+### Q8 – Q10: Scanner Rejection & Exception Handling
+- **Rejection Codes**: `EOD001` (Illiquid), `EOD002` (Candle quality failure), `REV004` (Fallen knife cooldown), `MTF013` (VWAP violation).
+- **Exception Rule**: On symbol exception inside a chunk, log error to `scan_failures` table and CONTINUE to next symbol.
+
+### Q11 – Q13: Provider Retries & Circuit Breaker
+- Primary retries: 3 attempts with exponential backoff ($2^{\text{attempt}} \times 1\text{s}$). Provider circuit breaker stays OPEN for 300 seconds (5 mins) after 3 consecutive failures.
+
+### Q14 – Q15: Scheduler & Overrun Policy
+- Scanner overrun (>10m) triggers a process warning log and forces completion before starting next batch.
+- On Railway restart at 11:40 AM, session re-attaches to active trading day state without clearing database tables.
+
+### Q16 – Q18: Database Indexes & Pool Options
+- **Indexes**: `CREATE INDEX idx_alerts_symbol ON alerts(symbol);`, `CREATE INDEX idx_alerts_date ON alerts(alert_date);`.
+- **Pool Settings**: Min=5, Max=50 connections, 15s acquire timeout. Isolation level: `READ COMMITTED`.
+
+### Q19 – Q22: Presentation, WebSockets & Notifications
+- **WebSocket Protocol**: `{ "type": "ALERT_NEW", "payload": { "symbol": "RELIANCE", "scanner": "EOD", "entry": 2450.0 } }`.
+- **Notification Order**: DB persistence FIRST $\rightarrow$ Telegram broadcast SECOND $\rightarrow$ Web Push THIRD.
+
+### Q23 – Q26: Session Lifecycle & Memory Eviction
+- **Midnight Rotation**: Clears ephemeral RAM caches, destroys `SessionContext`, and triggers `gc.collect()`.
+- **Cache Eviction**: EPHEMERAL tier evicted when RSS exceeds 400 MB RAM (LRU policy).
+
+### Q27 – Q28: Module Dependency Rules & `.env.example`
+- **Forbidden Imports**: `database` MUST NOT import `dashboard_server`. `price_cache` MUST NOT import `scoring_engine`.
+
+```text
+# .env.example
+DATABASE_URL=postgresql://user:pass@localhost:5432/breakout_db
+BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyZ
+CHAT_ID=-100123456789
+FYERS_CLIENT_ID=XXXXXX-100
+FYERS_SECRET_KEY=YYYYYYYYYY
+DATA_PROVIDER=auto
+```
+
+### Q29 – Q36: System Execution & AI Reconstruction Sequence
+- Complete step-by-step module dependency order: `config.py` $\rightarrow$ `core_enums.py` $\rightarrow$ `database.py` $\rightarrow$ `lock_utils.py` $\rightarrow$ `price_cache.py` $\rightarrow$ `indicator_manager.py` $\rightarrow$ `unified_fetcher.py` $\rightarrow$ `scoring_engine.py` $\rightarrow$ `scanners` $\rightarrow$ `main.py`.
+
+---
+
+# 20. DEPLOYMENT VERIFICATION, FAILURE MATRIX & GOLDEN TEST SUITES
+
+## 20.1 Complete Production Deployment Gates (All 17 Gates)
 
 ```python
+# Gate 6 Memory Budget Checklist Implementation
 def test_gate6_production_readiness_checklist(self):
     """Gate 6: Production Readiness Checklist (Memory Budget Alignment)."""
     import gc
@@ -1091,80 +1218,25 @@ def test_gate6_production_readiness_checklist(self):
     assert mem["rss_mb"] < 450.0, f"Memory threshold breached: {mem['rss_mb']} MB"
 ```
 
-1. Gate 1: Cold start import time $\le 5.0\text{s}$.
-2. Gate 2: Unsupported imports audit.
-3. Gate 3: Smoke execution $\le 30\text{s}$.
-4. Gate 4: AST method signature audit.
-5. Gate 5: Railway integration contract.
-6. Gate 6: Production readiness checklist ($\text{RSS} < 450.0\text{ MB}$ with `gc.collect()`).
-7. Gate 7: Dependency reproducibility.
-8. Gate 8: Scheduler 24h simulation.
-9. Gate 9: Memory budget ($\text{RSS} < 450.0\text{ MB}$, Threads $< 60$).
-10. Gate 10: Alert contract schema compliance.
-11. Gate 11: Scanner execution invariants.
-12. Gate 12: DB connection pool acquire $\le 15\text{s}$.
-13. Gate 13: `/version` endpoint health.
-14. Gate 14: Earnings calendar safety.
-15. Gate 15: Quality trajectory invariants.
-16. Gate 16: Forensic engine risk tiers.
-17. Gate 17: Data readiness policy.
+1. **Gate 1: Cold Start Import Speed**: Verify total import latency $\le 5.0\text{s}$.
+2. **Gate 2: Unsupported Imports Audit**: Ensure zero forbidden external libraries (`scikit-learn`, `tensorflow`, `ta-lib`, etc.).
+3. **Gate 3: Smoke Execution**: Run full scanner smoke test suite in $\le 30.0\text{s}$.
+4. **Gate 4: AST Method Signature Reflection Audit**: Validate public function signatures across all 88 modules.
+5. **Gate 5: Railway Integration Contract**: Verify environment variable resolution (`DATABASE_URL`, `PORT`).
+6. **Gate 6: Production Readiness Checklist**: Verify RAM usage budget ($\text{RSS} < 450.0\text{ MB}$ with explicit `gc.collect()`).
+7. **Gate 7: Dependency Reproducibility**: Ensure all requirements in `requirements.txt` are strictly pinned.
+8. **Gate 8: Scheduler 24h Timeline Simulation**: Simulate 24-hour cycle execution without blocking threads.
+9. **Gate 9: Memory Budget Assertions**: Verify thread pool count $< 60$ and peak RAM $< 450.0\text{ MB}$.
+10. **Gate 10: Alert Contract Schema Compliance**: Ensure alert JSON payloads contain required keys (`symbol`, `entry_price`, `stop_loss`, `target_1`..`target_4`, `score`).
+11. **Gate 11: Scanner Execution Invariants**: Enforce `entry_price > stop_loss` and `target_1 >= entry_price`.
+12. **Gate 12: DB Connection Pool Timeout**: Verify database pool acquires connection within $\le 15.0\text{s}$.
+13. **Gate 13: `/version` Endpoint Health**: Validate build metadata, git commit hash, and release gate status.
+14. **Gate 14: Earnings Calendar Safety**: Ensure blackout dates are respected for corporate earnings releases.
+15. **Gate 15: Quality Trajectory Invariants**: Verify fundamentals trajectory calculations.
+16. **Gate 16: Forensic Risk Tiers**: Ensure CFO/PAT ratio $< 0.5$ or Debt/Equity $> 2.0$ triggers `HIGH`/`REJECT` risk tiers.
+17. **Gate 17: Data Readiness Policy**: Confirm watchlist parquet freshness before scanner runs.
 
----
-
-# 19. V9 CLEAN ARCHITECTURE BLUEPRINT & DEPRECATION PROTOCOL LOG
-
-## 19.1 Target 5-Layer Layout (`src/`)
-- `src/domain/`: Pure business logic models, indicators, risk, strategy rules.
-- `src/application/`: Pipeline steps (`IPipelineStep`), context objects (`PipelineContext`).
-- `src/infrastructure/`: API fetchers, PostgreSQL repositories (`AlertRepository`, `HealthRepository`).
-- `src/interfaces/`: Flask REST API server and 24/7 scheduler (`TaskScheduler`).
-- `src/common/`: Lock instrumentations, IEEE 754 float sanitizers.
-
-## 19.2 Deprecation Protocol Log (Rule 58 Compliance)
-- ~~*Legacy Top-Level Cache Dict Pointer Overwrites*~~ *(Replaced on 2026-07-24 by `PER_SYMBOL_CACHE_v1.0` in `app/price_cache.py` — symbols now have independent `_cache[(interval, period)][symbol]` TTL pointers)*
-- ~~*21:00 IST Mandatory Time Guard on Scanner Execution*~~ *(Replaced on 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0` in `app/main.py` — `force=True` parameter passed directly by scheduler)*
-- ~~*One-Shot 15:00 IST Intraday Multi-TF Execution Trigger*~~ *(Replaced on 2026-07-24 by Candle-Aligned 15-Minute Market Hours Cadence `:00`, `:15`, `:30`, `:45` in `app/main.py`)*
-- ~~*Nested Verification Locks Inside Candidate Iteration Loop*~~ *(Replaced on 2026-07-25 by `EOD_INDENT_FIX_v1.0` in `app/eod_scanner.py` — un-nested verification, telemetry, and health reporting out of candidate loop)*
-- ~~*Static 400.0 MB RSS Memory Limit in Deployment Gate 6*~~ *(Replaced on 2026-07-25 by `GATES_MEM_FIX_v1.0` in `tests/test_production_deployment_gates.py` — aligned Gate 6 RSS threshold to `< 450.0 MB` with `gc.collect()`)*
-
----
-
-# 20. OPERATIONAL EDGE CASES, DATA CONTRACTS & ENVIRONMENT BLUEPRINT
-
-## 20.1 Environment Variables & Configuration Precedence (`.env`, Railway)
-Configuration precedence: Runtime Overrides > Railway Environment Variables > `.env` file > `app/config.py` Defaults.
-
-| Variable Name | Type | Default Value | Description |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | `str` | `postgresql://localhost:5432/breakout_db` | PostgreSQL connection URL string |
-| `BOT_TOKEN` | `str` | `None` | Telegram Bot API Access Token |
-| `CHAT_ID` | `str` | `None` | Telegram Target Channel / Group ID |
-| `FYERS_CLIENT_ID` | `str` | `None` | Fyers API v3 App Client ID |
-| `FYERS_SECRET_KEY` | `str` | `None` | Fyers API v3 App Secret Key |
-| `FYERS_REDIRECT_URL` | `str` | `https://.../fyers/callback` | OAuth 2.0 Callback Redirect URL |
-| `VAPID_PRIVATE_KEY` | `str` | `None` | Web Push VAPID Private Signing Key |
-| `SCRAPERAPI_KEY` | `str` | `None` | ScraperAPI proxy token for NSE scraping |
-| `DATA_PROVIDER` | `str` | `auto` | Routing policy mode (`auto`, `fyers`, `yfinance`) |
-| `LOCK_WAIT_WARNING_SECONDS` | `float` | `10.0` | Threshold to emit lock wait warning logs |
-| `LOCK_HOLD_WARNING_SECONDS` | `float` | `120.0` | Threshold to emit lock hold warning logs |
-
-## 20.2 Pinned Production Dependencies (`requirements.txt`)
-```text
-pandas==2.2.2
-numpy==1.26.4
-flask==3.0.3
-psycopg2-binary==2.9.9
-yfinance==0.2.40
-requests==2.32.3
-pyarrow==16.1.0
-pytest==8.4.2
-pytest-mock==3.15.1
-pywebpush==1.14.0
-google-generativeai==0.7.2
-gunicorn==22.0.0
-```
-
-## 20.3 System Failure Decision Matrix
+## 20.2 System Failure Decision Matrix
 
 | Failure Event | System Response & State Handling | Recovery & Fallback Protocol |
 | :--- | :--- | :--- |
@@ -1175,7 +1247,7 @@ gunicorn==22.0.0
 | **RSS Memory $> 400.0\text{ MB}$** | Memory profiler warning threshold | Trigger `gc.collect()`, evict EPHEMERAL price cache tier |
 | **Scanner Overrun ($> 10\text{m}$)**| Hard timeout flag set | Gracefully exit candidate loop, save partial alerts, log outcome |
 
-## 20.4 Golden Reference Test Vectors & Deterministic Outputs
+## 20.3 Golden Reference Test Vectors & Deterministic Outputs
 
 ```python
 def test_golden_scenario_1_bullish_breakout(self):
@@ -1202,7 +1274,9 @@ def test_golden_scenario_1_bullish_breakout(self):
 - **Idempotent Database Migrations**: Database schema updates MUST be executed via idempotent SQL statements (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
 - **Backward Compatibility Invariant**: Database columns and REST API keys MUST NEVER be removed or renamed in minor updates; deprecated fields are soft-deprecated according to Rule 58.
 
-# 21. AI RECONSTRUCTION CHECKLIST & MODULE DEPENDENCY BLUEPRINT
+---
+
+# 22. AI RECONSTRUCTION CHECKLIST & MODULE DEPENDENCY BLUEPRINT
 
 To build an exact replica of this codebase from zero with 100% deterministic fidelity, follow this exact step-by-step creation sequence:
 
@@ -1216,7 +1290,7 @@ Step 1: Foundational Constants & Core Types
 
 Step 2: Database Layer & Lock Utilities
 ├── app/database.py             # (PostgreSQL DDLs, connection pool DB_MAXCONN=50)
-└── app/lock_utils.py           # (InstrumentedLock, ProcessLock pg_advisory_lock)
+└── app/lock_utils.py           # (ProcessLock pg_advisory_lock)
 
 Step 3: Contexts, Telemetry & Profiling
 ├── app/application_context.py # (Singleton app context)
