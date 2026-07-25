@@ -549,6 +549,8 @@ def run_eod_scanner(run_once=False, force=False):
             approved_candidates.append({
                 "symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]
             })
+            # Next-Day Open-Gap Guard: Entry at next morning's open (O_1) is validated against close (C_0).
+            # If O_1 gaps up > MAX_ENTRY_GAP_PCT (3.0%) above C_0, or opens >= T1, trade is invalidated (REJ_ENTRY_GAP_TOO_WIDE).
 
     approved_candidates.sort(key=lambda x: x["score"], reverse=True)
     top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["EOD"]]
@@ -853,15 +855,18 @@ _MODE_CONFIG = {
 - `sl_pct_buf`: Minimum % distance buffer below support
 - `max_sl_atr`: Maximum SL distance from entry in ATR units
 
-## 7A.3 TradeStructureValidator — 6 Invariant Checks
+## 7A.3 TradeStructureValidator — 9 Invariant Checks
 
 ```text
-Invariant 1: entry > 0                                (Basic sanity check)
-Invariant 2: stop_loss < entry                          (SL must be logically placed)
-Invariant 3: risk = entry - stop_loss > 0               (Risk amount must be calculable)
-Invariant 4: target_1 > entry                           (First target must be profitable)
-Invariant 5: target_1 <= target_2 <= target_3           (Ordered structural hierarchy)
-Invariant 6: natural_rr = (target_1 - entry) / risk >= min_rr (Reward-to-risk ratio minimum)
+Invariant 1: entry > 0                                       (Basic sanity check)
+Invariant 2: stop_loss < entry                                 (SL must be logically placed)
+Invariant 3: risk = entry - stop_loss > 0                      (Risk amount must be calculable)
+Invariant 4: target_1 > entry                                  (First target must be profitable)
+Invariant 5: target_1 < target_2 < target_3 < target_4          (Strictly increasing hierarchy; spacing >= max(0.5*ATR20, 0.5% entry))
+Invariant 6: natural_rr = (target_1 - entry) / risk >= min_rr  (Reward-to-risk ratio minimum on T1)
+Invariant 7: (target_3 - entry) / risk >= MIN_REWARD_POTENTIAL (T3-based reward potential floor for Reversal/EOD)
+Invariant 8: natural_rr <= MAX_REASONABLE_RR                   (Caps upper bound R:R at 8.0x to filter extreme outliers)
+Invariant 9: target_cluster_confidence >= MIN_TARGET_CONFIDENCE (Rejects target clusters with confidence score < 40)
 ```
 
 Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, alert saved to `rejected_alerts` table.
@@ -895,9 +900,9 @@ Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, aler
 ```python
 # config.py
 EXIT_PROFILES = {
-    "BALANCED":     {"T1": 0.30, "T2": 0.40, "T3": 0.30},
-    "AGGRESSIVE":   {"T1": 0.20, "T2": 0.30, "T3": 0.50},
-    "CONSERVATIVE": {"T1": 0.25, "T2": 0.50, "T3": 0.25},
+    "CONSERVATIVE": {"t1": 25, "t2": 50, "t3": 25},
+    "BALANCED":     {"t1": 30, "t2": 40, "t3": 30},
+    "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
 }
 
 SCANNER_EXIT_PROFILE = {
@@ -1436,11 +1441,16 @@ def run_system_scheduler():
 - `OPEN`: Signal triggered, entry active.
 - `PARTIAL_WIN_1`: Target 1 hit. Stop loss trailed to **Breakeven (Entry Price)**.
 - `PARTIAL_WIN_2`: Target 2 hit. Stop loss trailed to **Target 1 Price**.
-- `WIN`: Target 3 or Target 4 hit.
+- `WIN`: Target 3 hit (100% position liquidated). Target 4 is an informational runner target.
 - `TRAILING`: Active stop loss trailing above entry price following EMA9/swing low.
-- `LOSS`: Closing price dropped below active `stop_loss`.
+- `LOSS`: Candle Low dropped below active `stop_loss`.
 - `EXPIRED`: Signal failed to reach T1 within 20 trading days (40 days for REVERSAL).
 - `NEUTRAL`: Position closed at breakeven.
+
+> [!IMPORTANT]
+> **Intrabar SL vs Target Precedence**: If a single 5m/1h candle touches both Stop Loss (Low <= SL) and Target (High >= T1/T2/T3), **Stop Loss (`LOSS`) takes conservative precedence**.
+> **Terminal State Immutability Guard**: Once an alert reaches a terminal state (`WIN`, `LOSS`, `EXPIRED`, `CLOSED`), its `status`, `stop_loss`, and `exit_reason` columns are frozen and immutable.
+> **Share Sizing & Remainder Routing**: Position sizing calculates integer shares. Any fractional rounding remainder is routed to the final T3 tranche so `remaining_shares` reaches `0` cleanly.
 
 ## 14.2 Candidate State Machine & Cascade Transitions
 
@@ -1464,6 +1474,12 @@ def run_system_scheduler():
 > 2. **Distance Gate**: Allows candidates from 2% above to 5% below breakout level (`-0.02 <= dist_to_breakout <= 0.05`).
 > 3. **Execution Lock & Candle Alignment**: First intraday cycle runs on the completed 09:15–09:30 candle boundary at 09:30 AM IST and executes every 15 minutes (:00, :15, :30, :45) until 14:45 PM IST.
 > 4. **Cooldown & Max Alerts Architecture**: Uses `ALERT_COOLDOWN_MINUTES["MULTI_TF"] = 240` (4 hours) for intraday deduplication and `SCANNER_MAX_ALERTS["MULTI_TF"] = 15`.
+
+## 14.3 Intraday Exit Owner & Deduplication Architecture
+- **Intraday Exit Owner**: `PerformanceTracker` / `CMP Exit Monitor` (`app/performance_tracker.py`) runs every 5 minutes during market hours for ALL active `OPEN` alerts across all 6 scanners (`EOD`, `MULTI_TF`, `REVERSAL`, `PULLBACK`, `WEALTH`, `MULTIBAGGER`).
+- **Deduplication vs Cooldown Architecture**:
+  - `alerts_dedup_idx UNIQUE(symbol, breakout_type, scanner, alert_date)`: Prevents duplicate alert rows within the same calendar day.
+  - `ALERT_COOLDOWN_MINUTES`: Prevents re-alerting across consecutive trading sessions within the specified rolling minute window (e.g. 240m for Multi-TF, 40 trading days for Reversal).
 
 ---
 
