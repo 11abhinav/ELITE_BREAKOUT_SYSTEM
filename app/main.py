@@ -1185,6 +1185,24 @@ def run_system_scheduler():
 
         logger.info("✅ SCHEDULER | [8:30 AM] File readiness verification complete")
 
+    def safe_run_multibagger_scan_initial():
+        """Run Multibagger Scanner Cold Start at 4:00 AM with fresh watchlist."""
+        start_time = time.time()
+        try:
+            logger.info("🕒 SCHEDULER | [4:00 AM] Triggering Multibagger Scanner (initial cold start)")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_START")
+            telemetry.log_session_timeline("Started Multibagger Scanner Initial Setup Cycle")
+            _run_multibagger_scanner_single()
+            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_COMPLETE")
+            telemetry.log_session_timeline("Completed Multibagger Scanner Initial Setup Cycle Successfully")
+            return True
+        except Exception as e:
+            logger.exception(f"❌ SCHEDULER | Multibagger Scanner (initial cold start) crashed: {e}")
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_FAILED", error=str(e))
+            return False
+
     logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
     
     # Run boot verification
@@ -1196,6 +1214,7 @@ def run_system_scheduler():
     last_multi_tf = None          # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Tracks last 15-min candle-aligned Multi-TF execution
     daily_builder_ran = False
     wealth_initial_ran = False
+    multibagger_initial_ran = False
     verify_scans_ran = False
     multibagger_ran = False
     last_multibagger_date = None
@@ -1242,6 +1261,15 @@ def run_system_scheduler():
                 safe_run_wealth_scan_initial()
             elif now.hour != 2:
                 wealth_initial_ran = False
+            
+            now = datetime.now(IST)
+
+            # 4:00 AM - Multibagger Scanner (initial cold start)
+            if now.hour == 4 and now.minute >= 0 and not multibagger_initial_ran:
+                multibagger_initial_ran = True
+                safe_run_multibagger_scan_initial()
+            elif now.hour != 4:
+                multibagger_initial_ran = False
             
             now = datetime.now(IST)
             

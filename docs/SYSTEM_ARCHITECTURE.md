@@ -734,7 +734,7 @@ For each symbol in watchlist (daily OHLCV, period="1y"):
 
 ## 7.5 Multibagger Scanner (`app/multibagger.py` — V5 Pipeline)
 
-**Purpose:** Long-term compounder scanner targeting fundamentally excellent businesses (ROCE ≥ 20%, ROE ≥ 15%, debt-free) that meet V5 pipeline quality thresholds. Runs daily at 19:00 IST and 15-minute intraday exit monitor.
+**Purpose:** Long-term compounder scanner targeting fundamentally excellent businesses (ROCE ≥ 20%, ROE ≥ 15%, debt-free) that meet V5 pipeline quality thresholds. Runs cold start at **04:00 AM IST** (with fresh daily watchlist), post-market scan at **19:00 PM IST**, and **15-minute intraday exit monitor**.
 
 **Entry Point:** `run_multibagger_scan()` or `monitor_exits()` (intraday exit monitor)
 

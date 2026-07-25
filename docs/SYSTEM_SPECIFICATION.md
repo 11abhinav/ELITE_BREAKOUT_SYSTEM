@@ -99,7 +99,7 @@
     - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$ ($₹50,000$ capital allocation). Generates active BUY alert when in buy zone.
     - *🟡 Watchlist*: Composite Score $50–64$. **Non-alerting watchlist tier** (tracked in display cache for fundamental monitoring; strictly blocked from generating active BUY alerts).
   - **Category Label Binding**: The `category` column in the database (`alerts`) and alert payloads is strictly bound to the final post-bonus conviction tier (`tier`), ensuring zero mis-stamping of active alerts.
-  - **Exit Monitor**: Runs every 15 minutes during market hours to track trailing stops and fundamental decay signals.
+  - **Execution Schedule**: **04:00 AM IST Cold Start** (initial screening with fresh daily watchlist) + **19:00 PM IST Daily Scan** (post-market full scan) + **15-minute intraday exit monitor**.
 
   ---
 
