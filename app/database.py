@@ -5841,9 +5841,9 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
 
 def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None) -> bool:
     """Update last scan timestamp, score, and status for a watchlist item."""
-    init_db()
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     try:
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
