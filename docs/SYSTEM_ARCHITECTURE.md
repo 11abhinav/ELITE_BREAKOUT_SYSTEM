@@ -584,9 +584,9 @@ Universe: watchlist.parquet (all categories)
    ├─[Gate 5] Drop from 52W High: 20% ≤ drop ≤ 45% (REVERSAL_CONFIG band)
    ├─[Gate 6] Close > SMA_50 (mandatory trend recovery gate — FIX 2)
    ├─[Gate 7] Price ≤ SMA_200 + (MAX_DROP_BELOW_SMA200=20%) safety fence
-   ├─[Gate 8] RSI previously < RSI_OVERSOLD_THRESHOLD (45) AND current RSI ≥ RSI_CURL_MIN (50)
+   ├─[Gate 8] RSI previously ≤ RSI_OVERSOLD_THRESHOLD (38) AND current RSI ≥ RSI_CURL_MIN (50)
    ├─[Gate 9] Volume ratio ≥ MIN_VOLUME_RATIO (2.0× 20-bar avg)
-   ├─[Gate 10] Not in REVERSAL cooldown (30 trading day suppression on failed alerts)
+   ├─[Gate 10] Not in REVERSAL cooldown (40 trading day suppression on failed alerts, matching holding lifecycle)
    │
    └─[SCORE] Reversal scoring engine (max 100 pts, min threshold = 62)
          • Trend structure:    25 pts  (SMA50 reclaim + SMA200 position)
@@ -1714,14 +1714,14 @@ REVERSAL_CONFIG = {
     "MAX_DROP_FROM_52W_HIGH": 45.0,
     # ── [FIX] Reversal RSI Constraint Relaxation ──
     # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
-    "RSI_OVERSOLD_THRESHOLD": 45,
+    "RSI_OVERSOLD_THRESHOLD": 38,
     "RSI_CURL_MIN": 50,
     "MIN_VOLUME_RATIO": 2.0,
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,
     "MIN_YOY_REVENUE_GROWTH": 8.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
-    "REVERSAL_COOLDOWN_TRADING_DAYS": 30
+    "REVERSAL_COOLDOWN_TRADING_DAYS": 40
 }
 
 ALERT_COOLDOWN_MINUTES = {

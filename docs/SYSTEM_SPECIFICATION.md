@@ -31,12 +31,13 @@
     1. Price floor: `Close >= ₹100.0`
     2. Data sufficiency: $\ge 50$ historical daily bars (to support IPOs and new listings)
     3. Bullish candle: `Close > Open`, Body Ratio $\ge 45\%$, Close Position $\ge 65\%$ of candle range, Upper Wick $\le 35\%$
-    4. Volume surge: Volume Ratio $\ge 1.8\text{x}$ (vs 20-day average volume)
+    4. Volume surge: Volume Ratio $\ge 1.8\text{x}$ vs **20-day Median Volume** baseline (outlier-resistant baseline)
     5. ATR expansion: Candle Range / 20-day ATR $\ge 0.9$ (`MIN_ATR_EXPANSION_RATIO = 0.9`)
     6. Non-extended ATR gate: $(\text{Close} - \text{EMA}_{20}) / \text{ATR}_{20} \le 1.5$
     7. Base tightness: Bollinger Band Width Percentile $\le 80\text{th percentile}$
     8. Trend alignment: $\text{Close} > \text{SMA}_{50} > \text{SMA}_{200}$ (or reduced trend gate for 50-199 bar symbols) and $\text{Close} > \text{EMA}_{20}$
-    9. Minimum Score: Composite Score $\ge 82$ out of 100+
+    9. Scoring Modifiers: **+5 pts** clean 50D-high breakout bonus; **-5 pts** young listing penalty ($< 200$ bars)
+    10. Minimum Score: Composite Score $\ge 82$ out of 100+
   - **Candidate Truncation**: Evaluates all watchlist candidates, accumulates setups across universe chunks, and persists ONLY the **Top 10 ranked candidates** by composite score.
 
   ## 2.2 Multi-Timeframe (Multi-TF) Scanner (`app/multi_tf_scanner.py`)
@@ -49,6 +50,7 @@
     4. **Phase D (5m Trigger)**: Decoupled execution triggers:
       - *Thrust Mode*: Price breaks local 5m highs with strong volume confirmation near trigger level.
       - *Pullback Mode*: Breakout level or EMA9 is tested/defended, followed by a strong bullish rejection candle (close position $\ge 0.60$) with volume.
+    5. **Late-Session Entry Cutoff**: New Phase D entries are blocked after **14:15 IST** to eliminate late-day slippage and MOC imbalances.
   - **Minimum Score**: Composite Score $\ge 78$ out of 100. Minimum Risk-Reward Ratio $\ge 1.5$.
 
   ## 2.3 Reversal Scanner (`app/reversal_scanner.py`)
@@ -57,13 +59,14 @@
   - **Key Eligibility & Quality Gates**:
     1. **Drop Band Gate**: Stock must be **20.0% to 45.0% below its 52-week high** (`MAX_DROP_BELOW_SMA200 = 20.0`).
     2. **Trend Structure Reclaim**: $\text{Close} \ge \text{SMA}_{50}$ (mandatory trend recovery gate).
-    3. **Oversold RSI Curl**: RSI was $\le 45$ within the lookback window (`REVERSAL_RSI_LOOKBACK = 15`) and current RSI is $\ge 50$.
+    3. **Oversold RSI Curl**: RSI was $\le 38$ within the lookback window (`REVERSAL_RSI_LOOKBACK = 15`, `REVERSAL_RSI_MAX = 38`) and current RSI is $\ge 50$.
     4. **MACD Momentum**: Bullish MACD histogram crossover occurring within the last 10 trading bars.
     5. **Volume Confirmation**: Volume Ratio $\ge 2.0\text{x}$ 20-day average. 20-bar average volume $\ge 300,000$ shares.
     6. **Two-Tier Cooldown Architecture**: 
       - *Tier 1 (7-Day Alert Dedup)*: `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` prevents duplicate alert spam for active setups.
-      - *Tier 2 (30-Day Fallen Knife Defense)*: `REVERSAL_COOLDOWN_TRADING_DAYS = 30` blocks symbols that recently stopped out from re-triggering for 30 trading days.
-    7. **Minimum Score**: Composite Score $\ge 62$ out of 100+. Reward Potential $\ge 3.0R$ (T3-based) and Natural Risk-Reward Ratio $\ge 2.0R$ (T1-based).
+      - *Tier 2 (40-Day Fallen Knife Defense)*: `REVERSAL_COOLDOWN_TRADING_DAYS = 40` blocks symbols that recently stopped out from re-triggering for 40 trading days (matching holding lifecycle).
+    7. **Macro Regime Dampening**: In `STRONG_BEAR` macro regimes, the minimum score threshold is elevated to **90 pts** (vs normal 62 pts).
+    8. **Minimum Score**: Composite Score $\ge 62$ out of 100+ (90 in `STRONG_BEAR`). Reward Potential $\ge 3.0R$ (T3-based) and Natural Risk-Reward Ratio $\ge 2.0R$ (T1-based).
 
   ## 2.4 Pullback Pipeline (`app/pullback_pipeline.py`)
   - **Market Objective**: Identifies orderly, low-risk pullback entries within established strong uptrends.
@@ -73,7 +76,7 @@
     2. **Pivot & Impulse Wave**: Identifies recent swing high and validates impulse wave height ($\ge 8.0\%$, `MIN_IMPULSE_GAIN_PCT = 8.0`).
     3. **Orderly Pullback Structure**: Pullback depth must be between **23.6% and 61.8% Fibonacci retracement** of the impulse wave, accompanied by clear **volume contraction** (volume declining during pullback bars).
     4. **Resumption Trigger**: Bullish reversal bar closing above prior high/open (`PREVIOUS_HIGH`, `PREVIOUS_OPEN`, or `INSIDE_BAR`).
-    5. **Evidence Bonus**: $+3$ pts if stock triggered an EOD alert in last 30 days; $+2$ pts if stock triggered a Multibagger/Multi-TF alert.
+    5. **Sanitized Evidence Bonus**: $+3$ pts if stock triggered an active EOD alert in last 30 days; $+2$ pts if stock triggered an active Multibagger/Multi-TF alert (`only_active=True`, excluding stopped-out alerts).
     6. **Minimum Score**: Composite Score $\ge 75$ out of 100+ (base threshold 75 + regime modifier). Minimum Risk-Reward Ratio $\ge 2.0$.
 
   ## 2.5 Wealth Engine (`app/wealth_engine.py`)
@@ -82,6 +85,7 @@
     - **Gate 1 (Bucket Prerequisite)**:
       - *Non-Financial Stocks*: $\text{ROCE} \ge 20.0\%$, $\text{Debt/Equity} \le 1.0$, $\text{YoY Revenue Growth} \ge 10.0\%$.
       - *Financial Services (Banks/NBFCs)*: $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 3.0$, $\text{YoY Revenue Growth} \ge 10.0\%$.
+      - *Extreme Valuation Ceiling*: $\text{PEG} \le 3.0$ (instant kill-gate for extreme bubble valuations).
     - **Gate 2 (Timing Gate)**:
       - Fundamental Quality Score $\ge 55$, Technical Momentum Score $\ge 25$, and $\text{Price} > \text{SMA}_{200}$.
   - **Hybrid 2-Tier Schedule**:
@@ -89,7 +93,10 @@
     - *Full BUY Alert Scans*: Every 15 minutes during market hours to evaluate full 287-stock universe for new buy entries.
 
   ## 2.6 Multibagger Engine (`app/multibagger.py`)
-  - **Market Objective**: Evaluates multi-year compounders combining fundamental quality (Piotroski F-Score $\ge 6$), low promoter pledge ($\le 10\%$), high capital efficiency, and technical momentum.
+  - **Market Objective**: Evaluates multi-year compounders combining fundamental quality, low promoter pledge ($\le 10\%$), high capital efficiency, and technical momentum.
+  - **Tier Classification**:
+    - *🚀 Prime Multibagger*: Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$, and **Piotroski F-Score $\ge 7$**.
+    - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$.
   - **Exit Monitor**: Runs every 15 minutes during market hours to track trailing stops and fundamental decay signals.
 
   ---
