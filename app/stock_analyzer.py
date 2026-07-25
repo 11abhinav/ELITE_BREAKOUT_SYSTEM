@@ -18,7 +18,8 @@ from watchlist_cache import get_watchlist
 from sl_target_helper import compute_sl_and_target
 from database import (
     init_db, get_connection, save_alert_if_new,
-    get_user_watchlist, update_user_watchlist_scan_result
+    get_user_watchlist, update_user_watchlist_scan_result,
+    add_to_user_watchlist
 )
 from config import EOD_CONFIG, REVERSAL_CONFIG, PULLBACK_CONFIG, MULTI_TF_CONFIG
 
@@ -353,23 +354,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     else:
         pivots = swing_utils.detect_confirmed_pivots(df, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
         if pivots:
-            impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
-            if not impulse:
-                pb_status = "NO"
-                pb_reasons.append("❌ Pipeline Failed: No valid impulse origin found.")
-            else:
-                ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
-                if not ps.valid:
-                    pb_status = "NO"
-                    pb_reasons.append(f"❌ Pipeline Failed: Invalid pullback depth/volume structure (Depth: {ps.depth_pct:.1f}%, Vol: {ps.volume_ratio:.2f}x).")
-                else:
-                    trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
-                    if not trig.valid:
-                        pb_status = "NO"
-                        pb_reasons.append("❌ Pipeline Failed: No valid trigger bar detected today.")
-                    else:
-                        pb_status = "YES"
-                        pb_reasons.append(f"✅ Strict Pipeline Passed: Triggered Pullback at ₹{trig.entry_price:.2f} (Depth: {ps.depth_pct:.1f}%)")
+            pb_status = "CORE MET"
+            pb_reasons.append(f"Established Uptrend (Close ₹{close_price:.2f} > SMA50 > SMA200) | Valid Swing Structure")
         else:
             pb_status = "NO"
             pb_reasons.append("No confirmed swing pivots detected for pullback origin")
@@ -394,35 +380,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     if not we_issues:
         we_status = "CORE MET"
         we_reasons.append(f"Core Fundamentals Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5")
-        
-        try:
-            from core.multibagger_pipeline import run_pipeline_for_symbol
-            from wealth_engine import map_watchlist_to_v5
-            mapped_data = map_watchlist_to_v5(fund_data)
-            
-            sma50_we = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
-            sma200_we = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
-            rsi_we = float(bundle.rsi_14.iloc[-1]) if bundle.rsi_14 is not None and not bundle.rsi_14.empty else 50.0
-            
-            technicals = {
-                'price': close_price,
-                'sma_50': sma50_we,
-                'sma_200': sma200_we,
-                'rsi': rsi_we
-            }
-            
-            decision = run_pipeline_for_symbol(sym_clean, mapped_data, technicals)
-            inst_score = decision.composite_score
-            
-            if inst_score >= 65:
-                we_status = "YES"
-                we_reasons.append(f"✅ Strict Pipeline Passed: Institutional Score {inst_score} ≥ 65")
-            else:
-                we_status = "NO (Failed Pipeline)"
-                we_reasons.append(f"❌ Strict Pipeline Failed: Institutional Score {inst_score} < 65")
-                deficits.append(f"📉 Institutional Scoring Deficit: Score is {inst_score} (requires ≥65).")
-        except Exception as e:
-            we_reasons.append(f"(Could not run deep analysis: {str(e)})")
     elif roce_val >= 15.0 and roe_val >= 12.0:
         we_status = "WATCHLIST"
         we_reasons = we_issues
@@ -479,8 +436,22 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     if not deficits:
         deficits.append("🌟 Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment.")
 
+    # Check if ANY scanner met core conditions to auto-add to watchlist for deep processing
+    any_core_met = any(status.startswith("CORE MET") for status in [eod_status, pb_status, we_status, rev_status, mb_status, mtf_status])
+    if any_core_met:
+        # User requested: "YOU CAN SHOW CORE CONDTION MET, ADD TO WTAHCLIST ,STATUS WILL BE UPDATED THERE"
+        add_to_user_watchlist(sym_clean, company_name, user_id, status="ADDED_FOR_SCAN", health_score=overall_health_score)
+        
+        append_msg = "Added to Watchlist for deep scanning. Status will be updated there."
+        if eod_status.startswith("CORE MET"): eod_reasons.append(append_msg)
+        if pb_status.startswith("CORE MET"): pb_reasons.append(append_msg)
+        if we_status.startswith("CORE MET"): we_reasons.append(append_msg)
+        if rev_status.startswith("CORE MET"): rev_reasons.append(append_msg)
+        if mb_status.startswith("CORE MET"): mb_reasons.append(append_msg)
+        if mtf_status.startswith("CORE MET"): mtf_reasons.append(append_msg)
+
     # Update User Watchlist database state if exists
-    update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status="QUALIFIED" if (eod_status=="YES" or pb_status=="YES" or mb_status=="YES (Prime)") else "MONITORING")
+    update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status="QUALIFIED" if any_core_met else "MONITORING")
 
     # Check if symbol is already in user watchlist
     user_watchlist = get_user_watchlist(user_id)
