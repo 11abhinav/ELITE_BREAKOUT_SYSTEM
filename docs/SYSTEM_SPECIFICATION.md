@@ -3,7 +3,7 @@
   > **Document Class:** User & Admin Operational Manual
   > **Status:** Canonical Master Guide for system functionality, trading rules, and dashboard operations.
   > **Target File:** `docs/SYSTEM_SPECIFICATION.md`
-  > **Last Synchronized:** 2026-07-25 (v8.4.3+)
+  > **Last Synchronized:** 2026-07-25 (v8.4.4 Master Sync)
 
   ---
 
