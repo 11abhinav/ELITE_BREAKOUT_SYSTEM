@@ -1494,11 +1494,17 @@ class BaseRiskEngine:
             "consensus_target": round(t1_cand, 2)
         }
         
+        def _parse_pct(val): return int(str(val).replace('%', ''))
+        t1_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"])
+        t2_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"])
+        t3_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"])
+        t4_exit_str = f"{max(0, 100 - (t1_exit + t2_exit + t3_exit))}%"
+        
         targets = {
             "t1": {"price": round(t1, 2), "confidence": "HIGH", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"]},
             "t2": {"price": round(t2, 2), "confidence": "MEDIUM", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"]},
             "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]},
-            "t4": {"price": round(t4, 2), "confidence": "LOWEST", "exit": 100 - (ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"] + ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"] + ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"])}
+            "t4": {"price": round(t4, 2), "confidence": "LOWEST", "exit": t4_exit_str}
         }
         
         return targets, cluster_diagnostics
