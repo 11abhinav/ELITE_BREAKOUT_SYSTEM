@@ -1568,13 +1568,6 @@
           </select>
           <select id="filterStatus">
             <option value="">All status</option>
-            <option value="WIN">Win</option>
-            <option value="PARTIAL_WIN">Partial Win</option>
-            <option value="LOSS">Loss</option>
-            <option value="CLOSED_TODAY">Closed Today</option>
-            <option value="OPEN">Open</option>
-            <option value="NEUTRAL">Neutral</option>
-            <option value="REJECTED">Rejected</option>
           </select>
 
           <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
@@ -3658,12 +3651,17 @@
 
     function populateFilters(trades) {
       const scanners = [...new Set(trades.map(t => t.scanner))].sort();
+      const statuses = [...new Set(trades.map(t => t.status))].sort();
+      
       const sEl = document.getElementById('filterScanner');
+      const stEl = document.getElementById('filterStatus');
 
       // Keep the first default option, remove the rest
       while (sEl.options.length > 1) sEl.remove(1);
+      if(stEl) while (stEl.options.length > 1) stEl.remove(1);
 
       scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
+      if(stEl) statuses.forEach(st => { const o = document.createElement('option'); o.value = st; o.textContent = st; stEl.appendChild(o); });
     }
 
     function renderCategoryStats() {

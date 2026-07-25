@@ -544,11 +544,6 @@ function playDing() {
         <select id="filterScanner"><option value="">All scanners</option></select>
         <select id="filterStatus">
           <option value="">All status</option>
-          <option value="WIN">Win</option>
-          <option value="PARTIAL_WIN">Partial Win</option>
-          <option value="LOSS">Loss</option>
-          <option value="OPEN">Open</option>
-          <option value="NEUTRAL">Neutral</option>
         </select>
         <select id="filterCategory"><option value="">All categories</option></select>
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
@@ -1381,14 +1376,19 @@ document.addEventListener('click', e => {
 function populateFilters(trades) {
   const scanners = [...new Set(trades.map(t=>t.scanner))].sort();
   const cats     = [...new Set(trades.map(t=>t.category))].sort();
+  const statuses = [...new Set(trades.map(t=>t.status))].sort();
+  
   const sEl = document.getElementById('filterScanner');
   const cEl = document.getElementById('filterCategory');
+  const stEl = document.getElementById('filterStatus');
   
   while(sEl.options.length > 1) sEl.remove(1);
   while(cEl.options.length > 1) cEl.remove(1);
+  if(stEl) while(stEl.options.length > 1) stEl.remove(1);
   
   scanners.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sEl.appendChild(o); });
   cats.forEach(c     => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
+  if(stEl) statuses.forEach(st => { const o=document.createElement('option'); o.value=st; o.textContent=st; stEl.appendChild(o); });
 }
 
 function renderCategoryStats() {
