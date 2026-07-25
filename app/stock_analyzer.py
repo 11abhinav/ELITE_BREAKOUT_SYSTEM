@@ -152,42 +152,6 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     except Exception as e:
         logger.warning(f"Autocomplete watchlist lookup warning: {e}")
 
-    # 2. Database symbol_mappings fallback search
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT nse_symbol, name, sector
-                    SELECT_FROM: symbol_mappings
-                    WHERE UPPER(nse_symbol) LIKE %s OR UPPER(name) LIKE %s
-                    LIMIT %s
-                """.replace("SELECT_FROM:", "FROM"), (f"{q_clean}%", f"%{q_clean}%", limit))
-                rows = cur.fetchall()
-                for r in rows:
-                    sym = r[0].upper()
-                    if sym not in seen:
-                        seen.add(sym)
-                        results.append({
-                            "symbol": sym,
-                            "company_name": r[1] or sym,
-                            "sector": r[2] or "",
-                            "category": "EQUITY"
-                        })
-                        if len(results) >= limit:
-                            return results
-    except Exception:
-        pass
-
-    # 3. Fallback entry for raw symbol if valid ticker format
-    import re
-    if not results and len(q_clean) >= 2 and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
-        results.append({
-            "symbol": q_clean,
-            "company_name": q_clean,
-            "sector": "NSE/BSE Equity",
-            "category": "CUSTOM"
-        })
-
     return results[:limit]
 
 

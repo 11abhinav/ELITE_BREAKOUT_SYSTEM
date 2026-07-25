@@ -1287,15 +1287,10 @@
           </button>
         </div>
 
-        <div style="position:relative; max-width:640px; z-index:101;">
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE, PERSISTENT)..." 
-                   style="flex:1; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
-                   oninput="handleStockSearchInput(this.value)" onkeydown="if(event.key==='Enter') triggerStockDiagnostic()" autocomplete="off" />
-            <button onclick="triggerStockDiagnostic()" style="padding:11px 20px; background:linear-gradient(135deg, #3b82f6, #8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
-              <span>⚡</span> Analyze Stock
-            </button>
-          </div>
+      <div style="position:relative; max-width:640px; z-index:101; width:100%;">
+        <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE)... and select from dropdown" 
+               style="width:100%; box-sizing:border-box; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
+               oninput="handleStockSearchInput(this.value)" autocomplete="off" />
 
           <!-- Autocomplete Suggestions Dropdown -->
           <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; max-height:280px; overflow-y:auto; z-index:99999; box-shadow:0 12px 35px rgba(0,0,0,0.25);">
