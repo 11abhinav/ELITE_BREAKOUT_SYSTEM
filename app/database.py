@@ -1442,7 +1442,7 @@ def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 30) -> set:
                     )
                     SELECT symbol, alert_date, exit_reason
                     FROM LatestAlerts
-                    WHERE rn = 1 AND UPPER(status) = 'LOSS'
+                    WHERE rn = 1 AND (UPPER(status) = 'LOSS' OR (pnl_pct IS NOT NULL AND pnl_pct < 0))
                 """)
                 
                 rows = cur.fetchall()
@@ -1898,6 +1898,9 @@ def update_alert_outcome(
                     cur.execute("SELECT status, stop_loss, remaining_shares, exit_history FROM alerts WHERE id = %s", (alert_id,))
                     row = cur.fetchone()
                     if not row: return
+                    if row[0] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
+                        logger.debug(f"🔒 Alert {alert_id} is already in terminal state ({row[0]}); ignoring outcome update.")
+                        return
                     old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
 
                     # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
