@@ -174,7 +174,8 @@ class UnifiedFetcher:
                                             for orig in chunk:
                                                 if self.fyers._normalize_symbol(orig) == item["n"]:
                                                     results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
-                                                    # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Use discard instead of remove to avoid KeyError
+                                                    # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for live quotes
+                                                    logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig}: ₹{item['v']['lp']:.2f}")
                                                     pending.discard(orig)
                                                     break
                         except Exception as e:
@@ -211,6 +212,8 @@ class UnifiedFetcher:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
+                                                # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for live quotes
+                                                logger.info(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception:
                                         pass
@@ -248,6 +251,8 @@ class UnifiedFetcher:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
+                                                # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for fallback resolution
+                                                logger.info(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception:
                                         pass
