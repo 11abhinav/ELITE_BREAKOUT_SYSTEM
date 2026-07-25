@@ -109,7 +109,7 @@ def test_structure_reset_new_high():
 def test_duration_boundaries():
     # 2 bars pullback -> fail (MIN_DURATION=3)
     highs_short = [100]*20 + [150] + [145, 142, 144]
-    lows_short  = [90]*20  + [140] + [140, 138, 140]
+    lows_short  = [90]*20  + [140] + [140, 135, 140]
     df_short = make_df(highs_short, lows=lows_short)
     
     impulse = ImpulseLeg(

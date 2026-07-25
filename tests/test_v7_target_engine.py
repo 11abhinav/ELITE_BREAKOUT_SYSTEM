@@ -10,8 +10,8 @@ def test_eod_target_cluster_nearest_valid_invariant():
         3.0,                   # candle_range
         "EOD",                 # mode
         swing_low=95.0,        # SL around 93.40 -> risk = 6.60
-        prev_day_high=114.5,   # t1 R:R = (114.5 - 100) / 6.60 = 2.20x (< 2.5x)
-        high_52w=125.0,        # t2 R:R = (125.0 - 100) / 6.60 = 3.79x (>= 2.5x)
+        prev_day_high=110.0,   # t1 R:R = (110.0 - 100) / 7.0 = 1.43x (< 2.0x min_rr)
+        high_52w=125.0,        # t2 R:R = (125.0 - 100) / 7.0 = 3.57x (>= 2.0x min_rr)
     )
     assert not res_t2.get("is_rejected"), f"Expected pass, got rejection: {res_t2.get('rejection_reason')}"
     assert res_t2.get("target_1") == 125.0, f"Expected t2 (125.0), got {res_t2.get('target_1')}"
