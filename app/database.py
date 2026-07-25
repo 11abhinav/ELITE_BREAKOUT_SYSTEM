@@ -1424,7 +1424,7 @@ def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) 
 # ── Public API ────────────────────────────────────────────────────────────────────────
 
 
-def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 30) -> set:
+def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 40) -> set:
     """
     Bulk fetches all symbols that are currently in a failed reversal cooldown.
     Returns a set of symbols for O(1) lookup in the scanner loop.

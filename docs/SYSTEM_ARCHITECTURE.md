@@ -40,7 +40,7 @@
 
 ## 1.1 Process Architecture & Deployment Budget
 - **Runtime Environment**: Single Python 3.9 process running inside a Linux/Railway container.
-- **Resource Budget**: Strictly bounded at **2.0 GB RAM (2048 MB)** (System Memory Budget). Warning/eviction threshold = 1200 MB (60%), transient peak = 1400–1600 MB, emergency GC kill = 1800 MB (90%).
+- **Resource Budget**: **2.0 GB RAM (2048 MB)** Recommended Container Operating Budget (Absolute System Hard Minimum Floor = **1.0 GB RAM** for low-footprint environments). Warning/eviction threshold = 1200 MB (60%), transient peak = 1400–1600 MB, emergency GC kill = 1800 MB (90%).
 - **Process Isolation Directive**: Microservices are explicitly prohibited due to RAM duplication, inter-process serialization overhead, and network latency. All subsystems run in-process using thread pools and shared memory structures.
 - **System Mandatory Invariants**:
   - **IST Timezone**: All timing, candle boundaries, trading schedules, and database timestamps MUST be evaluated in **IST (Asia/Kolkata - UTC+5:30)**.
@@ -607,7 +607,7 @@ Universe: watchlist.parquet (all categories)
 **Key Config References:**
 - `REVERSAL_CONFIG` — all filter thresholds
 - `MIN_NATURAL_RR["REVERSAL"] = 2.0` — minimum R:R accepted
-- **Two-Tier Cooldown Precedence**: Tier 2 (30-day Fallen Knife Defense) has higher precedence over Tier 1 (7-day alert dedup). If a symbol stopped out on a reversal trade within 30 trading days, it is hard-blocked even if Tier 1 alert dedup has expired.
+- **Two-Tier Cooldown Precedence**: Tier 2 (40-day Fallen Knife Defense) has higher precedence over Tier 1 (7-day alert dedup). If a symbol stopped out on a reversal trade within 40 trading days, it is hard-blocked even if Tier 1 alert dedup has expired.
 - `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` (7 days dedup)
 - `SCANNER_MAX_ALERTS["REVERSAL"] = 10`
 - SL/Target: `compute_sl_and_target(mode="REVERSAL")` — uses ATR=2.0 base, sl_atr_buf=1.0
@@ -616,9 +616,7 @@ Universe: watchlist.parquet (all categories)
 
 ---
 
-## 7.3 Multi-TF Intraday Scanner (`app/multi_tf_scanner.py`)
-
-**Purpose:** Intraday 4-phase cascade scanner operating on 1H → 30m → 15m → 5m timeframes. Identifies breakout setups with multi-timeframe trend alignment and fires buy alerts only on 5m confirmed triggers. Runs every 15 minutes during market hours (09:15–15:30 IST).
+**Purpose:** Intraday 4-phase cascade scanner operating on 1H → 30m → 15m → 5m timeframes. Identifies breakout setups with multi-timeframe trend alignment and fires buy alerts only on 5m confirmed triggers. Runs every 15 minutes between **09:30 AM and 14:45 PM IST** during market hours (with a strict **14:15 IST entry cutoff** blocking new Phase D entries).
 
 **Two Entry Points:**
 - `run_hourly_phase()` — Phase A: scans entire universe on 1H, builds `breakout_watchlist`
@@ -2302,7 +2300,7 @@ DATA_PROVIDER=auto
 
 ### Q29 – Q36: Individual AI Reconstruction Answers
 - **Q29 (Import Graph Order)**: `config.py` $\rightarrow$ `core_enums.py` $\rightarrow$ `database.py` $\rightarrow$ `lock_utils.py` $\rightarrow$ `price_cache.py` $\rightarrow$ `indicator_manager.py` $\rightarrow$ `unified_fetcher.py` $\rightarrow$ `scoring_engine.py` $\rightarrow$ `scanners` $\rightarrow$ `main.py`.
-- **Q30 (Reversal Cooldown Precedence)**: Tier 2 (30-day Fallen Knife Defense) takes precedence over Tier 1 (7-day alert dedup).
+- **Q30 (Reversal Cooldown Precedence)**: Tier 2 (40-day Fallen Knife Defense) takes precedence over Tier 1 (7-day alert dedup).
 - **Q31 (Date & Timezone Standards)**: All date operations use IST (`Asia/Kolkata`) `datetime.now(ZoneInfo("Asia/Kolkata"))`.
 - **Q32 (Currency Standard)**: All price and risk metrics use Indian Rupees (₹ / RS).
 - **Q33 (Idempotent DB Migrations)**: All database DDL changes use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
