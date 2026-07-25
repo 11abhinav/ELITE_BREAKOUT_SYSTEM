@@ -175,6 +175,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     if db_pass:
         db_reasons.append(f"Price ₹{close_price:.2f} ≥ ₹100.0 | Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {history_len} ≥ 50")
 
+    # Default indicators
+    vol_ratio = 1.0
+
     # ---------------- STAGE 2: EOD BREAKOUT SCANNER ----------------
     eod_status = "NO"
     eod_reasons = []

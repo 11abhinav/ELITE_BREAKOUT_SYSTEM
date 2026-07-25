@@ -243,8 +243,9 @@ class TestUserWatchlistRepository(unittest.TestCase):
 class TestStockAnalyzerApiEndpoints(unittest.TestCase):
     """Test suite for Flask REST API endpoints serving Analyse Your Watchlist feature."""
 
+    @patch('dashboard_server._cached_check_session', return_value=True)
     @patch('stock_analyzer.search_symbols_autocomplete')
-    def test_api_symbols_suggest_endpoint(self, mock_suggest):
+    def test_api_symbols_suggest_endpoint(self, mock_suggest, mock_check):
         """Verify /api/v1/symbols/suggest route returns JSON list."""
         mock_suggest.return_value = [{"symbol": "TATAMOTORS", "company_name": "Tata Motors Ltd"}]
 
@@ -253,6 +254,7 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
             with client.session_transaction() as sess:
                 sess['logged_in'] = True
                 sess['user_id'] = 'TEST_USER'
+                sess['session_token'] = 'TOKEN123'
 
             resp = client.get('/api/v1/symbols/suggest?q=TATA')
             self.assertEqual(resp.status_code, 200)
@@ -260,8 +262,9 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
             self.assertEqual(len(data), 1)
             self.assertEqual(data[0]["symbol"], "TATAMOTORS")
 
+    @patch('dashboard_server._cached_check_session', return_value=True)
     @patch('stock_analyzer.analyze_symbol')
-    def test_api_analyze_stock_endpoint(self, mock_analyze):
+    def test_api_analyze_stock_endpoint(self, mock_analyze, mock_check):
         """Verify /api/v1/analyze_stock route returns diagnostic analysis object."""
         mock_analyze.return_value = {"success": True, "symbol": "TATAMOTORS", "overall_health_score": 85.0}
 
@@ -270,6 +273,7 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
             with client.session_transaction() as sess:
                 sess['logged_in'] = True
                 sess['user_id'] = 'TEST_USER'
+                sess['session_token'] = 'TOKEN123'
 
             resp = client.get('/api/v1/analyze_stock?symbol=TATAMOTORS')
             self.assertEqual(resp.status_code, 200)
