@@ -2331,10 +2331,8 @@ def api_notices(symbol):
         notices = []
         for n in data[:4]:
             desc = str(n.get("desc", ""))
-            # Truncate overly long descriptions
             if len(desc) > 40:
                 desc = desc[:37] + "..."
-                
             notices.append({
                 "date": n.get("an_dt", "").split(" ")[0],
                 "desc": desc,
@@ -2357,10 +2355,19 @@ def api_notices(symbol):
             pass
         return jsonify([])
 
+_ALL_TICKERS_CACHE = None
+_ALL_TICKERS_TS = 0
+
 @app.route('/api/all_tickers', methods=['GET'])
 @login_required
 def api_all_tickers():
     """Returns a list of all active NSE symbols for frontend autocomplete."""
+    global _ALL_TICKERS_CACHE, _ALL_TICKERS_TS
+    import time
+    now_sec = time.time()
+    if _ALL_TICKERS_CACHE is not None and (now_sec - _ALL_TICKERS_TS) < 300:
+        return jsonify(_ALL_TICKERS_CACHE)
+
     try:
         import pandas as pd
         import os
@@ -2372,9 +2379,10 @@ def api_all_tickers():
                     if 'Stock' in df.columns:
                         tickers.update(df['Stock'].dropna().unique().tolist())
                 except Exception: pass
-        if tickers:
-            return jsonify(sorted(list(tickers)))
-        return jsonify([])
+        result = sorted(list(tickers)) if tickers else []
+        _ALL_TICKERS_CACHE = result
+        _ALL_TICKERS_TS = now_sec
+        return jsonify(result)
     except Exception as e:
         logger.exception(f"Failed to fetch tickers")
         return jsonify([])
@@ -2787,11 +2795,14 @@ def start_dashboard_server():
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
+_BREAKOUT_CMP_CACHE = {}
+_BREAKOUT_CMP_LAST_FETCH = 0
 
 @app.route("/api/breakout_watchlist", methods=["GET"])
 @login_required
 def api_breakout_watchlist():
     """Returns the live multi-tf breakout watchlist from the database."""
+    global _BREAKOUT_CMP_CACHE, _BREAKOUT_CMP_LAST_FETCH
     try:
         from database import get_active_breakout_watchlist
         data = get_active_breakout_watchlist()
@@ -2799,7 +2810,7 @@ def api_breakout_watchlist():
         if data:
             try:
                 import pandas as pd
-                import os
+                import os, time
                 from datetime import datetime
                 from zoneinfo import ZoneInfo
                 from config import DATA_DIR
@@ -2807,17 +2818,27 @@ def api_breakout_watchlist():
                 
                 ist = ZoneInfo('Asia/Kolkata')
                 symbols = list(set([d["symbol"] for d in data]))
-                prices = {}
+                now_sec = time.time()
 
-                # Centralized live prices query (attempts Fyers first, falls back to YFinance)
-                live_prices_dict = get_live_prices(symbols)
+                # Refresh live prices dictionary at most once every 15s to avoid blocking server WSGI threads
+                if (now_sec - _BREAKOUT_CMP_LAST_FETCH) > 15:
+                    try:
+                        live_prices_dict = get_live_prices(symbols)
+                        for sym in symbols:
+                            price = live_prices_dict.get(sym)
+                            if price is not None and price > 0:
+                                _BREAKOUT_CMP_CACHE[sym] = {"price": price, "ts": datetime.now(ist).isoformat()}
+                        _BREAKOUT_CMP_LAST_FETCH = now_sec
+                    except Exception as ex:
+                        logger.warning(f"Failed live CMP fetch: {ex}")
 
-                for sym in symbols:
-                    price = live_prices_dict.get(sym)
-                    if price is not None and price > 0:
-                        prices[sym] = {"price": price, "ts": datetime.now(ist).isoformat()}
+                for d in data:
+                    sym = d["symbol"]
+                    if sym in _BREAKOUT_CMP_CACHE:
+                        d["cmp"] = _BREAKOUT_CMP_CACHE[sym]["price"]
+                        d["last_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
                     else:
-                        # Fallback to local cache if live fetch fails
+                        # Fallback to local parquet history
                         try:
                             sym_clean = sym.replace(':', '_')
                             latest_mtime = 0
@@ -2835,20 +2856,13 @@ def api_breakout_watchlist():
                                     df_valid = df.dropna(subset=["Close"])
                                     if not df_valid.empty:
                                         dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=ZoneInfo('UTC'))
-                                        prices[sym] = {
-                                            "price": float(df_valid["Close"].iloc[-1]),
-                                            "ts": dt_utc.astimezone(ist).isoformat()
-                                        }
+                                        d["cmp"] = float(df_valid["Close"].iloc[-1])
+                                        d["last_updated"] = dt_utc.astimezone(ist).isoformat()
                         except Exception:
                             pass
                             
-                for d in data:
-                    if d["symbol"] in prices:
-                        d["cmp"] = prices[d["symbol"]]["price"]
-                        d["last_updated"] = prices[d["symbol"]]["ts"]
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to fetch live CMP for watchlist: {e}")
+                logger.warning(f"Failed to fetch live CMP for watchlist: {e}")
 
         return jsonify({"status": "success", "data": serialize_datetimes(data)})
     except Exception as e:
