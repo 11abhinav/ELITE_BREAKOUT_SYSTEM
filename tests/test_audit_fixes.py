@@ -277,12 +277,14 @@ class TestAuditFixes(unittest.TestCase):
         tier3, score3 = classify_conviction(cqs=52.0, pas=30.0, trend=5.0, composite=55.0, f_score=4)
         self.assertEqual(tier3, "🟡 Watchlist")
 
+    @patch('pullback_pipeline.init_db')
+    @patch('pullback_pipeline.get_recent_alerts_for_scanner', return_value=set())
     @patch('pullback_pipeline.upsert_scanner_health')
     @patch('pullback_pipeline.get_watchlist')
     @patch('pullback_pipeline.fetch_watchlist_data')
     @patch('pullback_pipeline.get_nifty_20d_return', return_value=0.02)
     @patch('pullback_pipeline.get_macro_regime', return_value="NEUTRAL")
-    def test_pullback_health_telemetry_counts(self, mock_regime, mock_ret, mock_fetch, mock_wl, mock_health):
+    def test_pullback_health_telemetry_counts(self, mock_regime, mock_ret, mock_fetch, mock_wl, mock_health, mock_recent, mock_init_db):
         """Verify pullback_pipeline passes total_count and processed_count to upsert_scanner_health."""
         import pandas as pd
         df = pd.DataFrame([{"Stock": "TCS", "Category": "LARGE", "Sector": "IT"}])
