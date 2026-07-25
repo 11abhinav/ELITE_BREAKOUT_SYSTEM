@@ -1835,9 +1835,17 @@
     const pct = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
     const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
     const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
-    const badgeHtml = s => {
+    const badgeHtml = (s, t) => {
       const m = { WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
-      return `<span class="badge ${m[s] || 'badge-neutral'}">${s}</span>`;
+      let html = `<span class="badge ${m[s] || 'badge-neutral'}">${s}</span>`;
+      if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
+        const isWin = t.shadow_status === 'SHADOW_WIN';
+        const shColor = isWin ? '#00e5a0' : '#ff4d4d';
+        const pnlStr = t.shadow_pnl_pct != null ? (t.shadow_pnl_pct >= 0 ? '+' : '') + t.shadow_pnl_pct + '%' : '';
+        const shText = isWin ? `SHADOW WIN ${pnlStr}` : `SHADOW LOSS ${pnlStr}`;
+        html += ` <span style="font-size:10px; font-weight:bold; color:${shColor}; background:rgba(0,0,0,0.06); padding:2px 6px; border-radius:4px; margin-left:4px; border:1px solid ${shColor}44;" title="Counterfactual Shadow Outcome">👻 ${shText}</span>`;
+      }
+      return html;
     };
     const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
     const timeAgo = ts => {
@@ -2755,7 +2763,7 @@
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
       <td style="color:var(--muted)">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
-      <td>${badgeHtml(t.status)}</td>
+      <td>${badgeHtml(t.status, t)}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="15">

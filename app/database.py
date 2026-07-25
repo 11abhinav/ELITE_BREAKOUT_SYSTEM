@@ -372,6 +372,11 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+                # Shadow Tracking Columns for Counterfactual Telemetry (is_rejected = TRUE)
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_status TEXT DEFAULT 'SHADOW_OPEN'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_exit_price REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_pnl_pct REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_closed_at TIMESTAMPTZ")
                 # P1: Exit tracking columns required for expectancy matrix & Bayesian win_rate
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS realized_r REAL")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rr_ratio REAL")
@@ -1957,6 +1962,39 @@ def update_alert_outcome(
                     except Exception:
                         pass
 
+def update_shadow_alert_outcome(
+    alert_id: int,
+    shadow_status: str,          # "SHADOW_WIN" | "SHADOW_LOSS" | "SHADOW_EXPIRED" | "SHADOW_NEUTRAL"
+    shadow_exit_price: float,
+    shadow_pnl_pct: float,
+    shadow_closed_at: Optional[str] = None
+) -> None:
+    """
+    Write back counterfactual telemetry for rejected alerts (is_rejected = TRUE).
+    Does NOT touch live portfolio equity, capital, status, or main outcome columns.
+    """
+    if shadow_closed_at is None:
+        shadow_closed_at = datetime.now(IST).isoformat()
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT shadow_status FROM alerts WHERE id = %s", (alert_id,))
+                    row = cur.fetchone()
+                    if row and row[0] in ("SHADOW_WIN", "SHADOW_LOSS", "SHADOW_EXPIRED", "SHADOW_NEUTRAL"):
+                        return
+                    cur.execute("""
+                        UPDATE alerts
+                        SET shadow_status = %s,
+                            shadow_exit_price = %s,
+                            shadow_pnl_pct = %s,
+                            shadow_closed_at = %s
+                        WHERE id = %s
+                    """, (shadow_status, shadow_exit_price, shadow_pnl_pct, shadow_closed_at, alert_id))
+                    conn.commit()
+            except Exception:
+                logger.exception(f"❌ update_shadow_alert_outcome failed for alert_id={alert_id}")
+
 def update_alert_current_price(alert_id: int, current_price: float) -> None:
     """Update current_price column for a specific alert."""
     with _DB_WRITE_LOCK:
@@ -2085,6 +2123,7 @@ def get_all_alerts() -> list[dict]:
                     target_price, target_1, target_2, target_3,
                     signals, score, rsi, volume_ratio,
                     status, exit_price, pnl_pct, closed_at, is_rejected,
+                    shadow_status, shadow_exit_price, shadow_pnl_pct, shadow_closed_at,
                     capital_allocated, shares_bought, remaining_shares, exit_history, pnl_rs, context,
                     model_version, data_partition, current_price
                 FROM alerts

@@ -217,5 +217,29 @@ class TestAuditFixes(unittest.TestCase):
             res = fetch_delivery_data(datetime.date(2026, 7, 24), skip_db_save=True)
             self.assertEqual(res.get("RELIANCE"), 45.2, "EQ series delivery percentage (45.2%) MUST be prioritized over BE series (95.0%)")
 
+    @patch('database.get_connection')
+    def test_update_shadow_alert_outcome(self, mock_get_conn):
+        """Verify update_shadow_alert_outcome updates counterfactual shadow columns without altering main status."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        
+        # Row 1: shadow_status is currently 'SHADOW_OPEN'
+        mock_cursor.fetchone.return_value = ('SHADOW_OPEN',)
+        
+        from database import update_shadow_alert_outcome
+        update_shadow_alert_outcome(101, 'SHADOW_WIN', 125.0, 15.5)
+        
+        # Verify SQL query updated shadow columns
+        mock_cursor.execute.assert_called()
+        calls = mock_cursor.execute.call_args_list
+        update_call = calls[-1]
+        self.assertIn("UPDATE alerts", update_call[0][0])
+        self.assertIn("shadow_status = %s", update_call[0][0])
+        self.assertEqual(update_call[0][1][0], 'SHADOW_WIN')
+        self.assertEqual(update_call[0][1][1], 125.0)
+        self.assertEqual(update_call[0][1][2], 15.5)
+
 if __name__ == '__main__':
     unittest.main()

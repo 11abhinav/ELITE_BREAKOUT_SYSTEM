@@ -666,9 +666,30 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.debug(f"⏭️  {sym} already closed ({t['status']}) — skipping bar fetch")
             continue
 
-        # ── Skip Rejected Trades ────────────────────────────────────────────────
+        # ── Counterfactual Shadow Tracking for Rejected Trades ──────────────────────
         if t.get("is_rejected"):
-            logger.debug(f"⏭️  {sym} is REJECTED — skipping SL/Target evaluation")
+            shadow_st = t.get("shadow_status") or "SHADOW_OPEN"
+            if shadow_st not in ("SHADOW_WIN", "SHADOW_LOSS", "SHADOW_EXPIRED", "SHADOW_NEUTRAL") and cur_p and ep and sl:
+                t1 = t.get("target_1") or t.get("target_price") or (ep * 1.05)
+                sh_status = None
+                sh_exit_p = None
+                if cur_p <= sl:
+                    sh_status = "SHADOW_LOSS"
+                    sh_exit_p = sl
+                elif cur_p >= t1:
+                    sh_status = "SHADOW_WIN"
+                    sh_exit_p = t1
+                elif (t.get("days_held") or 0) >= 20:
+                    sh_status = "SHADOW_EXPIRED"
+                    sh_exit_p = cur_p
+                
+                if sh_status:
+                    sh_pnl = round(((sh_exit_p - ep) / ep) * 100, 2)
+                    t["shadow_status"] = sh_status
+                    t["shadow_exit_price"] = sh_exit_p
+                    t["shadow_pnl_pct"] = sh_pnl
+                    from database import update_shadow_alert_outcome
+                    update_shadow_alert_outcome(t["id"], sh_status, sh_exit_p, sh_pnl)
             continue
 
         # FIX: use `is None` (not falsy check) so ep=0.0 doesn't misfire.
