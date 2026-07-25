@@ -26,6 +26,88 @@ logger = logging.getLogger("stock_analyzer")
 IST = ZoneInfo("Asia/Kolkata")
 
 
+def validate_nse_bse_ticker(symbol: str) -> dict:
+    """
+    Validates if the provided ticker symbol is a recognized NSE/BSE Indian stock ticker.
+    Checks watchlist cache, database symbol_mappings, and market price data fetcher.
+    """
+    if not symbol or not isinstance(symbol, str) or len(symbol.strip()) < 1:
+        return {
+            "is_valid": False,
+            "error": "Symbol input cannot be empty. Please enter a valid NSE/BSE stock ticker (e.g. TATAMOTORS, RELIANCE, PERSISTENT)."
+        }
+
+    raw = symbol.strip().upper()
+    sym_clean = raw.replace('.NS', '').replace('.BO', '')
+
+    import re
+    if not re.match(r"^[A-Z0-9&\-]{2,20}$", sym_clean):
+        return {
+            "is_valid": False,
+            "error": f"Invalid ticker format '{symbol}'. NSE/BSE stock symbols contain only letters, numbers, hyphens, and ampersands (e.g. TATAMOTORS, M&M, BAJAJ-AUTO)."
+        }
+
+    company_name = sym_clean
+    sector_name = "EQUITY"
+    found = False
+
+    # 1. Check Watchlist Cache (~2000+ active NSE/BSE symbols)
+    try:
+        wl = get_watchlist()
+        if not wl.empty:
+            match = wl[wl['Stock'].str.upper() == sym_clean]
+            if not match.empty:
+                found = True
+                row = match.iloc[0]
+                company_name = str(row.get("Company", sym_clean))
+                sector_name = str(row.get("Sector", "EQUITY"))
+    except Exception as e:
+        logger.warning(f"Watchlist validation lookup warning for {sym_clean}: {e}")
+
+    # 2. Check Database symbol_mappings
+    if not found:
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT name, sector
+                        FROM symbol_mappings
+                        WHERE UPPER(nse_symbol) = %s OR UPPER(bse_symbol) = %s
+                        LIMIT 1
+                    """, (sym_clean, sym_clean))
+                    row = cur.fetchone()
+                    if row:
+                        found = True
+                        company_name = row[0] or sym_clean
+                        sector_name = row[1] or "EQUITY"
+        except Exception:
+            pass
+
+    # 3. Live Price Cache verification fallback
+    if not found:
+        try:
+            sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
+            fetched_map = fetch_watchlist_data(sample_df, "1mo", "1d", requester="TICKER_VALIDATOR")
+            df = fetched_map.get(sym_clean) or fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
+            if df is not None and isinstance(df, pd.DataFrame) and not df.empty and len(df) >= 5:
+                found = True
+        except Exception:
+            pass
+
+    if not found:
+        return {
+            "is_valid": False,
+            "error": f"❌ '{sym_clean}' is NOT a recognized NSE/BSE ticker symbol. Please correct the stock ticker (e.g. TATAMOTORS, RELIANCE, PERSISTENT) or choose from the autocomplete dropdown list."
+        }
+
+    return {
+        "is_valid": True,
+        "symbol": sym_clean,
+        "company_name": company_name,
+        "sector": sector_name
+    }
+
+
 def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     """
     Real-time autocomplete search returning matching NSE/BSE symbols & company titles.
@@ -88,8 +170,9 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     except Exception:
         pass
 
-    # 3. Fallback entry for raw symbol if no matches found
-    if not results and len(q_clean) >= 2:
+    # 3. Fallback entry for raw symbol if valid ticker format
+    import re
+    if not results and len(q_clean) >= 2 and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
         results.append({
             "symbol": q_clean,
             "company_name": q_clean,
@@ -103,9 +186,19 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
-    Returns composite health score, RS percentile, deficit summary, and 7-stage funnel results.
+    Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
     """
-    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    # 0. Validate NSE/BSE Ticker
+    val = validate_nse_bse_ticker(symbol)
+    if not val["is_valid"]:
+        return {
+            "symbol": symbol.strip().upper() if symbol else "",
+            "success": False,
+            "is_invalid_ticker": True,
+            "error": val["error"]
+        }
+
+    sym_clean = val["symbol"]
     ist_now = datetime.now(IST)
 
     # 1. Fetch OHLCV Market Data

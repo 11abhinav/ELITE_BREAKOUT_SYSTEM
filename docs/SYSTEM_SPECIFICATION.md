@@ -297,6 +297,7 @@
                 └─ 4. Run Pullback Pipeline Scanner (max 10m hard timeout)
   ## 4.4 "Analyse Your Watchlist" Diagnostic System & Personal Watchlist (`app/stock_analyzer.py`)
   An on-demand stock analysis, diagnostic, and watchlist management suite accessible on both User and Admin dashboards:
+  - **Strict NSE/BSE Ticker Validation (`validate_nse_bse_ticker`)**: Before running scanner pipelines, inputs are strictly validated against Indian exchange stock registries (watchlist cache, database mappings, price fetcher). Returns explicit error asking user to correct invalid ticker symbols.
   - **Real-Time Autocomplete Search**: Subsecond NSE/BSE ticker suggestions (`/api/v1/symbols/suggest?q=PREFIX`) matching symbol prefixes and company titles.
   - **Overall Health Score (0-100)**: Quantitative composite score combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile vs Nifty 500 (20%).
   - **"What It Lacks" Deficit Summary**: Bulleted list of parameter gaps holding a stock back from becoming a top-tier active alert (e.g. volume ratio deficit, upper wick excess, Piotroski F-score gap, leverage).

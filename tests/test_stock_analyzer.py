@@ -60,6 +60,36 @@ class TestStockAnalyzerAutocomplete(unittest.TestCase):
 class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
     """Test suite for 7-stage quantitative scanner funnel and health score engine."""
 
+    def test_validate_nse_bse_ticker_invalid_format(self):
+        """Verify ticker validator rejects invalid characters and symbols."""
+        from stock_analyzer import validate_nse_bse_ticker
+        res = validate_nse_bse_ticker("INVALID@SYMBOL#123")
+        self.assertFalse(res["is_valid"])
+        self.assertIn("Invalid ticker format", res["error"])
+
+    @patch('stock_analyzer.get_watchlist')
+    @patch('stock_analyzer.get_connection')
+    @patch('stock_analyzer.fetch_watchlist_data')
+    def test_validate_nse_bse_ticker_unrecognized_symbol(self, mock_fetch, mock_conn, mock_wl):
+        """Verify ticker validator rejects unrecognized tickers not on NSE/BSE."""
+        mock_wl.return_value = pd.DataFrame([])
+        mock_fetch.return_value = {}
+
+        from stock_analyzer import validate_nse_bse_ticker
+        res = validate_nse_bse_ticker("NONEXISTENT999")
+        self.assertFalse(res["is_valid"])
+        self.assertIn("NOT a recognized NSE/BSE ticker symbol", res["error"])
+
+    @patch('stock_analyzer.validate_nse_bse_ticker')
+    def test_analyze_symbol_invalid_ticker_rejection(self, mock_val):
+        """Verify analyze_symbol returns is_invalid_ticker True when ticker is invalid."""
+        mock_val.return_value = {"is_valid": False, "error": "Invalid ticker"}
+
+        from stock_analyzer import analyze_symbol
+        res = analyze_symbol("FAKETICKER")
+        self.assertFalse(res["success"])
+        self.assertTrue(res.get("is_invalid_ticker"))
+
     @patch('stock_analyzer.fetch_watchlist_data')
     def test_analyze_symbol_insufficient_data_error(self, mock_fetch):
         """Verify analyze_symbol returns structured error when historical data is missing."""
