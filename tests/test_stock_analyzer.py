@@ -73,6 +73,7 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
     def test_validate_nse_bse_ticker_unrecognized_symbol(self, mock_fetch, mock_conn, mock_wl):
         """Verify ticker validator rejects unrecognized tickers not on NSE/BSE."""
         mock_wl.return_value = pd.DataFrame([])
+        mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value = None
         mock_fetch.return_value = {}
 
         from stock_analyzer import validate_nse_bse_ticker
@@ -90,8 +91,9 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
         self.assertFalse(res["success"])
         self.assertTrue(res.get("is_invalid_ticker"))
 
+    @patch('stock_analyzer.validate_nse_bse_ticker', return_value={"is_valid": True, "symbol": "SHORTBARS"})
     @patch('stock_analyzer.fetch_watchlist_data')
-    def test_analyze_symbol_insufficient_data_error(self, mock_fetch):
+    def test_analyze_symbol_insufficient_data_error(self, mock_fetch, mock_val):
         """Verify analyze_symbol returns structured error when historical data is missing."""
         mock_fetch.return_value = {"SHORTBARS": pd.DataFrame()}
 
@@ -101,10 +103,11 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
         self.assertFalse(res.get("success"))
         self.assertIn("error", res)
 
+    @patch('stock_analyzer.validate_nse_bse_ticker', return_value={"is_valid": True, "symbol": "PENNYSTOCK"})
     @patch('stock_analyzer.fetch_watchlist_data')
     @patch('stock_analyzer.compute_nifty_rs_rating')
     @patch('stock_analyzer.get_fundamentals')
-    def test_analyze_symbol_daily_builder_price_floor_deficit(self, mock_fund, mock_rs, mock_fetch):
+    def test_analyze_symbol_daily_builder_price_floor_deficit(self, mock_fund, mock_rs, mock_fetch, mock_val):
         """Verify price floor < ₹100 generates explicit deficit warning."""
         dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         prices = [50.0 + i * 0.5 for i in range(60)] # Max price 79.5 < 100.0
@@ -130,10 +133,11 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
         deficits_text = " ".join(res.get("deficits", []))
         self.assertIn("Price Floor Deficit", deficits_text)
 
+    @patch('stock_analyzer.validate_nse_bse_ticker', return_value={"is_valid": True, "symbol": "TATAMOTORS"})
     @patch('stock_analyzer.fetch_watchlist_data')
     @patch('stock_analyzer.compute_nifty_rs_rating')
     @patch('stock_analyzer.get_fundamentals')
-    def test_analyze_symbol_full_7_stage_funnel(self, mock_fund, mock_rs, mock_fetch):
+    def test_analyze_symbol_full_7_stage_funnel(self, mock_fund, mock_rs, mock_fetch, mock_val):
         """Verify analyze_symbol evaluates across all 7 pipeline stages."""
         dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         prices = [100.0 + i * 1.5 for i in range(60)]

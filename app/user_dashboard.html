@@ -3034,10 +3034,18 @@ function renderStockDiagnosticModal(data) {
             <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Overall Health Score</div>
             <div style="font-size:24px; font-weight:900; font-family:var(--font-mono); color:${score >= 75 ? 'var(--win)' : (score >= 55 ? 'var(--amber)' : 'var(--warn)')}">${score.toFixed(1)} / 100</div>
           </div>
-          <button onclick="saveToUserWatchlist('${data.symbol}', '${data.company_name}', ${score})" 
-                  style="padding:9px 14px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
-            <span>⭐</span> Add to Watchlist
-          </button>
+          <div id="watchlist-btn-container-${data.symbol}">
+            ${data.is_in_watchlist ? `
+              <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
+                <span>✓</span> Added to Watchlist
+              </button>
+            ` : `
+              <button id="add-to-watchlist-btn-${data.symbol}" onclick="saveToUserWatchlist('${data.symbol}', '${data.company_name}', ${score})" 
+                      style="padding:9px 14px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                <span>⭐</span> Add to Watchlist
+              </button>
+            `}
+          </div>
         </div>
       </div>
 
@@ -3074,6 +3082,31 @@ function renderStockDiagnosticModal(data) {
   `;
 }
 
+function showCustomToast(message, type = 'success') {
+  let toast = document.getElementById('customToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'customToast';
+    toast.style.cssText = 'display:none; position:fixed; bottom:24px; right:24px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 20px; box-shadow:0 10px 30px rgba(0,0,0,0.4); z-index:10001; align-items:center; gap:12px; transform:translateY(20px); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter:blur(10px);';
+    toast.innerHTML = `<div id="customToastIcon" style="font-size:20px;">✅</div><div id="customToastMessage" style="font-size:14px; font-weight:600; color:var(--text);"></div>`;
+    document.body.appendChild(toast);
+  }
+  const icon = document.getElementById('customToastIcon');
+  const msg = document.getElementById('customToastMessage');
+  if (icon) icon.innerText = type === 'success' ? '✅' : (type === 'error' ? '❌' : (type === 'warn' ? '⚠️' : 'ℹ️'));
+  if (msg) msg.innerHTML = message;
+  toast.style.display = 'flex';
+  setTimeout(() => {
+    toast.style.transform = 'translateY(0)';
+    toast.style.opacity = '1';
+  }, 10);
+  setTimeout(() => {
+    toast.style.transform = 'translateY(20px)';
+    toast.style.opacity = '0';
+    setTimeout(() => { toast.style.display = 'none'; }, 300);
+  }, 4000);
+}
+
 function createManualAlert(sym, scanner) {
   if (!confirm(`Confirm raising active manual ${scanner} BUY alert for #${sym}?`)) return;
 
@@ -3085,16 +3118,23 @@ function createManualAlert(sym, scanner) {
   .then(res => res.json())
   .then(res => {
     if (res.success) {
-      alert(`✅ ${res.message}`);
-      doRefresh();
+      showCustomToast(`🚀 ${res.message}`, 'success');
+      if (typeof doRefresh === 'function') doRefresh();
     } else {
-      alert(`❌ Alert Creation Failed: ${res.error}`);
+      showCustomToast(`Alert Creation Failed: ${res.error}`, 'error');
     }
   })
-  .catch(err => alert(`Failed to create manual alert: ${err.message}`));
+  .catch(err => showCustomToast(`Failed to create manual alert: ${err.message}`, 'error'));
 }
 
 function saveToUserWatchlist(sym, company, score) {
+  const btnContainer = document.getElementById(`watchlist-btn-container-${sym}`);
+  const btn = document.getElementById(`add-to-watchlist-btn-${sym}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Saving...`;
+  }
+
   fetch('/api/v1/user_watchlist/add', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3103,13 +3143,33 @@ function saveToUserWatchlist(sym, company, score) {
   .then(res => res.json())
   .then(res => {
     if (res.success) {
-      alert(`⭐ #${sym} saved to your personal watchlist!`);
+      showCustomToast(`⭐ #${sym} saved to your personal watchlist!`, 'success');
+      if (btnContainer) {
+        btnContainer.innerHTML = `
+          <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
+            <span>✓</span> Added to Watchlist
+          </button>
+        `;
+      }
+      if (currentDiagnosticData && currentDiagnosticData.symbol === sym) {
+        currentDiagnosticData.is_in_watchlist = true;
+      }
       loadUserWatchlist();
     } else {
-      alert(`Failed to add to watchlist: ${res.error}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
+      }
+      showCustomToast(`Failed to add #${sym} to watchlist: ${res.error}`, 'error');
     }
   })
-  .catch(err => alert(`Failed to add to watchlist: ${err.message}`));
+  .catch(err => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
+    }
+    showCustomToast(`Failed to add to watchlist: ${err.message}`, 'error');
+  });
 }
 
 function removeFromWatchlist(sym) {
@@ -3123,6 +3183,7 @@ function removeFromWatchlist(sym) {
   .then(res => res.json())
   .then(res => {
     if (res.success) {
+      showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
       loadUserWatchlist();
     }
   });

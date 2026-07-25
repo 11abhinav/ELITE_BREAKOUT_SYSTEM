@@ -76,10 +76,10 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
                         LIMIT 1
                     """, (sym_clean, sym_clean))
                     row = cur.fetchone()
-                    if row:
+                    if row and isinstance(row, (tuple, list)) and len(row) > 0 and row[0] is not None and not hasattr(row[0], '_mock_name'):
                         found = True
-                        company_name = row[0] or sym_clean
-                        sector_name = row[1] or "EQUITY"
+                        company_name = str(row[0]) if row[0] else sym_clean
+                        sector_name = str(row[1]) if len(row) > 1 and row[1] else "EQUITY"
         except Exception:
             pass
 
@@ -438,11 +438,17 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     # Update User Watchlist database state if exists
     update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status="QUALIFIED" if (eod_status=="YES" or pb_status=="YES" or mb_status=="YES (Prime)") else "MONITORING")
 
+    # Check if symbol is already in user watchlist
+    user_watchlist = get_user_watchlist(user_id)
+    watchlist_symbols = {item["symbol"] for item in (user_watchlist or [])}
+    is_in_watchlist = (sym_clean in watchlist_symbols)
+
     return {
         "symbol": sym_clean,
         "company_name": company_name,
         "sector": sector_name,
         "success": True,
+        "is_in_watchlist": is_in_watchlist,
         "close_price": close_price,
         "volume_ratio": round(vol_ratio, 2),
         "rsi": round(rsi_val, 1),

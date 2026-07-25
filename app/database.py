@@ -5775,9 +5775,9 @@ def get_bhavcopy_cache(trading_date) -> dict:
 
 def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "DEFAULT_USER", notes: str = "", health_score: float = None, status: str = "MONITORING") -> bool:
     """Add a stock to user's personal watchlist or update existing entry."""
-    init_db()
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     try:
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -5798,9 +5798,9 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
 
 def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bool:
     """Remove a stock from user's personal watchlist."""
-    init_db()
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     try:
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id, sym_clean))
@@ -5812,8 +5812,8 @@ def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bo
 
 def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
     """Fetch all stocks in user's personal watchlist ordered by added_at DESC."""
-    init_db()
     try:
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
