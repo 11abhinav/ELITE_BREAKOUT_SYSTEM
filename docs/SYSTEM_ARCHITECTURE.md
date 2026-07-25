@@ -549,8 +549,13 @@ def run_eod_scanner(run_once=False, force=False):
             approved_candidates.append({
                 "symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]
             })
-            # Next-Day Open-Gap Guard: Entry at next morning's open (O_1) is validated against close (C_0).
-            # If O_1 gaps up > MAX_ENTRY_GAP_PCT (3.0%) above C_0, or opens >= T1, trade is invalidated (REJ_ENTRY_GAP_TOO_WIDE).
+            
+    # Executable Next-Morning Open Validation (evaluated for EOD & Reversal at 09:15:00 IST):
+    # open_p = fetch_live_price(symbol); c0 = candidate["entry"]; t1 = candidate["sl_result"]["target_1"]
+    # gap_pct = (open_p - c0) / c0 * 100
+    # if gap_pct > config.MAX_ENTRY_GAP_PCT (3.0%) or open_p >= t1:
+    #     save_rejected_alert(symbol, rejection_reason=f"REJ_ENTRY_GAP_TOO_WIDE (Open ₹{open_p:.2f} vs Close ₹{c0:.2f})")
+    #     continue
 
     approved_candidates.sort(key=lambda x: x["score"], reverse=True)
     top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["EOD"]]
@@ -862,7 +867,7 @@ Invariant 1: entry > 0                                       (Basic sanity check
 Invariant 2: stop_loss < entry                                 (SL must be logically placed)
 Invariant 3: risk = entry - stop_loss > 0                      (Risk amount must be calculable)
 Invariant 4: target_1 > entry                                  (First target must be profitable)
-Invariant 5: target_1 < target_2 < target_3 < target_4          (Strictly increasing hierarchy; spacing >= max(0.5*ATR20, 0.5% entry))
+Invariant 5: target_1 < target_2 < target_3 (and target_4 > target_3 if target_4 present; spacing >= max(0.5*ATR20, 0.5% entry))
 Invariant 6: natural_rr = (target_1 - entry) / risk >= min_rr  (Reward-to-risk ratio minimum on T1)
 Invariant 7: (target_3 - entry) / risk >= MIN_REWARD_POTENTIAL (T3-based reward potential floor for Reversal/EOD)
 Invariant 8: natural_rr <= MAX_REASONABLE_RR                   (Caps upper bound R:R at 8.0x to filter extreme outliers)
@@ -898,12 +903,12 @@ Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, aler
 ## 7A.5 Partial Exit Profiles
 
 ```python
-# config.py
-EXIT_PROFILES = {
-    "CONSERVATIVE": {"t1": 25, "t2": 50, "t3": 25},
-    "BALANCED":     {"t1": 30, "t2": 40, "t3": 30},
-    "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
-}
+# Canonical EXIT_PROFILES defined in config.py (§18)
+# EXIT_PROFILES = {
+#     "CONSERVATIVE": {"t1": 25, "t2": 50, "t3": 25},
+#     "BALANCED":     {"t1": 30, "t2": 40, "t3": 30},
+#     "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
+# }
 
 SCANNER_EXIT_PROFILE = {
     "EOD":      "BALANCED",      # T1: 30%, T2: 40%, T3: 30%

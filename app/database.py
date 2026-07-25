@@ -283,7 +283,7 @@ def init_db():
                 
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
                 cur.execute("ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status")
-                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2'))")
+                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2'))")
                 
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -1293,7 +1293,7 @@ ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type
 
 -- 4. Add status CHECK constraints (NOT VALID to avoid full-table validation during deploy)
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
-ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')) NOT VALID;
+ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')) NOT VALID;
 ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
 ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED') OR status LIKE 'QUEUED%') NOT VALID;
 ALTER TABLE telegram_queue DROP CONSTRAINT IF EXISTS chk_tg_status;
@@ -1898,7 +1898,7 @@ def update_alert_outcome(
                     cur.execute("SELECT status, stop_loss, remaining_shares, exit_history FROM alerts WHERE id = %s", (alert_id,))
                     row = cur.fetchone()
                     if not row: return
-                    if row[0] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
+                    if row[0] in ("WIN", "LOSS", "EXPIRED", "NEUTRAL", "CLOSED", "REJECTED"):
                         logger.debug(f"🔒 Alert {alert_id} is already in terminal state ({row[0]}); ignoring outcome update.")
                         return
                     old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
