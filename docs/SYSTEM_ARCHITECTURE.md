@@ -1509,9 +1509,66 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
 
 ## 23.15 Resolution of Memory Target Allocation vs. Un-trimmed RSS Peak
 - **Architectural Clarification**:
-  - **500 MB RAM Container Budget**: The target memory allocation SLA configured for the container runtime environment.
-  - **888 MB RSS Peak**: The un-trimmed C-heap RSS memory footprint observed inside Python's memory allocator during multi-threaded bulk 300-symbol pandas rolling window calculations.
-  - **Heap Trimming Mechanism**: Python's default memory allocator (`pymalloc`) holds allocated glibc memory arenas in RSS even after Python objects are destroyed. Calling `gc.collect()` followed by `malloc_trim(0)` forces glibc to return unused heap arenas to the Linux OS, dropping active RSS back below **400 MB** before starting the next processing phase.
+  - **500 MB RAM Container Budget**: Soft design target allocation SLA for Railway free-tier container hosting.
+  - **888 MB RSS Peak**: Transient C-heap allocation inside Python's `pymalloc` allocator during multi-threaded 300-symbol pandas rolling window calculations.
+  - **Heap Trimming Mechanism**: Calling `gc.collect()` followed by `malloc_trim(0)` forces glibc to return unused heap memory arenas to the OS, dropping active RSS back below **400 MB** before starting the next phase.
+
+## 23.16 Wealth Engine Phase Contract Matrix
+
+| Phase Name | Exact Input | Exact Output | Caches Released | DB Writes | Failure Policy |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Phase A: Bulk Fetch** | `watchlist.parquet` (287 symbols) + `^NSEI` | Raw OHLCV Cache (`Dict[str, DataFrame]`) | None | None | Abort run, retain previous parquet file on disk |
+| **Layer 1: Candidate Selection**| Raw OHLCV + Watchlist Fundamentals | Evaluated candidate DataFrame (`FM_Score`) | None | None | Skip bad symbol, log warning to `scan_failures` |
+| **Layer 2: Entry Timing** | Evaluated Candidate DataFrame | `BUY`/`SUPPRESS`/`WAIT` Signal Codes | Transient indicator DataFrames | None | Skip failed symbol calculation |
+| **Layer 3: Portfolio Mgmt** | Open positions in `wealth_portfolio` table | `SELL`/`HOLD`/`SELL_REVIEW` Signals | Evict EPHEMERAL price cache (`ohlcv.clear()`) | Upsert `wealth_portfolio` table | Log DB error, retry connection after 2s |
+| **Dashboard Export** | Portfolio DataFrame | `elite_wealth_system.parquet` | None | Write `parquet_cache` table (`name='wealth_engine'`) | Retain disk backup on DB write fail |
+
+## 23.17 Restart & Mid-Run Failure Checkpoint Semantics
+- **Atomic Phase Recovery**: The Wealth Engine is designed around **atomic, idempotent execution**. No partial state is stored in memory between phases.
+- **Mid-Run Process Crash**: If the Python process terminates during Layer 1 or Layer 2, no corrupt partial signals are saved to PostgreSQL.
+- **Boot Sequence Restore**: Upon process restart (e.g. Railway container reboot at 11:40 AM):
+  1. Boot sequence initializes `ApplicationContext`.
+  2. Reads existing open positions from `wealth_portfolio` PostgreSQL table.
+  3. Loads `data/watchlist.parquet` from disk.
+  4. Triggers clean Phase A fetch from beginning on next scheduled tick.
+
+## 23.18 Ephemeral Cache Lifecycle & Invalidation Timeline
+
+```text
+Time (t)   Event / Lifecycle Stage                            Memory / Cache Action
+─────────────────────────────────────────────────────────────────────────────────────────────
+t + 0.0s   CREATE      PriceCache allocates dict space          Allocates dict
+t + 1.5s   POPULATE    Downloads 50-symbol OHLCV batch          Fills EPHEMERAL RAM cache
+t + 3.0s   CONSUMERS   ScoringEngine computes indicators/scores Calculates rolling windows
+t + 4.5s   PERSIST     AlertService inserts signals into DB     Persists DB records
+t + 5.0s   RELEASE     Call ohlcv.clear() on dictionary         Evicts DataFrame objects
+t + 5.2s   DESTROY     Invoke gc.collect() & malloc_trim(0)     Reclaims C-heap to OS (<400MB)
+```
+
+## 23.19 Canonical Telemetry Telemetry JSON Schema
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FunnelTelemetryRecord",
+  "type": "object",
+  "properties": {
+    "scan_id": { "type": "string" },
+    "scanner": { "type": "string", "enum": ["EOD", "REVERSAL", "MULTI_TF", "WEALTH", "PULLBACK", "MULTIBAGGER"] },
+    "run_date": { "type": "string", "format": "date" },
+    "symbol": { "type": "string" },
+    "stage": { "type": "string" },
+    "gate": { "type": "string" },
+    "passed": { "type": "boolean" },
+    "observed_value": { "type": ["number", "null"] },
+    "threshold_value": { "type": ["number", "null"] },
+    "comparator": { "type": ["string", "null"] },
+    "message": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["scan_id", "scanner", "run_date", "symbol", "stage", "gate", "passed"]
+}
+```
 
 ---
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*
