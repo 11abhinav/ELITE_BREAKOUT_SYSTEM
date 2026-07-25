@@ -1336,4 +1336,126 @@ Step 7: Presentation, Notification & Entrypoint
 ```
 
 ---
+
+# 23. RUNTIME EXECUTION & OPERATIONAL SEMANTICS
+
+## 23.1 Wealth Engine 4-Phase Internal Pipeline Architecture
+The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ PHASE A: BULK DATA ACQUISITION & WORKER BATCHING                        │
+│ Input: Watchlist Parquet (287 symbols) + Benchmark Index (^NSEI)       │
+│ Execution: Batch size = 50 symbols, Worker Threads = 3                  │
+│ Output: Raw OHLCV Cache (1Y Daily)                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ LAYER 1: CANDIDATE SELECTION                                            │
+│ Input: Raw OHLCV + Watchlist Fundamentals                               │
+│ Operations: Piotroski F-Score (min 6), Block Deal Bonus, V5 Mapper      │
+│ Output: Evaluated candidate DataFrame with FM_Score & Completeness Flag │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ LAYER 2: ENTRY TIMING & SECTOR CONCENTRATION GATES                      │
+│ Input: Evaluated Candidate DataFrame                                    │
+│ Gates: Top-15 Core, Top-10 Growth, Top-10 Opp, Top-5 QOS Caps          │
+│ Constraints: Max 25% sector cap, Max 2 per industry sub-group            │
+│ Output: BUY / SUPPRESS / WAIT Signal Codes + Position Sizing            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ LAYER 3: PORTFOLIO MANAGEMENT & EXIT MONITORS                           │
+│ Input: Open Positions in wealth_portfolio Postgres table                │
+│ Monitors: 20% Hard Drawdown Stop, Trailing Stop Breach, Hold Score < 45 │
+│ Tax Bonus: LTCG Bonus (+10 pts) applied in final 30 days of 1Y hold      │
+│ Output: SELL / HOLD / SELL_REVIEW / TLH Signals                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ DASHBOARD EXPORT & PERSISTENCE PIPELINE                                 │
+│ Target 1: PostgreSQL wealth_portfolio table                             │
+│ Target 2: PostgreSQL parquet_cache table (name = 'wealth_engine')       │
+│ Target 3: Disk File data/elite_wealth_system.parquet                    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## 23.2 Batch Processing Contract & Worker Sizing
+- **Batch Size Constant**: 50 symbols per fetch chunk. Hardcoded in `chunk_iterable(universe, batch_size=50)`.
+- **Rationale**: Bounded RSS memory footprint during pandas rolling indicator calculations and optimized yfinance URL request string length.
+- **Worker Threads**: `WORKER_COUNT = 3`. Hardcoded to 3 concurrent worker threads to prevent exceeding the container's 500 MB RAM budget during parallel rolling window computations.
+- **Remainder Handling**: Last batch processes the remaining symbols ($294 \pmod{50} = 44$).
+- **Parallelism Rule**: Batches execute sequentially within the Wealth Engine, but individual symbols within a batch are parsed concurrently via `ThreadPoolExecutor(max_workers=3)`.
+
+## 23.3 Runtime Memory Lifecycle & Budget Resolution
+- **Memory Checkpoints**: RSS memory monitored before fetch, after fetch, after candidate evaluation, and after portfolio export.
+- **Garbage Collection & Trimming Protocol**:
+  - `gc.collect()` executed explicitly after every scanner batch run.
+  - `malloc_trim()` invoked post-batch on Linux runtimes to release un-mapped heap memory to the OS.
+- **Surviving vs. Evicted Objects**:
+  - **Surviving**: `data/watchlist.parquet` (Session tier), Postgres tables (`alerts`, `wealth_portfolio`).
+  - **Evicted**: Ephemeral OHLCV dataframes (`ohlcv.clear()`) evicted immediately after scoring.
+- **Memory Budget SLA & Transient Peaks**:
+  - Target Container Allocation: **500 MB RAM**.
+  - Transient RSS peaks during bulk 300-symbol pandas rolling window calculations reach **800–888 MB** in process memory before garbage collection.
+  - **Mitigation Protocol**: Memory Profiler triggers emergency cache eviction and `gc.collect()` if RSS exceeds 450 MB for more than 3 consecutive 5-minute ticks.
+
+## 23.4 Inter-Scanner Lock Queueing & Scheduling Policy
+- **Mutex Lock Hierarchy**: `scanner_execution_lock` (`InstrumentedLock`) + `ProcessLock("wealth_engine")`.
+- **Scheduling Priority**:
+  1. **Wealth Engine (Priority 1)**: Maximum execution SLA 180s.
+  2. **Multi-TF Intraday Scanner (Priority 2)**: 15-minute market hours cadence.
+  3. **Evening Batch Scanners (Priority 3)**: Post 18:00 IST sequential runs (`EOD` $\rightarrow$ `Reversal` $\rightarrow$ `Pullback`).
+- **Queue Behavior**: Manual API triggers (`/api/trigger-scanner`) wait on `ProcessLock` with a 10s wait warning and a hard 60s acquire timeout. Queueing order is strictly **FIFO**. Read-only dashboard endpoints (`/api/wealth_data`, `/api/scanner_status`) DO NOT acquire execution locks and run concurrently with zero blocking.
+
+## 23.5 Concall Transcripts & Sentiment Cache Specification
+- **Storage Location**: PostgreSQL table `concall_cache` (scraped by `concall_scraper.py`).
+- **Cache Schema**: `(symbol TEXT PRIMARY KEY, concall_summary JSONB, sentiment_score REAL, updated_at TIMESTAMPTZ)`.
+- **TTL & Refresh**: 30-day TTL. Checked by `get_recent_concall_analysis()` during Layer 1 scoring to inject management sentiment bonus (+5 pts) into candidate ranking.
+
+## 23.6 Market Regime Calculation Mathematics
+- **Nifty 50 6-Month Return Formula**:
+  $$\text{Nifty}_{6M} = \frac{C_{\text{latest}} - C_{t-126}}{C_{t-126}} \times 100$$
+  where $C_{t-126}$ is the closing price 126 trading days ($\approx 6$ calendar months) prior.
+- **Regime Classification Thresholds**:
+  - `BULL`: $\text{Nifty}_{6M} \ge +5.0\%$
+  - `BEAR`: $\text{Nifty}_{6M} \le -5.0\%$
+  - `NEUTRAL`: $-5.0\% < \text{Nifty}_{6M} < +5.0\%$
+- **Cache TTL**: 1 hour (`_NIFTY_CACHE_TTL = 3600`). Shared via `SessionContext.market_regime_manager`.
+
+## 23.7 Data Freshness, Stale vs. Missing & Data Quality Math
+- **Data Status Definitions**:
+  - **Fresh Data**: OHLCV candle timestamp is within 24 hours (1D) or active 15m session bar.
+  - **Stale Data**: Candle exists in cache but timestamp is older than TTL or marked `is_stale = True` (e.g., post-market close fallback).
+  - **Missing Data**: Data provider returns `ProviderResult.NOT_FOUND` or empty dataframe.
+- **Data Quality Score (0–100 Pts)**:
+  $$\text{Quality Score} = 0.40 \times \text{Completeness} + 0.20 \times \text{NonMissing} + 0.20 \times \text{PriceSanity} + 0.10 \times \text{Continuity} + 0.10 \times \text{Freshness}$$
+- **Health Classification**:
+  - `OK`: Quality Score $\ge 90\%$
+  - `WARNING`: $75\% \le \text{Quality Score} < 90\%$
+  - `ERROR`: Quality Score $< 75\%$
+  - `FAILED`: Uncaught data acquisition crash
+
+## 23.8 Database Idempotency & Position Deduplication
+- **Unique Constraint Index**: `alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date)`.
+- **Runtime Bypass Logic**: If a symbol is already present in `wealth_portfolio` or has an active `OPEN` alert triggered today for the same scanner, `generate_entry_signal()` returns `Signal_Code = "HOLD"`, `Signal_Reason = "Position Already Open"`, skipping duplicate alert persistence.
+
+## 23.9 Telemetry, Performance SLAs & Data Reconciliation
+- **Mandatory Funnel Telemetry Fields**: `scanner`, `run_date`, `symbol`, `stage`, `gate`, `passed`, `observed_value`, `threshold_value`, `message`. Stored in `funnel_telemetry` table.
+- **Performance SLAs**:
+  - Phase A Bulk Data Fetch SLA: $< 30.0\text{s}$
+  - Layer 1 Candidate Selection SLA: $< 10.0\text{s}$
+  - Layer 2 Entry Timing SLA: $< 5.0\text{s}$
+  - Layer 3 Portfolio Management SLA: $< 45.0\text{s}$
+  - Total Wealth Engine SLA: $< 180.0\text{s}$
+- **Symbol Count Reconciliation**:
+  - `universe_count`: 287 canonical equity symbols in `watchlist.parquet`.
+  - `requested_count`: 294 symbols (includes 287 watchlist symbols PLUS index benchmarks `^NSEI`, `^NSEBANK`, and 5 BSE fallback candidates).
+
+---
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*
