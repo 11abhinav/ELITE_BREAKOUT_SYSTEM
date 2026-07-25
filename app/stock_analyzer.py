@@ -309,7 +309,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
             eod_checks.append("Candle is not bullish (Close ≤ Open)")
 
         if not eod_checks:
-            eod_status = "YES"
+            eod_status = "CORE MET"
             eod_reasons.append(f"Clean Breakout Close (₹{close_price:.2f} > ₹{prior_20d_high:.2f}) | Volume Surge {vol_ratio:.2f}x ≥ 1.8x | Bullish Candle")
         else:
             eod_status = "NO"
@@ -330,7 +330,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     rsi_val = float(rsi_series.iloc[-1]) if rsi_series is not None and not rsi_series.empty else 50.0
 
     if rsi_val <= 35.0:
-        rev_status = "YES"
+        rev_status = "CORE MET"
         rev_reasons.append(f"Daily RSI {rsi_val:.1f} ≤ 35.0 Oversold threshold")
     else:
         rev_status = "NO"
@@ -353,8 +353,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     else:
         pivots = swing_utils.detect_confirmed_pivots(df, 5, 2)
         if pivots:
-            pb_status = "YES"
-            pb_reasons.append(f"Established Uptrend (Close ₹{close_price:.2f} > SMA50 ₹{sma50:.2f} > SMA200 ₹{sma200:.2f}) | Valid Swing Structure")
+            pb_status = "CORE MET"
+            pb_reasons.append(f"Established Uptrend (Close ₹{close_price:.2f} > SMA50 > SMA200) | Valid Swing Structure (Note: Pipeline needs strict pullback depth validation)")
         else:
             pb_status = "NO"
             pb_reasons.append("No confirmed swing pivots detected for pullback origin")
@@ -377,8 +377,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         deficits.append(f"🏦 Leverage Deficit: Debt to Equity is {debt_equity:.2f} (requires ≤0.50 debt free/low debt).")
 
     if not we_issues:
-        we_status = "YES"
-        we_reasons.append(f"Fundamentally Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5")
+        we_status = "CORE MET"
+        we_reasons.append(f"Core Fundamentals Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5 (Note: Full pipeline requires Inst. Score ≥ 65)")
     elif roce_val >= 15.0 and roe_val >= 12.0:
         we_status = "WATCHLIST"
         we_reasons = we_issues
@@ -402,7 +402,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         deficits.append(f"🔒 Promoter Pledge Deficit: Promoter Pledge is {pledge_pct:.1f}% (requires ≤10.0%).")
 
     if not mb_issues and is_uptrend:
-        mb_status = "YES (Prime)"
+        mb_status = "CORE MET (Prime)"
         mb_reasons.append(f"🚀 Prime Compounder: Piotroski {f_score}/9 | Pledge {pledge_pct:.1f}% ≤ 10% | Strong Trend")
     elif f_score >= 5 and pledge_pct <= 15.0:
         mb_status = "WATCHLIST"
@@ -458,7 +458,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         "rs_percentile": round(rs_percentile, 1),
         "deficits": deficits,
         "funnel": {
-            "daily_builder": {"status": "YES" if db_pass else "NO", "reasons": db_reasons},
+            "daily_builder": {"status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
             "eod_breakout": {"status": eod_status, "reasons": eod_reasons},
             "multi_tf": {"status": mtf_status, "reasons": mtf_reasons},
             "reversal": {"status": rev_status, "reasons": rev_reasons},
