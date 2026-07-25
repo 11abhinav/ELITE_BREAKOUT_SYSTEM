@@ -15,20 +15,22 @@
 3. [Abstract Pipeline Architecture & Step Library](#3-abstract-pipeline-architecture--step-library)
 4. [Context Model & Dataclass Specifications](#4-context-model--dataclass-specifications)
 5. [Core System Enums & Data Models](#5-core-system-enums--data-models)
-6. [Quantitative Algorithms & Mathematical Engines](#6-quantitative-algorithms--mathematical-engines)
+6. [Quantitative Algorithms, Scoring Formulas & Risk Engines](#6-quantitative-algorithms-scoring-formulas--risk-engines)
 7. [Exhaustive Internal Scanner Execution Code Flows (All 6 Scanners)](#7-exhaustive-internal-scanner-execution-code-flows-all-6-scanners)
-8. [Data Acquisition, Provider Routing & Resiliency Topology](#8-data-acquisition-provider-routing--resiliency-topology)
-9. [Price Cache Infrastructure & Parquet Sidecars](#9-price-cache-infrastructure--parquet-sidecars)
-10. [Database Architecture & Complete PostgreSQL DDLs (All Operational Tables)](#10-database-architecture--complete-postgresql-ddls-all-operational-tables)
-11. [Concurrency, Synchronization & Lock Hierarchy](#11-concurrency-synchronization--lock-hierarchy)
-12. [Autonomous Scheduler & 24/7 Execution Blueprint](#12-autonomous-scheduler--247-execution-blueprint)
-13. [Alert Lifecycle, Trailing Stop Mechanics & Cooldown Rules](#13-alert-lifecycle-trailing-stop-mechanics--cooldown-rules)
-14. [Complete REST API Specifications & Streaming Protocols](#14-complete-rest-api-specifications--streaming-protocols)
-15. [Complete Repository Module Inventory (All 88 Modules)](#15-complete-repository-module-inventory-all-88-modules)
-16. [UI/UX Specifications & Streaming Contracts](#16-uiux-specifications--streaming-contracts)
-17. [Deployment Verification & Production Test Gates (All 17 Gates)](#17-deployment-verification--production-test-gates-all-17-gates)
-18. [V9 Clean Architecture Blueprint & Deprecation Protocol Log](#18-v9-clean-architecture-blueprint--deprecation-protocol-log)
-19. [Exhaustive Self-Contained Q&A Blueprint for Zero-Code Reconstruction](#19-exhaustive-self-contained-qa-blueprint-for-zero-code-reconstruction)
+8. [Fundamentals Data Pipeline & Watchlist Generation](#8-fundamentals-data-pipeline--watchlist-generation)
+9. [Data Acquisition, Provider Routing & Resiliency Topology](#9-data-acquisition-provider-routing--resiliency-topology)
+10. [Price Cache Infrastructure & Parquet Sidecars](#10-price-cache-infrastructure--parquet-sidecars)
+11. [Database Architecture & Complete PostgreSQL DDLs (All Operational Tables)](#11-database-architecture--complete-postgresql-ddls-all-operational-tables)
+12. [Concurrency, Synchronization & Lock Hierarchy](#12-concurrency-synchronization--lock-hierarchy)
+13. [Autonomous Scheduler & 24/7 Execution Blueprint](#13-autonomous-scheduler--247-execution-blueprint)
+14. [Alert Lifecycle, Trailing Stop Mechanics & Cooldown Rules](#14-alert-lifecycle-trailing-stop-mechanics--cooldown-rules)
+15. [Complete REST API Specifications & Streaming Protocols](#15-complete-rest-api-specifications--streaming-protocols)
+16. [Complete Repository Module Inventory (All 88 Modules)](#16-complete-repository-module-inventory-all-88-modules)
+17. [UI/UX Specifications & Streaming Contracts](#17-uiux-specifications--streaming-contracts)
+18. [Deployment Verification & Production Test Gates (All 17 Gates)](#18-deployment-verification--production-test-gates-all-17-gates)
+19. [V9 Clean Architecture Blueprint & Deprecation Protocol Log](#19-v9-clean-architecture-blueprint--deprecation-protocol-log)
+20. [Operational Edge Cases, Data Contracts & Environment Blueprint](#20-operational-edge-cases-data-contracts--environment-blueprint)
+21. [AI Reconstruction Checklist & Module Dependency Blueprint](#21-ai-reconstruction-checklist--module-dependency-blueprint)
 
 ---
 
@@ -323,51 +325,99 @@ class ScanFailure:
 
 ---
 
-# 6. QUANTITATIVE ALGORITHMS & MATHEMATICAL ENGINES
+# 6. QUANTITATIVE ALGORITHMS, SCORING FORMULAS & RISK ENGINES
 
-## 6.1 Technical Indicator Equations (`app/price_cache.py`, `app/indicator_manager.py`)
+## 6.1 Centralized Composite Scoring Engine (`app/scoring_engine.py`)
 
-### Relative Strength Index (RSI - 14 Period)
-$$\Delta P_t = \text{Close}_t - \text{Close}_{t-1}, \quad \text{Gain}_t = \max(\Delta P_t, 0), \quad \text{Loss}_t = \max(-\Delta P_t, 0)$$
-$$\text{AvgGain}_t = \frac{\text{AvgGain}_{t-1} \times 13 + \text{Gain}_t}{14}, \quad \text{AvgLoss}_t = \frac{\text{AvgLoss}_{t-1} \times 13 + \text{Loss}_t}{14}$$
-$$\text{RS}_t = \frac{\text{AvgGain}_t}{\text{AvgLoss}_t}, \quad \text{RSI}_t = 100 - \frac{100}{1 + \text{RS}_t}$$
+The composite score calculation function:
 
-### Average Directional Index (ADX - 14 Period)
-$$\text{TR}_t = \max(\text{High}_t - \text{Low}_t, |\text{High}_t - \text{Close}_{t-1}|, |\text{Low}_t - \text{Close}_{t-1}|)$$
-$$\text{+DM}_t = \text{High}_t - \text{High}_{t-1} \quad \text{if } \text{High}_t - \text{High}_{t-1} > \text{Low}_{t-1} - \text{Low}_t \text{ else } 0$$
-$$\text{-DM}_t = \text{Low}_{t-1} - \text{Low}_t \quad \text{if } \text{Low}_{t-1} - \text{Low}_t > \text{High}_t - \text{High}_{t-1} \text{ else } 0$$
-$$\text{+DI}_{14} = 100 \times \frac{\text{WilderSmooth}(\text{+DM}, 14)}{\text{WilderSmooth}(\text{TR}, 14)}, \quad \text{-DI}_{14} = 100 \times \frac{\text{WilderSmooth}(\text{-DM}, 14)}{\text{WilderSmooth}(\text{TR}, 14)}$$
-$$\text{DX}_t = 100 \times \frac{|\text{+DI}_t - \text{-DI}_t|}{\text{+DI}_t + \text{-DI}_t}, \quad \text{ADX}_{14} = \text{WilderSmooth}(\text{DX}, 14)$$
+```python
+def calculate_score(symbol: str, df: pd.DataFrame, regime_ctx: dict) -> int:
+    latest = df.iloc[-1]
+    
+    # 1. Base Score Allocation (Max 30 pts)
+    category = get_category_tier(symbol)
+    base_points = {
+        "DEBT_FREE_CASH": 30, "TOP_BANK": 30, "WEALTH_COMPOUNDER": 25,
+        "BLUE_CHIP": 20, "MIDCAP_GROWTH": 18, "RECOVERY_PLAY": 8
+    }.get(category, 15)
 
-### Exponential Moving Average (EMA)
-$$\alpha = \frac{2}{N + 1}, \quad \text{EMA}_t = (\text{Close}_t \times \alpha) + (\text{EMA}_{t-1} \times (1 - \alpha))$$
+    # 2. Candle Quality (Max 15 pts)
+    range_high_low = latest["High"] - latest["Low"]
+    body_ratio = abs(latest["Close"] - latest["Open"]) / range_high_low if range_high_low > 0 else 0
+    close_pos = (latest["Close"] - latest["Low"]) / range_high_low if range_high_low > 0 else 0
+    upper_wick = (latest["High"] - latest["Close"]) / range_high_low if range_high_low > 0 else 0
+    
+    candle_score = 0
+    if body_ratio >= config.EOD_CONFIG["MIN_BODY_RATIO"]: candle_score += 5
+    if close_pos >= config.EOD_CONFIG["MIN_CLOSE_POSITION"]: candle_score += 5
+    if upper_wick <= config.EOD_CONFIG["MAX_UPPER_WICK"]: candle_score += 5
 
-### Average True Range (ATR - 20 Period)
-$$\text{ATR}_{20} = \frac{1}{20} \sum_{i=0}^{19} \text{TR}_{t-i}$$
+    # 3. Volume Expansion (Max 20 pts)
+    vol_avg = df["Volume"].iloc[-21:-1].mean()
+    vol_ratio = latest["Volume"] / vol_avg if vol_avg > 0 else 1.0
+    vol_score = 20 if vol_ratio >= 4.0 else (15 if vol_ratio >= 3.0 else (12 if vol_ratio >= 2.5 else (7 if vol_ratio >= 2.0 else 3)))
 
-## 6.2 Fundamental Quality Score (`FM_Score`) (`app/scoring_engine.py`)
+    # 4. Trend & Indicators (Max 15 pts)
+    trend_score = 0
+    if latest["Close"] > latest["EMA_20"]: trend_score += 3
+    if latest["Close"] > latest["SMA_50"]: trend_score += 3
+    if latest["SMA_50"] > latest["SMA_200"]: trend_score += 4
+    if latest["ADX_14"] >= config.ADX_MIN_THRESHOLD: trend_score += 5
 
-- **Financial Sector Rule (Banks & NBFCs)**:
-  $$\text{Pass}_{\text{Financial}} = (\text{ROE} \ge 15.0\%) \land (\text{Debt/Equity} \le 3.0) \land (\text{YoY Growth} \ge 10.0\%)$$
-- **Non-Financial Sector Rule**:
-  $$\text{Pass}_{\text{NonFinancial}} = (\text{ROCE} \ge 20.0\%) \land (\text{Debt/Equity} \le 1.0) \land (\text{YoY Growth} \ge 10.0\%)$$
-$$\text{FM\_Score} = 40 + \min(\text{ROE}, 30) \times 1.0 + \min(\text{YoY Growth}, 30) \times 0.5 - (\text{PromoterPledgePct} \times 2.0)$$
+    # 5. RSI Location (Max 10 pts)
+    rsi = latest["RSI_14"]
+    rsi_score = 10 if 55 <= rsi <= 68 else (5 if (50 <= rsi < 55 or 68 < rsi <= 75) else 0)
 
-## 6.3 Regime & Bayesian Scoring Adjustments ($S_{\text{Regime}}$ & $S_{\text{Bayesian}}$)
+    # 6. Regime & Momentum Bonuses ($S_{Regime}$)
+    rs_percentile = macro_utils.get_stock_rs_percentile(symbol)
+    rs_bonus = config.RS_BONUS if rs_percentile >= 80.0 else 0
+    sector_name = macro_utils.get_symbol_sector(symbol)
+    sector_bonus = config.SECTOR_BONUS if macro_utils.is_top_3_sector(sector_name) else 0
+    regime_score = min(config.MAX_MOMENTUM_BONUS, rs_bonus + sector_bonus)
 
-- **$S_{\text{Regime}}$ Logic**:
-  - **Relative Strength Rating**: Calculated as stock 63-day return percentile rank vs Nifty 50. If $\text{RS\_Percentile} \ge 80th$, $\text{RS\_Bonus} = 10$ pts.
-  - **Sector Tailwind Rating**: Top 3 sector median RS ratings with 3-session hysteresis. If stock in Top 3 sector, $\text{Sector\_Bonus} = 8$ pts.
-  - **Hard Momentum Cap**: $S_{\text{Regime}} = \min(15, \text{RS\_Bonus} + \text{Sector\_Bonus})$.
-- **$S_{\text{Bayesian}}$ Multipliers**:
-  - `bayesian_updater.py` recalculates feature multipliers $W_f$ dynamically from 90-day rolling win rates per regime (`BULL`, `BEAR`, `NEUTRAL`).
-  - $S_{\text{Bayesian}} = \sum_{f} W_f \times I_f$, where $I_f \in \{0, 1\}$ represents feature presence.
+    # 7. Penalties ($P_{Penalties}$)
+    penalties = 0
+    prior_high = df["High"].iloc[-21:-1].max()
+    atr = latest["ATR_20"]
+    if latest["Close"] > prior_high + (config.EOD_ADVANCED_CONFIG["MAX_EXTENDED_BREAKOUT_ATR_MULT"] * atr):
+        penalties += 10
+    if df["OBV"].iloc[-1] <= df["OBV"].iloc[-5]:
+        penalties += 5
+
+    raw_score = base_points + candle_score + vol_score + trend_score + rsi_score + regime_score - penalties
+    return max(0, min(100, raw_score))
+```
+
+## 6.2 Reversal Scoring Formula (`_score_reversal`)
+
+```python
+def _score_reversal(symbol: str, df: pd.DataFrame, drop_pct: float) -> int:
+    latest = df.iloc[-1]
+    
+    # 1. Drop Depth Base (20 pts)
+    drop_score = 20 if 20.0 <= drop_pct <= 35.0 else 10
+    
+    # 2. RSI Recovery Curl (20 pts)
+    rsi = latest["RSI_14"]
+    rsi_score = 20 if 40 <= rsi <= 50 else 10
+    
+    # 3. Volume Spurt (20 pts)
+    vol_avg = df["Volume"].iloc[-21:-1].mean()
+    vol_ratio = latest["Volume"] / vol_avg if vol_avg > 0 else 1.0
+    vol_score = 20 if vol_ratio >= 2.0 else 10
+    
+    # 4. Support Confluence (20 pts)
+    sup_score = 20 if latest["Close"] >= latest["SMA_50"] else 10
+    
+    return drop_score + rsi_score + vol_score + sup_score
+```
 
 ---
 
 # 7. EXHAUSTIVE INTERNAL SCANNER EXECUTION CODE FLOWS (ALL 6 SCANNERS)
 
-All 6 scanners process stocks using the **Full-Universe Candidate Discovery Pattern**: Candidates across all 50-stock chunks are accumulated into a global list before executing global score sorting, `SCANNER_MAX_ALERTS` truncation (top 10), and database persistence.
+Authoritative Config Rule: Values in `app/config.py` (`EOD_CONFIG`, `REVERSAL_CONFIG`, `MULTI_TF_CONFIG`, `PULLBACK_CONFIG`) ARE THE PRODUCTION THRESHOLDS. Scanners read thresholds directly from `config.py`.
 
 ## 7.1 EOD Breakout Scanner (`app/eod_scanner.py`)
 ```python
@@ -382,39 +432,43 @@ def run_eod_scanner(run_once=False, force=False):
         for symbol, df in ohlcv_map.items():
             if df is None or len(df) < 200: continue
             latest = df.iloc[-1]
-            if latest["Close"] < 20.0: continue # Penny stock floor
+            if latest["Close"] < config.MIN_STOCK_PRICE: continue
             
             # Structural Breakout Check
             prior_20d_high = df["High"].iloc[-21:-1].max()
             if latest["Close"] <= prior_20d_high: continue
             
-            # Candle Quality Gates
-            body_ratio = abs(latest["Close"] - latest["Open"]) / (latest["High"] - latest["Low"])
-            close_pos = (latest["Close"] - latest["Low"]) / (latest["High"] - latest["Low"])
-            upper_wick = (latest["High"] - latest["Close"]) / (latest["High"] - latest["Low"])
-            if body_ratio < 0.60 or close_pos < 0.70 or upper_wick > 0.20: continue
+            # EOD_ADVANCED_CONFIG Gates
+            dist_52w = ((df["High"].iloc[-252:].max() - latest["Close"]) / latest["Close"]) * 100.0
+            if dist_52w > config.EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH_PCT"]: continue
+            
+            # Candle Quality Gates (Reading EOD_CONFIG)
+            range_hl = latest["High"] - latest["Low"]
+            body_ratio = abs(latest["Close"] - latest["Open"]) / range_hl if range_hl > 0 else 0
+            close_pos = (latest["Close"] - latest["Low"]) / range_hl if range_hl > 0 else 0
+            upper_wick = (latest["High"] - latest["Close"]) / range_hl if range_hl > 0 else 0
+            
+            if body_ratio < config.EOD_CONFIG["MIN_BODY_RATIO"]: continue
+            if close_pos < config.EOD_CONFIG["MIN_CLOSE_POSITION"]: continue
+            if upper_wick > config.EOD_CONFIG["MAX_UPPER_WICK"]: continue
             
             vol_ratio = latest["Volume"] / df["Volume"].iloc[-21:-1].mean()
-            if vol_ratio < 2.5: continue
+            if vol_ratio < config.EOD_CONFIG["MIN_VOLUME_RATIO"]: continue
             
             # Scoring & Risk Engine
             score = scoring_engine.calculate_score(symbol, df, regime_ctx)
-            if score < 82: continue
+            if score < config.SCORE_THRESHOLDS["1d"]: continue
             
             sl_res = compute_sl_and_target(df, mode="EOD")
-            if sl_res["rr_ratio"] < 2.0: continue
+            if sl_res["rr_ratio"] < config.MIN_NATURAL_RR["EOD"]: continue
             
             approved_candidates.append({
                 "symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]
             })
 
-    # Global Accumulation & Top-10 Truncation
     approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_10 = approved_candidates[:10]
-
-    # UN-NESTED AT FUNCTION SCOPE (Version: EOD_INDENT_FIX_v1.0)
+    top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["EOD"]]
     saved_count = save_alert_batch(top_10)
-    verify_alerts_saved_today(scan_id)
     upsert_scanner_health("EOD", status="OK", alerts=len(top_10), duration=time.time() - start_time)
     gc.collect()
     return len(top_10)
@@ -423,7 +477,6 @@ def run_eod_scanner(run_once=False, force=False):
 ## 7.2 Reversal Scanner Code Flow (`app/reversal_scanner.py`)
 ```python
 def run_reversal_scanner(run_once=False):
-    scan_id = generate_scan_id()
     universe = watchlist_cache.get_watchlist()
     cooldown_alerts = get_cooldown_alerts("REVERSAL", days=30)
     approved_candidates = []
@@ -432,223 +485,143 @@ def run_reversal_scanner(run_once=False):
         ohlcv_map = price_provider.fetch_batch(chunk, interval="1d", period="1y")
         for symbol, df in ohlcv_map.items():
             if df is None or len(df) < 200: continue
-            if (symbol, "REVERSAL") in cooldown_alerts: continue # Fallen knife defense
+            if (symbol, "REVERSAL") in cooldown_alerts: continue
             
             latest = df.iloc[-1]
             high_52w = df["High"].iloc[-252:].max()
             drop_pct = ((high_52w - latest["Close"]) / high_52w) * 100.0
             
-            # Drop Band Gate (15% to 45% below 52W High)
-            if not (15.0 <= drop_pct <= 45.0): continue
+            # Drop Band Gate (20% to 45% using REVERSAL_CONFIG)
+            if not (config.REVERSAL_CONFIG["MIN_DROP_FROM_52W_HIGH"] <= drop_pct <= config.REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]): continue
             
-            # SMA50 Reclaim Gate (Close >= SMA50 or within 3% holding EMA20)
-            above_sma50 = latest["Close"] >= latest["SMA_50"]
-            near_sma50_holding_ema20 = (latest["Close"] >= latest["SMA_50"] * 0.97) and (latest["Close"] >= latest["EMA_20"])
-            if not (above_sma50 or near_sma50_holding_ema20): continue
+            # SMA50 Reclaim Gate
+            if latest["Close"] < latest["SMA_50"] * 0.97: continue
             
-            # Oversold RSI Curl & MACD Histogram Crossover
+            # Oversold RSI Curl
             rsi = latest["RSI_14"]
-            rsi_prev = df["RSI_14"].iloc[-2]
-            if not (rsi <= 45 and rsi > rsi_prev and rsi >= 35): continue
+            if rsi > config.REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]: continue
             
-            macd_cross_recent = any(df["MACD_HIST"].iloc[-10:] > 0)
-            if not macd_cross_recent: continue
-            
-            # Scoring & Risk Engine
             score = _score_reversal(symbol, df, drop_pct)
             if score < 62: continue
             
             sl_res = compute_sl_and_target(df, mode="REVERSAL")
-            if sl_res["rr_ratio"] < 2.0: continue
+            if sl_res["rr_ratio"] < config.MIN_NATURAL_RR["REVERSAL"]: continue
             
-            approved_candidates.append({
-                "symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]
-            })
+            approved_candidates.append({"symbol": symbol, "score": score, "sl_result": sl_res, "entry": latest["Close"]})
 
     approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_10 = approved_candidates[:10]
+    top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["REVERSAL"]]
     save_alert_batch(top_10)
     upsert_scanner_health("REVERSAL", status="OK", alerts=len(top_10))
     gc.collect()
     return len(top_10)
 ```
 
-## 7.3 Pullback Pipeline Code Flow (`app/pullback_pipeline.py`)
-```python
-def run_pullback_pipeline(run_once=False):
-    regime_ctx = market_regime_engine.get_regime_context()
-    if regime_ctx.get("trend") == "STRONG_BEAR":
-        logging.info("Pullback Pipeline suspended during STRONG_BEAR market regime.")
-        return 0
-
-    universe = watchlist_cache.get_watchlist()
-    approved_candidates = []
-
-    for chunk in chunk_iterable(universe, batch_size=50):
-        ohlcv_map = price_provider.fetch_batch(chunk, interval="1d", period="1y")
-        for symbol, df in ohlcv_map.items():
-            if df is None or len(df) < 200: continue
-            latest = df.iloc[-1]
-            
-            # Uptrend Gate: Close > SMA50 > SMA200
-            if not (latest["Close"] > latest["SMA_50"] > latest["SMA_200"]): continue
-            
-            # Pivot & Impulse Wave Selection
-            swing_high = df["High"].iloc[-20:-3].max()
-            swing_low = df["Low"].iloc[-10:].min()
-            impulse_gain_pct = ((swing_high - swing_low) / swing_low) * 100.0
-            if impulse_gain_pct < 8.0: continue
-            
-            # Fibonacci Retracement Depth (23.6% to 61.8%) & Volume Contraction
-            fib_236 = swing_high - (0.236 * (swing_high - swing_low))
-            fib_618 = swing_high - (0.618 * (swing_high - swing_low))
-            if not (fib_618 <= latest["Close"] <= fib_236): continue
-            
-            pb_vol_avg = df["Volume"].iloc[-5:-1].mean()
-            vol_20d_avg = df["Volume"].iloc[-25:-5].mean()
-            if pb_vol_avg > 0.75 * vol_20d_avg: continue # Volume contraction gate
-            
-            # Resumption Trigger: Close > PREVIOUS_HIGH or PREVIOUS_OPEN
-            prev = df.iloc[-2]
-            if latest["Close"] <= max(prev["High"], prev["Open"]): continue
-            
-            score = 70 + compute_evidence_bonus(symbol) # +3 EOD, +2 Multibagger/Multi-TF
-            sl_res = compute_sl_and_target(df, mode="PULLBACK")
-            if sl_res["rr_ratio"] < 2.0: continue
-            
-            approved_candidates.append({"symbol": symbol, "score": score, "sl_result": sl_res})
-
-    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-    top_10 = approved_candidates[:10]
-    save_alert_batch(top_10)
-    upsert_scanner_health("PULLBACK", status="OK", alerts=len(top_10))
-    return len(top_10)
-```
-
-## 7.4 Multi-TF Intraday 4-Stage Cascade Code Flow (`app/multi_tf_scanner.py`)
+## 7.3 Multi-TF Intraday 4-Stage Cascade Code Flow (`app/multi_tf_scanner.py`)
 ```python
 def run_multi_tf_scanner(run_once=False):
-    scan_id = generate_scan_id()
     universe = watchlist_cache.get_watchlist()
     symbols = universe["Stock"].tolist()
 
-    # Single-Pass Bulk Pre-Fetch Model
     data_1h = price_provider.fetch_batch(symbols, interval="1h", period="3mo")
+    data_30m = price_provider.fetch_batch(symbols, interval="30m", period="1mo")
     data_15m = price_provider.fetch_batch(symbols, interval="15m", period="1mo")
     data_5m = price_provider.fetch_batch(symbols, interval="5m", period="5d")
 
     candidates = []
     for symbol in symbols:
-        df_1h, df_15m, df_5m = data_1h.get(symbol), data_15m.get(symbol), data_5m.get(symbol)
+        df_1h, df_30m, df_15m, df_5m = data_1h.get(symbol), data_30m.get(symbol), data_15m.get(symbol), data_5m.get(symbol)
+        if any(df is None or df.empty for df in (df_1h, df_30m, df_15m, df_5m)): continue
 
-        # ProviderResult Guard
-        if not isinstance(df_1h, pd.DataFrame) or df_1h.empty: continue
-        if not isinstance(df_15m, pd.DataFrame) or df_15m.empty: continue
-        if not isinstance(df_5m, pd.DataFrame) or df_5m.empty: continue
-
-        # Stage 1 (Phase A 1H Trend): EMA9 > EMA20 > EMA50, Close > SMA200, ADX >= 20
+        # Stage 1 (Phase A 1H Trend) -> State: HOURLY_PASSED
         latest_1h = df_1h.iloc[-1]
         if not (latest_1h["EMA_9"] > latest_1h["EMA_20"] > latest_1h["EMA_50"]): continue
-        if latest_1h["Close"] <= latest_1h["SMA_200"]: continue
-        if latest_1h["ADX_14"] < 20: continue
+        if latest_1h["Close"] <= latest_1h["SMA_200"] or latest_1h["ADX_14"] < 20: continue
+        update_breakout_watchlist_state(symbol, "HOURLY_PASSED")
 
-        # Stage 4 (Phase D 5m Trigger Decoupled)
+        # Stage 2 (Phase B 30m Structure) -> State: SETUP_ARMED
+        latest_30m = df_30m.iloc[-1]
+        if latest_30m["Close"] <= latest_30m["EMA_20"]: continue
+        update_breakout_watchlist_state(symbol, "SETUP_ARMED")
+
+        # Stage 3 (Phase C 15m Consolidation Breakout) -> State: ENTRY_READY
+        latest_15m = df_15m.iloc[-1]
+        prior_15m_high = df_15m["High"].iloc[-21:-1].max()
+        if latest_15m["Close"] <= prior_15m_high: continue
+        update_breakout_watchlist_state(symbol, "ENTRY_READY")
+
+        # Stage 4 (Phase D 5m Execution Trigger) -> State: TRADE_ACTIVE
         latest_5m = df_5m.iloc[-1]
         vwap = latest_5m.get("VWAP", latest_5m["EMA_20"])
         if latest_5m["Close"] < vwap: continue
 
         sl_res = compute_sl_and_target(df_15m, mode="MULTI_TF")
-        natural_rr = sl_res.get("natural_rr", sl_res.get("rr_ratio", 0.0))
-        if natural_rr < 1.5: continue
+        if sl_res["rr_ratio"] < config.MIN_NATURAL_RR["MULTI_TF"]: continue
 
+        update_breakout_watchlist_state(symbol, "TRADE_ACTIVE")
         candidates.append({"symbol": symbol, "score": 80, "sl_result": sl_res})
 
     candidates.sort(key=lambda x: x["sl_result"]["rr_ratio"], reverse=True)
-    top_candidates = candidates[:100]
+    top_candidates = candidates[:config.SCANNER_MAX_ALERTS["MULTI_TF"]]
     save_alert_batch(top_candidates)
     upsert_scanner_health("MULTI_TF", status="OK", alerts=len(top_candidates))
     return len(top_candidates)
 ```
 
-## 7.5 Wealth Engine Code Flow (`app/wealth_engine.py`)
+## 7.4 Multibagger Engine Code Flow (`app/multibagger.py`)
 ```python
-def run_wealth_scan(cmp_only=False):
-    portfolio = database.get_wealth_portfolio()
-    
-    # 5-Minute CMP Fast Exit Update (<3.0s execution)
-    if cmp_only:
-        snapshots = price_provider.get_intraday_snapshots(portfolio.keys())
-        for symbol, row in portfolio.iterrows():
-            snap = snapshots.get(symbol)
-            if snap is not None and not snap.empty:
-                cmp = snap.iloc[-1]["Close"]
-                if cmp < row["stop_loss"]:
-                    trigger_exit_alert(symbol, "WEALTH_SL_BREACH", cmp)
-        return
+def run_multibagger_scanner(run_once=False):
+    universe = watchlist_cache.get_watchlist()
+    approved_candidates = []
 
-    # 15-Minute Full BUY Scan
-    watchlist = watchlist_cache.get_watchlist()
-    for chunk in chunk_iterable(watchlist, batch_size=50):
+    for chunk in chunk_iterable(universe, batch_size=50):
         for symbol, record in chunk.iterrows():
-            # Gate 1: Bucket Prerequisite Check
-            is_financial = record.get("sector") == "Financial Services"
-            roce = safe_float(record.get("ROCE %"))
-            roe = safe_float(record.get("ROE %"))
-            de = safe_float(record.get("Debt/Equity"))
-            growth = safe_float(record.get("YoY Revenue Growth %"))
-
-            if is_financial:
-                if not (roe >= 15.0 and de <= 3.0 and growth >= 10.0): continue
-            else:
-                if not (roce >= 20.0 and de <= 1.0 and growth >= 10.0): continue
-
-            # Gate 2: Timing Gate (Score >= 55, Momentum >= 25, Price > SMA200)
-            df = price_provider.fetch_single(symbol, interval="1d", period="1y")
-            if df is None or len(df) < 200: continue
-            latest = df.iloc[-1]
-            if latest["Close"] <= latest["SMA_200"]: continue
+            # Compounder Fundamentals Gate
+            piotroski_f = calculate_piotroski_score(record) # Scale 0-9
+            pledge_pct = safe_float(record.get("Pledge %", 0))
+            rev_growth = safe_float(record.get("YoY Revenue Growth %", 0))
+            de = safe_float(record.get("Debt/Equity", 1.0))
             
-            fm_score = 40 + min(roe if is_financial else roce, 30)
-            if fm_score >= 55:
-                save_wealth_buy_alert(symbol, latest["Close"], fm_score)
+            if piotroski_f < 6 or pledge_pct > 10.0 or rev_growth < 15.0 or de > 0.5: continue
+            
+            # Technical Trend Confirmation
+            df = price_provider.fetch_single(symbol, interval="1d", period="2y")
+            if df is None or len(df) < 400: continue
+            latest = df.iloc[-1]
+            if not (latest["Close"] > latest["SMA_50"] > latest["SMA_200"]): continue
+            
+            score = 75 + piotroski_f * 2
+            sl_res = compute_sl_and_target(df, mode="EOD")
+            approved_candidates.append({"symbol": symbol, "score": score, "sl_result": sl_res})
+
+    approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+    top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["MULTIBAGGER"]]
+    save_alert_batch(top_10)
+    upsert_scanner_health("MULTIBAGGER", status="OK", alerts=len(top_10))
+    return len(top_10)
 ```
 
 ---
 
-# 8. DATA ACQUISITION, PROVIDER ROUTING & RESILIENCY TOPOLOGY
+# 8. FUNDAMENTALS DATA PIPELINE & WATCHLIST GENERATION
 
-## 8.1 TradingView Watchlist Screener Query (`app/daily_builder.py`)
-Watchlist candidates are scraped from TradingView using the explicit screener query:
-```text
-Filter: exchange == "NSE" AND market_cap_basic > 1,500,000,000 AND volume > 50,000
-```
-Sanitized via `daily_builder.py` with `SYMBOL_CORRECTIONS` for ampersand symbols (`M_M` $\rightarrow$ `M&M`, `L_TFH` $\rightarrow$ `L&TFH`).
-
-## 8.2 Unified Fetcher & Provider Fallback Chain (`app/data_providers/unified_fetcher.py`)
-```text
-┌─────────────────────────────────────────────────────────┐
-│                    UNIFIED FETCHER                      │
-│                                                         │
-│  Primary: Fyers API v3 (Cap: 99 days for intraday)     │
-│    │                                                    │
-│    ├─ [Success] ──► Return Validated DataFrame          │
-│    └─ [Fail/Error] ──► Trigger Dashboard Notification   │
-│                             │                           │
-│  Secondary: YFinance (Rate Limiter Circuit Breaker)    │
-│    │                                                    │
-│    ├─ [Success] ──► Parse MultiIndex Level 0/1 Columns  │
-│    └─ [Fail/Error] ──► Check BSE Mapping Table          │
-│                             │                           │
-│  Tertiary: BSE (.BO) Provider                           │
-│    │                                                    │
-│    ├─ [Success] ──► Persist .BO to symbol_mappings      │
-│    └─ [Fail/Error] ──► Invalidate BSE Poisoned Mapping  │
-└─────────────────────────────────────────────────────────┘
-```
+`daily_builder.py` executes at 01:00 IST to build `data/watchlist.parquet`:
+1. Scrapes TradingView screener via REST API: `exchange == "NSE" AND market_cap_basic > 1500000000 AND volume > 50000`.
+2. Symbol Ampersand Correction: `M_M` $\rightarrow$ `M&M`, `L_TFH` $\rightarrow$ `L&TFH`.
+3. Fundamental Enrichment (`app/fundamentals_cache.py`):
+   - Queries YFinance / NSE API for `ROE %`, `ROCE %`, `Debt/Equity`, `YoY Revenue Growth %`.
+   - Queries `pledge_cache` table (scraped via `pledge_scraper.py`) for `Pledge %`.
+4. Writes enriched DataFrame to `data/watchlist.parquet` and registers in `DatasetRegistry["watchlist"]`.
 
 ---
 
-# 9. PRICE CACHE INFRASTRUCTURE & PARQUET SIDECARS
+# 9. DATA ACQUISITION, PROVIDER ROUTING & RESILIENCY TOPOLOGY
+
+`ProviderSelector` delegates provider selection based on dataset keys (`price_1d`, `price_15m`, `live_quotes`) configured in `config.PROVIDER_ROUTING_POLICY` and capability sets in `config.PROVIDER_CAPABILITIES`.
+
+---
+
+# 10. PRICE CACHE INFRASTRUCTURE & PARQUET SIDECARS
 
 ```python
 _cache[(interval, period)][symbol] = {
@@ -661,7 +634,7 @@ _cache[(interval, period)][symbol] = {
 
 ---
 
-# 10. DATABASE ARCHITECTURE & COMPLETE POSTGRESQL DDLs (ALL OPERATIONAL TABLES)
+# 11. DATABASE ARCHITECTURE & COMPLETE POSTGRESQL DDLs (ALL OPERATIONAL TABLES)
 
 ```sql
 -- 1. Primary Signal Alerts Table
@@ -832,7 +805,7 @@ CREATE TABLE IF NOT EXISTS scan_failures (
 
 ---
 
-# 11. CONCURRENCY, SYNCHRONIZATION & LOCK HIERARCHY
+# 12. CONCURRENCY, SYNCHRONIZATION & LOCK HIERARCHY
 
 ```text
 Lock Acquisition Hierarchy (Strict Acquisition Order):
@@ -844,7 +817,7 @@ Lock Acquisition Hierarchy (Strict Acquisition Order):
 
 ---
 
-# 12. AUTONOMOUS SCHEDULER & 24/7 EXECUTION BLUEPRINT
+# 13. AUTONOMOUS SCHEDULER & 24/7 EXECUTION BLUEPRINT
 
 ```python
 # app/main.py Core Scheduler Implementation
@@ -892,9 +865,9 @@ def run_system_scheduler():
 
 ---
 
-# 13. ALERT LIFECYCLE, TRAILING STOP MECHANICS & COOLDOWN RULES
+# 14. ALERT LIFECYCLE, TRAILING STOP MECHANICS & COOLDOWN RULES
 
-## 13.1 Alert Status Lifecycle State Machine
+## 14.1 Alert Status Lifecycle State Machine
 - `OPEN`: Signal triggered, entry active.
 - `PARTIAL_WIN_1`: Target 1 ($1.5 R$) hit. Stop loss trailed to **Breakeven (Entry Price)**.
 - `PARTIAL_WIN_2`: Target 2 ($2.5 R$) hit. Stop loss trailed to **Target 1 Price**.
@@ -904,21 +877,9 @@ def run_system_scheduler():
 - `EXPIRED`: Signal failed to reach T1 within 20 trading days.
 - `NEUTRAL`: Position closed at breakeven.
 
-## 13.2 Alert Cooldown Durations (`ALERT_COOLDOWN_MINUTES` in `config.py`)
-```python
-ALERT_COOLDOWN_MINUTES = {
-    "WEALTH": 1440,       # 24 hours
-    "MULTI_TF": 720,      # 12 hours
-    "EOD": 1440,          # 24 hours
-    "REVERSAL": 10080,    # 7 days
-    "PULLBACK": 10080,    # 7 days
-    "MULTIBAGGER": 43200  # 30 days
-}
-```
-
 ---
 
-# 14. COMPLETE REST API SPECIFICATIONS & STREAMING PROTOCOLS
+# 15. COMPLETE REST API SPECIFICATIONS & STREAMING PROTOCOLS
 
 Flask REST API (`app/dashboard_server.py`) specifications:
 
@@ -932,7 +893,7 @@ Flask REST API (`app/dashboard_server.py`) specifications:
 
 ---
 
-# 15. COMPLETE REPOSITORY MODULE INVENTORY (ALL 88 MODULES)
+# 16. COMPLETE REPOSITORY MODULE INVENTORY (ALL 88 MODULES)
 
 ```text
 app/
@@ -971,7 +932,18 @@ app/
 
 ---
 
-# 16. DEPLOYMENT VERIFICATION & PRODUCTION TEST GATES (ALL 17 GATES)
+# 17. UI/UX SPECIFICATIONS & STREAMING CONTRACTS
+
+## 17.1 Glassmorphism & Dark Mode Tokens
+- **Background**: `#0B0E14` (Deep space dark mode).
+- **Cards**: `background: rgba(255, 255, 255, 0.03)`, `backdrop-filter: blur(12px)`, `border: 1px solid rgba(255, 255, 255, 0.08)`.
+- **Typography**: `Inter` / `Outfit` sans-serif fonts.
+
+---
+
+# 18. DEPLOYMENT VERIFICATION & PRODUCTION TEST GATES (ALL 17 GATES)
+
+The system enforces **17 Production Deployment Gates** in `tests/test_production_deployment_gates.py`:
 
 ```python
 def test_gate6_production_readiness_checklist(self):
@@ -983,18 +955,36 @@ def test_gate6_production_readiness_checklist(self):
     assert mem["rss_mb"] < 450.0, f"Memory threshold breached: {mem['rss_mb']} MB"
 ```
 
+1. Gate 1: Cold start import time $\le 5.0\text{s}$.
+2. Gate 2: Unsupported imports audit.
+3. Gate 3: Smoke execution $\le 30\text{s}$.
+4. Gate 4: AST method signature audit.
+5. Gate 5: Railway integration contract.
+6. Gate 6: Production readiness checklist ($\text{RSS} < 450.0\text{ MB}$ with `gc.collect()`).
+7. Gate 7: Dependency reproducibility.
+8. Gate 8: Scheduler 24h simulation.
+9. Gate 9: Memory budget ($\text{RSS} < 450.0\text{ MB}$, Threads $< 60$).
+10. Gate 10: Alert contract schema compliance.
+11. Gate 11: Scanner execution invariants.
+12. Gate 12: DB connection pool acquire $\le 15\text{s}$.
+13. Gate 13: `/version` endpoint health.
+14. Gate 14: Earnings calendar safety.
+15. Gate 15: Quality trajectory invariants.
+16. Gate 16: Forensic engine risk tiers.
+17. Gate 17: Data readiness policy.
+
 ---
 
-# 17. V9 CLEAN ARCHITECTURE BLUEPRINT & DEPRECATION PROTOCOL LOG
+# 19. V9 CLEAN ARCHITECTURE BLUEPRINT & DEPRECATION PROTOCOL LOG
 
-## 17.1 Target 5-Layer Layout (`src/`)
+## 19.1 Target 5-Layer Layout (`src/`)
 - `src/domain/`: Pure business logic models, indicators, risk, strategy rules.
 - `src/application/`: Pipeline steps (`IPipelineStep`), context objects (`PipelineContext`).
 - `src/infrastructure/`: API fetchers, PostgreSQL repositories (`AlertRepository`, `HealthRepository`).
 - `src/interfaces/`: Flask REST API server and 24/7 scheduler (`TaskScheduler`).
 - `src/common/`: Lock instrumentations, IEEE 754 float sanitizers.
 
-## 17.2 Deprecation Protocol Log (Rule 58 Compliance)
+## 19.2 Deprecation Protocol Log (Rule 58 Compliance)
 - ~~*Legacy Top-Level Cache Dict Pointer Overwrites*~~ *(Replaced on 2026-07-24 by `PER_SYMBOL_CACHE_v1.0` in `app/price_cache.py` — symbols now have independent `_cache[(interval, period)][symbol]` TTL pointers)*
 - ~~*21:00 IST Mandatory Time Guard on Scanner Execution*~~ *(Replaced on 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0` in `app/main.py` — `force=True` parameter passed directly by scheduler)*
 - ~~*One-Shot 15:00 IST Intraday Multi-TF Execution Trigger*~~ *(Replaced on 2026-07-24 by Candle-Aligned 15-Minute Market Hours Cadence `:00`, `:15`, `:30`, `:45` in `app/main.py`)*
@@ -1003,105 +993,100 @@ def test_gate6_production_readiness_checklist(self):
 
 ---
 
-# 18. EXHAUSTIVE SELF-CONTAINED Q&A BLUEPRINT FOR ZERO-CODE RECONSTRUCTION
+# 20. OPERATIONAL EDGE CASES, DATA CONTRACTS & ENVIRONMENT BLUEPRINT
 
-### Q1: How is `config.py` constructed and what exact constants/dictionaries must be present?
-**Answer**: `app/config.py` contains all system parameters:
-- `SCORE_THRESHOLDS = {"15m": 78, "1h": 80, "1d": 82}`
-- `EOD_CONFIG = {"MIN_SIGNALS": 1, "MIN_BODY_RATIO": 0.45, "MIN_CLOSE_POSITION": 0.65, "MAX_UPPER_WICK": 0.35, "MIN_VOLUME_RATIO": 1.8, "MIN_VOLUME_AVG": 50_000, "MIN_RSI": 55, "MAX_RSI": 88}`
-- `EOD_ADVANCED_CONFIG = {"MAX_DISTANCE_FROM_52W_HIGH_PCT": 15.0, "MAX_SINGLE_DAY_MOVE_PCT": 15.0, "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5, "MIN_ATR_EXPANSION_RATIO": 0.9, "MAX_BB_WIDTH_PCTILE": 0.80}`
-- `REVERSAL_CONFIG = {"MIN_DROP_FROM_52W_HIGH": 20.0, "MAX_DROP_FROM_52W_HIGH": 45.0, "RSI_OVERSOLD_THRESHOLD": 45, "RSI_CURL_MIN": 50, "MIN_VOLUME_RATIO": 2.0, "REVERSAL_COOLDOWN_TRADING_DAYS": 30}`
-- `SCANNER_MAX_ALERTS = {"WEALTH": 50, "MULTI_TF": 100, "EOD": 10, "REVERSAL": 10, "PULLBACK": 10, "MULTIBAGGER": 10}`
-- `PROVIDER_ROUTING_POLICY`: Maps dataset keys (`price_1d`, `price_15m`, `live_quotes`, etc.) to priority provider arrays `["fyers", "yahoo", "bse"]`.
+## 20.1 Environment Variables & Configuration Precedence (`.env`, Railway)
+Configuration precedence: Runtime Overrides > Railway Environment Variables > `.env` file > `app/config.py` Defaults.
 
-### Q2: How does `lock_utils.py` implement `ProcessLock` and handle advisory lock failures?
-**Answer**: `app/lock_utils.py` defines `ProcessLock`:
-```python
-class ProcessLock:
-    def __init__(self, lock_name: str):
-        self.lock_name = lock_name
-        self.thread_lock = threading.Lock()
-        self.handle = None
+| Variable Name | Type | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| `DATABASE_URL` | `str` | `postgresql://localhost:5432/breakout_db` | PostgreSQL connection URL string |
+| `BOT_TOKEN` | `str` | `None` | Telegram Bot API Access Token |
+| `CHAT_ID` | `str` | `None` | Telegram Target Channel / Group ID |
+| `FYERS_CLIENT_ID` | `str` | `None` | Fyers API v3 App Client ID |
+| `FYERS_SECRET_KEY` | `str` | `None` | Fyers API v3 App Secret Key |
+| `FYERS_REDIRECT_URL` | `str` | `https://.../fyers/callback` | OAuth 2.0 Callback Redirect URL |
+| `VAPID_PRIVATE_KEY` | `str` | `None` | Web Push VAPID Private Signing Key |
+| `SCRAPERAPI_KEY` | `str` | `None` | ScraperAPI proxy token for NSE scraping |
+| `DATA_PROVIDER` | `str` | `auto` | Routing policy mode (`auto`, `fyers`, `yfinance`) |
+| `LOCK_WAIT_WARNING_SECONDS` | `float` | `10.0` | Threshold to emit lock wait warning logs |
+| `LOCK_HOLD_WARNING_SECONDS` | `float` | `120.0` | Threshold to emit lock hold warning logs |
 
-    def acquire(self, blocking=False) -> bool:
-        if not self.thread_lock.acquire(blocking=blocking):
-            return False
-        try:
-            # PostgreSQL Advisory Lock
-            conn = database.get_connection()
-            cur = conn.cursor()
-            lock_id = zlib.crc32(self.lock_name.encode()) & 0x7fffffff
-            cur.execute("SELECT pg_try_advisory_lock(%s)", (lock_id,))
-            acquired = cur.fetchone()[0]
-            if acquired:
-                self.handle = (conn, cur, lock_id)
-                return True
-            else:
-                database.release_connection(conn)
-                self.thread_lock.release()
-                return False
-        except Exception:
-            # PROCESS_LOCK_EXC_FIX_v1.0: Clean handles and release thread lock on exception
-            self.thread_lock.release()
-            return False
-
-    def release(self):
-        if self.handle:
-            conn, cur, lock_id = self.handle
-            try:
-                cur.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
-            finally:
-                database.release_connection(conn)
-                self.handle = None
-        if self.thread_lock.locked():
-            self.thread_lock.release()
+## 20.2 Pinned Production Dependencies (`requirements.txt`)
+```text
+pandas==2.2.2
+numpy==1.26.4
+flask==3.0.3
+psycopg2-binary==2.9.9
+yfinance==0.2.40
+requests==2.32.3
+pyarrow==16.1.0
+pytest==8.4.2
+pytest-mock==3.15.1
+pywebpush==1.14.0
+google-generativeai==0.7.2
+gunicorn==22.0.0
 ```
 
-### Q3: How does `dashboard_server.py` implement Gzip compression and session check caching?
-**Answer**:
-```python
-# Session Check In-Memory Cache (60s TTL)
-_session_cache = {}
-def _cached_check_session(session_token):
-    now = time.monotonic()
-    if session_token in _session_cache:
-        val, ts = _session_cache[session_token]
-        if now - ts < 60: return val
-    val = database.check_session_validity(session_token)
-    _session_cache[session_token] = (val, now)
-    return val
+---
 
-# Gzip Response Compression Middleware
-@app.after_request
-def compress_response(response):
-    if response.status_code < 200 or response.status_code >= 300 or len(response.data) < 500:
-        return response
-    if "gzip" not in request.headers.get("Accept-Encoding", "").lower():
-        return response
-    gzip_buffer = io.BytesIO()
-    with gzip.GzipFile(mode="wb", fileobj=gzip_buffer) as gz:
-        gz.write(response.data)
-    response.data = gzip_buffer.getvalue()
-    response.headers["Content-Encoding"] = "gzip"
-    response.headers["Content-Length"] = len(response.data)
-    return response
-```
+# 21. AI RECONSTRUCTION CHECKLIST & MODULE DEPENDENCY BLUEPRINT
 
-### Q4: How does `telemetry_manager.py` support both 1-argument and 2-argument signature resilience?
-**Answer**:
-```python
-def log_session_timeline(self, first_arg: str, second_arg: Optional[str] = None):
-    """
-    Supports both 1-arg: log_session_timeline("event_name")
-    and 2-arg: log_session_timeline("14:30:00 IST", "event_name").
-    """
-    if second_arg is None:
-        timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
-        event = first_arg
-    else:
-        timestamp = first_arg
-        event = second_arg
-    self.timeline.append({"timestamp": timestamp, "event": event})
+To build an exact replica of this codebase from zero with 100% deterministic fidelity, follow this exact step-by-step creation sequence:
+
+```text
+Creation Order & Module Dependency Hierarchy:
+
+Step 1: Foundational Constants & Core Types
+├── app/config.py               # (Constants, thresholds, provider policies)
+├── app/core_enums.py           # (ProviderResult, ScanOutcome, CandidateState)
+└── app/core_models.py          # (TradeStructure, ScanFailure)
+
+Step 2: Database Layer & Lock Utilities
+├── app/database.py             # (PostgreSQL DDLs, connection pool DB_MAXCONN=50)
+└── app/lock_utils.py           # (InstrumentedLock, ProcessLock pg_advisory_lock)
+
+Step 3: Contexts, Telemetry & Profiling
+├── app/application_context.py # (Singleton app context)
+├── app/session_context.py     # (Trading-day state machine)
+├── app/dataset_registry.py    # (Memory dataset tier registry)
+├── app/memory_profiler.py     # (RSS delta & memory tracking)
+└── app/telemetry_manager.py   # (Timeline & funnel logging)
+
+Step 4: Data Acquisition & Price Cache Infrastructure
+├── app/price_cache.py         # (3-tier per-symbol RAM cache & timestamp normalizer)
+├── app/watchlist_cache.py     # (Watchlist parquet parsing & symbol corrections)
+├── app/indicator_manager.py   # (RSI, ADX, EMA, ATR calculation bundles)
+├── app/delivery_data.py       # (NSE Bhavcopy delivery scraper)
+├── app/surveillance.py        # (NSE ASM/GSM blacklist scraper)
+├── app/data_providers/provider_selector.py # (Routing policy authority)
+├── app/data_providers/fyers_fetcher.py      # (Fyers API client & 99-day cap)
+├── app/data_providers/unified_fetcher.py    # (Fyers -> YFinance -> BSE chain)
+└── app/price_provider.py      # (BSE mapping state machine & fallback)
+
+Step 5: Scoring, Risk & Quant Engines
+├── app/scoring_engine.py      # (Centralized candidate scoring 0-100)
+├── app/sl_target_helper.py    # (Dynamic stop loss, anti-trap buffer & validator)
+├── app/trade_ranking_engine.py# (Multi-factor candidate ranking)
+├── app/macro_utils.py         # (Market regime engine & sector rankings)
+├── app/strategy_policy.py     # (Regime-aware threshold modifiers)
+├── app/forensic_engine.py     # (Forensic risk tiers & CFO/PAT gates)
+└── app/quality_trajectory.py  # (Fundamentals trajectory score)
+
+Step 6: Quantitative Scanners & Wealth Engines
+├── app/eod_scanner.py         # (EOD Breakout Scanner & un-nested health)
+├── app/reversal_scanner.py    # (Reversal Scanner & 30-day fallen knife cooldown)
+├── app/pullback_pipeline.py   # (Pullback Pipeline Scanner & evidence bonus)
+├── app/multi_tf_scanner.py    # (Multi-TF Intraday 4-stage cascade scanner)
+├── app/wealth_engine.py       # (Wealth Engine Screener & 5m exit monitor)
+└── app/multibagger.py         # (Multibagger Compounder Screener & exit monitor)
+
+Step 7: Presentation, Notification & Entrypoint
+├── app/daily_builder.py       # (TradingView screener scraper at 01:00 IST)
+├── app/dashboard_server.py    # (Flask REST API, Gzip middleware & session cache)
+├── app/telegram_engine.py     # (Telegram Bot API broadcast handler)
+├── app/push_service.py        # (VAPID Web Push notification engine)
+└── app/main.py                # (24/7 Autonomous scheduler entrypoint)
 ```
 
 ---
