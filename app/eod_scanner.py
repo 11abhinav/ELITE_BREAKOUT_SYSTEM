@@ -1001,170 +1001,169 @@ def _start_wrapper(force: bool = False):
                 )
 
         # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
-                # Removed Telegram notifications (2026-06-17)
+        # [VERSION: EOD_INDENT_FIX_v1.0] Fixed un-indentation of verification, status, telemetry, and return block out of candidate loop
+        fired = {k: v for k, v in rejection_counts.items() if v > 0}
+        duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
+        total_symbols = len(watchlist)
+        stale_count = rejection_counts.get("stale_data", 0)
+        no_data_count = rejection_counts.get("no_data", 0)
+        fresh_count = max(0, total_fetched_count - stale_count)
+        data_status = "DEGRADED (Stale Data > 30%)" if (stale_count / max(total_symbols, 1)) > 0.30 else "OK"
 
-                fired = {k: v for k, v in rejection_counts.items() if v > 0}
-                duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
-                total_symbols = len(watchlist)
-                stale_count = rejection_counts.get("stale_data", 0)
-                no_data_count = rejection_counts.get("no_data", 0)
-                fresh_count = max(0, total_fetched_count - stale_count)
-                data_status = "DEGRADED (Stale Data > 30%)" if (stale_count / max(total_symbols, 1)) > 0.30 else "OK"
+        summary_lines = [
+            "======================================================================",
+            "=== [EOD SCANNER PIPELINE SUMMARY] ===",
+            "======================================================================",
+            "📊 DATA QUALITY SNAPSHOT:",
+            f"  • Total Watchlist Requested : {total_symbols}",
+            f"  • Fresh Data OK             : {fresh_count}",
+            f"  • Stale Data                : {stale_count}",
+            f"  • Missing / No Data         : {no_data_count}",
+            f"  • Data Health Status        : {data_status}",
+            "",
+            "🎯 CRITERIA & FILTER BREAKDOWN:"
+        ]
+        for k, v in fired.items():
+            summary_lines.append(f"  • {k:<27}: {v}")
 
-                summary_lines = [
-                    "======================================================================",
-                    "=== [EOD SCANNER PIPELINE SUMMARY] ===",
-                    "======================================================================",
-                    "📊 DATA QUALITY SNAPSHOT:",
-                    f"  • Total Watchlist Requested : {total_symbols}",
-                    f"  • Fresh Data OK             : {fresh_count}",
-                    f"  • Stale Data                : {stale_count}",
-                    f"  • Missing / No Data         : {no_data_count}",
-                    f"  • Data Health Status        : {data_status}",
-                    "",
-                    "🎯 CRITERIA & FILTER BREAKDOWN:"
-                ]
-                for k, v in fired.items():
-                    summary_lines.append(f"  • {k:<27}: {v}")
+        summary_lines.extend([
+            "",
+            "🏆 FINAL OUTCOME:",
+            f"  • Alerts Generated          : {total_alerts}",
+            f"  • Total Execution Time      : {duration_sec}s",
+            "======================================================================"
+        ])
+        logger.info("\n".join(summary_lines))
 
-                summary_lines.extend([
-                    "",
-                    "🏆 FINAL OUTCOME:",
-                    f"  • Alerts Generated          : {total_alerts}",
-                    f"  • Total Execution Time      : {duration_sec}s",
-                    "======================================================================"
-                ])
-                logger.info("\n".join(summary_lines))
+        # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
+        if total_alerts > 0 and not is_test_mode:
+            if not verify_alerts_saved_today("EOD", total_alerts):
+                logger.critical(f"🚨 CRITICAL ERROR: EOD generated {total_alerts} alerts but save failed!")
+                upsert_scanner_health(
+                    scanner_name="EOD",
+                    status="DOWN",
+                    error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
+                )
+                raise RuntimeError("Alert save verification failed - database connectivity issue")
 
-                # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
-                if total_alerts > 0 and not is_test_mode:
-                    if not verify_alerts_saved_today("EOD", total_alerts):
-                        logger.critical(f"🚨 CRITICAL ERROR: EOD generated {total_alerts} alerts but save failed!")
-                        upsert_scanner_health(
-                            scanner_name="EOD",
-                            status="DOWN",
-                            error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
+        status = "OK"
+        error_msg = None
+
+        # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
+        stale_count = rejection_counts.get("stale_data", 0)
+        total_symbols = len(watchlist)
+        if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
+            status = "DEGRADED"
+            error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+
+        # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
+        active_threads = threading.active_count()
+        logger.info(f"🧵 Final Active Thread Count: {active_threads}")
+
+        if total_fetched_count < len(watchlist) * 0.95:
+            status = "DEGRADED"
+            error_msg = f"Partial Fetch: {total_fetched_count}/{len(watchlist)} symbols"
+
+        duration_sec = (datetime.now(IST) - start_time).total_seconds()
+
+        del all_ticker_data
+        locals().pop('ticker', None)
+
+        # Check if we fetched enough data overall
+        if total_fetched_count < len(watchlist) * 0.70:
+            logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
+        else:
+            logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
+        # Insert scan failures via batch
+        if scan_failures and not is_test_mode:
+            try:
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        from psycopg2.extras import execute_values
+                        execute_values(
+                            cur,
+                            """
+                            INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
+                            VALUES %s
+                            """,
+                            [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
                         )
-                        raise RuntimeError("Alert save verification failed - database connectivity issue")
+                    conn.commit()
+            except Exception as e:
+                logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
 
-                status = "OK"
-                error_msg = None
+        # Map overall outcome & status guard — Missing/unfetched data is a CRITICAL BLOCKER
+        outcome = "SUCCESS"
+        no_data_count = rejection_counts.get("no_data", 0)
         
-                # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
-                stale_count = rejection_counts.get("stale_data", 0)
-                total_symbols = len(watchlist)
-                if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
-                    status = "DEGRADED"
-                    error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
-        
-                # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
-                active_threads = threading.active_count()
-                logger.info(f"🧵 Final Active Thread Count: {active_threads}")
-        
-                if total_fetched_count < len(watchlist) * 0.95:
-                    status = "DEGRADED"
-                    error_msg = f"Partial Fetch: {total_fetched_count}/{len(watchlist)} symbols"
+        if no_data_count >= len(watchlist) * 0.25:
+            status = "DOWN"
+            outcome = "FAILED"
+            error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{len(watchlist)} symbols unfetched (missing data)"
+            logger.error(f"🚨 {error_msg}")
+            try:
+                from telegram_engine import send_telegram_message
+                send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: EOD SCANNER FAILED</b>\n{no_data_count}/{len(watchlist)} symbols were unfetched / missing data.")
+            except Exception:
+                pass
 
-                duration_sec = (datetime.now(IST) - start_time).total_seconds()
-        
-                del all_ticker_data
-                locals().pop('ticker', None)
-            
-            # Check if we fetched enough data overall
-            if total_fetched_count < len(watchlist) * 0.70:
-                logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
-            else:
-                logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
-            # Insert scan failures via batch
-            if scan_failures and not is_test_mode:
+        elif total_fetched_count < len(watchlist) * 0.70:
+            outcome = "PARTIAL"
+            status = "DEGRADED"
+        elif total_fetched_count == 0:
+            outcome = "FAILED"
+            status = "DOWN"
+
+        if not is_test_mode:
+            try:
+                upsert_scanner_health(
+                    scanner_name="EOD",
+                    status=status,
+                    last_success=datetime.now(IST).isoformat(),
+                    today_alerts=total_alerts,
+                    processed_count=total_alerts,
+                    total_count=len(watchlist),
+                    error_msg=error_msg,
+                    outcome=outcome,
+                    provider_stats=provider_stats_counts,
+                    duration_seconds=duration_sec
+                )
+            except Exception:
+                logger.exception("❌ Failed to update scanner health for EOD")
+            if status == "OK" or status == "DEGRADED":
                 try:
-                    from database import get_connection
-                    with get_connection() as conn:
-                        with conn.cursor() as cur:
-                            from psycopg2.extras import execute_values
-                            execute_values(
-                                cur,
-                                """
-                                INSERT INTO scan_failures (symbol, scanner_name, provider, failure_reason, failed_at, scan_id)
-                                VALUES %s
-                                """,
-                                [(f.symbol, f.scanner_name, f.provider, f.failure_reason, f.failed_at, f.scan_id) for f in scan_failures]
-                            )
-                        conn.commit()
-                except Exception as e:
-                    logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
-
-            # Map overall outcome & status guard — Missing/unfetched data is a CRITICAL BLOCKER
-            outcome = "SUCCESS"
-            no_data_count = rejection_counts.get("no_data", 0)
-            
-            if no_data_count >= len(watchlist) * 0.25:
-                status = "DOWN"
-                outcome = "FAILED"
-                error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{len(watchlist)} symbols unfetched (missing data)"
-                logger.error(f"🚨 {error_msg}")
+                    insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks. Outcome: {outcome}")
+                    from push_service import send_push_to_all
+                    send_push_to_all("🚀 EOD Scanner OK", f"Found {total_alerts} new breakout alerts.", bypass_throttle=True)
+                except Exception:
+                    pass
+            elif status == "DEGRADED":
                 try:
-                    from telegram_engine import send_telegram_message
-                    send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: EOD SCANNER FAILED</b>\n{no_data_count}/{len(watchlist)} symbols were unfetched / missing data.")
+                    insert_notification("admin", f"⚠️ EOD Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
+                    from push_service import send_push_to_all
+                    send_push_to_all("⚠️ EOD Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
                 except Exception:
                     pass
 
-            elif total_fetched_count < len(watchlist) * 0.70:
-                outcome = "PARTIAL"
-                status = "DEGRADED"
-            elif total_fetched_count == 0:
-                outcome = "FAILED"
-                status = "DOWN"
+        try:
+            from funnel_telemetry import log_funnel_metrics
+            log_funnel_metrics("EOD", market_regime, len(watchlist), rejection_counts, total_alerts)
+        except Exception as e:
+            logger.warning(f"Failed to log funnel telemetry: {e}")
 
-            if not is_test_mode:
-                try:
-                    upsert_scanner_health(
-                        scanner_name="EOD",
-                        status=status,
-                        last_success=datetime.now(IST).isoformat(),
-                        today_alerts=total_alerts,
-                        processed_count=total_alerts,
-                        total_count=len(watchlist),
-                        error_msg=error_msg,
-                        outcome=outcome,
-                        provider_stats=provider_stats_counts,
-                        duration_seconds=duration_sec
-                    )
-                except Exception:
-                    logger.exception("❌ Failed to update scanner health for EOD")
-                if status == "OK" or status == "DEGRADED":
-                    try:
-                        insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks. Outcome: {outcome}")
-                        from push_service import send_push_to_all
-                        send_push_to_all("🚀 EOD Scanner OK", f"Found {total_alerts} new breakout alerts.", bypass_throttle=True)
-                    except Exception:
-                        pass
-                elif status == "DEGRADED":
-                    try:
-                        insert_notification("admin", f"⚠️ EOD Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")
-                        from push_service import send_push_to_all
-                        send_push_to_all("⚠️ EOD Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
-                    except Exception:
-                        pass
+        elapsed_time = (datetime.now(IST) - start_time).total_seconds()
+        logger.info("\n" + "=" * 80)
+        logger.info(f"🛑🛑🛑 [COMPLETE] EOD SCANNER DONE | {elapsed_time:.2f}s | Alerts={total_alerts} | Status={status} 🛑🛑🛑")
+        logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
+        logger.info(f"📊 Final Rejections: {dict(rejection_counts)}")
+        logger.info("=" * 80 + "\n")
 
-            try:
-                from funnel_telemetry import log_funnel_metrics
-                log_funnel_metrics("EOD", market_regime, len(watchlist), rejection_counts, total_alerts)
-            except Exception as e:
-                logger.warning(f"Failed to log funnel telemetry: {e}")
-
-            elapsed_time = (datetime.now(IST) - start_time).total_seconds()
-            logger.info("\n" + "=" * 80)
-            logger.info(f"🛑🛑🛑 [COMPLETE] EOD SCANNER DONE | {elapsed_time:.2f}s | Alerts={total_alerts} | Status={status} 🛑🛑🛑")
-            logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
-            logger.info(f"📊 Final Rejections: {dict(rejection_counts)}")
-            logger.info("=" * 80 + "\n")
-
-            try:
-                from memory_profiler import run_purge_with_telemetry
-                run_purge_with_telemetry("EOD Scanner Complete")
-            except Exception as me:
-                logger.debug(f"EOD memory purge failed: {me}")
+        try:
+            from memory_profiler import run_purge_with_telemetry
+            run_purge_with_telemetry("EOD Scanner Complete")
+        except Exception as me:
+            logger.debug(f"EOD memory purge failed: {me}")
 
         return total_alerts
 
