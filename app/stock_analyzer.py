@@ -52,45 +52,56 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
     sector_name = "EQUITY"
     found = False
 
-    # 1. Check Watchlist Cache (~2000+ active NSE/BSE symbols)
+    # 1. Check Master Symbol Dictionary (includes temp_universe 940+, watchlists, excluded, history caches, DB)
     try:
-        wl = get_watchlist()
-        if not wl.empty:
-            match = wl[wl['Stock'].str.upper() == sym_clean]
-            if not match.empty:
-                found = True
-                row = match.iloc[0]
-                company_name = str(row.get("Company", sym_clean))
-                sector_name = str(row.get("Sector", "EQUITY"))
+        master = _load_master_symbol_dictionary()
+        if sym_clean in master:
+            found = True
+            company_name = master[sym_clean].get("company_name", sym_clean)
+            sector_name = master[sym_clean].get("sector", "EQUITY")
     except Exception as e:
-        logger.warning(f"Watchlist validation lookup warning for {sym_clean}: {e}")
+        logger.warning(f"Master dictionary lookup warning for {sym_clean}: {e}")
 
-    # 2. Check Database symbol_mappings
+    # 2. Check Watchlist Cache fallback
+    if not found:
+        try:
+            wl = get_watchlist()
+            if not wl.empty and 'Stock' in wl.columns:
+                match = wl[wl['Stock'].astype(str).str.upper() == sym_clean]
+                if not match.empty:
+                    found = True
+                    row = match.iloc[0]
+                    company_name = str(row.get("Company", sym_clean))
+                    sector_name = str(row.get("Sector", "EQUITY"))
+        except Exception as e:
+            logger.warning(f"Watchlist validation lookup warning for {sym_clean}: {e}")
+
+    # 3. Check Database symbol_mappings
     if not found:
         try:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT name, sector
+                        SELECT original_sym, mapped_sym
                         FROM symbol_mappings
-                        WHERE UPPER(nse_symbol) = %s OR UPPER(bse_symbol) = %s
+                        WHERE UPPER(original_sym) = %s OR UPPER(mapped_sym) = %s
                         LIMIT 1
                     """, (sym_clean, sym_clean))
                     row = cur.fetchone()
-                    if row and isinstance(row, (tuple, list)) and len(row) > 0 and row[0] is not None and not hasattr(row[0], '_mock_name'):
+                    if row:
                         found = True
-                        company_name = str(row[0]) if row[0] else sym_clean
-                        sector_name = str(row[1]) if len(row) > 1 and row[1] else "EQUITY"
+                        company_name = sym_clean
+                        sector_name = "EQUITY"
         except Exception:
             pass
 
-    # 3. Live Price Cache verification fallback
+    # 4. Live Price Cache / yfinance verification fallback
     if not found:
         try:
             sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
             fetched_map = fetch_watchlist_data(sample_df, "1mo", "1d", requester="TICKER_VALIDATOR")
             df = fetched_map.get(sym_clean) or fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
-            if df is not None and isinstance(df, pd.DataFrame) and not df.empty and len(df) >= 5:
+            if df is not None and isinstance(df, pd.DataFrame) and not df.empty and len(df) >= 3:
                 found = True
         except Exception:
             pass
