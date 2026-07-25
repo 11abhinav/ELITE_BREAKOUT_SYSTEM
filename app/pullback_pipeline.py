@@ -485,7 +485,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
     stale_count = rejected.get("stale_data", 0)
     dirty_count = rejected.get("data_quality", 0)
     total_failures = no_data_count + stale_count + dirty_count
-    total_symbols = len(watchlist)
+    elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
 
     if not is_historical_fallback:
         status_val = "OK"
@@ -515,7 +515,6 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             status_val = "DEGRADED"
             err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"
 
-        elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
         upsert_scanner_health(
             "PULLBACK",
             status=status_val,
