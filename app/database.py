@@ -207,7 +207,7 @@ def init_db():
                         id SERIAL PRIMARY KEY,
                         symbol TEXT NOT NULL,
                         breakout_type TEXT NOT NULL,
-                        alert_date TEXT NOT NULL DEFAULT (CURRENT_DATE::TEXT),
+                        alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
                         status TEXT NOT NULL DEFAULT 'FOUND',
                         scanner TEXT,
                         technical_score INTEGER,
@@ -317,6 +317,18 @@ def init_db():
                 """)
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+                # Idempotent migration to align candidates.alert_date to DATE type
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='candidates' AND column_name='alert_date' AND data_type='text'
+                        ) THEN 
+                            ALTER TABLE candidates ALTER COLUMN alert_date TYPE DATE USING alert_date::DATE;
+                        END IF;
+                    END $$;
+                """)
                 for col_sql in [
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stop_loss    REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_price REAL",
@@ -1488,8 +1500,8 @@ def save_candidate(symbol: str, breakout_type: str, scanner: str, technical_scor
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO candidates (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, market_context, metadata, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO candidates (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, market_context, metadata, status, alert_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, breakout_type, alert_date) DO UPDATE
                     SET technical_score = EXCLUDED.technical_score,
                         volume_ratio = EXCLUDED.volume_ratio,
@@ -1497,8 +1509,8 @@ def save_candidate(symbol: str, breakout_type: str, scanner: str, technical_scor
                         rr_ratio = EXCLUDED.rr_ratio,
                         market_context = EXCLUDED.market_context,
                         metadata = EXCLUDED.metadata,
-                        status = EXCLUDED.status
-                """, (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, json.dumps(market_context), json.dumps(kwargs), status))
+                        status = CASE WHEN candidates.status IN ('QUALIFIED', 'OPEN') THEN EXCLUDED.status ELSE candidates.status END
+                """, (symbol, breakout_type, scanner, technical_score, volume_ratio, delivery_pct, rr_ratio, json.dumps(market_context), json.dumps(kwargs), status, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d')))
                 conn.commit()
                 return True
     except Exception as e:
@@ -1644,15 +1656,15 @@ def save_alert_if_new(
 
                     cur.execute("""
                         INSERT INTO alerts
-                            (symbol, breakout_type, alert_time, scanner, category,
+                            (symbol, breakout_type, alert_time, alert_date, scanner, category,
                             entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
                             signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                             model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
                             structural_failure_stop, target_quality_score, execution_state)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                         RETURNING id;
-                    """, (symbol, breakout_type, alert_time, scanner, category,
+                    """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
                         entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
                         signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
                         model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
@@ -2417,12 +2429,12 @@ def get_todays_alerts(today_str: str) -> list[dict]:
             try:
                 cur.execute("""
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, scanner, category, entry_price,
-                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin, is_rejected
+                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_4, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin, is_rejected
                     FROM alerts
                     WHERE alert_date = %s
                     UNION ALL
                     SELECT id, symbol, breakout_type, alert_time::text as alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
-                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_price, NULL::int as remaining_shares, entry_signal as signals, fm_score::int as score, 
+                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, entry_signal as signals, fm_score::int as score, 
                         CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected
                     FROM wealth_buy_alert
                     WHERE alert_date = %s
@@ -5242,7 +5254,7 @@ def reallocate_capital_multiple(alert_ids: list):
     with get_connection() as conn:
         with conn.cursor() as cur:
             format_strings = ','.join(['%s'] * len(alert_ids))
-            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context, initial_stop_loss, target_1, target_2, target_3 FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
+            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context, initial_stop_loss, target_1, target_2, target_3, target_4 FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
             rows = cur.fetchall()
             
             if not rows: return []

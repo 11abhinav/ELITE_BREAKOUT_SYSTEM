@@ -214,8 +214,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     db_events = {e.get("type") for e in existing_hist}
     
     scanner = t.get("scanner", "LIVE_1H")
-    from config import PARTIAL_EXIT
-    exit_config = PARTIAL_EXIT.get(scanner, [50, 30, 20])
+    from config import EXIT_PROFILES, SCANNER_EXIT_PROFILE
+    exit_profile_name = SCANNER_EXIT_PROFILE.get(scanner, "BALANCED")
+    exit_config_dict = EXIT_PROFILES.get(exit_profile_name, EXIT_PROFILES["BALANCED"])
+    exit_config = [exit_config_dict["t1"], exit_config_dict["t2"], exit_config_dict["t3"]]
     
     execution_state = t.get("execution_state")
     if not execution_state or execution_state == "PENDING_ENTRY":

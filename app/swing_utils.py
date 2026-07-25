@@ -243,7 +243,10 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
         is_plateau=False
     )
     
-    ps.depth_pct = float((impulse.end.price - min_price) / impulse.end.price * 100)
+    impulse_range = impulse.end.price - impulse.start.price
+    ps.depth_pct = float((impulse.end.price - min_price) / impulse_range * 100) if impulse_range > 0 else 100.0
+    
+    abs_depth_pct = float((impulse.end.price - min_price) / impulse.end.price * 100)
     
     pb_vols = pb['Volume'].values
     valid_pb_vols = pb_vols[pb_vols > 0]
@@ -275,10 +278,14 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
     gates.append(gate("PHASE_B", is_reset, RejectionReason.REJ_STRUCTURE_RESET.name, not is_reset, max_pb_close, impulse.end.price, "<="))
     
     # Depth
-    gates.append(gate("PHASE_B", ps.depth_pct < config.get("MIN_DEPTH_PCT", 5.0), RejectionReason.REJ_DEPTH_TOO_SHALLOW.name, 
-                      ps.depth_pct >= config.get("MIN_DEPTH_PCT", 5.0), ps.depth_pct, config.get("MIN_DEPTH_PCT", 5.0), ">="))
-    gates.append(gate("PHASE_B", ps.depth_pct > config.get("MAX_DEPTH_PCT", 15.0), RejectionReason.REJ_DEPTH_TOO_DEEP.name,
-                      ps.depth_pct <= config.get("MAX_DEPTH_PCT", 15.0), ps.depth_pct, config.get("MAX_DEPTH_PCT", 15.0), "<="))
+    gates.append(gate("PHASE_B", ps.depth_pct < config.get("MIN_DEPTH_PCT", 23.6), RejectionReason.REJ_DEPTH_TOO_SHALLOW.name, 
+                      ps.depth_pct >= config.get("MIN_DEPTH_PCT", 23.6), ps.depth_pct, config.get("MIN_DEPTH_PCT", 23.6), ">="))
+    gates.append(gate("PHASE_B", ps.depth_pct > config.get("MAX_DEPTH_PCT", 61.8), RejectionReason.REJ_DEPTH_TOO_DEEP.name,
+                      ps.depth_pct <= config.get("MAX_DEPTH_PCT", 61.8), ps.depth_pct, config.get("MAX_DEPTH_PCT", 61.8), "<="))
+                      
+    # Absolute Floor
+    gates.append(gate("PHASE_B", abs_depth_pct < 2.0, RejectionReason.REJ_DEPTH_TOO_SHALLOW.name,
+                      abs_depth_pct >= 2.0, abs_depth_pct, 2.0, ">="))
                       
     # Duration
     gates.append(gate("PHASE_B", ps.duration_bars < config.get("MIN_DURATION", 3), RejectionReason.REJ_DURATION_SHORT.name,

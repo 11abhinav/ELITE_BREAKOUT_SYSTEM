@@ -118,7 +118,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
     
     # ── FUNNEL STATS: measure how many stocks pass each gate ──────────────
     funnel = {"total": 0, "data_ok": 0, "indicators_ok": 0, "price_filtered": 0, "price_ok": 0,
-              "ema_only_pass": 0, "adx_only_pass": 0, "ema_and_adx_pass": 0, "dist_pass": 0, "approved": 0}
+              "ema_only_pass": 0, "adx_only_pass": 0, "ema_and_adx_pass": 0, "dist_pass": 0, "approved": 0, "reduced_trend_fallback": 0}
               
     logger.info(f"📥 Processing 1H phase in chunks of {BATCH_SIZE}...")
     
@@ -205,11 +205,16 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     adx_val = _safe_val(latest.get("ADX"))
                     prior_high = _safe_val(latest.get("PRIOR_20D_HIGH"))
             
-                    # Any uncomputed indicator = hard skip (not silently pass)
-                    if any(v is None for v in (e9, e20, s50, s200, adx_val, prior_high)):
-                        logger.debug(f"⏭️ {symbol} skipped — indicator NaN/missing "
-                                     f"(e9={e9}, e20={e20}, s50={s50}, s200={s200}, adx={adx_val}, prior_high={prior_high})")
+                    # Any uncomputed core indicator = hard skip (not silently pass)
+                    if any(v is None for v in (e9, e20, s50, adx_val, prior_high)):
+                        logger.debug(f"⏭️ {symbol} skipped — core indicator NaN/missing "
+                                     f"(e9={e9}, e20={e20}, s50={s50}, adx={adx_val}, prior_high={prior_high})")
                         continue
+                        
+                    is_fallback = False
+                    if s200 is None or pd.isna(s200):
+                        is_fallback = True
+                        funnel["reduced_trend_fallback"] += 1
             
                     funnel["indicators_ok"] += 1
             
@@ -222,8 +227,14 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
             
                     # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
                     # AND price must be within -2.0% (above) to +5.0% (below) of the breakout level
-                    ema_ok = e9 > e20 and e20 > s50 and close > s200
-                    adx_ok = adx_val > 20
+                    if not is_fallback:
+                        ema_ok = e9 > e20 and e20 > s50 and close > s200
+                    else:
+                        # Reduced trend gate for 50-199 bar symbols
+                        ema_ok = e9 > e20 and e20 > s50
+                        
+                    from config import ADX_MIN_THRESHOLD
+                    adx_ok = adx_val >= ADX_MIN_THRESHOLD
                     # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum
                     dist_ok = -0.02 <= dist_to_breakout <= 0.05
             

@@ -1106,8 +1106,14 @@ def _run_scan(force: bool = False):
                     max_alerts = SCANNER_MAX_ALERTS.get("REVERSAL", 10)
                     if len(shortlisted_alerts) > max_alerts:
                         logger.info(f"Limiting REVERSAL alerts from {len(shortlisted_alerts)} to {max_alerts}")
-                        for alert in shortlisted_alerts[max_alerts:]:
+                        rejected = shortlisted_alerts[max_alerts:]
+                        from database import save_rejected_alert
+                        for alert in rejected:
                             logger.info(f"🚫 {alert['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {alert['score']})")
+                            try:
+                                save_rejected_alert(alert['symbol'], "REVERSAL", "RANKED_OUT", context={"score": alert['score']})
+                            except Exception:
+                                pass
                         shortlisted_alerts = shortlisted_alerts[:max_alerts]
 
                 for alert in shortlisted_alerts:

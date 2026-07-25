@@ -803,6 +803,9 @@ def _start_wrapper(force: bool = False):
                 
                             # Append configuration metadata for forward-testing and analytics
                             context["algo_version"] = ACTIVE_ALGO_VERSION
+                            if days_back > 0:
+                                context["delivery_data_status"] = "missing_used_fallback"
+                            
                             context["algo_params"] = {
                                 **EOD_CONFIG,
                                 **EOD_ADVANCED_CONFIG,
@@ -918,9 +921,16 @@ def _start_wrapper(force: bool = False):
                 logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
                 rejected_cands = approved_candidates[max_alerts:]
                 approved_candidates = approved_candidates[:max_alerts]
+                from database import save_rejected_alert
                 for cand in rejected_cands:
                     rejection_counts["duplicate"] = rejection_counts.get("duplicate", 0) + 1
                     logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
+                    if not is_test_mode:
+                        try:
+                            # [VERSION: RANKED_OUT_FIX] Do not log RANKED_OUT to rejected_alerts to avoid polluting genuine rejection metrics
+                            pass
+                        except Exception as e:
+                            pass
                     
             for cand in approved_candidates:
                 c = dict(cand)

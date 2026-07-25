@@ -253,7 +253,29 @@ class MarketRegimeEngine:
 
 def get_macro_regime(nifty_ret: Optional[float] = None) -> str:
     ctx = MarketRegimeEngine.get_regime_context(nifty_ret=nifty_ret)
-    return ctx.get("trend", "NEUTRAL")
+    trend = ctx.get("trend", "NEUTRAL")
+    strength = ctx.get("strength", "WEAK")
+    volatility = ctx.get("volatility", "NORMAL")
+    
+    # Priority Decision Tree for 9 Verbatim Regimes
+    if trend == "BEAR":
+        if strength == "STRONG":
+            return "STRONG_BEAR"
+        elif strength == "WEAK":
+            return "WEAK_BEAR"
+        return "BEAR"
+    elif trend == "BULL":
+        if strength == "STRONG":
+            return "STRONG_BULL"
+        elif strength == "WEAK":
+            return "WEAK_BULL"
+        return "BULL"
+    else:  # NEUTRAL
+        if volatility == "HIGH":
+            return "RANGEBOUND"
+        elif volatility == "LOW":
+            return "SIDEWAYS"
+        return "NEUTRAL"
 
 
 def get_nifty_20d_return() -> float:

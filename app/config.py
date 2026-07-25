@@ -205,7 +205,7 @@ PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
     "LOOKBACK": 10, "CONFIRM": 3,
     "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 5.0, "MAX_DEPTH_PCT": 15.0,
+    "MIN_DEPTH_PCT": 23.6, "MAX_DEPTH_PCT": 61.8,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
     "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
     "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.75,
@@ -234,7 +234,7 @@ SCORE_BANDS = [
     (75, 80),
     (80, 85),
     (85, 90),
-    (90, 101),
+    (90, 999),
 ]
 
 
@@ -290,7 +290,7 @@ MIN_BREAKOUT_MARGIN = {
 }
 
 # Breakout candle volume must be at least this multiple of 20-bar avg
-MIN_BREAKOUT_VOLUME_RATIO = 1.5
+MIN_BREAKOUT_VOLUME_RATIO = 2.5
 
 # Reject if N prior candles are ALL bearish (no momentum build-up)
 # Moved to EOD_ADVANCED_CONFIG["MAX_PRE_BREAKOUT_RED_CANDLES"]
@@ -319,9 +319,15 @@ MIN_CANDLE_RANGE_PCT = 0.003   # 0.3%
 # =====================================================================================
 
 ADAPTIVE_TARGET_CAPS = {
-    "BULL":    {"15m": 8.0, "1h": 10.0, "1d": 12.0},
-    "BEAR":    {"15m": 4.0, "1h": 6.0,  "1d": 8.0},
-    "NEUTRAL": {"15m": 6.0, "1h": 8.0,  "1d": 10.0}
+    "STRONG_BULL": {"15m": 10.0, "1h": 12.0, "1d": 15.0},
+    "WEAK_BULL":   {"15m": 7.0,  "1h": 9.0,  "1d": 11.0},
+    "BULL":        {"15m": 8.0,  "1h": 10.0, "1d": 12.0},
+    "BEAR":        {"15m": 4.0,  "1h": 6.0,  "1d": 8.0},
+    "WEAK_BEAR":   {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "STRONG_BEAR": {"15m": 3.0,  "1h": 4.0,  "1d": 6.0},
+    "SIDEWAYS":    {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "RANGEBOUND":  {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "NEUTRAL":     {"15m": 6.0,  "1h": 8.0,  "1d": 10.0}
 }
 
 # =====================================================================================
@@ -330,7 +336,7 @@ ADAPTIVE_TARGET_CAPS = {
 
 MIN_NATURAL_RR = {
     "MULTI_TF": 1.5,
-    "EOD": 2.5,
+    "EOD": 2.0,
     "REVERSAL": 2.0,
     "PULLBACK": 2.0,
 }
@@ -359,7 +365,8 @@ TARGET_CONFIDENCE_BASELINE = {
 MIN_REWARD_POTENTIAL = {
     "MULTI_TF": 1.8,
     "EOD": 4.0,
-    "REVERSAL": 8.0,
+    "REVERSAL": 3.0,
+    "PULLBACK": 3.0,
 }
 
 MIN_STOP_PCT = {
@@ -372,17 +379,13 @@ MIN_STOP_PCT = {
 
 
 TARGET_QUALITY_THRESHOLD = {
+    "MULTI_TF": 55,
     "EOD":      55,
-    "REVERSAL": 50
+    "REVERSAL": 50,
+    "PULLBACK": 55,
 }
 
-# [T1%, T2%, T3%]
-PARTIAL_EXIT = {
-    "EOD":      [40, 30, 30],
-    "REVERSAL": [30, 30, 40],
-    "MULTI_TF": [20, 30, 50],   # Aggressive partial — hold majority for momentum continuation
-    "PULLBACK": [40, 35, 25],   # Balanced partial — higher T1 given pullback entry discipline
-}
+
 
 STRUCTURAL_RESISTANCE_SCORES = {
     "1H Swing High": 35,
@@ -592,7 +595,11 @@ TARGET_SOURCE_WEIGHTS = {
     "ROUND_NUM":       0,
 }
 
-FIB_200_WEIGHTS = {"BULL": 7, "TRENDING": 7, "NEUTRAL": 5, "BEAR": 2}
+FIB_200_WEIGHTS = {
+    "STRONG_BULL": 8, "WEAK_BULL": 6, "BULL": 7, "TRENDING": 7,
+    "BEAR": 2, "WEAK_BEAR": 3, "STRONG_BEAR": 1,
+    "SIDEWAYS": 4, "RANGEBOUND": 4, "NEUTRAL": 5
+}
 
 SOURCE_PRIORITY = {
     "EQUAL_HIGH":     1,
@@ -619,7 +626,8 @@ SOURCE_PRIORITY = {
 TARGET_CONFLICT_POLICY = {
     "EOD":      "REGIME",
     "MULTI_TF": "CONFIDENCE",
-    "REVERSAL": "NEAREST",
+    "REVERSAL": "SECOND_NEAREST",
+    "PULLBACK": "REGIME",
 }
 
 EXIT_PROFILES = {
@@ -652,6 +660,7 @@ _MODE_CONFIG = {
     "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
+    "MULTIBAGGER": (2.00, 1.00,       0.0100,     3.5),
 }
 
 

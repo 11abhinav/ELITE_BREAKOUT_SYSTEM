@@ -1006,6 +1006,5 @@ def calculate_score(
     if final_score > max_score_cap:
         logger.debug(f"  {tag}Score capped at {max_score_cap} (was {final_score})")
         return max_score_cap, model_version, weights
-    final_score = min(final_score, 100)
     logger.info(f"  📊 Final score: {final_score} (Model: {model_version}, Regime: {regime_str})")
     return final_score, model_version, weights

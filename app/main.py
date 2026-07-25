@@ -186,7 +186,7 @@ def wait_for_bhavcopy_or_fallback(name: str):
         except Exception as e:
             logger.warning(f"[{name}] Failed to fetch bhavcopy: {e}")
             
-        if now.hour >= 23:
+        if now.hour >= 21 or (now.hour == 20 and now.minute >= 30):
             logger.warning(f"[{name}] ⚠️ It's {now.strftime('%H:%M')} and today's Bhavcopy is still missing. Using fallback (yesterday).")
             return
             
@@ -1195,6 +1195,8 @@ def run_system_scheduler():
     wealth_initial_ran = False
     verify_scans_ran = False
     multibagger_ran = False
+    last_multibagger_date = None
+    last_rotation_date = None
     evening_scanners_ran = False
     warmup_ran = False
     
@@ -1344,18 +1346,14 @@ def run_system_scheduler():
                     except Exception as e:
                         pass
                 
-            # 19:00 - Multibagger Scanner
-            if now.hour == 19 and now.minute >= 0 and not multibagger_ran:
-                multibagger_ran = True
+            # 19:00 - Multibagger Scanner (Independent top-level branch)
+            if now.hour >= 19 and last_multibagger_date != now.date():
+                last_multibagger_date = now.date()
                 _run_multibagger_scanner_single()
-            elif now.hour != 19:
-                multibagger_ran = False
 
-            # 00:00 - Midnight session rotation
-            # Destroy the old SessionContext so all session-scoped memory
-            # is released cleanly. A new session will be created at 01:00
-            # after the Daily Builder runs.
-            if now.hour == 0 and now.minute == 0:
+            # Midnight session rotation — triggered once on date boundary
+            if last_rotation_date != now.date():
+                last_rotation_date = now.date()
                 try:
                     from application_context import ApplicationContext
                     ApplicationContext.get_instance().new_trading_day()

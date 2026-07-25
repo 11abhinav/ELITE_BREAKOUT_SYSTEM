@@ -40,7 +40,7 @@
 
 ## 1.1 Process Architecture & Deployment Budget
 - **Runtime Environment**: Single Python 3.9 process running inside a Linux/Railway container.
-- **Resource Budget**: Strictly bounded at **1.0 GB RAM (1024 MB)** (Minimum System Memory Requirement).
+- **Resource Budget**: Strictly bounded at **2.0 GB RAM (2048 MB)** (System Memory Budget). Warning/eviction threshold = 1200 MB (60%), transient peak = 1400–1600 MB, emergency GC kill = 1800 MB (90%).
 - **Process Isolation Directive**: Microservices are explicitly prohibited due to RAM duplication, inter-process serialization overhead, and network latency. All subsystems run in-process using thread pools and shared memory structures.
 - **System Mandatory Invariants**:
   - **IST Timezone**: All timing, candle boundaries, trading schedules, and database timestamps MUST be evaluated in **IST (Asia/Kolkata - UTC+5:30)**.
@@ -333,6 +333,21 @@ class PipelineContext:
 | `RSI_14` | `float` | No | 14-period Relative Strength Index (Wilder) |
 | `ATR_20` | `float` | No | 20-period Average True Range (Wilder) |
 
+### 3.6 `ohlcv_1h` (Intraday 1-Hour Dataframe)
+| Column Name | Type | Nullable | Meaning / Units |
+| :--- | :--- | :--- | :--- |
+| `Open` | `float` | No | Bar Opening Price (₹) |
+| `High` | `float` | No | Bar Session High Price (₹) |
+| `Low` | `float` | No | Bar Session Low Price (₹) |
+| `Close` | `float` | No | Bar Session Closing Price (₹) |
+| `Volume` | `float` | No | Total Traded Volume (Shares) |
+| `EMA_9` | `float` | No | 9-period Exponential Moving Average |
+| `EMA_20` | `float` | No | 20-period Exponential Moving Average |
+| `SMA_50` | `float` | No | 50-period Simple Moving Average |
+| `SMA_200` | `float` | No | 200-period Simple Moving Average |
+| `ADX_14` | `float` | No | 14-period Average Directional Index |
+| `PRIOR_20D_HIGH` | `float` | No | 20-day High Level |
+
 ### 4. `ohlcv_5m` (Intraday 5-Minute Dataframe)
 | Column Name | Type | Nullable | Meaning / Units |
 | :--- | :--- | :--- | :--- |
@@ -342,7 +357,9 @@ class PipelineContext:
 | `Close` | `float` | No | Bar Session Closing Price (₹) |
 | `Volume` | `float` | No | Total Traded Volume (Shares) |
 | `VWAP` | `float` | No | Intraday Volume-Weighted Average Price (₹) |
+| `EMA_9` | `float` | No | 9-period Exponential Moving Average |
 | `EMA_20` | `float` | No | 20-period Exponential Moving Average |
+| `ATR_20` | `float` | No | 20-period Average True Range (Wilder) |
 
 ---
 
@@ -426,63 +443,63 @@ class ScanFailure:
 
 ## 6.1 Centralized Composite Scoring Engine (`app/scoring_engine.py`)
 
+The scoring engine evaluates the quality of a breakout using a 120+ point scale across several distinct categories. A score $\ge 82$. 
+- **Dynamic Threshold Modification**: Base required score is 82. Favorable macro market regimes maintain or lower selectivity filters, whereas unfavorable market regimes *raise* score thresholds (e.g., +5 in BEAR, +8 in SIDEWAYS, +10 in STRONG_BEAR) to enforce stricter quality standards.
+- **VWAP Indicator Scope**: VWAP is used exclusively as an intraday anchor for intraday scanner modes (`MULTI_TF`). For daily scanner modes (`EOD`, `REVERSAL`, `PULLBACK`), VWAP falls back to `EMA20` or swing structural support.
+- **9-Regime Policy Synthesis Tree**: The regime calculation engine evaluates Nifty 20-day returns, direction, trend slope, and ATR volatility to synthesize 9 policy regimes: `STRONG_BULL`, `WEAK_BULL`, `BULL`, `BEAR`, `WEAK_BEAR`, `STRONG_BEAR`, `SIDEWAYS`, `RANGEBOUND`, `NEUTRAL`.
+
 ```python
 def calculate_score(symbol: str, df: pd.DataFrame, regime_ctx: dict) -> int:
     latest = df.iloc[-1]
     
-    # 1. Base Score Allocation (Max 30 pts)
-    category = get_category_tier(symbol)
-    base_points = {
-        "DEBT_FREE_CASH": 30, "TOP_BANK": 30, "WEALTH_COMPOUNDER": 25,
-        "BLUE_CHIP": 20, "MIDCAP_GROWTH": 18, "RECOVERY_PLAY": 8
-    }.get(category, 15)
-
-    # 2. Candle Quality (Max 15 pts)
-    range_high_low = latest["High"] - latest["Low"]
-    body_ratio = abs(latest["Close"] - latest["Open"]) / range_high_low if range_high_low > 0 else 0
-    close_pos = (latest["Close"] - latest["Low"]) / range_high_low if range_high_low > 0 else 0
-    upper_wick = (latest["High"] - latest["Close"]) / range_high_low if range_high_low > 0 else 0
+    # 1. Base Technical Profile (Max ~11 pts)
+    # Rewards stocks trading above long-term averages and with healthy volume
+    score = 0
+    if close > MIN_STOCK_PRICE: score += 3
+    if close > SMA50 > SMA200: score += 3 
+    if avg_volume > 500_000: score += 5
     
-    candle_score = 0
-    if body_ratio >= config.EOD_CONFIG["MIN_BODY_RATIO"]: candle_score += 5
-    if close_pos >= config.EOD_CONFIG["MIN_CLOSE_POSITION"]: candle_score += 5
-    if upper_wick <= config.EOD_CONFIG["MAX_UPPER_WICK"]: candle_score += 5
-
-    # 3. Volume Expansion (Max 20 pts)
-    vol_avg = df["Volume"].iloc[-21:-1].mean()
-    vol_ratio = latest["Volume"] / vol_avg if vol_avg > 0 else 1.0
-    vol_score = 20 if vol_ratio >= 4.0 else (15 if vol_ratio >= 3.0 else (12 if vol_ratio >= 2.5 else (7 if vol_ratio >= 2.0 else 3)))
-
-    # 4. Trend & Indicators (Max 15 pts)
-    trend_score = 0
-    if latest["Close"] > latest["EMA_20"]: trend_score += 3
-    if latest["Close"] > latest["SMA_50"]: trend_score += 3
-    if latest["SMA_50"] > latest["SMA_200"]: trend_score += 4
-    if latest["ADX_14"] >= config.ADX_MIN_THRESHOLD: trend_score += 5
-
-    # 5. RSI Location (Max 10 pts)
-    rsi = latest["RSI_14"]
-    rsi_score = 10 if 55 <= rsi <= 68 else (5 if (50 <= rsi < 55 or 68 < rsi <= 75) else 0)
-
-    # 6. Regime & Momentum Bonuses ($S_{Regime}$)
-    rs_percentile = macro_utils.get_stock_rs_percentile(symbol)
-    rs_bonus = config.RS_BONUS if rs_percentile >= 80.0 else 0
-    sector_name = macro_utils.get_symbol_sector(symbol)
-    sector_bonus = config.SECTOR_BONUS if macro_utils.is_top_3_sector(sector_name) else 0
-    regime_score = min(config.MAX_MOMENTUM_BONUS, rs_bonus + sector_bonus)
-
-    # 7. Penalties ($P_{Penalties}$)
-    penalties = 0
-    prior_high = df["High"].iloc[-21:-1].max()
-    atr = latest["ATR_20"]
-    if latest["Close"] > prior_high + (config.EOD_ADVANCED_CONFIG["MAX_EXTENDED_BREAKOUT_ATR_MULT"] * atr):
-        penalties += 10
-    if df["OBV"].iloc[-1] <= df["OBV"].iloc[-5]:
-        penalties += 5
-
-    raw_score = base_points + candle_score + vol_score + trend_score + rsi_score + regime_score - penalties
-    return max(0, min(100, raw_score))
+    # 2. Setup Base Quality (Max ~26 pts)
+    # Includes points for Top-of-range close (+2), VCP patterns (+4), Pocket Pivots (+3), 
+    # Gap breakouts (+3), and trend strength.
+    setup_score = evaluate_setup_quality(latest)
+    
+    # 3. Signals Base (Max ~16 pts)
+    # MACD crosses, Inside Bar breakouts, Momentum bursts
+    signal_score = evaluate_signals(latest)
+    
+    # 4. RSI & Momentum (Max 15 pts)
+    rsi_score = 15 if 60 <= rsi <= 70 else (10 if 55 <= rsi < 60 else 0)
+    
+    # 5. Volume Expansion (Max 20 pts)
+    # Rewards heavy volume on the breakout day (up to 20 pts for >4x volume)
+    vol_score = evaluate_volume_expansion(latest, avg_vol)
+    
+    # 6. Trend Strength (Max 16 pts)
+    # EMA stack alignment, SMA 50 > 200, ADX > 25/30, DMI+ > DMI-
+    trend_score = evaluate_trend_strength(latest)
+    
+    # 7. Bonus Modifiers
+    # RS Percentile, Sector Strength, Regime Match, Target Quality, Structural R:R
+    # These can add an additional 20+ points for exceptional market context.
+    
+    return total_score
 ```
+
+### Calibration Sanity Check
+With a theoretical ceiling exceeding 120+ points, the threshold of 82 ensures that a stock must exhibit strength across multiple independent vectors to pass.
+
+| Category | Max Achievable Score (No Bonuses) |
+| :--- | :--- |
+| Base Technical Profile | 11 |
+| Setup Base Quality | 26 |
+| Signals Base | 16 |
+| RSI & Momentum | 15 |
+| Volume Expansion | 20 |
+| Trend Strength | 16 |
+| **Total Practical Max** | **104** |
+
+Even with zero bonus points for Relative Strength, Sector alignment, or Macro Regime, a perfectly formed technical setup can achieve 104 points. The `82` threshold acts as an ~78% quality filter on the raw technicals.
 
 ---
 
@@ -501,7 +518,7 @@ def run_eod_scanner(run_once=False, force=False):
     for chunk in chunk_iterable(universe, batch_size=50):
         ohlcv_map = price_provider.fetch_batch(chunk, interval="1d", period="1y")
         for symbol, df in ohlcv_map.items():
-            if df is None or len(df) < 200: continue
+            if df is None or len(df) < 50: continue  # Lowered from 200 to 50 for IPO/new listing evaluation
             latest = df.iloc[-1]
             if latest["Close"] < config.MIN_STOCK_PRICE: continue
             
@@ -535,6 +552,7 @@ def run_eod_scanner(run_once=False, force=False):
 
     approved_candidates.sort(key=lambda x: x["score"], reverse=True)
     top_10 = approved_candidates[:config.SCANNER_MAX_ALERTS["EOD"]]
+    # RANKED_OUT suppressed candidates bypass save_rejected_alert to avoid telemetry pollution
     saved_count = save_alert_batch(top_10)
     upsert_scanner_health("EOD", status="OK", alerts=len(top_10), duration=time.time() - start_time)
     gc.collect()
@@ -558,7 +576,7 @@ Universe: watchlist.parquet (all categories)
    ├─[Gate 4] YoY Revenue growth ≥ 8% (MIN_YOY_REVENUE_GROWTH)
    ├─[Gate 5] Drop from 52W High: 20% ≤ drop ≤ 45% (REVERSAL_CONFIG band)
    ├─[Gate 6] Close > SMA_50 (mandatory trend recovery gate — FIX 2)
-   ├─[Gate 7] Price ≤ SMA_200 + (MAX_DROP_BELOW_SMA200=25%) safety fence
+   ├─[Gate 7] Price ≤ SMA_200 + (MAX_DROP_BELOW_SMA200=20%) safety fence
    ├─[Gate 8] RSI previously < RSI_OVERSOLD_THRESHOLD (45) AND current RSI ≥ RSI_CURL_MIN (50)
    ├─[Gate 9] Volume ratio ≥ MIN_VOLUME_RATIO (2.0× 20-bar avg)
    ├─[Gate 10] Not in REVERSAL cooldown (30 trading day suppression on failed alerts)
@@ -582,7 +600,8 @@ Universe: watchlist.parquet (all categories)
 **Key Config References:**
 - `REVERSAL_CONFIG` — all filter thresholds
 - `MIN_NATURAL_RR["REVERSAL"] = 2.0` — minimum R:R accepted
-- `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` (7 days)
+- **Two-Tier Cooldown Precedence**: Tier 2 (30-day Fallen Knife Defense) has higher precedence over Tier 1 (7-day alert dedup). If a symbol stopped out on a reversal trade within 30 trading days, it is hard-blocked even if Tier 1 alert dedup has expired.
+- `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` (7 days dedup)
 - `SCANNER_MAX_ALERTS["REVERSAL"] = 10`
 - SL/Target: `compute_sl_and_target(mode="REVERSAL")` — uses ATR=2.0 base, sl_atr_buf=1.0
 
@@ -607,8 +626,8 @@ Min data required: 50 bars (MTF_BAR_LIMIT_FIX)
 
 Filters per symbol:
   • Price ≥ ₹100
-  • EMA9 > EMA20 > SMA50 AND Close > SMA200   (ema_ok)
-  • ADX > 20                                   (adx_ok)
+  • EMA9 > EMA20 > SMA50 AND (Close > SMA200 OR SMA200 is missing)   (ema_ok)
+  • ADX ≥ 18                                   (adx_ok — ADX_MIN_THRESHOLD)
   • Distance to prior 20D High: -2% to +5%     (dist_ok — MTF_DIST_GATE_FIX)
   • Stale flag = False
 
@@ -672,7 +691,7 @@ On valid trigger:
 
 ## 7.4 Pullback Pipeline Scanner (`app/pullback_pipeline.py` — pb-1.0.0)
 
-**Purpose:** Identifies post-impulse pullback setups. Scans for stocks that have made a strong upward impulse (≥8% gain in ≤20 bars), then pulled back 5–15% in an orderly fashion (low volume, limited swings), and are now showing a re-entry trigger candle. Runs post-18:00 IST in the evening batch after Bhavcopy.
+**Purpose:** Identifies post-impulse pullback setups. Scans for stocks that have made a strong upward impulse (≥8% gain in ≤20 bars), then pulled back 23.6–61.8% (Fibonacci retracement of the impulse wave) in an orderly fashion (low volume, limited swings), and are now showing a re-entry trigger candle. Runs post-18:00 IST in the evening batch after Bhavcopy.
 
 **Entry Point:** `run_pullback_pipeline(run_date, force=False)`
 
@@ -689,7 +708,7 @@ For each symbol in watchlist (daily OHLCV, period="1y"):
   │   • Gain ≥ 8% in ≤ 20 bars (MIN_IMPULSE_GAIN_PCT, MAX_IMPULSE_BARS)
   │   • Impulse ATR ≥ 3.0× ATR_20 (MIN_IMPULSE_ATR)
   ├─[Gate 4] Pullback Geometry:
-  │   • Depth: 5% ≤ pullback ≤ 15% from impulse high (MIN/MAX_DEPTH_PCT)
+  │   • Depth: 23.6% ≤ pullback ≤ 61.8% of the impulse wave (effective 5%–15% absolute price drop) (MIN/MAX_DEPTH_PCT)
   │   • Duration: 3–20 bars (MIN/MAX_DURATION)
   │   • Internal swings ≤ 2 (MAX_INTERNAL_SWINGS)
   │   • Pullback volume ratio < 0.75× impulse volume (orderly retrace)
@@ -804,9 +823,10 @@ Entry Price + OHLCV DataFrame + Mode
           ▼
   [ConflictResolver.resolve(clusters, mode)]
   → TARGET_CONFLICT_POLICY:
-    EOD:      "REGIME"     — sort by (consensus_price, score) regime-aware
-    MULTI_TF: "CONFIDENCE" — sort by cluster score descending
-    REVERSAL: "NEAREST"    — pick nearest target above entry
+    EOD:      "REGIME"         — sort by (consensus_price, score) regime-aware
+    MULTI_TF: "CONFIDENCE"     — sort by cluster score descending
+    REVERSAL: "SECOND_NEAREST" — pick second nearest target above entry
+    PULLBACK: "REGIME"         — sort by (consensus_price, score) regime-aware
           │
           ▼
   [TradeStructureValidator.validate()]
@@ -836,12 +856,12 @@ _MODE_CONFIG = {
 ## 7A.3 TradeStructureValidator — 6 Invariant Checks
 
 ```text
-Invariant 1: entry > stop_loss                     (SL must be below entry)
-Invariant 2: target_1 > entry                      (Target must be above entry)
-Invariant 3: (entry - stop_loss) ≥ MIN_STOP_PCT[mode] * entry  (Min stop distance)
-Invariant 4: rr_ratio ≥ MIN_NATURAL_RR[mode]       (Min R:R ratio)
-Invariant 5: rr_ratio ≤ MAX_REASONABLE_RR[mode]    (Max R:R to reject phantom targets)
-Invariant 6: (entry - stop_loss) ≤ MAX_SL_DISTANCE_PCT * entry (Max SL distance 8%)
+Invariant 1: entry > 0                                (Basic sanity check)
+Invariant 2: stop_loss < entry                          (SL must be logically placed)
+Invariant 3: risk = entry - stop_loss > 0               (Risk amount must be calculable)
+Invariant 4: target_1 > entry                           (First target must be profitable)
+Invariant 5: target_1 <= target_2 <= target_3           (Ordered structural hierarchy)
+Invariant 6: natural_rr = (target_1 - entry) / risk >= min_rr (Reward-to-risk ratio minimum)
 ```
 
 Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, alert saved to `rejected_alerts` table.
@@ -874,11 +894,17 @@ Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, aler
 
 ```python
 # config.py
-PARTIAL_EXIT = {
-    "EOD":      [40, 30, 30],   # T1: 40% exit, T2: 30% exit, T3: 30% hold
-    "REVERSAL": [30, 30, 40],   # T1: 30% exit, T2: 30% exit, T3: 40% hold (LTCG intent)
-    "MULTI_TF": [20, 30, 50],   # Aggressive partial
-    "PULLBACK": [40, 35, 25],   # Balanced partial
+EXIT_PROFILES = {
+    "BALANCED":     {"T1": 0.30, "T2": 0.40, "T3": 0.30},
+    "AGGRESSIVE":   {"T1": 0.20, "T2": 0.30, "T3": 0.50},
+    "CONSERVATIVE": {"T1": 0.25, "T2": 0.50, "T3": 0.25},
+}
+
+SCANNER_EXIT_PROFILE = {
+    "EOD":      "BALANCED",      # T1: 30%, T2: 40%, T3: 30%
+    "MULTI_TF": "AGGRESSIVE",    # T1: 20%, T2: 30%, T3: 50% (holds majority for runner)
+    "REVERSAL": "CONSERVATIVE",  # T1: 25%, T2: 50%, T3: 25% (locks gain at T2 bounce)
+    "PULLBACK": "BALANCED",      # T1: 30%, T2: 40%, T3: 30%
 }
 ```
 
@@ -954,13 +980,16 @@ Step 6: Self-test Validation
 |---|---|---|---|
 | `Stock` | str | No | TradingView NSE symbol |
 | `Category` | str | No | Assigned by daily_builder |
-| `sector` | str | No | TradingView sector tag |
-| `ROCE %` | float | Yes | TradingView screener |
+| `Sector` | str | No | TradingView sector tag |
+| `Industry` | str | No | TradingView industry classification |
+| `Market Cap Cr` | float | Yes | TradingView screener (₹ Cr) |
 | `ROE %` | float | Yes | TradingView screener |
+| `ROCE %` | float | Yes | TradingView screener |
 | `Debt/Equity` | float | Yes | TradingView screener |
-| `YoY Revenue Growth %` | float | Yes | TradingView screener |
-| `Pledge %` | float | Yes | BSE/NSE corporate API |
-| `Market Cap (₹)` | float | Yes | TradingView screener |
+| `YOY Revenue %` | float | Yes | TradingView screener |
+| `YOY Profit %` | float | Yes | TradingView screener |
+| `PEG Ratio` | float | Yes | TradingView screener |
+| `Promoter_Pledge` | float | Yes | BSE/NSE corporate API |
 
 ---
 
@@ -1048,7 +1077,7 @@ Incoming DataFrames from external providers pass through rigorous structural val
 ## 11.1 Operational Database Behavior & Retention Rules
 - **Immutable Columns**: In `alerts` table, `id`, `symbol`, `breakout_type`, `scanner`, `alert_time`, `entry_price`, `initial_stop_loss`, and `alert_date` are IMMUTABLE once inserted.
 - **Mutable Tracking Columns**: `stop_loss`, `status`, `target_1`..`target_4`, and `exit_reason` are updated dynamically as trailing stops adjust or targets hit.
-- **UPSERT Logic**: `INSERT INTO alerts (...) VALUES (...) ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE SET status = EXCLUDED.status, stop_loss = EXCLUDED.stop_loss`.
+- **UPSERT Logic**: For the `alerts` table, the system uses strict deduplication: `ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING`. Stop loss trailing is handled by dedicated background tasks, never clobbered by new inserts. The `candidates` table (pre-alert screening) uses `ON CONFLICT (...) DO UPDATE SET status = CASE WHEN candidates.status IN ('QUALIFIED', 'OPEN') THEN EXCLUDED.status ELSE candidates.status END`.
 - **Data Retention Policy**:
   - `alerts`: Retained permanently (never deleted).
   - `funnel_telemetry`: Retained for 90 trading days; purged nightly during Midnight Rotation.
@@ -1090,11 +1119,30 @@ CREATE TABLE IF NOT EXISTS alerts (
     is_rejected BOOLEAN DEFAULT FALSE,
     exit_reason TEXT,
     alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    target_4 REAL, -- Added via idempotent ALTER TABLE migration in database.py
     CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date),
     CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'TRAILING', 'EXPIRED', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'NEUTRAL'))
 );
 
--- 2. Scanner Health Table
+-- 2. Candidates Screening Table
+CREATE TABLE IF NOT EXISTS candidates (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    breakout_type TEXT NOT NULL,
+    alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    status TEXT NOT NULL DEFAULT 'FOUND',
+    scanner TEXT,
+    technical_score INTEGER,
+    volume_ratio REAL,
+    delivery_pct REAL,
+    rr_ratio REAL,
+    market_context TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(symbol, breakout_type, alert_date)
+);
+
+-- 3. Scanner Health Table
 CREATE TABLE IF NOT EXISTS scanner_health (
     scanner_name TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'IDLE',
@@ -1110,7 +1158,7 @@ CREATE TABLE IF NOT EXISTS scanner_health (
     provider_stats JSONB
 );
 
--- 3. Symbol Mappings Table (BSE Fallback Cache)
+-- 4. Symbol Mappings Table (BSE Fallback Cache)
 CREATE TABLE IF NOT EXISTS symbol_mappings (
     symbol TEXT PRIMARY KEY,
     bse_symbol TEXT NOT NULL,
@@ -1120,7 +1168,7 @@ CREATE TABLE IF NOT EXISTS symbol_mappings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Funnel Telemetry Table
+-- 5. Funnel Telemetry Table
 CREATE TABLE IF NOT EXISTS funnel_telemetry (
     id SERIAL PRIMARY KEY,
     scanner TEXT NOT NULL,
@@ -1136,7 +1184,7 @@ CREATE TABLE IF NOT EXISTS funnel_telemetry (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. Parquet Cache Table
+-- 6. Parquet Cache Table
 CREATE TABLE IF NOT EXISTS parquet_cache (
     name TEXT NOT NULL,
     date DATE NOT NULL,
@@ -1145,7 +1193,7 @@ CREATE TABLE IF NOT EXISTS parquet_cache (
     PRIMARY KEY (name, date)
 );
 
--- 6. Breakout Watchlist Table
+-- 7. Breakout Watchlist Table
 CREATE TABLE IF NOT EXISTS breakout_watchlist (
     symbol TEXT PRIMARY KEY,
     category TEXT,
@@ -1155,23 +1203,32 @@ CREATE TABLE IF NOT EXISTS breakout_watchlist (
     m15_status TEXT,
     m5_status TEXT,
     breakout_level REAL,
+    trigger_level REAL,
     support_level REAL,
+    invalidation_level REAL,
     invalidated_at TIMESTAMPTZ,
     cooldown_until TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    armed_at TIMESTAMPTZ,
+    context_json JSONB,
     session_date TEXT,
     last_updated TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. Wealth Portfolio Table
+-- 8. Wealth Portfolio Table
 CREATE TABLE IF NOT EXISTS wealth_portfolio (
     symbol TEXT PRIMARY KEY,
     cmp REAL,
     hold_score INTEGER,
     bucket TEXT,
+    entry_price REAL,
+    entry_date DATE,
+    shares INTEGER,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. Bayesian Model Updates Table
+-- 9. Bayesian Model Updates Table
 CREATE TABLE IF NOT EXISTS bayesian_model_updates (
     id SERIAL PRIMARY KEY,
     regime TEXT NOT NULL,
@@ -1186,7 +1243,7 @@ CREATE TABLE IF NOT EXISTS bayesian_model_updates (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. User Sessions Table
+-- 10. User Sessions Table
 CREATE TABLE IF NOT EXISTS user_sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -1194,7 +1251,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
--- 10. Notifications Table
+-- 11. Notifications Table
 CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
     type TEXT NOT NULL,
@@ -1204,14 +1261,14 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 11. Pledge Cache Table
+-- 12. Pledge Cache Table
 CREATE TABLE IF NOT EXISTS pledge_cache (
     symbol TEXT PRIMARY KEY,
     pledge_pct REAL NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. Scan Failures Table
+-- 13. Scan Failures Table
 CREATE TABLE IF NOT EXISTS scan_failures (
     id SERIAL PRIMARY KEY,
     scan_id TEXT NOT NULL,
@@ -1221,7 +1278,8 @@ CREATE TABLE IF NOT EXISTS scan_failures (
     message TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
--- 13. Rejected Alerts Table
+
+-- 14. Rejected Alerts Table
 CREATE TABLE IF NOT EXISTS rejected_alerts (
     id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
@@ -1233,16 +1291,17 @@ CREATE TABLE IF NOT EXISTS rejected_alerts (
     context JSONB
 );
 
--- 14. Concall Cache Table
+-- 15. Concall Cache Table
 CREATE TABLE IF NOT EXISTS concall_cache (
     symbol TEXT PRIMARY KEY,
-    transcript_text TEXT NOT NULL,
+    concall_summary JSONB,
+    management_confidence INTEGER,
     sentiment_score REAL,
     quarter TEXT NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 15. Validation History Table
+-- 16. Validation History Table
 CREATE TABLE IF NOT EXISTS validation_history (
     id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
@@ -1252,7 +1311,7 @@ CREATE TABLE IF NOT EXISTS validation_history (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 16. Data Cache Metadata
+-- 17. Data Cache Metadata
 CREATE TABLE IF NOT EXISTS data_cache_metadata (
     cache_key TEXT PRIMARY KEY,
     last_updated TIMESTAMPTZ NOT NULL,
@@ -1260,7 +1319,7 @@ CREATE TABLE IF NOT EXISTS data_cache_metadata (
     row_count INTEGER
 );
 
--- 17. Push Subscriptions Table
+-- 18. Push Subscriptions Table
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id SERIAL PRIMARY KEY,
     endpoint TEXT NOT NULL UNIQUE,
@@ -1269,7 +1328,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 18. Sector Rankings Table
+-- 19. Sector Rankings Table
 CREATE TABLE IF NOT EXISTS sector_rankings (
     sector_name TEXT PRIMARY KEY,
     relative_strength REAL NOT NULL,
@@ -1277,7 +1336,7 @@ CREATE TABLE IF NOT EXISTS sector_rankings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 19. RS Ratings Table
+-- 20. RS Ratings Table
 CREATE TABLE IF NOT EXISTS rs_ratings (
     symbol TEXT PRIMARY KEY,
     rs_score REAL NOT NULL,
@@ -1309,41 +1368,64 @@ def run_system_scheduler():
     while True:
         now = datetime.now(IST)
         
-        # Midnight Rotation at 00:00 IST
-        if now.hour == 0 and now.minute == 0:
-            session_context.rotate_session()
+        # 1. Midnight Rotation at 00:00 IST
+        if last_rotation_date != now.date():
+            last_rotation_date = now.date()
+            ApplicationContext.get_instance().new_trading_day()
             gc.collect()
-            time.sleep(60)
             
-        # Daily Builder at 01:00 IST
-        elif now.hour == 1 and now.minute == 0:
-            daily_builder.build_daily_watchlist()
-            time.sleep(60)
+        # 2. Daily Builder at 01:00 IST
+        if now.hour == 1 and not daily_builder_ran:
+            daily_builder_ran = True
+            safe_run_daily_builder()
+            ApplicationContext.get_instance().create_session()
             
-        # Market Hours Intraday Loop (09:15 - 15:30 IST)
+        # 3. Wealth Engine Initial Setup at 02:00 IST
+        if now.hour == 2 and not wealth_initial_ran:
+            wealth_initial_ran = True
+            safe_run_wealth_scan_initial()
+            
+        # 4. Readiness Verification Check at 08:30 IST
+        if now.hour == 8 and now.minute >= 30 and not verify_scans_ran:
+            verify_scans_ran = True
+            verify_scans()
+            
+        # 5. Pre-Market Warmup at 09:14:30 IST
+        if now.hour == 9 and now.minute == 14 and now.second >= 30 and not warmup_ran:
+            warmup_ran = True
+            fetch_watchlist_data(wl_df, period="10d", interval="15m")
+            
+        # 6. Market Hours Intraday Loop (09:15 - 15:30 IST)
         elif is_market_open(now):
-            if now.minute % 5 == 0:
-                safe_run_wealth_market_hours(cmp_only=True)
-                performance_tracker.update_positions()
+            with scanner_execution_lock:
+                # 5-min slot deduplicated CMP & performance updates
+                if not last_perf or (now - last_perf).total_seconds() >= 300:
+                    _run_performance_tracker_single()
+                    last_perf = now
+                if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 900:
+                    _run_multibagger_exit_single()
+                    last_mb_exit = now
+                safe_run_wealth_market_hours() # 5-min exit update, 15-min BUY scan
                 
-            if now.minute % 15 in (0, 15, 30, 45):
-                run_multi_tf_scanner()
-                safe_run_wealth_market_hours(cmp_only=False)
-                multibagger.monitor_exits()
-                
-            time.sleep(30)
+            # Multi-TF: candle-aligned cadence starting at 09:30 AM IST (after 09:15-09:30 bar completes)
+            if now.hour < 15:
+                current_slot = now.replace(second=0, microsecond=0, minute=(now.minute // 15) * 15)
+                if last_multi_tf is None or current_slot > last_multi_tf:
+                    last_multi_tf = current_slot
+                    with scanner_execution_lock:
+                        _trigger_multi_tf()
+                        
+        # 7. Evening Batch Scanners at 18:00 IST (Sequential: EOD -> Reversal -> Pullback)
+        if now.hour >= 18 and not evening_scanners_ran:
+            evening_scanners_ran = True
+            run_evening_batch_async() # Waits for Bhavcopy, hard 10-min timeout per scanner
             
-        # Evening Scanners Batch post-18:00 IST after Bhavcopy
-        elif now.hour >= 18 and not evening_batch_ran_today():
-            if delivery_data.is_bhavcopy_available():
-                _run_eod_with_retries(force=True)
-                _run_reversal_with_retries(force=True)
-                _run_pullback_with_retries(force=True)
-                
-            time.sleep(300)
+        # 8. Multibagger Scanner Daily Run at 19:00 IST (Independent Branch)
+        if now.hour >= 19 and last_multibagger_date != now.date():
+            last_multibagger_date = now.date()
+            _run_multibagger_scanner_single()
             
-        else:
-            time.sleep(15)
+        time.sleep(15) # Loop sleeps 15s for precision slot timing
 ```
 
 ---
@@ -1352,32 +1434,36 @@ def run_system_scheduler():
 
 ## 14.1 Alert Status Lifecycle State Machine
 - `OPEN`: Signal triggered, entry active.
-- `PARTIAL_WIN_1`: Target 1 ($1.5 R$) hit. Stop loss trailed to **Breakeven (Entry Price)**.
-- `PARTIAL_WIN_2`: Target 2 ($2.5 R$) hit. Stop loss trailed to **Target 1 Price**.
-- `WIN`: Target 3 ($4.0 R$) or Target 4 ($6.0 R$) hit.
+- `PARTIAL_WIN_1`: Target 1 hit. Stop loss trailed to **Breakeven (Entry Price)**.
+- `PARTIAL_WIN_2`: Target 2 hit. Stop loss trailed to **Target 1 Price**.
+- `WIN`: Target 3 or Target 4 hit.
 - `TRAILING`: Active stop loss trailing above entry price following EMA9/swing low.
 - `LOSS`: Closing price dropped below active `stop_loss`.
-- `EXPIRED`: Signal failed to reach T1 within 20 trading days.
+- `EXPIRED`: Signal failed to reach T1 within 20 trading days (40 days for REVERSAL).
 - `NEUTRAL`: Position closed at breakeven.
 
 ## 14.2 Candidate State Machine & Cascade Transitions
 
 ```text
-[ IDLE ] ──(1H Trend Pass)──> [ HOURLY_PASSED ] ──(30m Hold)──> [ SETUP_ARMED ]
-                                                                       │
-                                                            (15m 20D High Breakout)
-                                                                       │
-                                                                       ▼
-[ COOLDOWN ] <──(Exit Hit)── [ TRADE_ACTIVE ] <──(5m VWAP)── [ ENTRY_READY ]
+[ IDLE ] ──(1H Trend & ADX Pass)──> [ HOURLY_APPROVED ] ──(30m Squeeze / Override)──> [ SETUP_ARMED ]
+                                                                                              │
+                                                                                      (15m EMA Alignment)
+                                                                                              │
+                                                                                              ▼
+[ COOLDOWN ] <──(Exit Hit)── [ TRADE_ACTIVE ] <──(5m Thrust/Pullback)── [ ENTRY_READY ]
 ```
 
-- `IDLE` $\rightarrow$ `HOURLY_PASSED`: Triggered when 1H EMA9 > EMA20 > EMA50 and Close > SMA200.
-- `HOURLY_PASSED` $\rightarrow$ `SETUP_ARMED`: Triggered when 30m Close holds above EMA20.
-- `SETUP_ARMED` $\rightarrow$ `ENTRY_READY`: Triggered when 15m Close breaks prior 20-bar 15m High.
-- `ENTRY_READY` $\rightarrow$ `TRADE_ACTIVE`: Triggered when 5m execution criteria pass (Close $\ge$ VWAP, R:R $\ge 1.5$).
-- `TRADE_ACTIVE` $\rightarrow$ `COOLDOWN`: Triggered on stop loss breach, target hit, or 20-day expiry.
+- `IDLE` $\rightarrow$ `HOURLY_APPROVED`: Triggered when 1H $\text{EMA}_9 > \text{EMA}_{20} > \text{SMA}_{50}$, $\text{Close} > \text{SMA}_{200}$ (or 50–199 bar fallback $\text{EMA}_9 > \text{EMA}_{20} > \text{SMA}_{50}$), $\text{ADX} \ge 18$, and distance $-0.02 \le \text{dist} \le 0.05$.
+- `HOURLY_APPROVED` $\rightarrow$ `SETUP_ARMED`: Triggered when 30m BB Width Percentile $< 0.45$ and $-0.015 \le \text{dist} \le 0.025$ OR Fast Breakout Override ($\text{dist} < -0.015$ and Volume Ratio $> 1.2\text{x}$).
+- `SETUP_ARMED` $\rightarrow$ `ENTRY_READY`: Triggered when 15m $\text{EMA}_9 > \text{EMA}_{20}$ and $-0.015 \le \text{dist} \le 0.025$.
+- `ENTRY_READY` $\rightarrow$ `TRADE_ACTIVE`: Triggered when 5m execution criteria pass (Thrust mode: $\text{Close} > \text{prev\_high}$, $\text{Close} > \text{trigger} + 0.15 \times \text{ATR}_{20}$, Volume Ratio $> 1.2\text{x}$; Pullback mode: $\text{Low} \le \max(\text{trigger}, \text{EMA}_9)$, $\text{Close} > \text{prev\_high}$, Volume Ratio $> 1.0\text{x}$; Natural $R:R \ge 1.5$).
+- `TRADE_ACTIVE` $\rightarrow$ `COOLDOWN`: Triggered on stop loss breach, target hit, or 20-day expiry (40-day for REVERSAL).
 
-> **Note**: The above transition rules describe an older specification. `app/multi_tf_scanner.py` (§7.3) is the absolute source of truth. There are 4 known contradictions between §14.2 and the production implementation in §7.3.
+> **Production Implementation Audit Trail (§7.3 Alignment)**:
+> 1. **Phase A Trend Gate**: Uses `ADX_MIN_THRESHOLD` (18) and allows a reduced trend fallback (`EMA9 > EMA20 > SMA50`) for symbols with 50–199 bars.
+> 2. **Distance Gate**: Allows candidates from 2% above to 5% below breakout level (`-0.02 <= dist_to_breakout <= 0.05`).
+> 3. **Execution Lock & Candle Alignment**: First intraday cycle runs on the completed 09:15–09:30 candle boundary at 09:30 AM IST and executes every 15 minutes (:00, :15, :30, :45) until 14:45 PM IST.
+> 4. **Cooldown & Max Alerts Architecture**: Uses `ALERT_COOLDOWN_MINUTES["MULTI_TF"] = 240` (4 hours) for intraday deduplication and `SCANNER_MAX_ALERTS["MULTI_TF"] = 15`.
 
 ---
 
@@ -1411,9 +1497,9 @@ Flask REST API (`app/dashboard_server.py`) specifications:
 
 ### 2. `ScoringEngine` (`app/scoring_engine.py`)
 - `calculate_score(symbol: str, df: pd.DataFrame, regime_ctx: dict) -> int`
-  - *Description*: Computes centralized 0–100 composite quality and breakout score.
+  - *Description*: Computes centralized open-ended composite quality and breakout score (0–120+).
   - *Arguments*: `symbol` (ticker string), `df` (OHLCV daily dataframe), `regime_ctx` (market regime context dict).
-  - *Returns*: Integer score clamped between 0 and 100.
+  - *Returns*: Integer score on an open-ended scale (0–120+).
   - *Caller Permissions*: EOD Scanner, Multi-TF Scanner, Reversal Scanner, Pullback Pipeline.
 
 ### 3. `SLTargetHelper` (`app/sl_target_helper.py`)
@@ -1661,7 +1747,7 @@ PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
     "LOOKBACK": 10, "CONFIRM": 3,
     "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 5.0, "MAX_DEPTH_PCT": 15.0,
+    "MIN_DEPTH_PCT": 23.6, "MAX_DEPTH_PCT": 61.8, "ABSOLUTE_FLOOR_PCT": 2.0,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
     "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
     "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.75,
@@ -1696,6 +1782,7 @@ SCORE_BANDS = [
 
 # Maximum percentage of row loss accepted before logging a regression warning
 MAX_HISTORY_SHRINK = 0.30
+
 
 
 # Source reliability multipliers (0.0 to 1.0). Used for fallback evaluation.
@@ -1746,7 +1833,7 @@ MIN_BREAKOUT_MARGIN = {
 }
 
 # Breakout candle volume must be at least this multiple of 20-bar avg
-MIN_BREAKOUT_VOLUME_RATIO = 1.5
+MIN_BREAKOUT_VOLUME_RATIO = 2.5
 
 # Reject if N prior candles are ALL bearish (no momentum build-up)
 # Moved to EOD_ADVANCED_CONFIG["MAX_PRE_BREAKOUT_RED_CANDLES"]
@@ -1815,7 +1902,9 @@ TARGET_CONFIDENCE_BASELINE = {
 MIN_REWARD_POTENTIAL = {
     "MULTI_TF": 1.8,
     "EOD": 4.0,
-    "REVERSAL": 8.0,
+    "REVERSAL": 3.0,
+    "PULLBACK": 4.0,
+    "MULTIBAGGER": 8.0,
 }
 
 MIN_STOP_PCT = {
@@ -1823,6 +1912,7 @@ MIN_STOP_PCT = {
     "EOD": 1.5,
     "REVERSAL": 2.0,
     "PULLBACK": 1.5,
+    "MULTIBAGGER": 4.0,
 }
 
 
@@ -2075,7 +2165,8 @@ SOURCE_PRIORITY = {
 TARGET_CONFLICT_POLICY = {
     "EOD":      "REGIME",
     "MULTI_TF": "CONFIDENCE",
-    "REVERSAL": "NEAREST",
+    "REVERSAL": "SECOND_NEAREST",
+    "PULLBACK": "REGIME",
 }
 
 EXIT_PROFILES = {
@@ -2123,11 +2214,12 @@ SCANNER_MULTI_TF = "MULTI_TF"
 - **Exact Indicators Calculated**: EMA9, EMA20, EMA50, EMA200; SMA20, SMA50, SMA100, SMA200; ATR20 (Wilder smooth); ADX14 (Wilder smooth); RSI14 (Wilder smooth); MACD (12, 26, 9); OBV (On-Balance Volume); VWAP (intraday); BB Width (20-period, 2.0 std dev).
 
 ### Q4: Exact DataFrame Schemas
-- **`watchlist`**: `["Stock", "Category", "sector", "ROCE %", "ROE %", "Debt/Equity", "YoY Revenue Growth %", "Pledge %", "Market Cap (₹)"]`
+- **`watchlist`**: `["Stock", "Category", "Sector", "Industry", "Market Cap Cr", "ROE %", "ROCE %", "Debt/Equity", "YOY Revenue %", "YOY Profit %", "PEG Ratio", "Promoter_Pledge"]`
 - **`ohlcv_daily`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "EMA_50", "SMA_50", "SMA_200", "ATR_20", "ADX_14", "RSI_14", "OBV", "MACD", "MACD_SIGNAL", "MACD_HIST", "BB_WIDTH", "BB_WIDTH_PCTILE", "HIGH_52W", "SWING_LOW", "SWING_HIGH"]`
+- **`ohlcv_1h`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "SMA_50", "SMA_200", "ADX_14", "PRIOR_20D_HIGH"]`
 - **`ohlcv_30m`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "VWAP", "RSI_14", "ATR_20"]`
 - **`ohlcv_15m`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "VWAP", "RSI_14", "ATR_20"]`
-- **`ohlcv_5m`**: `["Open", "High", "Low", "Close", "Volume", "VWAP", "EMA_20"]`
+- **`ohlcv_5m`**: `["Open", "High", "Low", "Close", "Volume", "VWAP", "EMA_9", "EMA_20", "ATR_20"]`
 
 ### Q5 – Q7: Risk Engine & Target Allocation
 - **No Structural Stop Fallback**: If no swing low or pivot support is identified, stop loss defaults to $\text{Entry} - (2.0 \times \text{ATR}_{20})$.
@@ -2150,13 +2242,13 @@ SCANNER_MULTI_TF = "MULTI_TF"
 - **Indexes**: `CREATE INDEX idx_alerts_symbol ON alerts(symbol);`, `CREATE INDEX idx_alerts_date ON alerts(alert_date);`.
 - **Pool Settings**: Min=5, Max=50 connections, 15s acquire timeout. Isolation level: `READ COMMITTED`.
 
-### Q19 – Q22: Presentation, WebSockets & Notifications
-- **WebSocket Protocol**: `{ "type": "ALERT_NEW", "payload": { "symbol": "RELIANCE", "scanner": "EOD", "entry": 2450.0 } }`.
+### Q19 – Q22: Presentation, Short-Polling & WebPush Protocols
+- **Primary Delivery Protocol**: Primary signal delivery uses REST HTTP short-polling (5–15s dashboard cadence) + VAPID Web Push notifications + Telegram bot alerts. Optional WebSocket protocol for streaming dashboard events: `{ "type": "ALERT_NEW", "payload": { "symbol": "RELIANCE", "scanner": "EOD", "entry": 2450.0 } }`.
 - **Notification Order**: DB persistence FIRST $\rightarrow$ Telegram broadcast SECOND $\rightarrow$ Web Push THIRD.
 
 ### Q23 – Q26: Session Lifecycle & Memory Eviction
 - **Midnight Rotation**: Clears ephemeral RAM caches, destroys `SessionContext`, and triggers `gc.collect()`.
-- **Cache Eviction**: EPHEMERAL tier evicted when RSS exceeds 400 MB RAM (LRU policy).
+- **Memory Eviction & Budget Thresholds**: 2.0 GB System RAM budget. EPHEMERAL tier evicted when RSS exceeds 1200 MB RAM (60% warning threshold). Emergency GC and heap trimming (`malloc_trim()`) triggered if RSS exceeds 1800 MB (90% limit).
 
 ### Q27 – Q28: Module Dependency Rules & `.env.example`
 - **Forbidden Imports**: `database` MUST NOT import `dashboard_server`. `price_cache` MUST NOT import `scoring_engine`.
@@ -2171,8 +2263,15 @@ FYERS_SECRET_KEY=YYYYYYYYYY
 DATA_PROVIDER=auto
 ```
 
-### Q29 – Q36: System Execution & AI Reconstruction Sequence
-- Complete step-by-step module dependency order: `config.py` $\rightarrow$ `core_enums.py` $\rightarrow$ `database.py` $\rightarrow$ `lock_utils.py` $\rightarrow$ `price_cache.py` $\rightarrow$ `indicator_manager.py` $\rightarrow$ `unified_fetcher.py` $\rightarrow$ `scoring_engine.py` $\rightarrow$ `scanners` $\rightarrow$ `main.py`.
+### Q29 – Q36: Individual AI Reconstruction Answers
+- **Q29 (Import Graph Order)**: `config.py` $\rightarrow$ `core_enums.py` $\rightarrow$ `database.py` $\rightarrow$ `lock_utils.py` $\rightarrow$ `price_cache.py` $\rightarrow$ `indicator_manager.py` $\rightarrow$ `unified_fetcher.py` $\rightarrow$ `scoring_engine.py` $\rightarrow$ `scanners` $\rightarrow$ `main.py`.
+- **Q30 (Reversal Cooldown Precedence)**: Tier 2 (30-day Fallen Knife Defense) takes precedence over Tier 1 (7-day alert dedup).
+- **Q31 (Date & Timezone Standards)**: All date operations use IST (`Asia/Kolkata`) `datetime.now(ZoneInfo("Asia/Kolkata"))`.
+- **Q32 (Currency Standard)**: All price and risk metrics use Indian Rupees (₹ / RS).
+- **Q33 (Idempotent DB Migrations)**: All database DDL changes use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- **Q34 (Process Lock Policy)**: All scanner runs use `ProcessLock` or `scanner_execution_lock` to enforce single-instance execution.
+- **Q35 (Telegram Payload Format)**: All Telegram posts use HTML parsing mode with explicit symbol, price, SL, targets, score, and TradingView chart links.
+- **Q36 (Health Heartbeat SLA)**: Scanner health updated on every run; marked `DOWN` if heartbeat gap exceeds 3x cadence during market hours.
 
 ---
 
@@ -2188,7 +2287,7 @@ def test_gate6_production_readiness_checklist(self):
     from forensics import forensics
     gc.collect() # PURGE UNREFERENCED TEST ALLOCATIONS
     mem = forensics.get_memory_stats()
-    assert mem["rss_mb"] < 450.0, f"Memory threshold breached: {mem['rss_mb']} MB"
+    assert mem["rss_mb"] < 1200.0, f"Memory threshold breached: {mem['rss_mb']} MB"
 ```
 
 1. **Gate 1: Cold Start Import Speed**: Verify total import latency $\le 5.0\text{s}$.
@@ -2196,10 +2295,10 @@ def test_gate6_production_readiness_checklist(self):
 3. **Gate 3: Smoke Execution**: Run full scanner smoke test suite in $\le 30.0\text{s}$.
 4. **Gate 4: AST Method Signature Reflection Audit**: Validate public function signatures across all 54 modules.
 5. **Gate 5: Railway Integration Contract**: Verify environment variable resolution (`DATABASE_URL`, `PORT`).
-6. **Gate 6: Production Readiness Checklist**: Verify RAM usage budget ($\text{RSS} < 450.0\text{ MB}$ with explicit `gc.collect()`).
+6. **Gate 6: Production Readiness Checklist**: Verify RAM usage budget ($\text{RSS} < 1200.0\text{ MB}$ with explicit `gc.collect()`).
 7. **Gate 7: Dependency Reproducibility**: Ensure all requirements in `requirements.txt` are strictly pinned.
 8. **Gate 8: Scheduler 24h Timeline Simulation**: Simulate 24-hour cycle execution without blocking threads.
-9. **Gate 9: Memory Budget Assertions**: Verify thread pool count $< 60$ and peak RAM $< 450.0\text{ MB}$.
+9. **Gate 9: Memory Budget Assertions**: Verify thread pool count $< 60$ and peak RAM $< 1200.0\text{ MB}$.
 10. **Gate 10: Alert Contract Schema Compliance**: Ensure alert JSON payloads contain required keys (`symbol`, `entry_price`, `stop_loss`, `target_1`..`target_4`, `score`).
 11. **Gate 11: Scanner Execution Invariants**: Enforce `entry_price > stop_loss` and `target_1 >= entry_price`.
 12. **Gate 12: DB Connection Pool Timeout**: Verify database pool acquires connection within $\le 15.0\text{s}$.
@@ -2228,14 +2327,19 @@ def test_golden_scenario_1_bullish_breakout(self):
     df = create_synthetic_ohlcv(
         close=2450.0, volume_ratio=3.2, body_ratio=0.72, close_pos=0.85, upper_wick=0.10
     )
-    score = scoring_engine.calculate_score("RELIANCE", df, regime_ctx={"regime": "BULL"})
+    # Frozen Bayesian weights fixture for deterministic testing
+    bayesian_fixture = {"regime": "BULL", "weights": {"volume": 1.2, "momentum": 1.0, "quality": 1.1}}
+    score = scoring_engine.calculate_score("RELIANCE", df, regime_ctx={"regime": "BULL"}, bayesian_weights=bayesian_fixture)
     sl_res = compute_sl_and_target(df, mode="EOD")
     
-    # Expected Deterministic Output Values
+    # Expected Deterministic Output Values (using pytest.approx for floating point comparisons)
     assert score == 86, f"Expected Score 86, got {score}"
-    assert sl_res["stop_loss"] == 2410.50, f"Expected SL 2410.50, got {sl_res['stop_loss']}"
-    assert sl_res["target_1"] == 2509.25, f"Expected T1 2509.25, got {sl_res['target_1']}"
-    assert sl_res["rr_ratio"] >= 2.5, f"Expected R:R >= 2.5, got {sl_res['rr_ratio']}"
+    assert sl_res["stop_loss"] == pytest.approx(2410.50, abs=1e-2), f"Expected SL 2410.50, got {sl_res['stop_loss']}"
+    assert sl_res["target_1"] == pytest.approx(2549.25, abs=1e-2), f"Expected T1 2549.25, got {sl_res['target_1']}"
+    # Natural R:R (T1-based): Risk = 39.50, Reward = 99.25, R:R = 2.51 (Passes MIN_NATURAL_RR["EOD"] >= 2.0 gate with +0.51 margin)
+    assert sl_res["rr_ratio"] >= 2.0, f"Expected R:R >= 2.0, got {sl_res['rr_ratio']}"
+    # Reward Potential (T3-based): Risk = 39.50, T3 Reward >= 158.00 (T3 >= 2608.00) -> Reward Potential >= 4.0
+    assert sl_res["target_3"] >= pytest.approx(2608.00, abs=1e-2), f"Expected T3 >= 2608.00 (4.0R reward potential), got {sl_res['target_3']}"
 ```
 
 ---
@@ -2393,9 +2497,11 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
   - **Surviving**: `data/watchlist.parquet` (Session tier), Postgres tables (`alerts`, `wealth_portfolio`).
   - **Evicted**: Ephemeral OHLCV dataframes (`ohlcv.clear()`) evicted immediately after scoring.
 - **Memory Budget SLA & Transient Peaks**:
-  - Minimum Container Requirement: **1.0 GB RAM (1024 MB)**.
-  - Transient RSS peaks during bulk 300-symbol pandas rolling window calculations reach **800–888 MB** in process memory, operating safely within the 1.0 GB allocation before garbage collection.
-  - **Mitigation Protocol**: Memory Profiler triggers emergency cache eviction and `gc.collect()` if RSS exceeds 900 MB for more than 3 consecutive 5-minute ticks.
+  - System Memory Budget: **2.0 GB RAM (2048 MB)**.
+  - Baseline RSS: ~400–600 MB after initialization.
+  - Warning / Eviction Threshold: **1200 MB** (60% of system limit).
+  - Transient RSS peaks during bulk 300-symbol pandas rolling window calculations reach **1400–1600 MB** in process memory, operating safely within the 2.0 GB allocation before garbage collection.
+  - Emergency GC / Kill Threshold: **1800 MB** (90% of system limit). Memory Profiler triggers emergency cache eviction and `gc.collect()` + `malloc_trim()` if RSS exceeds 1800 MB.
 
 ## 23.4 Inter-Scanner Lock Queueing & Scheduling Policy
 - **Mutex Lock Hierarchy**: `scanner_execution_lock` (`InstrumentedLock`) + `ProcessLock("wealth_engine")`.

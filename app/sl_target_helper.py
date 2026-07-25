@@ -108,21 +108,22 @@ class TradeStructureValidator:
                 "rejection_reason": f"INVALID_TARGET_PRICE (Target 1 ₹{target_1} must be > Entry ₹{entry})"
             }
             
-        # Target ordering invariants (t1 <= t2 <= t3)
-        if target_2 and target_2 < target_1:
+        # Target ordering invariants with epsilon spacing (t1 < t2 < t3 < t4)
+        epsilon = max(0.05, 0.002 * entry)
+        if target_2 and target_2 <= target_1 + epsilon:
             return {
                 "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 2 ₹{target_2:.2f} < Target 1 ₹{target_1:.2f})"
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 2 ₹{target_2:.2f} <= Target 1 ₹{target_1:.2f} + epsilon ₹{epsilon:.2f})"
             }
-        if target_3 and target_2 and target_3 < target_2:
+        if target_3 and target_2 and target_3 <= target_2 + epsilon:
             return {
                 "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} < Target 2 ₹{target_2:.2f})"
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} <= Target 2 ₹{target_2:.2f} + epsilon ₹{epsilon:.2f})"
             }
-        if target_4 and target_3 and target_4 < target_3:
+        if target_4 and target_3 and target_4 <= target_3 + epsilon:
             return {
                 "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} < Target 3 ₹{target_3:.2f})"
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} <= Target 3 ₹{target_3:.2f} + epsilon ₹{epsilon:.2f})"
             }
             
         natural_rr = round(abs(target_1 - entry) / risk, 2)

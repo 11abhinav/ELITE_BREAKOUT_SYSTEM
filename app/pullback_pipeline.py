@@ -312,7 +312,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                             rejected["no_trigger"] += 1
                             continue
 
-                        logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {symbol} @ ₹{trig.entry_price:.2f} (Depth: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
+                        logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {symbol} @ ₹{trig.entry_price:.2f} (Retracement: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
                         cand = PullbackCandidate(
                             symbol=symbol,
                             as_of_date=ist_now.date(),
@@ -334,7 +334,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     logger.info(f"📊 Pullback Candidates Discovered: {len(candidates)}")
     for c in candidates:
-        logger.info(f"  • 🟢 {c.symbol} @ ₹{c.entry_price:.2f} (Depth: {c.structure.depth_pct:.1f}%, Vol Ratio: {c.structure.volume_ratio:.2f}x)")
+        logger.info(f"  • 🟢 {c.symbol} @ ₹{c.entry_price:.2f} (Retracement: {c.structure.depth_pct:.1f}%, Vol Ratio: {c.structure.volume_ratio:.2f}x)")
 
     # ---------------- SCORING & MODIFIERS ----------------
     for c in candidates:
@@ -375,8 +375,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
     max_alerts = min(policy.get("max_new_positions_per_day", 3), SCANNER_MAX_ALERTS.get("PULLBACK", 10))
     if len(alertable) > max_alerts:
         logger.info(f"Limiting PULLBACK alerts from {len(alertable)} to {max_alerts}")
-        for c in alertable[max_alerts:]:
+        rejected = alertable[max_alerts:]
+        from database import save_rejected_alert
+        for c in rejected:
             logger.info(f"🚫 {c.symbol} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {c.final_score:.1f})")
+            try:
+                save_rejected_alert(c.symbol, "PULLBACK", "RANKED_OUT", context={"score": c.final_score})
+            except Exception:
+                pass
     alertable = alertable[:max_alerts]
 
     # ---------------- RISK ENGINE & SIGNAL DISPATCH ----------------
@@ -464,7 +470,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                         f"🎯 <b>Target 2:</b> ₹{sl_result.get('target_2', 0):.2f}\n"
                         f"🎯 <b>Target 3:</b> ₹{sl_result.get('target_3', 0):.2f}\n"
                         f"📊 <b>Score:</b> {c.final_score:.1f}/100\n"
-                        f"📉 <b>Pullback Depth:</b> {c.structure.depth_pct:.1f}% ({c.structure.duration_bars} bars)\n"
+                        f"📉 <b>Pullback Retracement:</b> {c.structure.depth_pct:.1f}% of impulse wave ({c.structure.duration_bars} bars)\n"
                         f"🔊 <b>Volume Ratio:</b> {c.structure.volume_ratio:.2f}x\n"
                         f"⚡ <b>Mode:</b> LIVE PRODUCTION"
                     )

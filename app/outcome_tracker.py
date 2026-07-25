@@ -135,8 +135,8 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
                 is_closed = True
                 break
 
-        # Check 20-Day Expiry if not closed
-        if not is_closed and holding_bars >= 20:
+        # Check Expiry (20 days for most, 40 days for REVERSAL to allow basing)
+        if not is_closed and ((scanner != 'REVERSAL' and holding_bars >= 20) or (scanner == 'REVERSAL' and holding_bars >= 40)):
             last_close = float(closes[-1])
             unrealized_rr = round((last_close - float(entry)) / risk_dist, 2)
             exit_reason = "EXPIRED_POS" if unrealized_rr >= 0 else "EXPIRED_NEG"
