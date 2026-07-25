@@ -2701,4 +2701,38 @@ t + 5.2s   DESTROY     Invoke gc.collect() & malloc_trim(0)     Reclaims C-heap 
 ```
 
 ---
+
+# 21. ANALYSE YOUR WATCHLIST DIAGNOSTIC ARCHITECTURE & REPOSITORY
+
+The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py`), REST API layer (`app/dashboard_server.py`), and PostgreSQL repository (`app/database.py`).
+
+## 21.1 Core Architecture Components
+1. **Real-time Autocomplete Engine (`search_symbols_autocomplete`)**:
+   - Performs dual-tier lookup across `watchlist_cache` and `symbol_mappings` table.
+   - Matches symbol prefix, company name substring, and produces custom fallback entries.
+2. **7-Stage Dry-Run Funnel (`analyze_symbol`)**:
+   - Runs dry-run evaluation through 7 scanner stages: *Daily Builder $\rightarrow$ EOD Breakout $\rightarrow$ Multi-TF Intraday $\rightarrow$ Reversal $\rightarrow$ Pullback $\rightarrow$ Wealth Engine $\rightarrow$ Multibagger Engine*.
+   - Calculates Overall Health Score (0-100) combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile (20%).
+   - Generates Deficit Summary list ("What This Stock Lacks Right Now").
+3. **Manual Alert Promotion Engine (`create_manual_alert_from_analysis`)**:
+   - Calculates dynamic SL, T1, T2, T3 targets via `compute_sl_and_target()`.
+   - Saves alert to `alerts` table (`is_manual=True`) and dispatches Telegram notifications.
+
+## 21.2 Personal Watchlist Schema (`user_watchlists`)
+```sql
+CREATE TABLE IF NOT EXISTS user_watchlists (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL DEFAULT 'DEFAULT_USER',
+    symbol VARCHAR(32) NOT NULL,
+    company_name VARCHAR(255),
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_scanned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_health_score NUMERIC(5,2),
+    last_status VARCHAR(32) DEFAULT 'MONITORING',
+    notes TEXT,
+    UNIQUE(user_id, symbol)
+);
+```
+
+---
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*

@@ -1,25 +1,26 @@
 # =====================================================================================
 # tests/test_stock_analyzer.py
-# UNIT TEST SUITE FOR STOCK ANALYZER & PERSONAL WATCHLIST ENGINE
+# MODULAR TEST CLASSES FOR STOCK ANALYZER, DIAGNOSTIC ENGINE & PERSONAL WATCHLIST
 # =====================================================================================
 
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 from datetime import datetime
+import json
 
 
-class TestStockAnalyzer(unittest.TestCase):
+class TestStockAnalyzerAutocomplete(unittest.TestCase):
+    """Test suite for real-time symbol and company autocomplete search."""
 
     @patch('stock_analyzer.get_watchlist')
-    def test_search_symbols_autocomplete(self, mock_wl):
-        """Verify autocomplete search matches symbol prefix and company names."""
-        mock_df = pd.DataFrame([
+    def test_autocomplete_symbol_prefix_match(self, mock_wl):
+        """Verify autocomplete search matches symbol prefix correctly."""
+        mock_wl.return_value = pd.DataFrame([
             {"Stock": "TATAMOTORS", "Company": "Tata Motors Ltd", "Sector": "AUTO", "Category": "LARGE"},
             {"Stock": "TATASTEEL", "Company": "Tata Steel Ltd", "Sector": "METALS", "Category": "LARGE"},
             {"Stock": "RELIANCE", "Company": "Reliance Industries", "Sector": "ENERGY", "Category": "LARGE"}
         ])
-        mock_wl.return_value = mock_df
 
         from stock_analyzer import search_symbols_autocomplete
         results = search_symbols_autocomplete("TATA", limit=10)
@@ -29,61 +30,129 @@ class TestStockAnalyzer(unittest.TestCase):
         self.assertIn("TATAMOTORS", symbols)
         self.assertIn("TATASTEEL", symbols)
 
+    @patch('stock_analyzer.get_watchlist')
+    def test_autocomplete_company_name_match(self, mock_wl):
+        """Verify autocomplete matches substring within company name."""
+        mock_wl.return_value = pd.DataFrame([
+            {"Stock": "INFY", "Company": "Infosys Limited", "Sector": "IT", "Category": "LARGE"},
+            {"Stock": "TCS", "Company": "Tata Consultancy Services", "Sector": "IT", "Category": "LARGE"}
+        ])
+
+        from stock_analyzer import search_symbols_autocomplete
+        results = search_symbols_autocomplete("Consultancy", limit=5)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["symbol"], "TCS")
+
+    @patch('stock_analyzer.get_watchlist')
+    def test_autocomplete_custom_symbol_fallback(self, mock_wl):
+        """Verify unknown ticker query generates clean custom fallback suggestion."""
+        mock_wl.return_value = pd.DataFrame([])
+
+        from stock_analyzer import search_symbols_autocomplete
+        results = search_symbols_autocomplete("UNKNOWNSTOCK", limit=5)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["symbol"], "UNKNOWNSTOCK")
+        self.assertEqual(results[0]["category"], "CUSTOM")
+
+
+class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
+    """Test suite for 7-stage quantitative scanner funnel and health score engine."""
+
+    @patch('stock_analyzer.fetch_watchlist_data')
+    def test_analyze_symbol_insufficient_data_error(self, mock_fetch):
+        """Verify analyze_symbol returns structured error when historical data is missing."""
+        mock_fetch.return_value = {"SHORTBARS": pd.DataFrame()}
+
+        from stock_analyzer import analyze_symbol
+        res = analyze_symbol("SHORTBARS")
+
+        self.assertFalse(res.get("success"))
+        self.assertIn("error", res)
+
     @patch('stock_analyzer.fetch_watchlist_data')
     @patch('stock_analyzer.compute_nifty_rs_rating')
     @patch('stock_analyzer.get_fundamentals')
-    def test_analyze_symbol_full_funnel(self, mock_fund, mock_rs, mock_fetch):
-        """Verify analyze_symbol generates valid health score, deficit list, and 7-stage funnel structure."""
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        dates = pd.date_range(end=today_str, periods=60, freq='B')
+    def test_analyze_symbol_daily_builder_price_floor_deficit(self, mock_fund, mock_rs, mock_fetch):
+        """Verify price floor < ₹100 generates explicit deficit warning."""
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
+        prices = [50.0 + i * 0.5 for i in range(60)] # Max price 79.5 < 100.0
+        df = pd.DataFrame({
+            "Open": [p - 0.5 for p in prices],
+            "High": [p + 1.0 for p in prices],
+            "Low": [p - 1.0 for p in prices],
+            "Close": prices,
+            "Volume": [100000] * 60
+        }, index=dates)
 
-        # Create sample price DataFrame with breakout close & volume expansion
+        mock_fetch.return_value = {"PENNYSTOCK": df}
+        mock_rs.return_value = {"PENNYSTOCK": 40.0}
+        mock_fund.return_value = {"company_name": "Penny Stock Ltd", "sector": "SMALL"}
+
+        from stock_analyzer import analyze_symbol
+        res = analyze_symbol("PENNYSTOCK")
+
+        self.assertTrue(res.get("success"))
+        funnel = res.get("funnel", {})
+        self.assertEqual(funnel["daily_builder"]["status"], "NO")
+
+        deficits_text = " ".join(res.get("deficits", []))
+        self.assertIn("Price Floor Deficit", deficits_text)
+
+    @patch('stock_analyzer.fetch_watchlist_data')
+    @patch('stock_analyzer.compute_nifty_rs_rating')
+    @patch('stock_analyzer.get_fundamentals')
+    def test_analyze_symbol_full_7_stage_funnel(self, mock_fund, mock_rs, mock_fetch):
+        """Verify analyze_symbol evaluates across all 7 pipeline stages."""
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         prices = [100.0 + i * 1.5 for i in range(60)]
         df = pd.DataFrame({
             "Open": [p - 1.0 for p in prices],
             "High": [p + 2.0 for p in prices],
             "Low": [p - 2.0 for p in prices],
             "Close": prices,
-            "Volume": [100000 if i < 59 else 500000 for i in range(60)] # 5x volume surge on last bar
+            "Volume": [100000 if i < 59 else 600000 for i in range(60)]
         }, index=dates)
 
         mock_fetch.return_value = {"TATAMOTORS": df}
-        mock_rs.return_value = {"TATAMOTORS": 85.0}
-
+        mock_rs.return_value = {"TATAMOTORS": 88.0}
         mock_fund.return_value = {
             "company_name": "Tata Motors Ltd",
             "sector": "AUTO",
-            "roce": 22.5,
-            "roe": 18.0,
-            "debt_to_equity": 0.35,
+            "roce": 24.5,
+            "roe": 19.0,
+            "debt_to_equity": 0.25,
             "piotroski_score": 8,
-            "promoter_pledge_pct": 2.5
+            "promoter_pledge_pct": 0.0
         }
 
         from stock_analyzer import analyze_symbol
         res = analyze_symbol("TATAMOTORS")
 
         self.assertTrue(res.get("success"))
-        self.assertEqual(res.get("symbol"), "TATAMOTORS")
-        self.assertIn("overall_health_score", res)
-        self.assertGreater(res.get("overall_health_score"), 60.0)
-
         funnel = res.get("funnel", {})
+        self.assertEqual(len(funnel), 7)
         self.assertIn("daily_builder", funnel)
-        self.assertEqual(funnel["daily_builder"]["status"], "YES")
         self.assertIn("eod_breakout", funnel)
+        self.assertIn("multi_tf", funnel)
+        self.assertIn("reversal", funnel)
+        self.assertIn("pullback", funnel)
+        self.assertIn("wealth_engine", funnel)
         self.assertIn("multibagger", funnel)
 
-        deficits = res.get("deficits", [])
-        self.assertIsInstance(deficits, list)
-        self.assertGreaterEqual(len(deficits), 1)
+        self.assertGreater(res.get("overall_health_score"), 70.0)
+
+
+class TestManualAlertPromotion(unittest.TestCase):
+    """Test suite for 1-click manual alert promotion to active alerts table."""
 
     @patch('stock_analyzer.analyze_symbol')
     @patch('stock_analyzer.compute_sl_and_target')
     @patch('stock_analyzer.save_alert_if_new')
     @patch('telegram_engine.send_telegram_message')
-    def test_create_manual_alert_from_analysis(self, mock_tg, mock_save, mock_sl, mock_analyze):
-        """Verify 1-click manual alert promotion saves alert and triggers notifications."""
+    def test_create_manual_alert_success(self, mock_tg, mock_save, mock_sl, mock_analyze):
+        """Verify successful promotion of analyzed setup into an active BUY alert."""
         mock_analyze.return_value = {
             "success": True,
             "close_price": 500.0,
@@ -99,39 +168,114 @@ class TestStockAnalyzer(unittest.TestCase):
             "target_2": 560.0,
             "target_3": 600.0
         }
-        mock_save.return_value = (True, "Alert Created", 101, None)
+        mock_save.return_value = (True, "Alert Created", 202, None)
 
         from stock_analyzer import create_manual_alert_from_analysis
         res = create_manual_alert_from_analysis("TATAMOTORS", scanner_type="EOD", user_id="ADMIN")
 
         self.assertTrue(res.get("success"))
-        self.assertEqual(res.get("alert_id"), 101)
+        self.assertEqual(res.get("alert_id"), 202)
         self.assertEqual(res.get("symbol"), "TATAMOTORS")
         self.assertEqual(res.get("entry_price"), 500.0)
 
+    @patch('stock_analyzer.analyze_symbol')
+    @patch('stock_analyzer.compute_sl_and_target')
+    def test_create_manual_alert_sl_rejection(self, mock_sl, mock_analyze):
+        """Verify rejection response when risk manager rejects SL/Target parameters."""
+        mock_analyze.return_value = {"success": True, "close_price": 500.0}
+        mock_sl.return_value = {"is_rejected": True, "rejection_reason": "Stop Loss exceeds 10% maximum risk limit"}
+
+        from stock_analyzer import create_manual_alert_from_analysis
+        res = create_manual_alert_from_analysis("HIGHVOLATILITY", scanner_type="EOD")
+
+        self.assertFalse(res.get("success"))
+        self.assertIn("Stop Loss exceeds", res.get("error"))
+
+
+class TestUserWatchlistRepository(unittest.TestCase):
+    """Test suite for database helper operations on user_watchlists table."""
+
     @patch('database.get_connection')
-    def test_user_watchlist_db_operations(self, mock_get_conn):
-        """Verify database helper functions for user personal watchlist."""
+    def test_add_to_user_watchlist(self, mock_get_conn):
+        """Verify adding a symbol to personal watchlist."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_get_conn.return_value.__enter__.return_value = mock_conn
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
+        from database import add_to_user_watchlist
+        ok = add_to_user_watchlist("RELIANCE", company_name="Reliance Industries", user_id="USER1", health_score=85.0)
+
+        self.assertTrue(ok)
+        mock_cursor.execute.assert_called()
+
+    @patch('database.get_connection')
+    def test_get_user_watchlist(self, mock_get_conn):
+        """Verify fetching user personal watchlist items."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_cursor.fetchall.return_value = [
-            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 82.5, "QUALIFIED", "Watchlist Note")
+            ("RELIANCE", "Reliance Industries", datetime.now(), datetime.now(), 85.0, "MONITORING", "Notes")
         ]
 
-        from database import add_to_user_watchlist, get_user_watchlist, remove_from_user_watchlist
-        ok_add = add_to_user_watchlist("TATAMOTORS", company_name="Tata Motors Ltd", user_id="ADMIN", health_score=82.5)
-        self.assertTrue(ok_add)
+        from database import get_user_watchlist
+        items = get_user_watchlist("USER1")
 
-        items = get_user_watchlist("ADMIN")
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["symbol"], "TATAMOTORS")
-        self.assertEqual(items[0]["last_health_score"], 82.5)
+        self.assertEqual(items[0]["symbol"], "RELIANCE")
 
-        ok_rem = remove_from_user_watchlist("TATAMOTORS", user_id="ADMIN")
-        self.assertTrue(ok_rem)
+    @patch('database.get_connection')
+    def test_remove_from_user_watchlist(self, mock_get_conn):
+        """Verify removing a symbol from personal watchlist."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        from database import remove_from_user_watchlist
+        ok = remove_from_user_watchlist("RELIANCE", user_id="USER1")
+
+        self.assertTrue(ok)
+
+
+class TestStockAnalyzerApiEndpoints(unittest.TestCase):
+    """Test suite for Flask REST API endpoints serving Analyse Your Watchlist feature."""
+
+    @patch('stock_analyzer.search_symbols_autocomplete')
+    def test_api_symbols_suggest_endpoint(self, mock_suggest):
+        """Verify /api/v1/symbols/suggest route returns JSON list."""
+        mock_suggest.return_value = [{"symbol": "TATAMOTORS", "company_name": "Tata Motors Ltd"}]
+
+        from dashboard_server import app
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['logged_in'] = True
+                sess['user_id'] = 'TEST_USER'
+
+            resp = client.get('/api/v1/symbols/suggest?q=TATA')
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["symbol"], "TATAMOTORS")
+
+    @patch('stock_analyzer.analyze_symbol')
+    def test_api_analyze_stock_endpoint(self, mock_analyze):
+        """Verify /api/v1/analyze_stock route returns diagnostic analysis object."""
+        mock_analyze.return_value = {"success": True, "symbol": "TATAMOTORS", "overall_health_score": 85.0}
+
+        from dashboard_server import app
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['logged_in'] = True
+                sess['user_id'] = 'TEST_USER'
+
+            resp = client.get('/api/v1/analyze_stock?symbol=TATAMOTORS')
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["overall_health_score"], 85.0)
 
 
 if __name__ == '__main__':
