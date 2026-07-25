@@ -39,7 +39,7 @@
 
 ## 1.1 Process Architecture & Deployment Budget
 - **Runtime Environment**: Single Python 3.9 process running inside a Linux/Railway container.
-- **Resource Budget**: Strictly bounded at **500 MB RAM**.
+- **Resource Budget**: Strictly bounded at **1.0 GB RAM (1024 MB)** (Minimum System Memory Requirement).
 - **Process Isolation Directive**: Microservices are explicitly prohibited due to RAM duplication, inter-process serialization overhead, and network latency. All subsystems run in-process using thread pools and shared memory structures.
 - **System Mandatory Invariants**:
   - **IST Timezone**: All timing, candle boundaries, trading schedules, and database timestamps MUST be evaluated in **IST (Asia/Kolkata - UTC+5:30)**.
@@ -1388,7 +1388,7 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
 ## 23.2 Batch Processing Contract & Worker Sizing
 - **Batch Size Constant**: 50 symbols per fetch chunk. Hardcoded in `chunk_iterable(universe, batch_size=50)`.
 - **Rationale**: Bounded RSS memory footprint during pandas rolling indicator calculations and optimized yfinance URL request string length.
-- **Worker Threads**: `WORKER_COUNT = 3`. Hardcoded to 3 concurrent worker threads to prevent exceeding the container's 500 MB RAM budget during parallel rolling window computations.
+- **Worker Threads**: `WORKER_COUNT = 3`. Hardcoded to 3 concurrent worker threads to comfortably operate within the container's 1.0 GB RAM budget during parallel rolling window computations.
 - **Remainder Handling**: Last batch processes the remaining symbols ($294 \pmod{50} = 44$).
 - **Parallelism Rule**: Batches execute sequentially within the Wealth Engine, but individual symbols within a batch are parsed concurrently via `ThreadPoolExecutor(max_workers=3)`.
 
@@ -1401,9 +1401,9 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
   - **Surviving**: `data/watchlist.parquet` (Session tier), Postgres tables (`alerts`, `wealth_portfolio`).
   - **Evicted**: Ephemeral OHLCV dataframes (`ohlcv.clear()`) evicted immediately after scoring.
 - **Memory Budget SLA & Transient Peaks**:
-  - Target Container Allocation: **500 MB RAM**.
-  - Transient RSS peaks during bulk 300-symbol pandas rolling window calculations reach **800–888 MB** in process memory before garbage collection.
-  - **Mitigation Protocol**: Memory Profiler triggers emergency cache eviction and `gc.collect()` if RSS exceeds 450 MB for more than 3 consecutive 5-minute ticks.
+  - Minimum Container Requirement: **1.0 GB RAM (1024 MB)**.
+  - Transient RSS peaks during bulk 300-symbol pandas rolling window calculations reach **800–888 MB** in process memory, operating safely within the 1.0 GB allocation before garbage collection.
+  - **Mitigation Protocol**: Memory Profiler triggers emergency cache eviction and `gc.collect()` if RSS exceeds 900 MB for more than 3 consecutive 5-minute ticks.
 
 ## 23.4 Inter-Scanner Lock Queueing & Scheduling Policy
 - **Mutex Lock Hierarchy**: `scanner_execution_lock` (`InstrumentedLock`) + `ProcessLock("wealth_engine")`.
@@ -1509,9 +1509,9 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
 
 ## 23.15 Resolution of Memory Target Allocation vs. Un-trimmed RSS Peak
 - **Architectural Clarification**:
-  - **500 MB RAM Container Budget**: Soft design target allocation SLA for Railway free-tier container hosting.
-  - **888 MB RSS Peak**: Transient C-heap allocation inside Python's `pymalloc` allocator during multi-threaded 300-symbol pandas rolling window calculations.
-  - **Heap Trimming Mechanism**: Calling `gc.collect()` followed by `malloc_trim(0)` forces glibc to return unused heap memory arenas to the OS, dropping active RSS back below **400 MB** before starting the next phase.
+  - **1.0 GB RAM Minimum Container Budget**: The official system memory requirement configured for production deployment environments.
+  - **888 MB RSS Peak**: The un-trimmed C-heap RSS memory footprint observed inside Python's memory allocator during multi-threaded bulk 300-symbol pandas rolling window calculations, operating safely within the 1.0 GB RAM container budget.
+  - **Heap Trimming Mechanism**: Python's default memory allocator (`pymalloc`) holds allocated glibc memory arenas in RSS even after Python objects are destroyed. Calling `gc.collect()` followed by `malloc_trim(0)` forces glibc to return unused heap arenas to the Linux OS, dropping active RSS back below **400 MB** before starting the next processing phase.
 
 ## 23.16 Wealth Engine Phase Contract Matrix
 
