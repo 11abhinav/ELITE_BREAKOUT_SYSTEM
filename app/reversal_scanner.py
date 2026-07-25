@@ -1116,7 +1116,7 @@ def _run_scan(force: bool = False):
                     # instead of the literal "REVERSAL" string. Broken all frontend filters and analytics.
                     # BUG-7 FIX: regime_ctx kwarg silently swallowed by **kwargs in save_alert_if_new.
                     # Now derive bayesian_regime (string) from the dict and pass the correct named param.
-                    _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
+                    _bayesian_regime = regime_ctx.get("trend", "NEUTRAL") if isinstance(regime_ctx, dict) else "NEUTRAL"
                     inserted, reason, _, _ = database.save_alert_if_new(
                         alert["symbol"],
                         "REVERSAL",
@@ -1135,7 +1135,7 @@ def _run_scan(force: bool = False):
                         target_price=alert["target_price"],
                         context=alert["context"],
                         model_version=ACTIVE_ALGO_VERSION,
-                        bayesian_regime=regime_ctx.get("trend", "NEUTRAL"),
+                        bayesian_regime=_bayesian_regime,
                         bayesian_weights=bayesian_weights,
                         structural_failure_stop=alert.get("structural_failure_stop"),
                         target_quality_score=alert.get("target_quality_score")

@@ -30,10 +30,11 @@
 #   → ADX-scaled: trending stocks get wider buffers (deeper pullbacks)
 #   → This makes the stop hunt unprofitable for operators (too far to sweep)
 #
-# SL BUFFER TABLE (per mode):
-
-#   EOD       → max(0.75×ATR, 0.75% price) — meaningful, daily trade
-#   REVERSAL  → max(1.0×ATR, 1.00% price) — widest, volatile beaten stocks
+# SL BUFFER TABLE (per mode from _MODE_CONFIG):
+#   EOD       → max(0.80×ATR, 0.75% price) — meaningful, daily trade (Balanced)
+#   MULTI_TF  → max(0.50×ATR, 0.50% price) — tighter buffer for intraday (Aggressive)
+#   REVERSAL  → max(1.00×ATR, 1.00% price) — widest buffer, volatile beaten stocks (Wide)
+#   PULLBACK  → max(0.75×ATR, 0.75% price) — continuation pullback standard
 #
 # MINIMUM R:R TABLE (per mode):
 
@@ -80,6 +81,7 @@ class TradeStructureValidator:
     @staticmethod
     def validate(entry: float, stop_loss: float, target_1: float,
                  target_2: Optional[float] = None, target_3: Optional[float] = None,
+                 target_4: Optional[float] = None,
                  min_rr: float = 2.0) -> dict:
         if not entry or entry <= 0:
             return {
@@ -116,6 +118,11 @@ class TradeStructureValidator:
             return {
                 "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
                 "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} < Target 2 ₹{target_2:.2f})"
+            }
+        if target_4 and target_3 and target_4 < target_3:
+            return {
+                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} < Target 3 ₹{target_3:.2f})"
             }
             
         natural_rr = round(abs(target_1 - entry) / risk, 2)
@@ -1025,7 +1032,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
+        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"), "target_4": targets.get("t4"),
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1118,7 +1125,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"),
+        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"), "target_4": targets.get("t4"),
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1197,7 +1204,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": t2, "target_3": t3,
+        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": getattr(targets, 't4', None),
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1475,6 +1482,7 @@ class BaseRiskEngine:
         t1 = max(t1_cand, entry + min_rr * risk)
         t2 = t1 + 1.5 * risk
         t3 = t1 + 3.0 * risk
+        t4 = t1 + 4.5 * risk
         
         cluster_diagnostics = {
             "swing_high": round(swing_high, 2),
@@ -1489,7 +1497,8 @@ class BaseRiskEngine:
         targets = {
             "t1": {"price": round(t1, 2), "confidence": "HIGH", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"]},
             "t2": {"price": round(t2, 2), "confidence": "MEDIUM", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"]},
-            "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]}
+            "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]},
+            "t4": {"price": round(t4, 2), "confidence": "LOWEST", "exit": 100 - (ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"] + ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"] + ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"])}
         }
         
         return targets, cluster_diagnostics

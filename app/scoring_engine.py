@@ -23,24 +23,21 @@
 #   1. Avg volume < floor   (illiquid — unreliable fills)
 #   2. Volume spike on bearish close (distribution — smart money selling)
 #   3. Upper wick > 40% of range (rejection candle — buyers lost control)
-#   4. ADX < 25 (RAISED from 22 — weak/establishing trends disqualified)
+#   4. ADX < 18 (lowered from 25 via ADX_MIN_THRESHOLD in config.py per FINDING-F FIX)
 #   5. RSI divergence: price ↑ but RSI ↓ over lookback window (hidden weakness)
 #   6. Price above BB upper with volume ratio < 1.8 (overextension without conviction)
 #   7. 3 doji/narrow candles in last 4 bars (pre-breakout exhaustion)
 #
 # ── PERFORMANCE FIX SUMMARY (v5) ──────────────────────────────────────────────────
 #
-# FIX 1 — ADX hard disqualifier raised from 22 → 25 (from config.ADX_MIN_THRESHOLD)
+# FIX 1 — ADX hard disqualifier reads from config.ADX_MIN_THRESHOLD (currently 18, lowered from 25 per FINDING-F FIX)
 #
-#   Root cause: ADX 22–24 stocks were passing the disqualifier and generating alerts
-#   in choppy / trending-weakly markets. These are statistically poor breakout setups.
-#   ADX 25 is the widely-accepted minimum for an "established" trend. Stocks below
-#   this have no directional commitment and breakouts often reverse immediately.
+#   Root cause: ADX naturally reads lower on early breakout setups and intraday bars.
+#   Applying a strict 25 EOD threshold disqualified valid early momentum breakout setups.
+#   ADX 18 confirms directional movement exists without excluding coiling breakouts.
 #
-#   Implementation: check_hard_disqualifiers() now reads ADX_MIN_THRESHOLD from
-#   config.py (default 25) instead of hardcoding 22. The scoring step 6 that awards
-#   +1 for ADX ≥ 22 is also raised to ≥ 25, so the ADX scoring floor is consistent
-#   with the disqualifier floor.
+#   Implementation: check_hard_disqualifiers() reads ADX_MIN_THRESHOLD from config.py
+#   (default 18) for EOD scans, 20 for 1H, and 18 for 15m intraday scans.
 #
 # FIX 2 — RSI scoring sweet spot tightened
 #
@@ -211,14 +208,14 @@ def check_hard_disqualifiers(ticker, latest, volume_ratio, symbol=None, timefram
     # Applying the strict EOD threshold (25) to intraday was disqualifying valid setups.
     #
     # Thresholds:
-    #   1d  → ADX_MIN_THRESHOLD (25 from config) — strict, EOD quality standard
+    #   1d  → ADX_MIN_THRESHOLD (18 from config) — EOD quality standard
     #   1h  → 20  — intraday bars have lower ADX naturally; 20 is a real trend
     #   15m → 18  — very short bars; 18 confirms directional movement exists
     #
     if "ADX" in ticker.columns:
         adx_val = float(latest.get("ADX", 0) or 0)
         if timeframe == "1d":
-            adx_floor = ADX_MIN_THRESHOLD   # 25
+            adx_floor = ADX_MIN_THRESHOLD   # 18 (see config.py)
         elif timeframe == "1h":
             adx_floor = 20
         else:                               # 15m

@@ -140,6 +140,7 @@ Every background operation is governed by an autonomous 24/7 scheduler loop (`ru
 | **OHLCV 15-Minute (15m)**| `PriceCache` (`app/price_cache.py`) | Session RAM Cache | Every 15-min tick | Multi-TF Scanner Phase C |
 | **OHLCV 5-Minute (5m)** | `PriceCache` (`app/price_cache.py`) | Session RAM Cache | Every 5-min tick | Multi-TF Phase D, Wealth CMP Monitor |
 | **OHLCV 1-Hour (1H)** | `PriceCache` (`app/price_cache.py`) | Session RAM Cache | Every 1-hour bar | Multi-TF Phase A (3-month period) |
+| **OHLCV 30-Minute (30m)**| `PriceCache` (`app/price_cache.py`) | Session RAM Cache | Every 30-min tick | Multi-TF Phase B |
 | **Technical Indicators** | `IndicatorManager` (`app/indicator_manager.py`) | Attached to DataFrame | On fetch write | All Scanners |
 | **Delivery / Bhavcopy** | `DeliveryData` (`app/delivery_data.py`) | Ephemeral RAM | Daily post-18:00 IST | EOD Scanner, Reversal Scanner |
 | **Fundamentals Cache** | `FundamentalsCache` (`app/fundamentals_cache.py`)| Postgres (`pledge_cache`) | Daily at 01:00 IST | Daily Builder, Wealth Engine |
@@ -295,8 +296,29 @@ class PipelineContext:
 | `ADX_14` | `float` | No | 14-period Average Directional Index (Wilder) |
 | `RSI_14` | `float` | No | 14-period Relative Strength Index (Wilder) |
 | `OBV` | `float` | No | On-Balance Volume (Cumulative) |
-
+| `MACD` | `float` | No | Moving Average Convergence Divergence |
+| `MACD_SIGNAL` | `float` | No | MACD Signal Line |
+| `MACD_HIST` | `float` | No | MACD Histogram |
+| `BB_WIDTH` | `float` | No | Bollinger Bands Width |
+| `BB_WIDTH_PCTILE` | `float` | No | Bollinger Bands Width Percentile |
+| `HIGH_52W` | `float` | No | 52-Week High |
+| `SWING_LOW` | `float` | No | Support Swing Low |
+| `SWING_HIGH` | `float` | No | Resistance Swing High |
 ### 3. `ohlcv_15m` (Intraday 15-Minute Dataframe)
+| Column Name | Type | Nullable | Meaning / Units |
+| :--- | :--- | :--- | :--- |
+| `Open` | `float` | No | Bar Opening Price (₹) |
+| `High` | `float` | No | Bar Session High Price (₹) |
+| `Low` | `float` | No | Bar Session Low Price (₹) |
+| `Close` | `float` | No | Bar Session Closing Price (₹) |
+| `Volume` | `float` | No | Total Traded Volume (Shares) |
+| `EMA_9` | `float` | No | 9-period Exponential Moving Average |
+| `EMA_20` | `float` | No | 20-period Exponential Moving Average |
+| `VWAP` | `float` | No | Intraday Volume-Weighted Average Price (₹) |
+| `RSI_14` | `float` | No | 14-period Relative Strength Index (Wilder) |
+| `ATR_20` | `float` | No | 20-period Average True Range (Wilder) |
+
+### 3.5 `ohlcv_30m` (Intraday 30-Minute Dataframe)
 | Column Name | Type | Nullable | Meaning / Units |
 | :--- | :--- | :--- | :--- |
 | `Open` | `float` | No | Bar Opening Price (₹) |
@@ -516,6 +538,427 @@ def run_eod_scanner(run_once=False, force=False):
     return len(top_10)
 ```
 
+## 7.2 Reversal Scanner (`app/reversal_scanner.py` — v6)
+
+**Purpose:** Deep-discount mean-reversion scanner. Targets high-quality stocks that have corrected 20–45% from their 52-week high and are showing early recovery signals. Runs once post-18:00 IST after Bhavcopy availability confirmation.
+
+**Entry Point:** Called by `main.py` as `_run_reversal_with_retries(force=True)` in the evening batch.
+
+**Filter Cascade (executed in strict order per symbol):**
+
+```text
+Universe: watchlist.parquet (all categories)
+   │
+   ├─[Gate 1] Price ≥ ₹100 (MIN_STOCK_PRICE)
+   ├─[Gate 2] Avg daily volume ≥ 300,000 shares (MIN_AVG_DAILY_VOLUME)
+   ├─[Gate 3] ROE ≥ 12% (MIN_ROE from REVERSAL_CONFIG)
+   ├─[Gate 4] YoY Revenue growth ≥ 8% (MIN_YOY_REVENUE_GROWTH)
+   ├─[Gate 5] Drop from 52W High: 20% ≤ drop ≤ 45% (REVERSAL_CONFIG band)
+   ├─[Gate 6] Close > SMA_50 (mandatory trend recovery gate — FIX 2)
+   ├─[Gate 7] Price ≤ SMA_200 + (MAX_DROP_BELOW_SMA200=25%) safety fence
+   ├─[Gate 8] RSI previously < RSI_OVERSOLD_THRESHOLD (45) AND current RSI ≥ RSI_CURL_MIN (50)
+   ├─[Gate 9] Volume ratio ≥ MIN_VOLUME_RATIO (2.0× 20-bar avg)
+   ├─[Gate 10] Not in REVERSAL cooldown (30 trading day suppression on failed alerts)
+   │
+   └─[SCORE] Reversal scoring engine (max 100 pts, min threshold = 62)
+         • Trend structure:    25 pts  (SMA50 reclaim + SMA200 position)
+         • SMA200 proximity:   15 pts  (closer = less falling-knife risk)
+         • Volume:             15 pts  (confirmation signal)
+         • MACD momentum:      15 pts  (MACD histogram flip from negative to positive)
+         • RSI curl quality:   15 pts  (faster RSI recovery from oversold)
+         • Category quality:   10 pts  (fundamental tier from daily builder)
+         • Drop sweet spot:     5 pts  (bonus for 25–35% drop band)
+         • R:R quality:         5 pts  (R:R ≥ 2.5 gets max bonus)
+         • Delivery + OBV:     bonus   (institutional accumulation confirmation)
+```
+
+**Outputs:**
+- `alerts` table rows with `scanner='REVERSAL'`, `breakout_type='REVERSAL'`
+- `rejected_alerts` table row on score failure
+
+**Key Config References:**
+- `REVERSAL_CONFIG` — all filter thresholds
+- `MIN_NATURAL_RR["REVERSAL"] = 2.0` — minimum R:R accepted
+- `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` (7 days)
+- `SCANNER_MAX_ALERTS["REVERSAL"] = 10`
+- SL/Target: `compute_sl_and_target(mode="REVERSAL")` — uses ATR=2.0 base, sl_atr_buf=1.0
+
+**Failure Recovery:** On per-symbol exception: log to `scan_failures` table, CONTINUE to next symbol. Scanner health updated at end of run.
+
+---
+
+## 7.3 Multi-TF Intraday Scanner (`app/multi_tf_scanner.py`)
+
+**Purpose:** Intraday 4-phase cascade scanner operating on 1H → 30m → 15m → 5m timeframes. Identifies breakout setups with multi-timeframe trend alignment and fires buy alerts only on 5m confirmed triggers. Runs every 15 minutes during market hours (09:15–15:30 IST).
+
+**Two Entry Points:**
+- `run_hourly_phase()` — Phase A: scans entire universe on 1H, builds `breakout_watchlist`
+- `run_lower_tf_phase()` — Phases B/C/D: reads active `breakout_watchlist`, advances state machine
+
+**Phase A — 1H Trend Permission (run_hourly_phase):**
+```text
+Input: watchlist.parquet (full universe)
+Bulk pre-fetch: fetch_watchlist_data(watchlist, period="3mo", interval="1h")
+Batch size: 50 symbols (env: MULTI_TF_FETCH_BATCH_SIZE)
+Min data required: 50 bars (MTF_BAR_LIMIT_FIX)
+
+Filters per symbol:
+  • Price ≥ ₹100
+  • EMA9 > EMA20 > SMA50 AND Close > SMA200   (ema_ok)
+  • ADX > 20                                   (adx_ok)
+  • Distance to prior 20D High: -2% to +5%     (dist_ok — MTF_DIST_GATE_FIX)
+  • Stale flag = False
+
+Output: DB upsert to breakout_watchlist (state = "HOURLY_APPROVED")
+```
+
+**Phase B — 30m Consolidation Gate (HOURLY_APPROVED → SETUP_ARMED):**
+```text
+Fetch: data_30m for all HOURLY_APPROVED symbols (period="1mo", interval="30m")
+Check on previous candle (iloc[-2]):
+  • BB_WIDTH_PCTILE < 0.45 AND distance within [-1.5%, +2.5%]  (consolidation)
+  OR
+  • Price > trigger_level AND volume_ratio > 1.2               (fast breakout override)
+
+Output: DB upsert state = "SETUP_ARMED" with:
+  trigger_level = breakout_level
+  invalidation_level = min(SWING_LOW, EMA20)
+  expires_at = min(now + 60min, session_end)
+```
+
+**Phase C — 15m Micro-Alignment Gate (SETUP_ARMED → ENTRY_READY):**
+```text
+Fetch: data_15m for SETUP_ARMED symbols (period="5d", interval="15m")
+Gate: EMA9_15m > EMA20_15m AND distance within [-1.5%, +2.5%]
+Output: DB upsert state = "ENTRY_READY" (expires in 30m)
+```
+
+**Phase D — 5m Final Trigger (ENTRY_READY → TRADE_ACTIVE):**
+```text
+Fetch: data_5m + data_daily (for S/R pivot injection)
+apply_indicators(df, timeframe="5m", daily_ohlc=daily_df)
+
+Thrust Trigger (preferred):
+  • Close > prev_High AND Close > (trigger_level + 0.15*ATR20)
+  • Volume ratio > 1.2, close_position ≥ 0.6, upper_wick < 0.35
+
+Pullback Trigger (PULLBACK_TRIGGER_MODE="PREVIOUS_HIGH"):
+  • Low ≤ max(trigger_level, EMA9)           (touches the level)
+  • Close > trigger_level AND Close > prev_High
+  • Volume ratio > 1.0, close_position ≥ 0.6
+
+Extension Kill Gate:
+  • Close > trigger_level + (0.8 * ATR20)   → REJECT (PD01_OVER_EXTENDED)
+
+On valid trigger:
+  • compute_sl_and_target(mode="MULTI_TF")
+  • save_alert_if_new() + mark state = "TRADE_ACTIVE"
+```
+
+**Decay / Demotion Rules:**
+- `drift > 3%` from resistance → Demote back to `HOURLY_APPROVED` + 2h cooldown (MTF_FLAPPING_FIX)
+- Age `> 4h` + `drift > 1.5%` → Expiry demotion
+
+**Key Config References:**
+- `MULTI_TF_CONFIG`: MIN_RSI=52, MAX_RSI=87, MIN_VOLUME_RATIO=2.5, PULLBACK_TRIGGER_MODE="PREVIOUS_HIGH"
+- `SCORE_THRESHOLDS["15m"] = 78`, `["1h"] = 80`
+- `ALERT_COOLDOWN_MINUTES["MULTI_TF"] = 720` (12 hours)
+- `SCANNER_MAX_ALERTS["MULTI_TF"] = 100`
+
+---
+
+## 7.4 Pullback Pipeline Scanner (`app/pullback_pipeline.py` — pb-1.0.0)
+
+**Purpose:** Identifies post-impulse pullback setups. Scans for stocks that have made a strong upward impulse (≥8% gain in ≤20 bars), then pulled back 5–15% in an orderly fashion (low volume, limited swings), and are now showing a re-entry trigger candle. Runs post-18:00 IST in the evening batch after Bhavcopy.
+
+**Entry Point:** `run_pullback_pipeline(run_date, force=False)`
+
+**Filter Cascade:**
+
+```text
+Regime Gate: STRONG_BEAR → Scanner disabled entirely (returns 0)
+Score threshold = 75 + REGIME_POLICIES[market_regime]["score_modifier"]
+
+For each symbol in watchlist (daily OHLCV, period="1y"):
+  ├─[Gate 1] Data freshness: dataset_date == run_date (else wait for Bhavcopy)
+  ├─[Gate 2] History ≥ 200 bars (MIN_HISTORY)
+  ├─[Gate 3] Impulse Detection:
+  │   • Gain ≥ 8% in ≤ 20 bars (MIN_IMPULSE_GAIN_PCT, MAX_IMPULSE_BARS)
+  │   • Impulse ATR ≥ 3.0× ATR_20 (MIN_IMPULSE_ATR)
+  ├─[Gate 4] Pullback Geometry:
+  │   • Depth: 5% ≤ pullback ≤ 15% from impulse high (MIN/MAX_DEPTH_PCT)
+  │   • Duration: 3–20 bars (MIN/MAX_DURATION)
+  │   • Internal swings ≤ 2 (MAX_INTERNAL_SWINGS)
+  │   • Pullback volume ratio < 0.75× impulse volume (orderly retrace)
+  ├─[Gate 5] Trigger Candle:
+  │   • Volume ratio ≥ 1.3× 20-bar avg (TRIGGER_VOL_MULT)
+  │   • Close position ≥ 0.75 of candle range (MIN_CLOSE_LOCATION)
+  │   • Body ATR ≥ 0.5× ATR_20 (MIN_BODY_ATR)
+  │   • Upper wick ≤ 25% of range (MAX_UPPER_WICK)
+  │   • Entry gap from prior session ≤ 3% (MAX_ENTRY_GAP_PCT)
+  └─[SCORE] Pullback bonus scoring (max +5 bonus points, PRIOR_WINDOW=30 bars)
+```
+
+**Output:** `alerts` table with `scanner='PULLBACK'`, cooldown 7 days, max 10 alerts per run.
+
+**Key Config:** `PULLBACK_CONFIG` dict — all thresholds above (VERSION: pb-1.0.0, lowered MIN_HISTORY from 260→200 per PB_BAR_FIX_v1.0).
+
+---
+
+## 7.5 Multibagger Scanner (`app/multibagger.py` — V5 Pipeline)
+
+**Purpose:** Long-term compounder scanner targeting fundamentally excellent businesses (ROCE ≥ 20%, ROE ≥ 15%, debt-free) that meet V5 pipeline quality thresholds. Runs daily at 19:00 IST.
+
+**Entry Point:** `run_multibagger_scan()` or `monitor_exits()` (intraday exit monitor)
+
+**Execution Flow:**
+
+```text
+Input: watchlist.parquet
+Data: 1Y daily OHLCV + Screener fundamentals
+
+For each symbol:
+  ├─[Phase 1] Fundamental Gate (V5 Pipeline):
+  │   run_pipeline_for_symbol(symbol, map_watchlist_to_v5(row))
+  │   → PipelineDecision: composite_score, quality.score, valuation.score
+  │   • Min quality.score ≥ 60 (quality gate)
+  │   • Min composite_score ≥ 70
+  ├─[Phase 2] Technical Overlay:
+  │   • Close > SMA_200 (trend gate)
+  │   • RSI 45–70 (not overbought/oversold)
+  │   • Liquidity ≥ ₹1 Cr/day (MIN_DAILY_LIQUIDITY_RUPEES_WEALTH)
+  ├─[Phase 3] Bucket Assignment:
+  │   • Core Compounder: score≥65, MCap≥₹10,000Cr, ROCE≥20%, ROE≥15%, D/E≤0.5
+  │   • Growth Multiplier: score≥60, MCap≥₹2,000Cr, Rev growth≥20%, RS≥0%
+  │   • Quality-On-Sale: score≥50, ROCE≥15%, dist_52w>20%, D/E≤1.0
+  │   • Opportunistic: score≥55, profit growth≥40%, RS≥15%, non-SME
+  └─[Phase 4] Sector Cap:
+      Max 25% from one sector, max 2 per industry sub-group
+
+Output:
+  • alerts table (scanner='MULTIBAGGER')
+  • elite_wealth_system.parquet (for dashboard)
+  • ALERT_COOLDOWN_MINUTES["MULTIBAGGER"] = 43200 (30 days)
+```
+
+---
+
+## 7.6 Wealth Engine Buy-Scan (`app/wealth_engine.py` — buy-scan path)
+
+The Wealth Engine's buy-scan path (`run_wealth_scan()`) executes the 4-phase pipeline documented in §23.1. Refer to §23.1 for the full phase contract matrix. Key alert generation specifics:
+
+```text
+Scanner name: "WEALTH"
+Breakout type: "WEALTH_BUY"
+Max alerts per run: SCANNER_MAX_ALERTS["WEALTH"] = 50
+Cooldown: ALERT_COOLDOWN_MINUTES["WEALTH"] = 1440 (24 hours)
+Score threshold: FM_Score ≥ 55 (Layer 1 minimum)
+SL/Target: compute_sl_and_target(mode="EOD") — ATR base 2.0
+```
+
+---
+
+# 7A. SL/TARGET ENGINE v7 — COMPLETE SPECIFICATION
+
+**File:** `app/sl_target_helper.py` (1,647 lines) — `ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"`
+
+## 7A.1 Architecture Overview
+
+The SL/Target engine is a multi-stage pipeline: **Structural Stop Discovery → Target Candidate Generation → Cluster Engine → Conflict Resolver → Trade Invariant Validation.**
+
+```text
+Entry Price + OHLCV DataFrame + Mode
+          │
+          ▼
+  [SupportEngine.get_ranked_supports()]
+  → Ranked list of swing lows, SMA200, EMA20, VWAP, S1 by structural score
+          │
+          ▼
+  [_compute_structural_stop()]
+  → Pick top-scoring support cluster within 1.5 ATR width
+  → Apply ATR-scaled buffer (0.8× ATR for EOD)
+  → Validate: Entry > SL ≥ MIN_STOP_PCT distance
+          │
+          ▼
+  [CandidateGenerator.generate_breakout_candidates()]
+  → Enumerate all TargetSource candidates:
+    EQUAL_HIGH, RESISTANCE, HIGH_20D, PREV_DAY_HIGH, HIGH_52W,
+    ABCD, RETRACE_50, RETRACE_618, RETRACE_382,
+    FIB_127, FIB_162, FIB_200, SMA200, BB_MID, SMA50,
+    ATR_PROJ, R1, R2, ROUND_NUM (17 sources)
+          │
+          ▼
+  [RoundNumberEngine.detect_and_boost()]
+  → Boost target by ROUND_NUMBER_BOOST=8 pts if within 0.5% of round number
+          │
+          ▼
+  [ClusterEngine.cluster(candidates)]
+  → Group candidates within TARGET_CLUSTER_WINDOW_PCT=0.75% or 0.5 ATR
+  → Each cluster: consensus_price = weighted avg, score = sum of weights
+          │
+          ▼
+  [ConflictResolver.resolve(clusters, mode)]
+  → TARGET_CONFLICT_POLICY:
+    EOD:      "REGIME"     — sort by (consensus_price, score) regime-aware
+    MULTI_TF: "CONFIDENCE" — sort by cluster score descending
+    REVERSAL: "NEAREST"    — pick nearest target above entry
+          │
+          ▼
+  [TradeStructureValidator.validate()]
+  → 6 invariant checks (see §7A.3)
+          │
+          ▼
+  Output: {stop_loss, target_1, target_2, target_3, sl_method, t_method, rr_ratio, is_valid}
+```
+
+## 7A.2 Per-Scanner Dispatch Config (`_MODE_CONFIG`)
+
+```python
+#           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
+_MODE_CONFIG = {
+    "EOD":      (2.00,    0.80,       0.0075,     3.0),
+    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
+    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+}
+```
+
+- `atr_base`: Number of ATRs from entry for ATR fallback SL
+- `sl_atr_buf`: ATR buffer added below swing low support cluster
+- `sl_pct_buf`: Minimum % distance buffer below support
+- `max_sl_atr`: Maximum SL distance from entry in ATR units
+
+## 7A.3 TradeStructureValidator — 6 Invariant Checks
+
+```text
+Invariant 1: entry > stop_loss                     (SL must be below entry)
+Invariant 2: target_1 > entry                      (Target must be above entry)
+Invariant 3: (entry - stop_loss) ≥ MIN_STOP_PCT[mode] * entry  (Min stop distance)
+Invariant 4: rr_ratio ≥ MIN_NATURAL_RR[mode]       (Min R:R ratio)
+Invariant 5: rr_ratio ≤ MAX_REASONABLE_RR[mode]    (Max R:R to reject phantom targets)
+Invariant 6: (entry - stop_loss) ≤ MAX_SL_DISTANCE_PCT * entry (Max SL distance 8%)
+```
+
+Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, alert saved to `rejected_alerts` table.
+
+## 7A.4 TargetSource Priority & Weights (from `config.py`)
+
+| Source | Priority | Weight |
+|---|---|---|
+| EQUAL_HIGH | 1 | 10 |
+| RESISTANCE | 2 | 10 |
+| HIGH_20D | 3 | 9 |
+| PREV_DAY_HIGH | 4 | 9 |
+| HIGH_52W | 5 | 8 |
+| ABCD | 6 | 9 |
+| RETRACE_618 | 7 | 7 |
+| RETRACE_50 | 8 | 8 |
+| RETRACE_382 | 9 | 6 |
+| FIB_127 | 10 | 7 |
+| FIB_162 | 11 | 6 |
+| SMA200 | 12 | 8 |
+| SMA50 | 13 | 6 |
+| BB_MID | 14 | 7 |
+| FIB_200 | 15 | 5 (regime-adjusted: BULL=7, BEAR=2) |
+| ATR_PROJ | 16 | 4 |
+| R1 | 17 | 5 |
+| R2 | 18 | 4 |
+| ROUND_NUM | 99 | 0 (boost only) |
+
+## 7A.5 Partial Exit Profiles
+
+```python
+# config.py
+PARTIAL_EXIT = {
+    "EOD":      [40, 30, 30],   # T1: 40% exit, T2: 30% exit, T3: 30% hold
+    "REVERSAL": [30, 30, 40],   # T1: 30% exit, T2: 30% exit, T3: 40% hold (LTCG intent)
+}
+```
+
+## 7A.6 Anti-Operator-Trap Design Principles
+
+The SL/Target engine is specifically designed to reject three operator manipulation patterns:
+
+1. **Climax Volume Trap**: Volume spike at 52-week high with no continuation → rejected by Hard Disqualifier (`CLIMAX_VOLUME_LOOKBACK = 20`)
+2. **Lower High Trap**: Sequence of lower highs post-breakout → `LOWER_HIGH_LOOKBACK = 6` bars checked as Hard Disqualifier
+3. **Thin Spread Trap**: Candle range < 0.3% of price → `MIN_CANDLE_RANGE_PCT = 0.003` checked as Hard Disqualifier
+
+SL placement is deliberately set **below the support zone**, not at it, to avoid stop-hunting by operators.
+
+---
+
+# 8. FUNDAMENTALS DATA PIPELINE & WATCHLIST GENERATION
+
+**File:** `app/daily_builder.py` | **Schedule:** Daily at 01:00 IST | **Owner:** WatchlistService
+
+## 8.1 Pipeline Execution Flow
+
+```text
+01:00 IST — Scheduler triggers daily_builder
+
+Step 1: TradingView Screener Fetch
+  • Source: TradingView NSE & BSE screener API
+  • Filters: MCap ≥ ₹150Cr, Daily liquidity ≥ ₹15Cr (MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST)
+  • Price ≥ ₹100 (MIN_PRICE filter)
+  • Returns: raw symbol list with fundamental ratios
+              (ROCE, ROE, Debt/Equity, YoY Revenue Growth, YoY Profit Growth)
+
+Step 2: Symbol Normalization
+  • Fix TradingView underscores/hyphens: M_M → M&M, L_TFH → L&TFH
+  • Deduplicate NSE + BSE entries
+  • Assign Category tier (DEBT_FREE_CASH, TOP_BANK, WEALTH_COMPOUNDER, etc.)
+
+Step 3: Promoter Pledge Fetch
+  • Source: BSE corporate API + NSE corporate API
+  • Cache: promoter_pledge_cache table (24h TTL)
+  • Inject Promoter_Pledge % column into dataset
+
+Step 4: Sector Classification
+  • Map each stock to sector and industry sub-group
+  • Source: TradingView sector tag or NSE classification fallback
+
+Step 5: Output & Persistence
+  • Write: data/watchlist.parquet (WATCHLIST_PATH)
+  • Write: DatasetRegistry["watchlist"] (session RAM)
+  • Update: data_cache_metadata table (key="watchlist", cadence=86400s)
+  • Log: validation_history table (quality score, row count)
+
+Step 6: Self-test Validation
+  • Run QualityValidator V8.0 on output parquet
+  • Alert if row_count drops > MAX_HISTORY_SHRINK (30%) vs prior day
+  • Quality score thresholds: OK ≥ 90, WARNING 75–90, ERROR < 75
+```
+
+## 8.2 Category Assignment Rules
+
+| Category | ROCE Threshold | Other Criteria |
+|---|---|---|
+| `DEBT_FREE_CASH` | ≥ 25% | D/E = 0 + positive FCF |
+| `TOP_BANK` | ≥ 18% | NBFC/Bank sector, ROE ≥ 15% |
+| `WEALTH_COMPOUNDER` | ≥ 20% | MCap ≥ ₹5,000 Cr, 5Y track record |
+| `BLUE_CHIP` | ≥ 15% | MCap ≥ ₹20,000 Cr |
+| `MIDCAP_GROWTH` | ≥ 15% | MCap ₹2,000–₹20,000 Cr, YoY revenue ≥ 15% |
+| `RECOVERY_PLAY` | ≥ 10% | Improving from prior year loss |
+
+## 8.3 Watchlist Parquet Schema (Final Output)
+
+| Column | Type | Nullable | Source |
+|---|---|---|---|
+| `Stock` | str | No | TradingView NSE symbol |
+| `Category` | str | No | Assigned by daily_builder |
+| `sector` | str | No | TradingView sector tag |
+| `ROCE %` | float | Yes | TradingView screener |
+| `ROE %` | float | Yes | TradingView screener |
+| `Debt/Equity` | float | Yes | TradingView screener |
+| `YOY Revenue %` | float | Yes | TradingView screener |
+| `YOY Profit %` | float | Yes | TradingView screener |
+| `Market Cap Cr` | float | Yes | TradingView screener |
+| `Promoter_Pledge` | float | Yes | BSE/NSE corporate API |
+| `PE Ratio` | float | Yes | TradingView screener |
+| `PEG Ratio` | float | Yes | TradingView screener |
+| `OPM %` | float | Yes | TradingView screener |
+| `FCF Margin %` | float | Yes | TradingView screener |
+| `EV/EBITDA` | float | Yes | TradingView screener |
+
 ---
 
 # 9. DATA ACQUISITION, PROVIDER ROUTING, SYMBOL RESOLUTION ENGINE & RESILIENCY TOPOLOGY
@@ -568,6 +1011,32 @@ The database table `symbol_mappings` tracks mapping state and failure backoffs:
   - `failure_count = 3` $\rightarrow$ `retry_after = NOW() + 90 days`
   - `failure_count >= 4` $\rightarrow$ `retry_after = NOW() + 365 days` (Permanent Delisting Candidate)
 - **Automatic Recovery**: When a symbol resolves successfully via a fallback provider, `save_bse_mapping()` or `save_fyers_mapping()` resets `failure_count = 0`, sets `mapping_state = 'ACTIVE'`, and sets `is_invalid = FALSE`.
+
+---
+
+# 10. PRICE CACHE & PARQUET SIDECARS (`app/price_cache.py`)
+
+## 10.1 Two-Tier Cache Architecture & Persistence Invariants
+The data caching architecture implements a resilient, thread-safe two-tier hierarchy designed to eliminate redundant external network fetches, mitigate provider rate-limiting, and ensure zero-downtime historical continuity:
+- **Tier 1 (High-Speed Session RAM Cache)**: Maintained in memory via `_cache: dict[tuple, dict]` keyed by `(interval, period)`. Protected by reentrant thread lock (`_lock`). Serves real-time data frame lookups across multiple concurrent scanners with microsecond latency.
+- **Tier 2 (Persistent Disk Parquet Sidecars)**: Stored in local repository filesystem under `DATA_DIR/history/{interval}/{symbol}.parquet` accompanied by atomic metadata sidecars (`.meta.json`). Guarantees fast system warm-up and survivability across application restarts.
+
+## 10.2 Dynamic Cadence Engine & Cache Floors
+To optimize network bandwidth while ensuring candlestick accuracy, cache freshness is dynamically computed by `get_dynamic_cadence(interval)`:
+- **Market Closed Hours**: Post-15:30 IST on weekdays or weekends, daily timeframe intervals (`1d`, `daily`, `1wk`, `1mo`) automatically cache until the next scheduled NSE market open (09:15 IST) or up to 12 hours post-close (`43200s`).
+- **Intraday Market Hours**: Calculates exact seconds remaining until the next multiple of the active interval (e.g., 15-minute or 1-hour boundaries relative to 09:15 IST) plus a 5-second broker data settling buffer.
+- **Minimum Cache Floors (`CACHE_FLOOR_FIX_v1.0`)**: Enforces a strict expiration floor equal to 50% of the total interval duration (5m $\rightarrow$ 150s, 15m $\rightarrow$ 450s, 30m $\rightarrow$ 900s, 1h $\rightarrow$ 1800s). This prevents cache expiration race conditions and delta re-fetch storms when scanners execute near candle transition boundaries.
+
+## 10.3 Thundering Herd Protection & Global Serialization
+When scheduled evening scanners or intraday Multi-TF pipelines trigger simultaneously across multiple workers, unregulated network fetches risk overwhelming external broker endpoints (Thundering Herd pattern):
+- **Global Fetch Serialization (`_fetch_lock`)**: Serializes external batch downloading across all active threads and scanner routines. Only a single thread interacts with provider HTTP sockets at a time.
+- **Double-Check Lock Pattern**: Threads waiting on `_fetch_lock` re-verify the in-memory RAM cache (`_cache`) immediately upon acquiring the lock. If the leading thread has already populated the requested symbols, waiting scanners instantly reuse the freshly populated DataFrames without generating duplicate API requests.
+
+## 10.4 Historical Shrink Protection & OHLCV Ingestion Boundaries
+Incoming DataFrames from external providers pass through rigorous structural validation prior to cache admission:
+- **Structural Integrity Gate (`validate_ohlcv_structure`)**: Enforces strict timestamp monotonicity and fundamental price boundary rules (`High >= Low`, Open and Close within `[Low, High]` bounds, and non-negative Volume). Malformed DataFrames are instantly dropped in favor of existing stale cache elements.
+- **Anti-Shrink Protection (`MAX_HISTORY_SHRINK = 0.30`)**: Protects persistent historical caches from provider API failures or truncations. If an incoming full fetch returns a row count more than 30% smaller than the existing local Parquet record (`incoming_rows < existing_rows * (1.0 - MAX_HISTORY_SHRINK)`), the system rejects the remote payload (`Reason=HISTORICAL_SHRINK`), flags the local cache as `is_stale=True`, and retains existing historical depth.
+- **Atomic Sidecars & Pre-Enriched Indicators**: Each `.parquet` file writes an associated `.meta.json` recording `schema_version`, `indicator_version`, `ohlcv_hash` (deterministic SHA-256 fingerprint of core price columns), and row counts. Data frames are pre-calculated with canonical technical indicators via `indicator_executor` prior to persistence, ensuring read-ready analytical structures.
 
 ---
 
@@ -886,6 +1355,30 @@ Flask REST API (`app/dashboard_server.py`) specifications:
 
 ---
 
+# 17. UI/UX SPECIFICATIONS & STREAMING CONTRACTS (`app/dashboard_server.py`)
+
+## 17.1 Frontend Architecture & API Topologies
+The system frontend is powered by a lightweight, responsive web application served via a Flask WSGI engine (`app/dashboard_server.py`) protected by `ProxyFix` for robust cloud deployment across CDN and edge networking interfaces. The presentation architecture combines clean interactive interfaces with low-latency JSON REST endpoints designed for autonomous system surveillance:
+- **Presentation Layer**: Pure vanilla HTML5, modern HSL/dark-mode styling via CSS, and vanilla reactive JavaScript components providing real-time visual feedback without heavy frontend framework overhead.
+- **REST Contract Integrity**: All API json payloads serialize timestamp elements uniformly via `serialize_datetimes()` into strict ISO-8601 strings to guarantee deterministic frontend parsing.
+
+## 17.2 Real-Time Polling & Notification Streaming Architecture
+To prevent websocket connection drops and memory bloat over unstable cloud edge connections, the system utilizes an asynchronous, resilient short-polling and event push architecture:
+- **Dynamic Surveillance Polling**: The dashboard client automatically queries lightweight endpoints (`/api/scanner_status`, `/api/summary`) at configurable cadence intervals to dynamically render scanner health status badges (`OK`, `RUNNING`, `DOWN`), execution durations, alert counts, and prevailing macroeconomic regime classifications (`BULL`, `NEUTRAL`, `BEAR`).
+- **Live Event Stream Feed**: Endpoint `/api/notifications` delivers real-time chronological feeds of newly confirmed breakout alerts, near-miss candidate logs, and system diagnostics directly to frontend notification centers and floating snackbars.
+- **State Synchronization Contracts**: Stateful endpoints `/api/notifications/mark_seen/<id>`, `/api/notifications/mark_all_seen`, and `/api/notifications/clear_all` provide atomic POST interface contracts for user notification acknowledgment and database cleanup.
+
+## 17.3 VAPID WebPush Notification Pipeline
+For remote mobile and desktop alerting, the server implements full Progressive Web App (PWA) push capabilities via WebPush protocols:
+- **PWA Integration**: Serves `/manifest.json` and dedicated Service Worker implementation `/service-worker.js` with zero-caching headers to guarantee real-time Service Worker upgrades.
+- **VAPID Subscription Contract**: Client applications obtain public VAPID authentication credentials via `/api/push/vapid_public_key` (`GET`). Upon receiving browser authorization, the subscription payload (`endpoint`, `p256dh` cryptographic key, and `auth` secret) is securely committed to database storage via `/api/push/subscribe` (`POST`). When any scanner pipeline generates an unrejected alert, background messaging dispatchers immediately broadcast WebPush payloads to registered client Service Workers.
+
+## 17.4 Administrative Export & Capital Management Surface
+- **Whitelisted Data Exports**: To support external audit and spreadsheet reconstruction, administrative endpoints `/admin/export/<table>` and `/admin/export/watchlist/<list_type>` stream raw database rows as downloadable CSV formats. SQL injection is mitigated via strict hard-coded table name whitelisting in the route handler.
+- **Analytical Matrix Tools**: Provides deep mathematical evaluation endpoints including `/api/capital_info`, `/api/deposit_funds`, and `/api/analytics/expectancy_matrix`, computing Monte Carlo expectancy tables, Win/Loss distributions, and real-time portfolio margin requirements.
+
+---
+
 # 18. VERBATIM PRODUCTION CONFIGURATION (`app/config.py`)
 
 Below is the verbatim source code of `app/config.py`:
@@ -1093,12 +1586,14 @@ ADAPTIVE_TARGET_CAPS = {
     "NEUTRAL": {"15m": 6.0, "1h": 8.0, "1d": 10.0}
 }
 
-MIN_NATURAL_RR = {"MULTI_TF": 1.5, "EOD": 2.5, "REVERSAL": 2.0}
+MIN_NATURAL_RR = {"MULTI_TF": 1.5, "EOD": 2.5, "REVERSAL": 2.0, "PULLBACK": 2.0}
 LOCK_WAIT_WARNING_SECONDS = float(os.environ.get("LOCK_WAIT_WARNING_SECONDS", "10.0"))
 LOCK_HOLD_WARNING_SECONDS = float(os.environ.get("LOCK_HOLD_WARNING_SECONDS", "120.0"))
 
-MAX_REASONABLE_RR = {"MULTI_TF": 6.0, "EOD": 8.0, "REVERSAL": 4.0}
+MAX_REASONABLE_RR = {"MULTI_TF": 6.0, "EOD": 8.0, "REVERSAL": 4.0, "PULLBACK": 8.0}
 MIN_TARGET_CONFIDENCE = 40
+
+MIN_STOP_PCT = {"MULTI_TF": 0.6, "EOD": 1.5, "REVERSAL": 2.0, "PULLBACK": 1.5}
 
 DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")
 ROUTING_POLICY_VERSION = 2
@@ -1280,6 +1775,7 @@ Per Rule 63, ANY future modification, refactoring, or architectural change MUST 
 
 | Date & Commit ID | Version Tag | Old Behavior | New Behavior | RCA & Rationale for Change |
 | :--- | :--- | :--- | :--- | :--- |
+| **2026-07-25**<br>`PENDING` | `DOC_AUDIT_CLOSURE_v1.0` | Documentation lacked explicit specifications for Sections 8, 10, and 17 (TOC promises), and only documented EOD scanner in Section 7 without the SL/Target algorithm detail. | Added complete, exhaustive specifications for Reversal, Multi-TF, Pullback, Multibagger, and Wealth buy-scan flows in Section 7; complete SL/Target Engine v7 spec in Section 7A; Fundamentals Data Pipeline in Section 8; Price Cache & Parquet Sidecars in Section 10; and UI/UX & Streaming Contracts in Section 17. | Direct addressing of critical audit feedback (Points 1.1, 1.2, 1.3) to achieve 100% deterministic, self-contained documentation for zero-code system reconstruction. |
 | **2026-07-25**<br>`5f448211` | `UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0` | Live quote fallbacks silently discarded pending symbols without logging success. | Added explicit `INFO` logging (`✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}`) for Fyers, Yahoo, and BSE live quote resolution. | Eliminates ambiguity in raw terminal and Railway logs when a primary provider returns 404 but a fallback provider successfully retrieves live data. |
 | **2026-07-25**<br>`8d1cea6e` | `DOC_1GB_RAM_MINIMUM_v1.0` | Container memory budget defined as **500 MB RAM**. | Container minimum RAM requirement updated to **1.0 GB RAM (1024 MB)**. | Aligned container budget with empirical production memory profiles where multi-threaded 300-symbol rolling calculations reach 800-888 MB RSS before `malloc_trim(0)`. |
 | **2026-07-25**<br>`3d67d436` | `DOC_FINAL_DETERMINISTIC_SPEC_v1.0` | Wealth Engine phase contracts, telemetry JSON schema, and restart checkpoints were implied. | Added Sections 23.16–23.19 explicitly specifying Phase Contract Matrix, Telemetry Schema, Cache Destruction Timeline, and Recovery Checkpoints. | Fulfills 100% deterministic zero-code reconstruction requirement. |
@@ -1327,6 +1823,7 @@ Step 4: Data Acquisition & Price Cache Infrastructure
 Step 5: Scoring, Risk & Quant Engines
 ├── app/scoring_engine.py      # (Centralized candidate scoring 0-100)
 ├── app/sl_target_helper.py    # (Dynamic stop loss, anti-trap buffer & validator)
+├── app/performance_tracker.py # (Exit engine & dynamic partial profit state machine)
 ├── app/trade_ranking_engine.py# (Multi-factor candidate ranking)
 ├── app/macro_utils.py         # (Market regime engine & sector rankings)
 ├── app/strategy_policy.py     # (Regime-aware threshold modifiers)

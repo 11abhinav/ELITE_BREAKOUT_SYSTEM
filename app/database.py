@@ -324,6 +324,7 @@ def init_db():
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_1 REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_2 REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_3 REAL",
+                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_4 REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS initial_stop_loss REAL",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS remaining_shares INTEGER",
                     "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_history JSONB DEFAULT '[]'::jsonb",
@@ -356,6 +357,9 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+                
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_3 NUMERIC(10, 2)")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_4 NUMERIC(10, 2)")
                 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS rejected_alerts (
@@ -1535,6 +1539,7 @@ def save_alert_if_new(
     target_1: float = None,
     target_2: float = None,
     target_3: float = None,
+    target_4: float = None,
     target_price: float = None,  # Legacy
     signals: str = None,
     score: int = None,
@@ -1633,15 +1638,15 @@ def save_alert_if_new(
                     cur.execute("""
                         INSERT INTO alerts
                             (symbol, breakout_type, alert_time, scanner, category,
-                            entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, 
+                            entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
                             signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                             model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
                             structural_failure_stop, target_quality_score, execution_state)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
                         ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
                         RETURNING id;
                     """, (symbol, breakout_type, alert_time, scanner, category,
-                        entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, 
+                        entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
                         signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
                         model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
                         structural_failure_stop, target_quality_score))
@@ -1686,14 +1691,14 @@ def save_alert_if_new(
                             cur.execute("""
                                 INSERT INTO alert_outcomes
                                     (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
-                                     rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2,
+                                     rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2, target_3, target_4,
                                      earnings_flag, days_to_earnings, earnings_date, earnings_severity, date_status,
                                      alert_timestamp)
-                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                                 ON CONFLICT (alert_id, leg) DO NOTHING
                             """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
                                   base_score_val, rs_bonus_val, sector_bonus_val, rs_pct_val, sector_name_val,
-                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2,
+                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2, target_3, target_4,
                                   ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
                                   ed_info["earnings_severity"], ed_info["date_status"]))
                             conn.commit()
@@ -1885,7 +1890,7 @@ def update_alert_outcome(
                                 remaining_shares = 0,
                                 execution_state = %s
                             WHERE id = %s
-                            AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
+                            AND status = 'OPEN'
                         """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, alert_id))
                     else:
                         cur.execute("""
@@ -1898,7 +1903,7 @@ def update_alert_outcome(
                                 exit_signal = %s,
                                 remaining_shares = 0
                             WHERE id = %s
-                            AND status IN ('OPEN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'WIN', 'LOSS')
+                            AND status = 'OPEN'
                         """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
                     
                     if cur.rowcount:

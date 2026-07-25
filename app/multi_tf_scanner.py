@@ -221,7 +221,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                     dist_to_breakout = (prior_high - close) / prior_high
             
                     # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
-                    # AND price must be within 0.5% to 3.0% of the breakout level
+                    # AND price must be within -2.0% (above) to +5.0% (below) of the breakout level
                     ema_ok = e9 > e20 and e20 > s50 and close > s200
                     adx_ok = adx_val > 20
                     # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum

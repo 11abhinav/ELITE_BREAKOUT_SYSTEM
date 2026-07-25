@@ -93,8 +93,8 @@ MULTI_TF_CONFIG = {
     "MIN_SIGNALS":        2,
     "MIN_BODY_RATIO":     0.60,
     "MIN_CLOSE_POSITION": 0.70,
-    "MAX_UPPER_WICK":     0.20,
-    "MIN_VOLUME_RATIO":   2.5,
+    "MAX_UPPER_WICK":     0.35,
+    "MIN_VOLUME_RATIO":   1.2,
     "MIN_VOLUME_AVG":     150_000,
     "MIN_RSI":            52,
     "MAX_RSI":            87,
@@ -172,7 +172,7 @@ ALERT_COOLDOWN_MINUTES = {
 
 SCANNER_MAX_ALERTS = {
     "WEALTH": 50,
-    "MULTI_TF": 100,
+    "MULTI_TF": 15,
     "EOD": 10,
     "REVERSAL": 10,
     "PULLBACK": 10,
@@ -318,6 +318,7 @@ MIN_NATURAL_RR = {
     "MULTI_TF": 1.5,
     "EOD": 2.5,
     "REVERSAL": 2.0,
+    "PULLBACK": 2.0,
 }
 
 # =====================================================================================
@@ -330,6 +331,7 @@ MAX_REASONABLE_RR = {
     "MULTI_TF": 6.0,
     "EOD": 8.0,
     "REVERSAL": 4.0,
+    "PULLBACK": 8.0,
 }
 
 MIN_TARGET_CONFIDENCE = 40
@@ -350,6 +352,7 @@ MIN_STOP_PCT = {
     "MULTI_TF": 0.6,
     "EOD": 1.5,
     "REVERSAL": 2.0,
+    "PULLBACK": 1.5,
 }
 
 

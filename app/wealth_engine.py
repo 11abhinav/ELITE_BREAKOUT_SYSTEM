@@ -206,21 +206,11 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 # =====================================================================================
-# 100-POINT SCORING ENGINE (v4 — With Durability & Consistency)
+# SCORING ENGINE: V5 Pipeline (core/multibagger_pipeline.py)
 # =====================================================================================
-#
-#   Factor        | Weight | Rationale
-#   --------------|--------|----------------------------------------------------------
-#   Quality       |   22   | ROE, ROCE, Debt — Capital efficiency & safety
-#   Growth        |   20   | YoY Revenue & Profit — Business velocity
-#   Valuation     |   10   | PEG, P/E vs sector — Prevents overpaying
-#   Momentum      |   15   | RS vs Nifty, 52W proximity, >200 SMA — Price leadership
-#   Ownership     |    8   | Inst Accumulation tags — Smart money footprint
-#   Cash Flow     |   15   | FCF Margin — Catches accounting red flags (Satyam/DHFL)
-#   Consistency   |   10   | 5Y Revenue/EPS CAGR — Durability and compounding history
-#
-#   Total         |  100
-#
+# Scores are derived from run_pipeline_for_symbol() -> PipelineDecision.
+# CIS = composite_score, BQS = quality.score, RVS = valuation.score
+# See core/score_engine.py for V5 factor weights and canonical rubric.
 # =====================================================================================
 
 
