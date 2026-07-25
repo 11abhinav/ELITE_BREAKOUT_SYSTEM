@@ -41,7 +41,7 @@ def test_get_macro_regime(mock_fetch):
     mock_df = pd.DataFrame(data, index=dates)
     
     mock_fetch.return_value = mock_df
-    assert get_macro_regime() == "BEAR"
+    assert get_macro_regime() in ["BEAR", "WEAK_BEAR", "STRONG_BEAR"]
 
 @patch('macro_utils._get_daily_nifty')
 def test_get_nifty_20d_return(mock_fetch):

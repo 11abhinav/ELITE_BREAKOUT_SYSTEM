@@ -111,6 +111,8 @@ class FyersFetcher(DataFetcher):
         
         # If already formatted with exchange prefix, return as is (prevents double-normalization)
         if sym.startswith("NSE:") or sym.startswith("BSE:") or sym.startswith("MCX:"):
+            if sym.startswith("BSE:") and not any(sym.endswith(sfx) for sfx in ("-EQ", "-BE", "-SM", "-ST", "-A", "-B", "-T", "-M", "-X", "-XC", "-XD", "-XT", "-INDEX")):
+                return f"{sym}-EQ"
             return sym
             
         if sym.endswith(".NS"):
@@ -144,16 +146,18 @@ class FyersFetcher(DataFetcher):
             return f"NSE:{sym[1:]}-INDEX"
         
         # [VERSION: FYERS_SCRIP_OVERRIDE_v1.1] Static overrides for stocks where Fyers uses custom codes.
-        _bse_scrip_overrides = {}
+        _bse_scrip_overrides = {"NSDL": "BSE:NSDL-EQ"}
         if sym in _bse_scrip_overrides:
             return _bse_scrip_overrides[sym]
             
-        # Check mapping cache to skip the 1st failure if we already know it's a -BE
+        # Check mapping cache to skip the 1st failure if we already know mapped format
         try:
             from data_providers.fyers_mapping_utils import load_fyers_mappings
             mappings = load_fyers_mappings()
             if sym in mappings and mappings[sym]:
                 return mappings[sym]
+            if symbol.strip().upper() in mappings and mappings[symbol.strip().upper()]:
+                return mappings[symbol.strip().upper()]
         except Exception:
             pass
 
@@ -161,13 +165,11 @@ class FyersFetcher(DataFetcher):
         try:
             from bse_mapping_utils import load_bse_mappings
             bse_mappings = load_bse_mappings()
-            if sym in bse_mappings:
-                # If mapped to .BO, use BSE exchange prefix in Fyers
-                # Note: Fyers requires BSE series suffixes (-A, -B, -T).
-                # Since we don't have them dynamically, we omit -EQ.
-                return f"BSE:{sym}"
+            if sym in bse_mappings or sym.endswith(".BO"):
+                clean_sym = sym[:-3] if sym.endswith(".BO") else sym
+                return f"BSE:{clean_sym}-EQ"
             if sym.endswith(".NS") and sym[:-3] in bse_mappings:
-                return f"BSE:{sym[:-3]}"
+                return f"BSE:{sym[:-3]}-EQ"
         except Exception:
             pass
             
@@ -222,11 +224,14 @@ class FyersFetcher(DataFetcher):
         Generates an exhaustive, multi-exchange & multi-series candidate list for Fyers API.
         Supports: Mainboard (-EQ), Trade-to-Trade/ASM/GSM (-BE), SME (-SM, -ST),
         BSE Mainboard (BSE:SYMBOL-EQ, BSE:SYMBOL), and BSE Scrip Codes (BSE:5XXXXX-EQ).
+        Prioritizes BSE series for BSE-preference symbols (.BO, BSE:, or BSE-mapped).
         """
         if not symbol:
             return []
 
         raw = str(symbol).strip().upper()
+        is_bse_pref = raw.startswith("BSE:") or raw.endswith(".BO")
+
         if raw.endswith(".NS") or raw.endswith(".BO"):
             raw = raw[:-3]
         if ":" in raw:
@@ -239,25 +244,40 @@ class FyersFetcher(DataFetcher):
                 base = base[:-len(suffix)]
                 break
 
+        # Check if known in BSE mappings
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            if base in load_bse_mappings():
+                is_bse_pref = True
+        except Exception:
+            pass
+
         candidates = []
 
         # If base is numeric (BSE Scrip Code), prioritize BSE
         if base.isdigit():
             candidates.append(f"BSE:{base}-EQ")
             candidates.append(f"BSE:{base}")
-        else:
-            # 1. Standard Mainboard Equity
-            candidates.append(f"NSE:{base}-EQ")
-            # 2. Trade-to-Trade / ASM / GSM Series
-            candidates.append(f"NSE:{base}-BE")
-            # 3. NSE SME Mainboard Series
-            candidates.append(f"NSE:{base}-SM")
-            # 4. NSE SME Trade-to-Trade Series
-            candidates.append(f"NSE:{base}-ST")
-            # 5. BSE Mainboard Equity Series
+        elif is_bse_pref:
+            # Prioritize BSE series for BSE-preference stocks
             candidates.append(f"BSE:{base}-EQ")
-            # 6. BSE Direct Ticker
             candidates.append(f"BSE:{base}")
+            candidates.append(f"BSE:{base}-A")
+            candidates.append(f"BSE:{base}-B")
+            candidates.append(f"BSE:{base}-T")
+            candidates.append(f"NSE:{base}-EQ")
+            candidates.append(f"NSE:{base}-BE")
+        else:
+            # Standard NSE first, then BSE series
+            candidates.append(f"NSE:{base}-EQ")
+            candidates.append(f"NSE:{base}-BE")
+            candidates.append(f"NSE:{base}-SM")
+            candidates.append(f"NSE:{base}-ST")
+            candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"BSE:{base}")
+            candidates.append(f"BSE:{base}-A")
+            candidates.append(f"BSE:{base}-B")
+            candidates.append(f"BSE:{base}-T")
 
             # Check if BSE mapping lookup contains numeric scrip code
             try:
@@ -311,7 +331,6 @@ class FyersFetcher(DataFetcher):
         try:
             from data_providers.fyers_mapping_utils import is_fyers_invalid
             # Skip the invalid check if this symbol has a known static scrip override
-            # (the override is authoritative and takes priority over old DB invalid entries)
             _scrip_overrides_check = {"NSDL"}  # keep in sync with _normalize_symbol overrides
             if orig_sym not in _scrip_overrides_check and is_fyers_invalid(orig_sym):
                 logger.debug(f"⚠️ Skipping known invalid Fyers symbol: {orig_sym}")
@@ -320,8 +339,8 @@ class FyersFetcher(DataFetcher):
             pass
             
         tried_suffixes = set()
+        original_ns = ns_symbol
 
-        
         # Determine if this is an incremental fetch
         if range_from and range_to:
             logger.debug(f"📥 Fetching incremental OHLCV for {symbol} ({interval}) from {range_from} to {range_to} via Fyers API...")
@@ -335,7 +354,6 @@ class FyersFetcher(DataFetcher):
         if not res:
             logger.error(f"Unsupported interval for FyersFetcher: {interval}")
             return None
-        # Fyers resolution is already correctly formatted from INTERVAL_MAP as string
 
         # Compute date range and then enforce strict 365-day cap for daily resolution
         range_from, range_to = calc_range_from, calc_range_to
@@ -368,150 +386,123 @@ class FyersFetcher(DataFetcher):
             from core_exceptions import ProviderError
             raise ProviderError("Fyers Authentication Required")
 
-        data = {
-            "symbol": ns_symbol,
-            "resolution": res,
-            "date_format": "1",
-            "range_from": range_from,
-            "range_to": range_to,
-            "cont_flag": "1"
-        }
-        
-        for attempt in range(retries):
-            try:
-                self.rate_limiter.wait()
-                response = client.history(data=data)
-                
-                if not response:
-                    raise ValueError("Received empty response from Fyers history API")
-                    
-                if response.get("s") != "ok":
-                    error_msg = response.get("message", "Unknown error")
-                    code = response.get("code", "NO_CODE")
-                    if "Invalid symbol provided" in error_msg:
-                        logger.info(f"Fyers API symbol miss for {ns_symbol} - will attempt fallback")
-                    else:
-                        logger.warning(f"Fyers API warning for {ns_symbol}: code={code}, message={error_msg}, full_response={response}")
-                    
-                    if str(code) in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
-                        logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
-                        fyers_auth.clear_token()
-                        raise ValueError("Could not authenticate the user")
-                        
-                    raise ValueError(f"Fyers history API error: {error_msg}")
-                    
-                candles = response.get("candles", [])
-                if not candles:
-                    # Return empty DataFrame with expected layout
-                    if interval == "1d":
-                        return MarketData(None, "Fyers", None, False, False, "No data available in response")
-                    else:
-                        return MarketData(None, "Fyers", None, False, False, "No data available in response")
-                
-                df = pd.DataFrame(candles, columns=["Timestamp", "Open", "High", "Low", "Close", "Volume"])
-                
-                # Convert Fyers Unix epoch timestamps (seconds) to IST Datetimes
-                timestamps = pd.to_datetime(df["Timestamp"], unit="s", utc=True).dt.tz_convert(IST)
-                
-                # Cast columns to appropriate float types
-                import numpy as np
-                df["Open"] = df["Open"].astype(np.float32)
-                df["High"] = df["High"].astype(np.float32)
-                df["Low"] = df["Low"].astype(np.float32)
-                df["Close"] = df["Close"].astype(np.float32)
-                df["Volume"] = df["Volume"].astype(np.float32)
-                
-                if interval == "1d":
-                    df["Date"] = pd.to_datetime(timestamps.dt.date)
-                    df = df.drop(columns=["Timestamp"], errors="ignore")
-                else:
-                    df["Datetime"] = timestamps
-                    df = df.drop(columns=["Timestamp"], errors="ignore")
-                
-                # ── Save confirmed mapping only after a successful fetch ──────────────
-                # If we had to fall back to a different suffix (e.g. -BE instead of -EQ),
-                # persist it now so future calls skip the failing attempt entirely.
-                original_ns = self._normalize_symbol(symbol)
-                if ns_symbol != original_ns and not ns_symbol.endswith("-INDEX"):
-                    try:
-                        from data_providers.fyers_mapping_utils import save_fyers_mapping
-                        save_fyers_mapping(orig_sym, ns_symbol)
-                    except Exception:
-                        pass
-                    
-                pipeline = val_registry.get_pipeline(DatasetType.PRICE)
-                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
-                ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
-                report = engine.validate(df, ctx)
-                if not report.is_valid:
-                    return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
-                return MarketData(df, "Fyers", report, False, False, None)
-                
-            except Exception as e:
-                error_str = str(e)
-                
-                # Record failure for circuit breaker, but ignore expected validation errors
-                if "Bad request" in error_str or "error" in error_str.lower():
-                    if "invalid symbol" not in error_str.lower() and "invalid input" not in error_str.lower():
-                        _fyers_circuit_breaker.record_failure()
+        # Multi-series & multi-exchange candidate resolution loop
+        candidates = self._generate_fyers_candidate_symbols(orig_sym)
+        if ns_symbol not in candidates:
+            candidates.insert(0, ns_symbol)
 
-                if "Could not authenticate the user" in error_str:
-                    return None
+        for cand_symbol in candidates:
+            if cand_symbol in tried_suffixes:
+                continue
+
+            data = {
+                "symbol": cand_symbol,
+                "resolution": res,
+                "date_format": "1",
+                "range_from": range_from,
+                "range_to": range_to,
+                "cont_flag": "1"
+            }
+            
+            for attempt in range(retries):
+                try:
+                    self.rate_limiter.wait()
+                    response = client.history(data=data)
                     
-                # Do not retry for non-retryable errors like bad symbols
-                if "Invalid symbol provided" in error_str:
-                    tried_suffixes.add(ns_symbol)
-                    
-                    # Multi-series & multi-exchange universal resolution
-                    candidates = self._generate_fyers_candidate_symbols(orig_sym)
-                    
-                    next_candidate = None
-                    for cand in candidates:
-                        if cand not in tried_suffixes:
-                            next_candidate = cand
-                            break
-                            
-                    if next_candidate:
-                        logger.info(f"🔄 Fyers: {ns_symbol} is invalid, trying fallback candidate -> {next_candidate}")
-                        ns_symbol = next_candidate
-                        data["symbol"] = next_candidate
-                        continue  # Immediate retry with next candidate without sleeping
+                    if not response:
+                        raise ValueError("Received empty response from Fyers history API")
                         
-                    logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Marking as permanently invalid.")
-                    try:
-                        from data_providers.fyers_mapping_utils import mark_fyers_invalid
-                        mark_fyers_invalid(orig_sym)
-                    except Exception:
-                        pass
-                    return None
-                    return None
+                    if response.get("s") != "ok":
+                        error_msg = response.get("message", "Unknown error")
+                        code = response.get("code", "NO_CODE")
+                        if "Invalid symbol provided" in error_msg:
+                            logger.info(f"Fyers API symbol miss for {cand_symbol} - will attempt fallback candidate")
+                        else:
+                            logger.warning(f"Fyers API warning for {cand_symbol}: code={code}, message={error_msg}, full_response={response}")
+                        
+                        if str(code) in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
+                            logger.error(f"Fyers token is expired or invalid (code {code}). Clearing token cache.")
+                            fyers_auth.clear_token()
+                            raise ValueError("Could not authenticate the user")
+                            
+                        raise ValueError(f"Fyers history API error: {error_msg}")
+                        
+                    candles = response.get("candles", [])
+                    if not candles:
+                        return MarketData(None, "Fyers", None, False, False, "No data available in response")
                     
-                if "Invalid input" in error_str:
-                    logger.warning(f"⚠️ Skipping {ns_symbol} — non-retryable Fyers error: {e}")
-                    return None
+                    df = pd.DataFrame(candles, columns=["Timestamp", "Open", "High", "Low", "Close", "Volume"])
                     
-                # Add larger exponential backoff to handle rate limits gracefully
-                import random
-                if "request limit reached" in error_str:
-                    # Fyers usually has minute-level buckets for rate limits.
-                    # A small 2-3s backoff is useless; we need to wait 20-30s for the bucket to reset.
-                    backoff_time = 20.0 + random.uniform(0.0, 10.0)
-                    logger.info(f"⏳ Rate limited by Fyers for {ns_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
-                    time.sleep(backoff_time)
-                else:
-                    # Log the failed payload and full error response to help debug "Bad request" cases
-                    try:
-                        logger.error(f"Failed Payload for {ns_symbol}: {data}")
-                        logger.error(f"Fyers API response for {ns_symbol}: {str(e)}")
-                    except Exception:
-                        pass
-                    logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {ns_symbol}: {e}")
-                    time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
-                
-        logger.error(f"❌ Failed to download historical data for {symbol} after {retries} attempts.")
+                    # Convert Fyers Unix epoch timestamps (seconds) to IST Datetimes
+                    timestamps = pd.to_datetime(df["Timestamp"], unit="s", utc=True).dt.tz_convert(IST)
+                    
+                    # Cast columns to appropriate float types
+                    import numpy as np
+                    df["Open"] = df["Open"].astype(np.float32)
+                    df["High"] = df["High"].astype(np.float32)
+                    df["Low"] = df["Low"].astype(np.float32)
+                    df["Close"] = df["Close"].astype(np.float32)
+                    df["Volume"] = df["Volume"].astype(np.float32)
+                    
+                    if interval == "1d":
+                        df["Date"] = pd.to_datetime(timestamps.dt.date)
+                        df = df.drop(columns=["Timestamp"], errors="ignore")
+                    else:
+                        df["Datetime"] = timestamps
+                        df = df.drop(columns=["Timestamp"], errors="ignore")
+                    
+                    # ── Save confirmed mapping only after a successful fetch ──────────────
+                    if cand_symbol != original_ns and not cand_symbol.endswith("-INDEX"):
+                        try:
+                            from data_providers.fyers_mapping_utils import save_fyers_mapping
+                            save_fyers_mapping(orig_sym, cand_symbol)
+                            save_fyers_mapping(symbol.strip().upper(), cand_symbol)
+                        except Exception:
+                            pass
+                        
+                    pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+                    engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
+                    ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
+                    report = engine.validate(df, ctx)
+                    if not report.is_valid:
+                        return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
+                    return MarketData(df, "Fyers", report, False, False, None)
+                    
+                except Exception as e:
+                    error_str = str(e)
+                    
+                    # Record failure for circuit breaker, but ignore expected validation errors
+                    if "Bad request" in error_str or "error" in error_str.lower():
+                        if "invalid symbol" not in error_str.lower() and "invalid input" not in error_str.lower():
+                            _fyers_circuit_breaker.record_failure()
+
+                    if "Could not authenticate the user" in error_str:
+                        return None
+                        
+                    # Do not retry for bad symbols; move immediately to the next candidate
+                    if "Invalid symbol provided" in error_str:
+                        tried_suffixes.add(cand_symbol)
+                        logger.info(f"🔄 Fyers candidate {cand_symbol} is invalid. Trying next candidate...")
+                        break  # Break inner network retries, try next candidate in outer loop
+                        
+                    if "Invalid input" in error_str:
+                        logger.warning(f"⚠️ Skipping {cand_symbol} — non-retryable Fyers error: {e}")
+                        break
+                        
+                    # Exponential backoff for network rate limits or server errors
+                    import random
+                    if "request limit reached" in error_str:
+                        backoff_time = 20.0 + random.uniform(0.0, 10.0)
+                        logger.info(f"⏳ Rate limited by Fyers for {cand_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
+                        time.sleep(backoff_time)
+                    else:
+                        logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
+                        time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
+
+        logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Marking as permanently invalid.")
         try:
-            from data_fetch_status import mark_failure
-            mark_failure('fyers', f"Failed to download history for {symbol} after {retries} attempts.")
+            from data_providers.fyers_mapping_utils import mark_fyers_invalid
+            mark_fyers_invalid(orig_sym)
         except Exception:
             pass
         return None
