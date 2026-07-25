@@ -212,6 +212,48 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
                             continue
 
                         df = ticker_data.copy()
+                        
+                        # [PULLBACK_NAN_FIX] Sanitize raw incoming data to prevent REJ_PRICE_NAN hard-failures
+                        df.dropna(subset=["Open", "High", "Low", "Close", "Volume"], inplace=True)
+
+                        # [STALE_DATA_CHECK] Replicating EOD's strict timestamp freshness validation
+                        if getattr(ticker_data, 'attrs', {}).get('is_stale'):
+                            rejected["stale_data"] = rejected.get("stale_data", 0) + 1
+                            continue
+                            
+                        _expected_max_age_days = 4
+                        _stale_col = next((c for c in ["Date", "Datetime"] if c in df.columns), None)
+                        if _stale_col:
+                            try:
+                                _last_ts = pd.to_datetime(df.iloc[-1][_stale_col])
+                                if _last_ts.tzinfo is None:
+                                    _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                                else:
+                                    _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                                _bar_age_days = (ist_now.date() - _last_ts.date()).days
+                                if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
+                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
+                                    continue
+                            except Exception as e:
+                                logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
+                                rejected["stale_data"] = rejected.get("stale_data", 0) + 1
+                                continue
+                        elif isinstance(df.index, pd.DatetimeIndex) and len(df) > 0:
+                            try:
+                                _last_ts = pd.Timestamp(df.index[-1])
+                                if _last_ts.tzinfo is not None:
+                                    _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                                else:
+                                    _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                                _bar_age_days = (ist_now.date() - _last_ts.date()).days
+                                if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
+                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
+                                    continue
+                            except Exception as e:
+                                logger.debug(f"⏭️ {symbol} stale-data check failed (index): {e}")
+                                rejected["stale_data"] = rejected.get("stale_data", 0) + 1
+                                continue
+
                         if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
                             logger.info(f"REJECTION: {symbol} (Phase: BAR_HISTORY, Reason: Insufficient bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)}))")
                             rejected["insufficient_bars"] += 1
@@ -434,21 +476,35 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     # ── CRITICAL BLOCKER GUARD ──
     no_data_count = rejected.get("no_data", 0)
+    stale_count = rejected.get("stale_data", 0)
+    dirty_count = rejected.get("data_quality", 0)
+    total_failures = no_data_count + stale_count + dirty_count
     total_symbols = len(watchlist)
 
     if not is_historical_fallback:
         status_val = "OK"
         err_val = None
 
-        if total_symbols > 0 and no_data_count >= total_symbols * 0.25:
+        if total_symbols > 0 and total_failures >= total_symbols * 0.25:
             status_val = "DOWN"
-            err_val = f"🚫 CRITICAL BLOCKER: {no_data_count}/{total_symbols} symbols unfetched (missing data)"
+            err_val = f"🚫 CRITICAL BLOCKER: {total_failures}/{total_symbols} symbols missing/stale/dirty (≥25%)"
             logger.error(f"🚨 {err_val}")
             try:
                 from telegram_engine import send_telegram_message
-                send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: PULLBACK SCANNER FAILED</b>\n{no_data_count}/{total_symbols} symbols were unfetched / missing data.")
+                send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: PULLBACK SCANNER FAILED</b>\n{err_val}")
             except Exception:
                 pass
+                
+            try:
+                from push_service import send_push_to_all
+                send_push_to_all(
+                    title="🚨 CRITICAL DATA OUTAGE",
+                    body=f"PULLBACK SCANNER Halted. {total_failures}/{total_symbols} symbols failed data quality checks.",
+                    bypass_throttle=True
+                )
+            except Exception as e:
+                logger.error(f"Could not dispatch web push: {e}")
+                
         elif total_symbols > 0 and total_fetched_count < total_symbols * 0.70:
             status_val = "DEGRADED"
             err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"

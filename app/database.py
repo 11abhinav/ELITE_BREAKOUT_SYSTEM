@@ -357,6 +357,13 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
+                # P1: Exit tracking columns required for expectancy matrix & Bayesian win_rate
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS realized_r REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rr_ratio REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS sl_method TEXT")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_method TEXT")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS scan_id TEXT")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS partial_exit_pct REAL")
                 
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_3 NUMERIC(10, 2)")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_4 NUMERIC(10, 2)")

@@ -171,13 +171,27 @@ ALERT_COOLDOWN_MINUTES = {
 }
 
 SCANNER_MAX_ALERTS = {
-    "WEALTH": 50,
+    "WEALTH": 40,    # = sum of bucket caps: Core(15) + Growth(10) + Opportunistic(10) + QOS(5)
     "MULTI_TF": 15,
     "EOD": 10,
     "REVERSAL": 10,
     "PULLBACK": 10,
     "MULTIBAGGER": 10,
 }
+
+# =====================================================================================
+# SCANNER LOOKBACK & THRESHOLD CONSTANTS
+# (All formerly hardcoded inside scanner modules — centralised here for §7 preamble compliance)
+# =====================================================================================
+
+# Reversal Gate 8: RSI must have been below RSI_OVERSOLD_THRESHOLD within this many bars
+REVERSAL_RSI_LOOKBACK = 15
+
+# Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
+BB_WIDTH_PCTILE_LOOKBACK = 60
+
+# Multi-TF batch size (number of symbols fetched per provider call)
+MULTI_TF_FETCH_BATCH_SIZE = 50
 
 # =====================================================================================
 # POSITION SIZING & RISK BUDGETING CONFIGURATION
@@ -365,7 +379,9 @@ TARGET_QUALITY_THRESHOLD = {
 # [T1%, T2%, T3%]
 PARTIAL_EXIT = {
     "EOD":      [40, 30, 30],
-    "REVERSAL": [30, 30, 40]
+    "REVERSAL": [30, 30, 40],
+    "MULTI_TF": [20, 30, 50],   # Aggressive partial — hold majority for momentum continuation
+    "PULLBACK": [40, 35, 25],   # Balanced partial — higher T1 given pullback entry discipline
 }
 
 STRUCTURAL_RESISTANCE_SCORES = {
@@ -635,6 +651,7 @@ _MODE_CONFIG = {
     "EOD":      (2.00,    0.80,       0.0075,     3.0),
     "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+    "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
 }
 
 

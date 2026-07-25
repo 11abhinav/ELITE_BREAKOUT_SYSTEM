@@ -32,6 +32,7 @@
 20. [Deployment Verification, Failure Matrix & Golden Test Suites](#20-deployment-verification-failure-matrix--golden-test-suites)
 21. [V9 Clean Architecture Blueprint & Versioning Policy](#21-v9-clean-architecture-blueprint--versioning-policy)
 22. [AI Reconstruction Checklist & Module Dependency Blueprint](#22-ai-reconstruction-checklist--module-dependency-blueprint)
+23. [Runtime Execution & Operational Semantics](#23-runtime-execution--operational-semantics)
 
 ---
 
@@ -420,6 +421,8 @@ class ScanFailure:
 | **OBV** | Cumulative | $OBV_t = OBV_{t-1} + \text{Volume}_t$ if $C_t > C_{t-1}$ else $-\text{Volume}_t$ | Direct vector integration | Initial bar = 0 | 1 bar | Integer |
 | **VWAP** | Intraday | $\text{VWAP} = \frac{\sum (\text{Typical Price} \times \text{Volume})}{\sum \text{Volume}}$ where $\text{TP} = \frac{H+L+C}{3}$ | Cumulative intraday session reset | Reset at 09:15 IST | 1 bar | 2 decimals |
 | **BB Width** | 20 | $\text{Upper} = \text{SMA}_{20} + 2\sigma$, $\text{Lower} = \text{SMA}_{20} - 2\sigma$, $\text{Width} = \frac{\text{Upper} - \text{Lower}}{\text{Middle}}$ | pandas `rolling(20).std()` | Forward fill | 20 bars | 4 decimals |
+| **BB Width Pctile** | 60 | Rolling percentile of BB Width over the last 60 bars | pandas `rolling(BB_WIDTH_PCTILE_LOOKBACK).rank(pct=True)` | Drop NaNs | 60 bars | 4 decimals |
+| **MACD** | 12, 26, 9 | $\text{MACD} = \text{EMA}_{12} - \text{EMA}_{26}$, $\text{Signal} = \text{EMA}_{9}(\text{MACD})$ | pandas `ewm(span=N, adjust=False)` | Skip symbol if length < 35 | 35 bars | 2 decimals |
 
 ## 6.1 Centralized Composite Scoring Engine (`app/scoring_engine.py`)
 
@@ -723,6 +726,7 @@ For each symbol:
   │   → PipelineDecision: composite_score, quality.score, valuation.score
   │   • Min quality.score ≥ 60 (quality gate)
   │   • Min composite_score ≥ 70
+> **Note**: Phase 3 bucket score thresholds (65/60/55/50) are all below the Phase 1 gate of 70. They are tautologically satisfied and bucket assignment is purely by MCap/ROCE/growth conditions. The Phase 3 score fields are retained as documentation of intent for future gate tightening.
   ├─[Phase 2] Technical Overlay:
   │   • Close > SMA_200 (trend gate)
   │   • RSI 45–70 (not overbought/oversold)
@@ -750,7 +754,7 @@ The Wealth Engine's buy-scan path (`run_wealth_scan()`) executes the 4-phase pip
 ```text
 Scanner name: "WEALTH"
 Breakout type: "WEALTH_BUY"
-Max alerts per run: SCANNER_MAX_ALERTS["WEALTH"] = 50
+Max alerts per run: SCANNER_MAX_ALERTS["WEALTH"] = 40
 Cooldown: ALERT_COOLDOWN_MINUTES["WEALTH"] = 1440 (24 hours)
 Score threshold: FM_Score ≥ 55 (Layer 1 minimum)
 SL/Target: compute_sl_and_target(mode="EOD") — ATR base 2.0
@@ -785,7 +789,8 @@ Entry Price + OHLCV DataFrame + Mode
     EQUAL_HIGH, RESISTANCE, HIGH_20D, PREV_DAY_HIGH, HIGH_52W,
     ABCD, RETRACE_50, RETRACE_618, RETRACE_382,
     FIB_127, FIB_162, FIB_200, SMA200, BB_MID, SMA50,
-    ATR_PROJ, R1, R2, ROUND_NUM (17 sources)
+    ATR_PROJ, R1, R2, ROUND_NUM (19 sources across all modes)
+> **Note on Priority vs. Weight**: Priority is a tiebreaker for equal-score clusters. The weight column determines cluster contribution in the `ClusterEngine` sum. RETRACE_618 (priority 7, weight 7) and RETRACE_50 (priority 8, weight 8) carry more weight than their priority implies — the weight is correct by design since a 50% retracement is a stronger magnet than 61.8% in trending markets.
           │
           ▼
   [RoundNumberEngine.detect_and_boost()]
@@ -819,6 +824,7 @@ _MODE_CONFIG = {
     "EOD":      (2.00,    0.80,       0.0075,     3.0),
     "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+    "PULLBACK": (2.00,    0.75,       0.0075,     3.0),
 }
 ```
 
@@ -871,6 +877,8 @@ Failure on any invariant → `is_rejected=True`, `rejection_reason=<code>`, aler
 PARTIAL_EXIT = {
     "EOD":      [40, 30, 30],   # T1: 40% exit, T2: 30% exit, T3: 30% hold
     "REVERSAL": [30, 30, 40],   # T1: 30% exit, T2: 30% exit, T3: 40% hold (LTCG intent)
+    "MULTI_TF": [20, 30, 50],   # Aggressive partial
+    "PULLBACK": [40, 35, 25],   # Balanced partial
 }
 ```
 
@@ -878,9 +886,9 @@ PARTIAL_EXIT = {
 
 The SL/Target engine is specifically designed to reject three operator manipulation patterns:
 
-1. **Climax Volume Trap**: Volume spike at 52-week high with no continuation → rejected by Hard Disqualifier (`CLIMAX_VOLUME_LOOKBACK = 20`)
-2. **Lower High Trap**: Sequence of lower highs post-breakout → `LOWER_HIGH_LOOKBACK = 6` bars checked as Hard Disqualifier
-3. **Thin Spread Trap**: Candle range < 0.3% of price → `MIN_CANDLE_RANGE_PCT = 0.003` checked as Hard Disqualifier
+1. **Climax Volume Trap**: Volume spike at 52-week high with no continuation → penalized by scoring engine `calculate_score()` via extended breakout penalty (`CLIMAX_VOLUME_LOOKBACK = 20` defined in config)
+2. **Lower High Trap**: Sequence of lower highs post-breakout → `LOWER_HIGH_LOOKBACK = 6` bars parameter defined in config for future dedicated pipeline gate
+3. **Thin Spread Trap**: Candle range < 0.3% of price → `MIN_CANDLE_RANGE_PCT = 0.003` parameter defined in config for future dedicated pipeline gate
 
 SL placement is deliberately set **below the support zone**, not at it, to avoid stop-hunting by operators.
 
@@ -898,6 +906,7 @@ SL placement is deliberately set **below the support zone**, not at it, to avoid
 Step 1: TradingView Screener Fetch
   • Source: TradingView NSE & BSE screener API
   • Filters: MCap ≥ ₹150Cr, Daily liquidity ≥ ₹15Cr (MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST)
+> **Note on liquidity gate cascade**: The universe is pre-filtered here at ≥₹15Cr/day. The downstream `WEALTH_REJ_001` gate at ≥₹1Cr/day (§7.6, §23.10) is therefore **unreachable** in production — it can only fire on symbols added to the Wealth watchlist through a path that bypasses this pre-filter. The rejection code is retained for completeness but is currently informational.
   • Price ≥ ₹100 (MIN_PRICE filter)
   • Returns: raw symbol list with fundamental ratios
               (ROCE, ROE, Debt/Equity, YoY Revenue Growth, YoY Profit Growth)
@@ -909,7 +918,7 @@ Step 2: Symbol Normalization
 
 Step 3: Promoter Pledge Fetch
   • Source: BSE corporate API + NSE corporate API
-  • Cache: promoter_pledge_cache table (24h TTL)
+  • Cache: pledge_cache table (24h TTL)
   • Inject Promoter_Pledge % column into dataset
 
 Step 4: Sector Classification
@@ -949,15 +958,9 @@ Step 6: Self-test Validation
 | `ROCE %` | float | Yes | TradingView screener |
 | `ROE %` | float | Yes | TradingView screener |
 | `Debt/Equity` | float | Yes | TradingView screener |
-| `YOY Revenue %` | float | Yes | TradingView screener |
-| `YOY Profit %` | float | Yes | TradingView screener |
-| `Market Cap Cr` | float | Yes | TradingView screener |
-| `Promoter_Pledge` | float | Yes | BSE/NSE corporate API |
-| `PE Ratio` | float | Yes | TradingView screener |
-| `PEG Ratio` | float | Yes | TradingView screener |
-| `OPM %` | float | Yes | TradingView screener |
-| `FCF Margin %` | float | Yes | TradingView screener |
-| `EV/EBITDA` | float | Yes | TradingView screener |
+| `YoY Revenue Growth %` | float | Yes | TradingView screener |
+| `Pledge %` | float | Yes | BSE/NSE corporate API |
+| `Market Cap (₹)` | float | Yes | TradingView screener |
 
 ---
 
@@ -1017,7 +1020,7 @@ The database table `symbol_mappings` tracks mapping state and failure backoffs:
 # 10. PRICE CACHE & PARQUET SIDECARS (`app/price_cache.py`)
 
 ## 10.1 Two-Tier Cache Architecture & Persistence Invariants
-The data caching architecture implements a resilient, thread-safe two-tier hierarchy designed to eliminate redundant external network fetches, mitigate provider rate-limiting, and ensure zero-downtime historical continuity:
+The data caching architecture implements a resilient, thread-safe three-tier hierarchy designed to eliminate redundant external network fetches, mitigate provider rate-limiting, and ensure zero-downtime historical continuity:
 - **Tier 1 (High-Speed Session RAM Cache)**: Maintained in memory via `_cache: dict[tuple, dict]` keyed by `(interval, period)`. Protected by reentrant thread lock (`_lock`). Serves real-time data frame lookups across multiple concurrent scanners with microsecond latency.
 - **Tier 2 (Persistent Disk Parquet Sidecars)**: Stored in local repository filesystem under `DATA_DIR/history/{interval}/{symbol}.parquet` accompanied by atomic metadata sidecars (`.meta.json`). Guarantees fast system warm-up and survivability across application restarts.
 
@@ -1218,6 +1221,69 @@ CREATE TABLE IF NOT EXISTS scan_failures (
     message TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- 13. Rejected Alerts Table
+CREATE TABLE IF NOT EXISTS rejected_alerts (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    scanner TEXT NOT NULL,
+    engine_version TEXT,
+    rejection_reason TEXT,
+    alert_date TEXT DEFAULT (CURRENT_DATE::TEXT),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    context JSONB
+);
+
+-- 14. Concall Cache Table
+CREATE TABLE IF NOT EXISTS concall_cache (
+    symbol TEXT PRIMARY KEY,
+    transcript_text TEXT NOT NULL,
+    sentiment_score REAL,
+    quarter TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 15. Validation History Table
+CREATE TABLE IF NOT EXISTS validation_history (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    validation_date DATE NOT NULL,
+    status TEXT NOT NULL,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 16. Data Cache Metadata
+CREATE TABLE IF NOT EXISTS data_cache_metadata (
+    cache_key TEXT PRIMARY KEY,
+    last_updated TIMESTAMPTZ NOT NULL,
+    ttl_seconds INTEGER NOT NULL,
+    row_count INTEGER
+);
+
+-- 17. Push Subscriptions Table
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id SERIAL PRIMARY KEY,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. Sector Rankings Table
+CREATE TABLE IF NOT EXISTS sector_rankings (
+    sector_name TEXT PRIMARY KEY,
+    relative_strength REAL NOT NULL,
+    rank INTEGER NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 19. RS Ratings Table
+CREATE TABLE IF NOT EXISTS rs_ratings (
+    symbol TEXT PRIMARY KEY,
+    rs_score REAL NOT NULL,
+    percentile REAL NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
 ---
@@ -1311,6 +1377,8 @@ def run_system_scheduler():
 - `ENTRY_READY` $\rightarrow$ `TRADE_ACTIVE`: Triggered when 5m execution criteria pass (Close $\ge$ VWAP, R:R $\ge 1.5$).
 - `TRADE_ACTIVE` $\rightarrow$ `COOLDOWN`: Triggered on stop loss breach, target hit, or 20-day expiry.
 
+> **Note**: The above transition rules describe an older specification. `app/multi_tf_scanner.py` (§7.3) is the absolute source of truth. There are 4 known contradictions between §14.2 and the production implementation in §7.3.
+
 ---
 
 # 15. COMPLETE REST API SPECIFICATIONS & STREAMING PROTOCOLS
@@ -1324,6 +1392,8 @@ Flask REST API (`app/dashboard_server.py`) specifications:
 | `/api/lock-stats` | `GET` | Admin | Mutex lock contention statistics. | `{"acquisitions": 142, "max_wait_sec": 0.12, "contention_events": 0}` |
 | `/api/wealth_data` | `GET` | Public | Wealth Engine portfolio data. | `{"status": "ok", "data": [{"Stock": "RELIANCE", "CMP": 2450.0, "HoldScore": 88}]}` |
 | `/version` | `GET` | Public | Build metadata & release gate status. | `{"architecture_version": "8.4.3", "git_commit": "c1bf1e0b", "status": "RELEASE_GATE_APPROVED"}` |
+
+> **Note**: The REST API surface also encompasses the 13 UI/UX streaming and operational endpoints documented in §17.
 
 ---
 
@@ -1384,28 +1454,53 @@ For remote mobile and desktop alerting, the server implements full Progressive W
 Below is the verbatim source code of `app/config.py`:
 
 ```python
+# =====================================================================================
+# app/config.py
+# Centralized configuration for all scanners
+# =====================================================================================
+
 import os
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# =====================================================================================
+# BASE DIRECTORY
+# =====================================================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+# =====================================================================================
+# TELEGRAM CONFIG (DYNAMIC ENVIRONMENT READ)
+# =====================================================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+CHAT_ID   = os.getenv("CHAT_ID")
 
-_thread_eod = os.getenv("THREAD_EOD")
+_thread_eod      = os.getenv("THREAD_EOD")
 _thread_multi_tf = os.getenv("THREAD_MULTI_TF")
-_thread_1h = os.getenv("THREAD_1H")
+_thread_1h       = os.getenv("THREAD_1H")
 _thread_reversal = os.getenv("THREAD_REVERSAL")
 
-THREAD_EOD = int(_thread_eod) if _thread_eod else None
+THREAD_EOD      = int(_thread_eod)      if _thread_eod      else None
 THREAD_MULTI_TF = int(_thread_multi_tf) if _thread_multi_tf else None
-THREAD_1H = int(_thread_1h) if _thread_1h else None
+THREAD_1H       = int(_thread_1h)       if _thread_1h       else None
 THREAD_REVERSAL = int(_thread_reversal) if _thread_reversal else None
+
+# =====================================================================================
+# DATA DIRECTORY & PATHS
+# =====================================================================================
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
 DB_PATH = os.path.join(DATA_DIR, "alerts.db")
+
+# =====================================================================================
+# SYSTEM & PROFILING CONFIGURATION
+# =====================================================================================
 
 MEMORY_PROFILER_CONFIG = {
     "DEEP_DIAGNOSTIC_RSS_MB": 5.0,
@@ -1415,53 +1510,73 @@ MEMORY_PROFILER_CONFIG = {
     "RATE_LIMIT_MINUTES": 30
 }
 
-DISABLE_NSE_SURVEILLANCE_FETCH = False
-ENABLE_AI_SENTIMENT_SCORE = True
+# =====================================================================================
+# API / FETCH CONFIGURATION
+# =====================================================================================
+
+DISABLE_NSE_SURVEILLANCE_FETCH = False  # Set to True in validation environments to avoid WAF/tarpit timeouts
+
+# =====================================================================================
+# SCORE THRESHOLDS & AI
+# =====================================================================================
+
+ENABLE_AI_SENTIMENT_SCORE = True  # Set False to disable experimental AI sentiment scoring for audit/backtest runs
 
 SCORE_THRESHOLDS = {
     "15m": 78,
-    "1h": 80,
-    "1d": 82,
+    "1h":  80,
+    "1d":  82,
 }
 
-ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"
+# =====================================================================================
+# SCAN CONFIGURATION (Algorithm Parameters)
+# =====================================================================================
+ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
 
+# =====================================================================================
+# MOMENTUM BONUS CONSTANTS & RULE 10 RATIONALE
+# =====================================================================================
+# RS_BONUS (10 pts): Awarded if stock's 63-day RS rating is >= 80th percentile vs Nifty 50 over active scan universe.
+# SECTOR_BONUS (8 pts): Awarded if stock belongs to a Top-3 RS sector holding 3-session hysteresis.
+# MAX_MOMENTUM_BONUS (15 pts): Hard cap on combined momentum bonuses so RS (+10) and Sector (+8) co-exist (10+5=15) without clipping Sector to zero.
 RS_BONUS = 10
 SECTOR_BONUS = 8
 MAX_MOMENTUM_BONUS = 15
 
+
+
 MULTI_TF_CONFIG = {
-    "MIN_SIGNALS": 2,
-    "MIN_BODY_RATIO": 0.60,
+    "MIN_SIGNALS":        2,
+    "MIN_BODY_RATIO":     0.60,
     "MIN_CLOSE_POSITION": 0.70,
-    "MAX_UPPER_WICK": 0.20,
-    "MIN_VOLUME_RATIO": 2.5,
-    "MIN_VOLUME_AVG": 150_000,
-    "MIN_RSI": 52,
-    "MAX_RSI": 87,
-    "PULLBACK_TRIGGER_MODE": "PREVIOUS_HIGH",
+    "MAX_UPPER_WICK":     0.35,
+    "MIN_VOLUME_RATIO":   1.2,
+    "MIN_VOLUME_AVG":     150_000,
+    "MIN_RSI":            52,
+    "MAX_RSI":            87,
+    "PULLBACK_TRIGGER_MODE": "PREVIOUS_HIGH", # Alternatives: PREVIOUS_OPEN, INSIDE_BAR, ENGULFING
 }
 
 LIVE_1H_CONFIG = {
-    "MIN_SIGNALS": 3,
-    "MIN_BODY_RATIO": 0.55,
+    "MIN_SIGNALS":        3,
+    "MIN_BODY_RATIO":     0.55,
     "MIN_CLOSE_POSITION": 0.65,
-    "MAX_UPPER_WICK": 0.25,
-    "MIN_VOLUME_RATIO": 2.0,
-    "MIN_VOLUME_AVG": 100_000,
-    "MIN_RSI": 55,
-    "MAX_RSI": 86,
+    "MAX_UPPER_WICK":     0.25,
+    "MIN_VOLUME_RATIO":   2.0,
+    "MIN_VOLUME_AVG":     100_000,
+    "MIN_RSI":            55,
+    "MAX_RSI":            86,
 }
 
 EOD_CONFIG = {
-    "MIN_SIGNALS": 1,
-    "MIN_BODY_RATIO": 0.45,
+    "MIN_SIGNALS":        1,
+    "MIN_BODY_RATIO":     0.45,
     "MIN_CLOSE_POSITION": 0.65,
-    "MAX_UPPER_WICK": 0.35,
-    "MIN_VOLUME_RATIO": 1.8,
-    "MIN_VOLUME_AVG": 50_000,
-    "MIN_RSI": 55,
-    "MAX_RSI": 88,
+    "MAX_UPPER_WICK":     0.35,
+    "MIN_VOLUME_RATIO":   1.8,
+    "MIN_VOLUME_AVG":     50_000,
+    "MIN_RSI":            55,
+    "MAX_RSI":            88,
 }
 
 EOD_ADVANCED_CONFIG = {
@@ -1469,20 +1584,29 @@ EOD_ADVANCED_CONFIG = {
     "MAX_SINGLE_DAY_MOVE_PCT": 15.0,
     "MAX_GAP_FROM_PRIOR_HIGH_PCT": 3.0,
     "GAP_LOOKBACK_BARS": 10,
+    
+    # ── Sustainability & Breakout Conviction ──
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
     "GAP_AND_GO_PENALTY_MULT": 10,
     "GAP_AND_GO_MAX_PENALTY": 20,
-    "MIN_ATR_EXPANSION_RATIO": 0.9,
+    "MIN_ATR_EXPANSION_RATIO": 0.9,  # [FIX P1] Relaxed from 1.2 — 1.2 rejected steady uptrend breakouts
     "MIN_OBV_SLOPE": 0.0,
+    
+    # ── Prior Context & Tight Bases ──
     "PRE_BREAKOUT_LOOKBACK_BARS": 5,
     "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
     "TIGHT_BASE_BB_WIDTH_PCTILE": 0.35,
+    
+    # ── [FIX] Structural Breakout Constraint Relaxation ──
+    # Previously 0.20, which contradicted the fact that Bollinger Bands expand upon breakout.
     "MAX_BB_WIDTH_PCTILE": 0.80
 }
 
 REVERSAL_CONFIG = {
     "MIN_DROP_FROM_52W_HIGH": 20.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
+    # ── [FIX] Reversal RSI Constraint Relaxation ──
+    # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
     "RSI_OVERSOLD_THRESHOLD": 45,
     "RSI_CURL_MIN": 50,
     "MIN_VOLUME_RATIO": 2.0,
@@ -1494,25 +1618,43 @@ REVERSAL_CONFIG = {
 }
 
 ALERT_COOLDOWN_MINUTES = {
-    "WEALTH": 1440,
-    "MULTI_TF": 720,
-    "EOD": 1440,
-    "REVERSAL": 10080,
-    "PULLBACK": 10080,
-    "MULTIBAGGER": 43200
+    "WEALTH": 1440,       # 24 hours
+    "MULTI_TF": 720,      # 12 hours
+    "EOD": 1440,          # 24 hours
+    "REVERSAL": 10080,    # 7 days
+    "PULLBACK": 10080,    # 7 days
+    "MULTIBAGGER": 43200  # 30 days
 }
 
 SCANNER_MAX_ALERTS = {
-    "WEALTH": 50,
-    "MULTI_TF": 100,
+    "WEALTH": 40,    # = sum of bucket caps: Core(15) + Growth(10) + Opportunistic(10) + QOS(5)
+    "MULTI_TF": 15,
     "EOD": 10,
     "REVERSAL": 10,
     "PULLBACK": 10,
     "MULTIBAGGER": 10,
 }
 
-MAX_SL_DISTANCE_PCT = 8.0
-ACCOUNT_RISK_BUDGET_PCT = 1.0
+# =====================================================================================
+# SCANNER LOOKBACK & THRESHOLD CONSTANTS
+# (All formerly hardcoded inside scanner modules — centralised here for §7 preamble compliance)
+# =====================================================================================
+
+# Reversal Gate 8: RSI must have been below RSI_OVERSOLD_THRESHOLD within this many bars
+REVERSAL_RSI_LOOKBACK = 15
+
+# Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
+BB_WIDTH_PCTILE_LOOKBACK = 60
+
+# Multi-TF batch size (number of symbols fetched per provider call)
+MULTI_TF_FETCH_BATCH_SIZE = 50
+
+# =====================================================================================
+# POSITION SIZING & RISK BUDGETING CONFIGURATION
+# =====================================================================================
+MAX_SL_DISTANCE_PCT = 8.0         # Max allowed stop loss distance % from entry
+ACCOUNT_RISK_BUDGET_PCT = 1.0     # Max portfolio equity risk % per trade (Kelly / risk budget)
+# [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Enforce MAX_POSITION_PCT concentration cap (25% max portfolio capital per single trade)
 MAX_POSITION_PCT = 0.25
 
 PULLBACK_CONFIG = {
@@ -1526,11 +1668,13 @@ PULLBACK_CONFIG = {
     "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
     "OUTAGE_THRESHOLD_BUMP": 3,
-    "MIN_HISTORY": 200,
+    "MIN_HISTORY": 200,   # [VERSION: PB_BAR_FIX_v1.0] Lowered from 260 to 200 bars (1y daily data has ~250 trading bars)
     "MODE": "LIVE", "DEBUG_SWINGS": False,
 }
 
+# ── Data Quality Framework (V8.0) ──
 QUALITY_VALIDATOR_VERSION = "V8.0"
+
 QUALITY_SCORE_WEIGHTS = {
     "row_completeness": 40,
     "missing": 20,
@@ -1539,9 +1683,22 @@ QUALITY_SCORE_WEIGHTS = {
     "freshness": 10,
 }
 
-SCORE_BANDS = [(70, 75), (75, 80), (80, 85), (85, 90), (90, 101)]
+
+# Configurable Score Bands for Advanced Outcome Analytics (Feature F-13)
+SCORE_BANDS = [
+    (70, 75),
+    (75, 80),
+    (80, 85),
+    (85, 90),
+    (90, 101),
+]
+
+
+# Maximum percentage of row loss accepted before logging a regression warning
 MAX_HISTORY_SHRINK = 0.30
 
+
+# Source reliability multipliers (0.0 to 1.0). Used for fallback evaluation.
 SOURCE_RELIABILITY = {
     "NSE": 1.0,
     "Fyers": 1.0,
@@ -1549,53 +1706,182 @@ SOURCE_RELIABILITY = {
     "BSE": 0.70
 }
 
-ADX_MIN_THRESHOLD = 18
-MIN_STOCK_PRICE = 100.0
 
-MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST = 150_000_000
-MIN_DAILY_LIQUIDITY_RUPEES_WEALTH = 10_000_000
+# [FINDING-F FIX] Lowered ADX from 25 to 18. ADX 25+ indicates a trend that has
+# already moved significantly. ADX 18-24 captures the accumulation/developing phase
+# exactly where breakouts occur, while still filtering out choppy (ADX < 18) stocks.
+ADX_MIN_THRESHOLD = 18
+MIN_STOCK_PRICE = 100.0    # No penny stocks — matches daily_builder MIN_PRICE
+
+# LIQUIDITY THRESHOLDS (in Rupees)
+MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST = 150_000_000  # ₹15 Cr/day for raw watchlist
+MIN_DAILY_LIQUIDITY_RUPEES_WEALTH    = 10_000_000   # ₹1 Cr/day for long-term wealth engine
 
 DELIVERY_CONVICTION_THRESHOLDS = {
     "institutional": 60,
-    "positional": 40,
-    "moderate": 25,
+    "positional":    40,
+    "moderate":      25,
     "intraday_churn": 0,
 }
 
 BATCH_DOWNLOAD_SIZE = 30
 YAHOO_TIMEOUT = 30
-PRICE_CACHE_TTL_SECONDS = 60
+PRICE_CACHE_TTL_SECONDS = 60  # Changed from 180s: Intraday runs every 5min (need fresh cache hit)
+
 
 TELEGRAM_CHUNK_SIZE = 10
 TELEGRAM_RETRIES = 3
 TELEGRAM_TIMEOUT = 10
 LOG_LEVEL = "INFO"
 
-MIN_BREAKOUT_MARGIN = {"15m": 0.003, "1h": 0.005, "1d": 0.007}
-MIN_BREAKOUT_VOLUME_RATIO = 1.5
-BASE_TIGHTNESS_THRESHOLD = 1.5
-BASE_VOLATILITY_THRESHOLD = 3.0
+# =====================================================================================
+# ANTI-FAKE-BREAKOUT PARAMETERS
+# =====================================================================================
 
-CLIMAX_VOLUME_LOOKBACK = 20
-LOWER_HIGH_LOOKBACK = 6
-MIN_CANDLE_RANGE_PCT = 0.003
-
-ADAPTIVE_TARGET_CAPS = {
-    "BULL": {"15m": 8.0, "1h": 10.0, "1d": 12.0},
-    "BEAR": {"15m": 4.0, "1h": 6.0, "1d": 8.0},
-    "NEUTRAL": {"15m": 6.0, "1h": 8.0, "1d": 10.0}
+# Minimum % above prior high for a valid breakout (timeframe-aware)
+MIN_BREAKOUT_MARGIN = {
+    "15m": 0.003,   # 0.3% above prior high
+    "1h":  0.005,   # 0.5%
+    "1d":  0.007,   # 0.7%
 }
 
-MIN_NATURAL_RR = {"MULTI_TF": 1.5, "EOD": 2.5, "REVERSAL": 2.0, "PULLBACK": 2.0}
+# Breakout candle volume must be at least this multiple of 20-bar avg
+MIN_BREAKOUT_VOLUME_RATIO = 1.5
+
+# Reject if N prior candles are ALL bearish (no momentum build-up)
+# Moved to EOD_ADVANCED_CONFIG["MAX_PRE_BREAKOUT_RED_CANDLES"]
+
+# BASE_WIDTH below this = tight consolidation = bonus-worthy setup
+BASE_TIGHTNESS_THRESHOLD = 1.5
+
+# BASE_WIDTH above this = volatile/choppy = penalize
+BASE_VOLATILITY_THRESHOLD = 3.0
+
+# =====================================================================================
+# ANTI-OPERATOR-TRAP PARAMETERS
+# =====================================================================================
+
+# Bars to look back for climax top volume pattern
+CLIMAX_VOLUME_LOOKBACK = 20
+
+# Bars to look back for lower-high pattern (failed breakout retest)
+LOWER_HIGH_LOOKBACK = 6
+
+# Minimum candle range as % of price (below this = thin spread trap)
+MIN_CANDLE_RANGE_PCT = 0.003   # 0.3%
+
+# =====================================================================================
+# SL/TARGET ATR CAPS (max target distance from entry, per timeframe)
+# =====================================================================================
+
+ADAPTIVE_TARGET_CAPS = {
+    "BULL":    {"15m": 8.0, "1h": 10.0, "1d": 12.0},
+    "BEAR":    {"15m": 4.0, "1h": 6.0,  "1d": 8.0},
+    "NEUTRAL": {"15m": 6.0, "1h": 8.0,  "1d": 10.0}
+}
+
+# =====================================================================================
+# V6.0 INSTITUTIONAL CONFIGURATION
+# =====================================================================================
+
+MIN_NATURAL_RR = {
+    "MULTI_TF": 1.5,
+    "EOD": 2.5,
+    "REVERSAL": 2.0,
+    "PULLBACK": 2.0,
+}
+
+# =====================================================================================
+# LOCK CONTENTION TELEMETRY CONFIGURATION
+# =====================================================================================
 LOCK_WAIT_WARNING_SECONDS = float(os.environ.get("LOCK_WAIT_WARNING_SECONDS", "10.0"))
 LOCK_HOLD_WARNING_SECONDS = float(os.environ.get("LOCK_HOLD_WARNING_SECONDS", "120.0"))
 
-MAX_REASONABLE_RR = {"MULTI_TF": 6.0, "EOD": 8.0, "REVERSAL": 4.0, "PULLBACK": 8.0}
+MAX_REASONABLE_RR = {
+    "MULTI_TF": 6.0,
+    "EOD": 8.0,
+    "REVERSAL": 4.0,
+    "PULLBACK": 8.0,
+}
+
 MIN_TARGET_CONFIDENCE = 40
+TARGET_CONFIDENCE_BASELINE = {
+    "version": "2026_Q3",
+    "percentile": 95,
+    "sample_size": 18000,
+    "value": 85
+}
 
-MIN_STOP_PCT = {"MULTI_TF": 0.6, "EOD": 1.5, "REVERSAL": 2.0, "PULLBACK": 1.5}
+MIN_REWARD_POTENTIAL = {
+    "MULTI_TF": 1.8,
+    "EOD": 4.0,
+    "REVERSAL": 8.0,
+}
 
-DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")
+MIN_STOP_PCT = {
+    "MULTI_TF": 0.6,
+    "EOD": 1.5,
+    "REVERSAL": 2.0,
+    "PULLBACK": 1.5,
+}
+
+
+
+TARGET_QUALITY_THRESHOLD = {
+    "EOD":      55,
+    "REVERSAL": 50
+}
+
+# [T1%, T2%, T3%]
+PARTIAL_EXIT = {
+    "EOD":      [40, 30, 30],
+    "REVERSAL": [30, 30, 40],
+    "MULTI_TF": [20, 30, 50],   # Aggressive partial — hold majority for momentum continuation
+    "PULLBACK": [40, 35, 25],   # Balanced partial — higher T1 given pullback entry discipline
+}
+
+STRUCTURAL_RESISTANCE_SCORES = {
+    "1H Swing High": 35,
+    "30m Swing High": 30,
+    "15m Swing High": 25,
+    "Major Swing High": 40,
+    "Swing High": 30,
+    "Rolling Swing High": 20,
+    "5m Swing High": 20,
+    "R2": 20,
+    "R1": 15,
+}
+
+STRUCTURAL_STOP = {
+    "MAX_CLUSTER_WIDTH_ATR": 1.5,
+    "DISASTER_BUFFER_PCT": 1.5,
+    "SCORES": {
+        "1H Swing Low": 35,
+        "30m Swing Low": 30,
+        "15m Swing Low": 25,
+        "Swing Low Cluster": 40,
+        "Swing Low": 30,
+        "Rolling Swing Low": 25,
+        "S1 (Discovery)": 20,
+        "S1": 20,
+        "SMA200": 30,
+        "EMA20": 15,
+        "SMA50": 15,
+        "VWAP": 15,
+        "Intraday Candle Low": 20
+    },
+    "BONUS_OVERLAP": 15,
+    "USE_SUPPORT_CLUSTER": True
+}
+
+# =====================================================================================
+# FALLBACK PRICE PROVIDER (when YFinance rate-limited)
+# =====================================================================================
+
+# ── DATA PROVIDER SETTINGS ──────────────────────────────────────────────────────────
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")  # auto, yfinance, fyers, or kite
+
+# [VERSION: V5_ACQUISITION_ROUTING_V1.0] Provider routing policy and capabilities configuration
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
@@ -1614,9 +1900,24 @@ PROVIDER_ROUTING_POLICY = {
 }
 
 PROVIDER_CAPABILITIES = {
-    "yahoo": {"bulk": True, "live": False, "intraday": True, "historical": True},
-    "fyers": {"bulk": False, "live": True, "intraday": True, "historical": True},
-    "bse": {"bulk": True, "live": False, "intraday": False, "historical": True}
+    "yahoo": {
+        "bulk": True,
+        "live": False,
+        "intraday": True,
+        "historical": True
+    },
+    "fyers": {
+        "bulk": False,
+        "live": True,
+        "intraday": True,
+        "historical": True
+    },
+    "bse": {
+        "bulk": True,
+        "live": False,
+        "intraday": False,
+        "historical": True
+    }
 }
 
 STAGE_PERFORMANCE_BUDGETS = {
@@ -1631,12 +1932,187 @@ STAGE_PERFORMANCE_BUDGETS = {
     "total_scan_seconds": 60.0
 }
 
+# ── FYERS CONFIGURATION ──────────────────────────────────────────────────────────
 FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
-FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://.../fyers/callback")
+FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://elitebreakoutsystem-production-4ad2.up.railway.app/fyers/callback")
 FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
-PARTIAL_EXIT = {"EOD": [40, 30, 30], "REVERSAL": [30, 30, 40]}
+
+REGIME_POLICIES = {
+    "STRONG_BULL": {
+        "score_modifier": 0,
+        "allow_mean_reversion": False,
+        "max_new_positions_per_day": 5,
+        "min_target_quality_override": 60,
+        "min_reward_potential_mult": 1.5,
+        "capital_allocation_mult": 1.0
+    },
+    "WEAK_BULL": {
+        "score_modifier": 0,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    },
+    
+    "BULL": {
+        "score_modifier": 0,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    },
+    "BEAR": {
+        "score_modifier": 5,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 1,
+        "min_target_quality_override": 80,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "SIDEWAYS": {
+        "score_modifier": 8,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 2,
+        "min_target_quality_override": 75,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "RANGEBOUND": {
+        "score_modifier": 8,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 2,
+        "min_target_quality_override": 75,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "WEAK_BEAR": {
+        "score_modifier": 10,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 1,
+        "min_target_quality_override": 80,
+        "min_reward_potential_mult": 0.8,
+        "capital_allocation_mult": 0.5
+    },
+    "STRONG_BEAR": {
+        "score_modifier": 10,
+        "allow_mean_reversion": False,
+        "max_new_positions_per_day": 0,
+        "min_target_quality_override": 100,
+        "min_reward_potential_mult": 0.5,
+        "capital_allocation_mult": 0.0
+    },
+    "NEUTRAL": {
+        "score_modifier": 0,
+        "allow_mean_reversion": True,
+        "max_new_positions_per_day": 3,
+        "min_target_quality_override": 65,
+        "min_reward_potential_mult": 1.0,
+        "capital_allocation_mult": 1.0
+    }
+}
+
+# ── Target Engine v7 — FINAL FROZEN ──────────────────────────────────────────
+
+# For Enum typing, though Enum is defined in sl_target_helper.
+# We will use string representations here to avoid circular imports, 
+# or just redefine them if we need them, but it's better to keep strings in config 
+# and map them to enums in the helper.
+# Actually, the spec says "TARGET_SOURCE_WEIGHTS = { TargetSource.EQUAL_HIGH: 10 ... }"
+# To do this cleanly without circular import, we can define the enum here or in a separate file.
+# The spec puts the Enum in sl_target_helper.py. So we'll use strings in config and the engine will map/handle.
+# Let's use the string names matching the enum keys.
+
+TARGET_SOURCE_WEIGHTS = {
+    "EQUAL_HIGH":     10,
+    "RESISTANCE":     10,
+    "HIGH_20D":        9,
+    "PREV_DAY_HIGH":   9,
+    "HIGH_52W":        8,
+    "ABCD":            9,
+    "RETRACE_50":      8,
+    "RETRACE_618":     7,
+    "RETRACE_382":     6,
+    "FIB_127":         7,
+    "FIB_162":         6,
+    "SMA200":          8,
+    "BB_MID":          7,
+    "SMA50":           6,
+    "FIB_200":         5,
+    "ATR_PROJ":        4,
+    "R1":              5,
+    "R2":              4,
+    "ROUND_NUM":       0,
+}
+
+FIB_200_WEIGHTS = {"BULL": 7, "TRENDING": 7, "NEUTRAL": 5, "BEAR": 2}
+
+SOURCE_PRIORITY = {
+    "EQUAL_HIGH":     1,
+    "RESISTANCE":     2,
+    "HIGH_20D":       3,
+    "PREV_DAY_HIGH":  4,
+    "HIGH_52W":       5,
+    "ABCD":           6,
+    "RETRACE_618":    7,
+    "RETRACE_50":     8,
+    "RETRACE_382":    9,
+    "FIB_127":        10,
+    "FIB_162":        11,
+    "SMA200":         12,
+    "SMA50":          13,
+    "BB_MID":         14,
+    "FIB_200":        15,
+    "ATR_PROJ":       16,
+    "R1":             17,
+    "R2":             18,
+    "ROUND_NUM":      99,
+}
+
+TARGET_CONFLICT_POLICY = {
+    "EOD":      "REGIME",
+    "MULTI_TF": "CONFIDENCE",
+    "REVERSAL": "NEAREST",
+}
+
+EXIT_PROFILES = {
+    "CONSERVATIVE": {"t1": 25, "t2": 50, "t3": 25},
+    "BALANCED":     {"t1": 30, "t2": 40, "t3": 30},
+    "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
+}
+
+SCANNER_EXIT_PROFILE = {
+    "EOD":      "BALANCED",
+    "MULTI_TF": "AGGRESSIVE",
+    "REVERSAL": "CONSERVATIVE",
+    "PULLBACK": "BALANCED",
+}
+
+FIB_EXTENSIONS   = [1.272, 1.618, 2.0]
+FIB_RETRACEMENTS = [0.382, 0.500, 0.618]
+ABCD_BC_RETRACE_MIN = 0.382
+ABCD_BC_RETRACE_MAX = 0.786
+FIB_200_GATE     = {"min_adx": 30, "min_vol_ratio": 2.0, "require_above_vwap": True}
+
+ROUND_NUMBER_BOOST      = 8
+ROUND_NUMBER_PCT        = 0.005
+TARGET_CLUSTER_WINDOW_ATR_FRAC = 0.5
+TARGET_CLUSTER_WINDOW_PCT      = 0.0075
+
+#           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
+_MODE_CONFIG = {
+    "EOD":      (2.00,    0.80,       0.0075,     3.0),
+    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
+    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
+    "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
+}
+
+
+SCANNER_MULTI_TF = "MULTI_TF"
+
 ```
 
 ---
@@ -1647,8 +2123,9 @@ PARTIAL_EXIT = {"EOD": [40, 30, 30], "REVERSAL": [30, 30, 40]}
 - **Exact Indicators Calculated**: EMA9, EMA20, EMA50, EMA200; SMA20, SMA50, SMA100, SMA200; ATR20 (Wilder smooth); ADX14 (Wilder smooth); RSI14 (Wilder smooth); MACD (12, 26, 9); OBV (On-Balance Volume); VWAP (intraday); BB Width (20-period, 2.0 std dev).
 
 ### Q4: Exact DataFrame Schemas
-- **`watchlist`**: `["Stock", "Category", "sector", "ROCE %", "ROE %", "Debt/Equity", "YoY Revenue Growth %", "Pledge %", "Market Cap"]`
-- **`ohlcv_daily`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "EMA_50", "SMA_50", "SMA_200", "ATR_20", "ADX_14", "RSI_14", "OBV"]`
+- **`watchlist`**: `["Stock", "Category", "sector", "ROCE %", "ROE %", "Debt/Equity", "YoY Revenue Growth %", "Pledge %", "Market Cap (₹)"]`
+- **`ohlcv_daily`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "EMA_50", "SMA_50", "SMA_200", "ATR_20", "ADX_14", "RSI_14", "OBV", "MACD", "MACD_SIGNAL", "MACD_HIST", "BB_WIDTH", "BB_WIDTH_PCTILE", "HIGH_52W", "SWING_LOW", "SWING_HIGH"]`
+- **`ohlcv_30m`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "VWAP", "RSI_14", "ATR_20"]`
 - **`ohlcv_15m`**: `["Open", "High", "Low", "Close", "Volume", "EMA_9", "EMA_20", "VWAP", "RSI_14", "ATR_20"]`
 - **`ohlcv_5m`**: `["Open", "High", "Low", "Close", "Volume", "VWAP", "EMA_20"]`
 
@@ -1661,8 +2138,9 @@ PARTIAL_EXIT = {"EOD": [40, 30, 30], "REVERSAL": [30, 30, 40]}
 - **Rejection Codes**: `EOD001` (Illiquid), `EOD002` (Candle quality failure), `REV004` (Fallen knife cooldown), `MTF013` (VWAP violation).
 - **Exception Rule**: On symbol exception inside a chunk, log error to `scan_failures` table and CONTINUE to next symbol.
 
-### Q11 – Q13: Provider Retries & Circuit Breaker
-- Primary retries: 3 attempts with exponential backoff ($2^{\text{attempt}} \times 1\text{s}$). Provider circuit breaker stays OPEN for 300 seconds (5 mins) after 3 consecutive failures.
+### Q11 – Q13: Provider Retries & Circuit Breakers
+- **Provider API**: 3 attempts with exponential backoff ($2^{\text{attempt}} \times 1\text{s}$). Provider circuit breaker stays OPEN for 300 seconds (5 mins) after 3 consecutive failures.
+- **Pipeline Data Quality Circuit Breaker**: Evaluated globally per-scanner execution (e.g., EOD, Pullback). If the combined count of `stale_data` + `no_data` + `data_quality` failures $\ge$ 25% of the total watchlist, the scanner is aborted (`status = "DOWN"`), triggering an unthrottled Web Push Notification and Telegram alert to the system admins.
 
 ### Q14 – Q15: Scheduler & Overrun Policy
 - Scanner overrun (>10m) triggers a process warning log and forces completion before starting next batch.
@@ -1716,7 +2194,7 @@ def test_gate6_production_readiness_checklist(self):
 1. **Gate 1: Cold Start Import Speed**: Verify total import latency $\le 5.0\text{s}$.
 2. **Gate 2: Unsupported Imports Audit**: Ensure zero forbidden external libraries (`scikit-learn`, `tensorflow`, `ta-lib`, etc.).
 3. **Gate 3: Smoke Execution**: Run full scanner smoke test suite in $\le 30.0\text{s}$.
-4. **Gate 4: AST Method Signature Reflection Audit**: Validate public function signatures across all 88 modules.
+4. **Gate 4: AST Method Signature Reflection Audit**: Validate public function signatures across all 54 modules.
 5. **Gate 5: Railway Integration Contract**: Verify environment variable resolution (`DATABASE_URL`, `PORT`).
 6. **Gate 6: Production Readiness Checklist**: Verify RAM usage budget ($\text{RSS} < 450.0\text{ MB}$ with explicit `gc.collect()`).
 7. **Gate 7: Dependency Reproducibility**: Ensure all requirements in `requirements.txt` are strictly pinned.
@@ -1807,7 +2285,9 @@ Step 3: Contexts, Telemetry & Profiling
 ├── app/session_context.py     # (Trading-day state machine)
 ├── app/dataset_registry.py    # (Memory dataset tier registry)
 ├── app/memory_profiler.py     # (RSS delta & memory tracking)
-└── app/telemetry_manager.py   # (Timeline & funnel logging)
+├── app/telemetry_manager.py   # (Timeline & funnel logging)
+├── app/metrics_collector.py   # (Prometheus/Grafana integration metrics)
+└── app/system_health.py       # (Component health and uptime tracking)
 
 Step 4: Data Acquisition & Price Cache Infrastructure
 ├── app/price_cache.py         # (3-tier per-symbol RAM cache & timestamp normalizer)
@@ -1828,7 +2308,8 @@ Step 5: Scoring, Risk & Quant Engines
 ├── app/macro_utils.py         # (Market regime engine & sector rankings)
 ├── app/strategy_policy.py     # (Regime-aware threshold modifiers)
 ├── app/forensic_engine.py     # (Forensic risk tiers & CFO/PAT gates)
-└── app/quality_trajectory.py  # (Fundamentals trajectory score)
+├── app/quality_trajectory.py  # (Fundamentals trajectory score)
+└── app/block_deal_detector.py # (Institutional footprints & bonus)
 
 Step 6: Quantitative Scanners & Wealth Engines
 ├── app/eod_scanner.py         # (EOD Breakout Scanner & un-nested health)
@@ -1937,7 +2418,7 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
   - `BULL`: $\text{Nifty}_{6M} \ge +5.0\%$
   - `BEAR`: $\text{Nifty}_{6M} \le -5.0\%$
   - `NEUTRAL`: $-5.0\% < \text{Nifty}_{6M} < +5.0\%$
-- **Cache TTL**: 1 hour (`_NIFTY_CACHE_TTL = 3600`). Shared via `SessionContext.market_regime_manager`.
+- **Cache TTL**: 5 minutes (`MACRO_CACHE_TTL_SECONDS = 300`). Shared via `SessionContext.market_regime_manager`.
 
 ## 23.7 Data Freshness, Stale vs. Missing & Data Quality Math
 - **Data Status Definitions**:

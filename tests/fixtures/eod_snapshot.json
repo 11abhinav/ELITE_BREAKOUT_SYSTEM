@@ -55,6 +55,11 @@
             "confidence": "LOW",
             "exit": "40%",
             "price": 124.75
+        },
+        "t4": {
+            "confidence": "LOWEST",
+            "exit": "0%",
+            "price": 131.5
         }
     },
     "trade_quality": 76,
