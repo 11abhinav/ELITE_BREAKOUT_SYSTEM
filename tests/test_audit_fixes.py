@@ -241,5 +241,26 @@ class TestAuditFixes(unittest.TestCase):
         self.assertEqual(update_call[0][1][1], 125.0)
         self.assertEqual(update_call[0][1][2], 15.5)
 
+    @patch('database.get_connection')
+    def test_get_all_failed_reversal_cooldown_symbols(self, mock_get_conn):
+        """Verify get_all_failed_reversal_cooldown_symbols includes pnl_pct in CTE selection without SQL error."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        
+        mock_cursor.fetchall.return_value = [
+            ('TATASTEEL', datetime.now().date(), 'SL_HIT')
+        ]
+        
+        from database import get_all_failed_reversal_cooldown_symbols
+        res = get_all_failed_reversal_cooldown_symbols(cooldown_days=30)
+        
+        self.assertIn('TATASTEEL', res)
+        # Verify query includes COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct in LatestAlerts CTE
+        query_sql = mock_cursor.execute.call_args[0][0]
+        self.assertIn("COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct", query_sql)
+        self.assertIn("pnl_pct IS NOT NULL AND pnl_pct < 0", query_sql)
+
 if __name__ == '__main__':
     unittest.main()
