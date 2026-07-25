@@ -126,10 +126,11 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
         wl = get_watchlist()
         if not wl.empty:
             stock_series = wl['Stock'].astype(str).str.upper()
-            company_series = wl['Company'].astype(str).str.upper()
-            
-            # Fast boolean mask
-            mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False)) | (company_series.str.contains(q_clean, regex=False))
+            if 'Company' in wl.columns:
+                company_series = wl['Company'].astype(str).str.upper()
+                mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False)) | (company_series.str.contains(q_clean, regex=False))
+            else:
+                mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False))
             
             matches = wl[mask].head(limit)
             
