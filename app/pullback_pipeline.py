@@ -515,10 +515,19 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             status_val = "DEGRADED"
             err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"
 
-        upsert_scanner_health("PULLBACK", status=status_val, last_success=ist_now.isoformat(), today_alerts=alert_count, error_msg=err_val)
-    
-    fired_pb = {k: v for k, v in rejected.items() if v > 0}
-    elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
+        elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
+        upsert_scanner_health(
+            "PULLBACK",
+            status=status_val,
+            last_success=ist_now.isoformat(),
+            today_alerts=alert_count,
+            total_count=total_symbols,
+            processed_count=len(candidates),
+            duration_seconds=elapsed_time,
+            error_msg=err_val
+        )
+    else:
+        elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
     total_symbols = len(watchlist)
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
