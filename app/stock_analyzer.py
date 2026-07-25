@@ -109,52 +109,160 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
     }
 
 
+_MASTER_SYMBOLS_CACHE = None
+_MASTER_SYMBOLS_MTIME = 0
+
+def _load_master_symbol_dictionary() -> dict:
+    global _MASTER_SYMBOLS_CACHE, _MASTER_SYMBOLS_MTIME
+    import os, re
+
+    now_ts = datetime.now(IST).timestamp()
+    if _MASTER_SYMBOLS_CACHE is not None and (now_ts - _MASTER_SYMBOLS_MTIME) < 300:
+        return _MASTER_SYMBOLS_CACHE
+
+    master = {}
+
+    # 1. Load from temp_universe.parquet (940+ universe tickers with name & sector)
+    if os.path.exists("data/temp_universe.parquet"):
+        try:
+            df = pd.read_parquet("data/temp_universe.parquet")
+            for _, r in df.iterrows():
+                raw = str(r.get("ticker", "")).upper()
+                sym = re.sub(r"^(NSE|BSE):", "", raw).replace(".NS", "").replace(".BO", "").strip()
+                name = str(r.get("name", sym)).strip()
+                sec = str(r.get("sector", "EQUITY")).strip()
+                if sym:
+                    master[sym] = {
+                        "symbol": sym,
+                        "company_name": name if name != "nan" else sym,
+                        "sector": sec if sec != "nan" else "EQUITY"
+                    }
+        except Exception as e:
+            logger.warning(f"Error loading temp_universe in autocomplete: {e}")
+
+    # 2. Load from watchlist CSV files (active and excluded)
+    for f in ["data/elite_fundamental_watchlist.csv", "data/elite_fundamental_watchlist_excluded.csv"]:
+        if os.path.exists(f):
+            try:
+                df = pd.read_csv(f)
+                stock_col = "Stock" if "Stock" in df.columns else ("symbol" if "symbol" in df.columns else None)
+                comp_col = "Company" if "Company" in df.columns else ("company_name" if "company_name" in df.columns else None)
+                sec_col = "Sector" if "Sector" in df.columns else ("sector" if "sector" in df.columns else None)
+
+                if stock_col:
+                    for _, r in df.iterrows():
+                        sym = str(r[stock_col]).upper().strip()
+                        c = str(r[comp_col]).strip() if comp_col and pd.notna(r[comp_col]) else sym
+                        sec = str(r[sec_col]).strip() if sec_col and pd.notna(r[sec_col]) else "EQUITY"
+                        if sym:
+                            if sym not in master:
+                                master[sym] = {
+                                    "symbol": sym,
+                                    "company_name": c if c != "nan" else sym,
+                                    "sector": sec if sec != "nan" else "EQUITY"
+                                }
+                            elif master[sym]["company_name"] == sym and c and c != "nan" and c != sym:
+                                master[sym]["company_name"] = c
+            except Exception as e:
+                logger.warning(f"Error loading {f} in autocomplete: {e}")
+
+    # 3. Load from history directory Parquet files (~685 tickers)
+    hist_dir = "data/history/1d"
+    if os.path.exists(hist_dir):
+        try:
+            for fname in os.listdir(hist_dir):
+                if fname.endswith(".parquet"):
+                    sym = fname.replace(".parquet", "").replace("_", ":").split(":")[-1].upper()
+                    if sym and sym not in master:
+                        master[sym] = {
+                            "symbol": sym,
+                            "company_name": sym,
+                            "sector": "EQUITY"
+                        }
+        except Exception as e:
+            logger.warning(f"Error loading history parquet in autocomplete: {e}")
+
+    # 4. Load from DB tables if connection is available
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("SELECT original_sym, mapped_sym FROM symbol_mappings LIMIT 2000")
+                    for r in cur.fetchall():
+                        if r[0]:
+                            s1 = r[0].upper().strip()
+                            if s1 and s1 not in master: master[s1] = {"symbol": s1, "company_name": s1, "sector": "EQUITY"}
+                        if r[1]:
+                            s2 = r[1].upper().strip()
+                            if s2 and s2 not in master: master[s2] = {"symbol": s2, "company_name": s2, "sector": "EQUITY"}
+                except Exception: pass
+
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM alerts LIMIT 2000")
+                    for r in cur.fetchall():
+                        if r[0]:
+                            s = r[0].upper().strip()
+                            if s and s not in master: master[s] = {"symbol": s, "company_name": s, "sector": "EQUITY"}
+                except Exception: pass
+
+                try:
+                    cur.execute("SELECT DISTINCT symbol, company_name FROM user_watchlists LIMIT 2000")
+                    for r in cur.fetchall():
+                        if r[0]:
+                            s = r[0].upper().strip()
+                            c = r[1].strip() if r[1] else s
+                            if s and s not in master: master[s] = {"symbol": s, "company_name": c, "sector": "EQUITY"}
+                except Exception: pass
+    except Exception:
+        pass
+
+    _MASTER_SYMBOLS_CACHE = master
+    _MASTER_SYMBOLS_MTIME = now_ts
+    return master
+
+
 def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     """
     Real-time autocomplete search returning matching NSE/BSE symbols & company titles.
-    Matches ticker prefix first, then company name substring.
+    Searches across active watchlist, excluded list, full universe, history caches, and DB mappings.
+    Always includes what user typed as a fallback option if it's a valid ticker format.
     """
     if not query or len(query.strip()) < 1:
         return []
 
+    import re
     q_clean = query.strip().upper()
-    results = []
+    m = _load_master_symbol_dictionary()
+
+    exact_matches = []
+    prefix_matches = []
+    contains_matches = []
     seen = set()
 
-    # 1. Search in fundamental watchlist cache (Vectorized for speed)
-    try:
-        wl = get_watchlist()
-        if not wl.empty:
-            stock_series = wl['Stock'].astype(str).str.upper()
-            if 'Company' in wl.columns:
-                company_series = wl['Company'].astype(str).str.upper()
-                mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False)) | (company_series.str.contains(q_clean, regex=False))
-            else:
-                mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False))
-            
-            matches = wl[mask].head(limit)
-            
-            for _, row in matches.iterrows():
-                stock = str(row.get("Stock", "")).upper()
-                company = str(row.get("Company", stock))
-                sector = str(row.get("Sector", ""))
-                category = str(row.get("Category", ""))
+    for sym, item in m.items():
+        comp = item["company_name"].upper()
+        if sym == q_clean:
+            exact_matches.append(item)
+            seen.add(sym)
+        elif sym.startswith(q_clean):
+            prefix_matches.append(item)
+            seen.add(sym)
+        elif q_clean in sym or q_clean in comp:
+            contains_matches.append(item)
+            seen.add(sym)
 
-                if stock not in seen:
-                    seen.add(stock)
-                    results.append({
-                        "symbol": stock,
-                        "company_name": company if company != stock else stock,
-                        "sector": sector,
-                        "category": category
-                    })
-            
-            if len(results) >= limit:
-                return results
-    except Exception as e:
-        logger.warning(f"Autocomplete watchlist lookup warning: {e}")
+    results = (exact_matches + prefix_matches + contains_matches)[:limit]
 
-    return results[:limit]
+    # Always ensure user can select what they typed if it's a valid symbol string (2-20 chars)
+    if q_clean not in seen and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
+        results.append({
+            "symbol": q_clean,
+            "company_name": f"Select '{q_clean}' (NSE/BSE)",
+            "sector": "NSE/BSE"
+        })
+
+    return results
+
 
 
 def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
