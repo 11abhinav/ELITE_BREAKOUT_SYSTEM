@@ -114,7 +114,7 @@
       justify-content: space-between;
       position: sticky;
       top: 0;
-      z-index: 50;
+      z-index: 999;
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
@@ -882,6 +882,7 @@
       position: relative;
       display: inline-block;
       cursor: pointer;
+      z-index: 10000;
     }
 
     .notification-bell-icon {
@@ -931,12 +932,12 @@
     .notification-dropdown {
       position: absolute;
       top: 42px; right: 0;
-      width: 330px;
+      width: 340px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-lg);
-      z-index: 1000;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+      z-index: 100000 !important;
       display: none;
       overflow: hidden;
     }
@@ -4835,12 +4836,12 @@ document.addEventListener('DOMContentLoaded', () => {
       position: absolute;
       top: 45px;
       right: 0;
-      width: 320px;
+      width: 340px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      box-shadow: var(--shadow);
-      z-index: 1000;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+      z-index: 100000 !important;
       display: none;
       overflow: hidden;
     }
