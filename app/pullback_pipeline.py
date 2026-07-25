@@ -526,8 +526,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
             duration_seconds=elapsed_time,
             error_msg=err_val
         )
-    else:
-        elapsed_time = round((datetime.now(IST) - ist_now).total_seconds(), 1)
+    fired_pb = {k: v for k, v in rejected.items() if v > 0}
     total_symbols = len(watchlist)
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
@@ -564,5 +563,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
     else:
         logger.info(f"✅ [COMPLETE] PULLBACK SCANNER DONE (historical fallback) | {elapsed_time:.2f}s | Candidates={len(candidates)} | Dataset={dataset_date}")
 
-    return alert_count
+    return {
+        "total_count": total_symbols,
+        "processed_count": len(candidates),
+        "today_alerts": alert_count
+    }
 
