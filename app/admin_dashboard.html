@@ -6038,7 +6038,16 @@ function triggerStockDiagnostic(overrideSym) {
   showDiagnosticLoadingModal(sym);
 
   fetch(`/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}`)
-    .then(res => res.json())
+    .then(async res => {
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(text.includes('upstream') ? 'Upstream server temporarily busy. Please retry in a few seconds.' : text.substring(0, 100));
+      }
+      return data;
+    })
     .then(data => {
       if (!data.success) {
         closeDiagnosticModal();

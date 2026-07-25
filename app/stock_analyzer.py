@@ -340,11 +340,29 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         # Fallback fetch retry
         df = fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
 
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 20:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 15:
+        bar_cnt = len(df) if (df is not None and isinstance(df, pd.DataFrame)) else 0
+        close_val = float(df.iloc[-1]['Close']) if (df is not None and not df.empty and 'Close' in df.columns) else 0.0
         return {
             "symbol": sym_clean,
-            "success": False,
-            "error": f"Insufficient or missing historical price data for symbol '{sym_clean}'. Minimum 20 daily bars required."
+            "company_name": val.get("company_name", sym_clean),
+            "sector": val.get("sector", "EQUITY"),
+            "close_price": close_val,
+            "volume_ratio": 1.0,
+            "rsi": 50.0,
+            "overall_health_score": 0.0,
+            "deficits": [f"📅 History Deficit: Symbol '{sym_clean}' has only {bar_cnt} daily bars (requires ≥15 daily bars for indicator calculation)."],
+            "funnel": {
+                "daily_builder": {"status": "NO", "reasons": [f"Insufficient bar history ({bar_cnt} < 15 bars)"]},
+                "eod_breakout": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]},
+                "multi_tf": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]},
+                "reversal": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]},
+                "pullback": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]},
+                "wealth_engine": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]},
+                "multibagger": {"status": "NO", "reasons": ["Skipped due to insufficient bar history"]}
+            },
+            "is_in_watchlist": False,
+            "success": True
         }
 
     df = df.copy()
@@ -359,8 +377,16 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     low_price = float(last_bar['Low'])
     volume_val = float(last_bar['Volume'])
 
-    # Compute base indicators
-    bundle = manager.compute_base_indicators(df, sym_clean)
+    # Compute base indicators safely
+    try:
+        bundle = manager.compute_base_indicators(df, sym_clean)
+    except Exception as e:
+        logger.warning(f"Indicator computation fallback for {sym_clean}: {e}")
+        class DummyBundle:
+            sma_50 = pd.Series([], dtype=float)
+            sma_200 = pd.Series([], dtype=float)
+            rsi_14 = pd.Series([], dtype=float)
+        bundle = DummyBundle()
 
     # Fetch Fundamentals from Piotroski cache
     fund_data = get_fundamentals(sym_clean) or {}
