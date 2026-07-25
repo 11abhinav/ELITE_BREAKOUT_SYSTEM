@@ -240,10 +240,40 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     # Compute base indicators
     bundle = manager.compute_base_indicators(df, sym_clean)
 
-    # Fetch Fundamentals
+    # Fetch Fundamentals from Piotroski cache
     fund_data = get_fundamentals(sym_clean) or {}
-    company_name = fund_data.get("company_name", sym_clean)
-    sector_name = fund_data.get("sector", "GENERAL")
+    
+    # Defaults
+    company_name = sym_clean
+    sector_name = "GENERAL"
+    roce_val = 0.0
+    roe_val = 0.0
+    debt_equity = 0.0
+    
+    # Fetch Core fundamental ratios from watchlist cache
+    try:
+        from watchlist_cache import get_watchlist
+        wl = get_watchlist()
+        if not wl.empty:
+            match = wl[wl['Stock'].str.upper() == sym_clean]
+            if not match.empty:
+                row = match.iloc[0]
+                company_name = str(row.get("Company", company_name))
+                sector_name = str(row.get("Sector", sector_name))
+                
+                raw_roce = row.get("ROCE %")
+                if raw_roce is not None and not pd.isna(raw_roce):
+                    roce_val = float(raw_roce)
+                    
+                raw_roe = row.get("ROE %")
+                if raw_roe is not None and not pd.isna(raw_roe):
+                    roe_val = float(raw_roe)
+                    
+                raw_de = row.get("Debt/Equity", row.get("Debt to equity"))
+                if raw_de is not None and not pd.isna(raw_de):
+                    debt_equity = float(raw_de)
+    except Exception as e:
+        logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
 
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
@@ -369,9 +399,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
     we_status = "NO"
     we_reasons = []
 
-    roce_val = fund_data.get("roce", 0.0)
-    roe_val = fund_data.get("roe", 0.0)
-    debt_equity = fund_data.get("debt_to_equity", 0.0)
+    # roce_val, roe_val, and debt_equity are already fetched from watchlist above
 
     we_issues = []
     if roce_val < 20.0:

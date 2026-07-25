@@ -1574,6 +1574,7 @@
           <select id="filterStatus">
             <option value="">All status</option>
             <option value="WIN">Win</option>
+            <option value="PARTIAL_WIN">Partial Win</option>
             <option value="LOSS">Loss</option>
             <option value="CLOSED_TODAY">Closed Today</option>
             <option value="OPEN">Open</option>
@@ -3475,6 +3476,8 @@
             if (!t.closed_at) return false;
             const cd = new Date(t.closed_at.replace(' ', 'T'));
             if (cd < todayStart) return false;
+        } else if (st === 'PARTIAL_WIN') {
+            if (!t.status || !t.status.startsWith('PARTIAL_WIN')) return false;
         } else if (st && t.status !== st) {
             return false;
         }

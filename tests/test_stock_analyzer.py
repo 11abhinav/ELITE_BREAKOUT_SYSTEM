@@ -137,7 +137,8 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
     @patch('stock_analyzer.fetch_watchlist_data')
     @patch('stock_analyzer.compute_nifty_rs_rating')
     @patch('stock_analyzer.get_fundamentals')
-    def test_analyze_symbol_full_7_stage_funnel(self, mock_fund, mock_rs, mock_fetch, mock_val):
+    @patch('watchlist_cache.get_watchlist')
+    def test_analyze_symbol_full_7_stage_funnel(self, mock_wl, mock_fund, mock_rs, mock_fetch, mock_val):
         """Verify analyze_symbol evaluates across all 7 pipeline stages."""
         dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         prices = [100.0 + i * 1.5 for i in range(60)]
@@ -151,12 +152,17 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
 
         mock_fetch.return_value = {"TATAMOTORS": df}
         mock_rs.return_value = {"TATAMOTORS": 88.0}
+        
+        mock_wl.return_value = pd.DataFrame([{
+            "Stock": "TATAMOTORS",
+            "Company": "Tata Motors Ltd",
+            "Sector": "AUTO",
+            "ROCE %": 24.5,
+            "ROE %": 19.0,
+            "Debt/Equity": 0.25
+        }])
+        
         mock_fund.return_value = {
-            "company_name": "Tata Motors Ltd",
-            "sector": "AUTO",
-            "roce": 24.5,
-            "roe": 19.0,
-            "debt_to_equity": 0.25,
             "piotroski_score": 8,
             "promoter_pledge_pct": 0.0
         }
