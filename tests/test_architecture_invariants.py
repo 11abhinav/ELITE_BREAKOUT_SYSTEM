@@ -64,3 +64,60 @@ def test_validation_failure_valid_code():
     """Ensure ValidationFailure objects use strict Enum codes."""
     failure = ValidationFailure(code=FailureCode.SCH001, severity="CRITICAL", message="Test")
     assert isinstance(failure.code, FailureCode), "ValidationFailure must use FailureCode enum"
+
+
+def test_config_invariants():
+    """Safety guard: verify core strategy configuration constants do not silently drift."""
+    from app.config import (
+        EXIT_PROFILES,
+        SCANNER_EXIT_PROFILE,
+        ALERT_COOLDOWN_MINUTES,
+        SCANNER_MAX_ALERTS,
+        MIN_NATURAL_RR,
+        ADAPTIVE_TARGET_CAPS,
+    )
+    
+    # 1. Exit profile allocations
+    assert EXIT_PROFILES["BALANCED"] == [30, 40, 30]
+    assert EXIT_PROFILES["AGGRESSIVE"] == [20, 30, 50]
+    assert EXIT_PROFILES["CONSERVATIVE"] == [25, 50, 25]
+    
+    assert SCANNER_EXIT_PROFILE["EOD"] == "BALANCED"
+    assert SCANNER_EXIT_PROFILE["MULTI_TF"] == "AGGRESSIVE"
+    assert SCANNER_EXIT_PROFILE["REVERSAL"] == "CONSERVATIVE"
+    assert SCANNER_EXIT_PROFILE["PULLBACK"] == "BALANCED"
+    
+    # 2. Scanner Cooldowns
+    assert ALERT_COOLDOWN_MINUTES["MULTI_TF"] == 240
+    assert ALERT_COOLDOWN_MINUTES["EOD"] == 1440
+    assert ALERT_COOLDOWN_MINUTES["REVERSAL"] == 10080
+    assert ALERT_COOLDOWN_MINUTES["PULLBACK"] == 10080
+    
+    # 3. Max Alerts
+    assert SCANNER_MAX_ALERTS["MULTI_TF"] == 15
+    assert SCANNER_MAX_ALERTS["EOD"] == 10
+    
+    # 4. Min Natural RR Floor
+    assert MIN_NATURAL_RR["EOD"] == 2.0
+    assert MIN_NATURAL_RR["MULTI_TF"] == 1.5
+    
+    # 5. Adaptive Target Caps - 9 Regimes
+    expected_regimes = {
+        "STRONG_BULL", "WEAK_BULL", "BULL",
+        "BEAR", "WEAK_BEAR", "STRONG_BEAR",
+        "SIDEWAYS", "RANGEBOUND", "NEUTRAL"
+    }
+    assert set(ADAPTIVE_TARGET_CAPS.keys()) == expected_regimes
+
+
+def test_symbol_normalization_invariants():
+    """Safety guard: verify Fyers and YFinance symbol normalization contracts."""
+    from app.data_providers.fyers_fetcher import FyersFetcher
+    fetcher = FyersFetcher()
+    
+    # Bare BSE symbol should auto-append -EQ
+    assert fetcher._normalize_symbol("BSE:NSDL") == "BSE:NSDL-EQ"
+    assert fetcher._normalize_symbol("NSDL") == "BSE:NSDL-EQ"
+    assert fetcher._normalize_symbol("RELIANCE") == "NSE:RELIANCE-EQ"
+    assert fetcher._normalize_symbol("NSE:STOCK-BE") == "NSE:STOCK-BE"
+
