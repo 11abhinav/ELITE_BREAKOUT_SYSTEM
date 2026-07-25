@@ -2134,7 +2134,8 @@ def get_all_alerts() -> list[dict]:
                     status, exit_price, pnl_pct, closed_at, is_rejected,
                     shadow_status, shadow_exit_price, shadow_pnl_pct, shadow_closed_at,
                     capital_allocated, shares_bought, remaining_shares, exit_history, pnl_rs, context,
-                    model_version, data_partition, current_price
+                    model_version, data_partition, current_price,
+                    earnings_flag, days_to_earnings, earnings_date, earnings_severity, warning_msg
                 FROM alerts
                 ORDER BY alert_time DESC
             """)

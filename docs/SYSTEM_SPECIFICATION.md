@@ -133,6 +133,15 @@
        - Pullback Pipeline: $\ge 75$
        - Wealth Engine: $\ge 55$
        - Multibagger Engine: $\ge 65$ (High Quality), $\ge 75$ (Prime Multibagger)
+
+  ### 3.1.2 Earnings & Corporate Event Warning Badging (No Hard-Block Policy)
+  - **Policy Statement**: Upcoming earnings announcements or corporate action windows do **NOT** hard-block scanner trade generation. Trades meeting technical and fundamental criteria continue to fire normally.
+  - **Automated Metadata Enrichment**: Every generated alert is automatically enriched at database insertion time (`save_alert_if_new`) with earnings metadata from `EarningsCalendarService` (`earnings_flag`, `days_to_earnings`, `earnings_date`, `earnings_severity`, `warning_msg`).
+  - **UI Visual Badging**: The User & Admin Dashboards visually badge event risk directly in the **All Trades Table** symbol column and detail panels:
+    - `🔴 RESULTS TODAY`: Earnings expected today (0 days).
+    - `🟠 RESULTS IN 1D / 2D`: Earnings expected in 1 to 2 days.
+    - `🟡 RESULTS IN 3D–5D`: Earnings expected in 3 to 5 days.
+    - `⚠️ UNVERIFIED`: Missing or unverified calendar date.
     2. **Descending Rank Selection (Truncation)**: When multiple stocks pass all technical and fundamental filters on the same scan cycle, the scanner sorts candidates in descending order by Score:
        ```python
        approved_candidates.sort(key=lambda x: x["score"], reverse=True)

@@ -2335,7 +2335,7 @@ def test_gate6_production_readiness_checklist(self):
 11. **Gate 11: Scanner Execution Invariants**: Enforce `entry_price > stop_loss` and `target_1 >= entry_price`.
 12. **Gate 12: DB Connection Pool Timeout**: Verify database pool acquires connection within $\le 15.0\text{s}$.
 13. **Gate 13: `/version` Endpoint Health**: Validate build metadata, git commit hash, and release gate status.
-14. **Gate 14: Earnings Calendar Safety**: Ensure blackout dates are respected for corporate earnings releases.
+14. **Gate 14: Earnings Calendar Metadata & UI Event Badging**: Enrich all generated alerts with earnings calendar dates and render visual event mark badges (`🔴 RESULTS TODAY`, `🟠 RESULTS IN 1D`, `🟡 RESULTS IN 3D`, `⚠️ UNVERIFIED`) on the UI without hard-blocking scanner setups.
 15. **Gate 15: Quality Trajectory Invariants**: Verify fundamentals trajectory calculations.
 16. **Gate 16: Forensic Risk Tiers**: Ensure CFO/PAT ratio $< 0.5$ or Debt/Equity $> 2.0$ triggers `HIGH`/`REJECT` risk tiers.
 17. **Gate 17: Data Readiness Policy**: Confirm watchlist parquet freshness before scanner runs.
