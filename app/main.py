@@ -621,19 +621,20 @@ def _run_eod_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify EOD previous run status: {e}")
         
-        start_time = time.time()
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
             upsert_scanner_health("EOD", status="QUEUED", error_msg="Waiting for global execution lock...")
             import eod_scanner
             with scanner_execution_lock:
+                start_time = time.time()
+                upsert_scanner_health("EOD", status="RUNNING", error_msg="EOD Scan in progress...")
                 with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler has
                     # validated prerequisites (Bhavcopy ready). Scanner must not override
                     # this by re-applying its internal time-window check.
                     total = eod_scanner.start(force=True)   # returns int
-            duration_sec = round(time.time() - start_time, 1)
+                duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
                 logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
@@ -719,17 +720,18 @@ def _run_reversal_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify REVERSAL previous run status: {e}")
         
-        start_time = time.time()
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
             upsert_scanner_health("REVERSAL", status="QUEUED", error_msg="Waiting for global execution lock...")
             import reversal_scanner
             with scanner_execution_lock:
+                start_time = time.time()
+                upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal Scan in progress...")
                 with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
                     total = reversal_scanner.start(force=True)   # returns int
-            duration_sec = round(time.time() - start_time, 1)
+                duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
                 logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
@@ -814,17 +816,18 @@ def _run_pullback_with_retries(today_str):
         except Exception as e:
             logger.warning(f"Could not verify PULLBACK previous run status: {e}")
         
-        start_time = time.time()
         try:
             logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
             upsert_scanner_health("PULLBACK", status="QUEUED", error_msg="Waiting for global execution lock...")
             import pullback_pipeline
             with scanner_execution_lock:
+                start_time = time.time()
+                upsert_scanner_health("PULLBACK", status="RUNNING", error_msg="Pullback Scan in progress...")
                 with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
                     total = pullback_pipeline.start(force=True)
-            duration_sec = round(time.time() - start_time, 1)
+                duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
             upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="After Bhavcopy (18:30-19:30 IST)", duration_seconds=duration_sec)
@@ -1525,9 +1528,6 @@ def _run_multibagger_scanner_single():
         import multibagger
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
-        telemetry.log_session_timeline("Started Multibagger Scanner Cycle")
-        start_mb_single = time.time()
-        
         lock_acquired = False
         max_retries = 30
         for i in range(max_retries):
@@ -1547,13 +1547,14 @@ def _run_multibagger_scanner_single():
             raise RuntimeError(f"Could not acquire scanner_execution_lock after {max_retries} minutes. Evening batch might be stuck.")
             
         try:
+            start_mb_single = time.time()
+            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger Scan in progress...")
             with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
                 stats = multibagger.start() or {}
+            dur_mb_single = round(time.time() - start_mb_single, 1)
             time.sleep(15)
         finally:
             scanner_execution_lock.release()
-        
-        dur_mb_single = round(time.time() - start_mb_single, 1)
         # Mark success in health table
         upsert_scanner_health(
             "MULTIBAGGER",
@@ -1729,14 +1730,14 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     
     # Run in background thread so the API returns immediately
     def _run():
-        start_time = time.time()
         try:
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
             with scanner_execution_lock:
+                start_time = time.time()
                 logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
                 upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 stats = fn() or {}
-            duration_sec = round(time.time() - start_time, 1)
+                duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
             now_str = datetime.now(IST).isoformat()
