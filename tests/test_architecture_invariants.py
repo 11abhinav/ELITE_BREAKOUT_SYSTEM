@@ -78,9 +78,9 @@ def test_config_invariants():
     )
     
     # 1. Exit profile allocations
-    assert EXIT_PROFILES["BALANCED"] == [30, 40, 30]
-    assert EXIT_PROFILES["AGGRESSIVE"] == [20, 30, 50]
-    assert EXIT_PROFILES["CONSERVATIVE"] == [25, 50, 25]
+    assert EXIT_PROFILES["BALANCED"] == {"t1": 30, "t2": 40, "t3": 30}
+    assert EXIT_PROFILES["AGGRESSIVE"] == {"t1": 20, "t2": 30, "t3": 50}
+    assert EXIT_PROFILES["CONSERVATIVE"] == {"t1": 25, "t2": 50, "t3": 25}
     
     assert SCANNER_EXIT_PROFILE["EOD"] == "BALANCED"
     assert SCANNER_EXIT_PROFILE["MULTI_TF"] == "AGGRESSIVE"

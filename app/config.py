@@ -157,13 +157,13 @@ REVERSAL_CONFIG = {
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,
     "MIN_YOY_REVENUE_GROWTH": 8.0,
-    "MAX_DROP_BELOW_SMA200": 25.0,
+    "MAX_DROP_BELOW_SMA200": 20.0,
     "REVERSAL_COOLDOWN_TRADING_DAYS": 30
 }
 
 ALERT_COOLDOWN_MINUTES = {
     "WEALTH": 1440,       # 24 hours
-    "MULTI_TF": 720,      # 12 hours
+    "MULTI_TF": 240,      # 4 hours
     "EOD": 1440,          # 24 hours
     "REVERSAL": 10080,    # 7 days
     "PULLBACK": 10080,    # 7 days
