@@ -110,7 +110,7 @@ def test_save_alert_with_nan_sanitization(mocker):
             
     assert insert_call is not None
     params = insert_call[0][1]
-    context_json_str = params[16]
+    context_json_str = params[17]
     
     context_dict = json.loads(context_json_str)
     assert context_dict["peg"] is None
