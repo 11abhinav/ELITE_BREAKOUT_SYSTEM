@@ -113,8 +113,29 @@
   - **Targets (T1 to T4)**:
     - Dynamically generated using the `ClusterEngine`, which scans for structural resistance nodes (prior swing highs, volume nodes, moving averages, Fibonacci extensions).
     - Targets are chosen in ascending order of resistance intensity rather than arbitrary R-multiples.
-  - **Risk-Reward Ratio ($R:R$)**: $\frac{\text{Target}_1 - \text{Entry}}{\text{Entry} - \text{StopLoss}}$. The `TradeStructureValidator` ensures the natural structural R:R ratio derived from the closest valid resistance cluster is acceptable.
-  - **Composite Score**: 0–100+ quality score (can theoretically exceed 100 with massive bonus multipliers).
+  - **Composite Score**: 0–100+ quality score rendered in the **All Trades Table** and signal cards.
+
+  ### 3.1.1 Composite Quality Score & Selection Mechanics
+  - **What the Score Represents**: The `score` column displayed in the **All Trades Table** is a **Composite Technical & Fundamental Quality Score (0–100+)** calculated dynamically by the scoring engine (`app/scoring_engine.py`) at signal generation time. It combines:
+    1. *Technical Breakout Quality*: Candle body ratio, close position, ATR expansion, 50D-high breakout bonus (+5 pts).
+    2. *Volume & Liquidity Conviction*: Volume surge ratio vs 20D Median Volume baseline, NSE delivery percentage, institutional block deals.
+    3. *Trend & Momentum Stack*: Moving average alignment ($\text{EMA}_9 > \text{EMA}_{20} > \text{SMA}_{50} > \text{SMA}_{200}$), ADX trend strength, RS Percentile rating vs Nifty 50.
+    4. *Fundamental Quality*: Piotroski F-Score ($\ge 7$), sector tailwind bonus (+3 pts), ROCE/ROE efficiency, and PEG valuation ceiling.
+    5. *Penalties*: Deductions for extension above EMA20, unsustained volume, young listings ($< 200$ bars), or high promoter pledge ($> 10\%$).
+
+  - **How Scanners Select Alerts Using Score**:
+    1. **Hard Minimum Floor (Filtering)**: A candidate is immediately rejected (`rejected["low_score"]`) if `Score < Minimum_Threshold`:
+       - EOD Breakout: $\ge 82$ (elevated dynamically in bear regimes)
+       - Multi-TF Intraday: $\ge 78$
+       - Reversal Scanner: $\ge 62$ (elevated to **$\ge 90$** in `STRONG_BEAR` macro regimes)
+       - Pullback Pipeline: $\ge 75$
+       - Wealth Engine: $\ge 55$
+       - Multibagger Engine: $\ge 65$ (High Quality), $\ge 75$ (Prime Multibagger)
+    2. **Descending Rank Selection (Truncation)**: When multiple stocks pass all technical and fundamental filters on the same scan cycle, the scanner sorts candidates in descending order by Score:
+       ```python
+       approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+       ```
+       Only the **Top-N highest-scoring candidates** (e.g. Top-10 for EOD/Reversal/Pullback) are selected and persisted into the `alerts` table. Lower-scoring candidates exceeding the limit are suppressed (`RANKED_OUT`).
 
   ## 3.2 Signal Delivery Channels
   1. **Telegram Channels**: Automated instant posts with symbol, price, stop loss, targets, and chart links.
