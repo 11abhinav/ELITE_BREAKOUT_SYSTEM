@@ -144,7 +144,7 @@ def _is_volume_confirmed(df: pd.DataFrame, min_ratio: float = None) -> bool:
 
     vol_now = float(df["Volume"].iloc[-1])
     vol_series = df["Volume"].iloc[-(lookback+1):-1]
-    vol_avg = float(vol_series.mean())
+    vol_avg = float(vol_series.median())
 
     if vol_avg <= 0:
         return True  # avoid division by zero

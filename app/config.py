@@ -151,14 +151,14 @@ REVERSAL_CONFIG = {
     "MAX_DROP_FROM_52W_HIGH": 45.0,
     # ── [FIX] Reversal RSI Constraint Relaxation ──
     # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
-    "RSI_OVERSOLD_THRESHOLD": 45,
+    "RSI_OVERSOLD_THRESHOLD": 38,
     "RSI_CURL_MIN": 50,
     "MIN_VOLUME_RATIO": 2.0,
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,
     "MIN_YOY_REVENUE_GROWTH": 8.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
-    "REVERSAL_COOLDOWN_TRADING_DAYS": 30
+    "REVERSAL_COOLDOWN_TRADING_DAYS": 40
 }
 
 ALERT_COOLDOWN_MINUTES = {

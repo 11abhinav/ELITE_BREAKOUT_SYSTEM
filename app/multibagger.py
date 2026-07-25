@@ -428,12 +428,15 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
 
     return True, ""
 
-def classify_conviction(cqs: float, pas: float, trend: float, composite: float) -> tuple[str, float]:
+def classify_conviction(cqs: float, pas: float, trend: float, composite: float, f_score: int = None) -> tuple[str, float]:
     """
     Tiered classification for multibaggers.
+    Enforces Piotroski F-Score >= 7 for Top Tier ("🚀 Prime Multibagger").
     Returns (Tier, Score)
     """
-    if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0:
+    is_prime_fscore = f_score is None or f_score >= 7
+
+    if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0 and is_prime_fscore:
         return "🚀 Prime Multibagger", composite
     elif composite >= 65 and cqs >= 60 and trend >= 10.0:
         return "💎 High Quality", composite
@@ -1470,7 +1473,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         buy_low = pipeline_result.buy_zone.buy_zone_low
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
-        tier, composite = classify_conviction(cqs, pas, trend, total)
+        f_score_val = raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))
+        tier, composite = classify_conviction(cqs, pas, trend, total, f_score=f_score_val)
         
         # [VERSION: MULTIBAGGER_BEAR_FIX_v1.2] Removed BEAR regime downgrade entirely.
         # As per recent architectural decisions, the scoring engine naturally penalizes weak setups.

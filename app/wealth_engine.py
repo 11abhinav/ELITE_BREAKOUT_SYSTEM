@@ -339,6 +339,16 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
         return None
 
+    # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
+    peg = r.get("PEG Ratio", r.get("PEG"))
+    if peg is not None and not pd.isna(peg):
+        try:
+            peg_val = float(peg)
+            if peg_val > 3.0:
+                return None
+        except (ValueError, TypeError):
+            pass
+
     # Helper for missing data bypass
     def _is_ok(val, threshold, is_lower_bound=True, require_data=True):
         if pd.isna(val) or val == "":

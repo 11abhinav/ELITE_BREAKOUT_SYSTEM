@@ -2093,18 +2093,27 @@ def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_m
                 
             return True
 
-def get_recent_alerts_for_scanner(scanner: str, lookback_minutes: int) -> set[tuple[str, str]]:
-    """Returns a set of (symbol, breakout_type) tuples that fired within the cooldown window."""
+def get_recent_alerts_for_scanner(scanner: str, lookback_minutes: int, only_active: bool = False) -> set[tuple[str, str]]:
+    """Returns a set of (symbol, breakout_type) tuples that fired within the lookback window."""
     from datetime import datetime, timedelta
     cutoff = datetime.now(IST) - timedelta(minutes=lookback_minutes)
     
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT symbol, breakout_type FROM alerts
-                WHERE scanner = %s
-                AND alert_time::timestamp with time zone > %s
-            """, (scanner, cutoff))
+            if only_active:
+                cur.execute("""
+                    SELECT symbol, breakout_type FROM alerts
+                    WHERE scanner = %s
+                    AND alert_time::timestamp with time zone > %s
+                    AND is_rejected = FALSE
+                    AND status NOT IN ('LOSS', 'CLOSED', 'REJECTED')
+                """, (scanner, cutoff))
+            else:
+                cur.execute("""
+                    SELECT symbol, breakout_type FROM alerts
+                    WHERE scanner = %s
+                    AND alert_time::timestamp with time zone > %s
+                """, (scanner, cutoff))
             return {(row[0], row[1]) for row in cur.fetchall()}
 
 def get_all_alerts() -> list[dict]:

@@ -622,6 +622,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     f"dist={dist_to_breakout*100:.2f}%)")
 
             # ── Phase D (5m): ENTRY_READY → TRADE_ACTIVE (Final Trigger) ─────
+            # Late-Session Entry Cutoff: Do not generate new intraday entries after 14:15 IST
+            if ist_now.time() >= datetime.strptime("14:15", "%H:%M").time() and not run_once:
+                logger.debug(f"⏳ Late-session cutoff (14:15 IST) reached — skipping new Phase D entry for {symbol}")
+                continue
+
             if state == "ENTRY_READY" and data_5m.get(symbol) is not None and ok_5m:
                 lower_funnel["trigger_candidates"] += 1
                 df = data_5m.get(symbol)

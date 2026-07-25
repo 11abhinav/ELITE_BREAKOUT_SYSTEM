@@ -477,7 +477,7 @@ def bonus_modifiers(
         logger.debug(f"  +2 {tag}Volume climax ({volume_ratio:.1f}x avg)")
         bonus += 2
 
-    # ── BONUS: NEAR 52-WEEK HIGH ──────────────────────────────────────────────────────
+    # ── BONUS: NEAR 52-WEEK HIGH & 50-DAY HIGH BREAKOUT ───────────────────────────────
     if "HIGH_52W" in ticker.columns:
         high52 = float(latest.get("HIGH_52W", 0) or 0)
         if high52 > 0:
@@ -485,6 +485,18 @@ def bonus_modifiers(
             if proximity >= 0.97:
                 logger.debug(f"  +2 {tag}Near 52W high ({proximity:.1%} of high ₹{high52:.2f})")
                 bonus += 2
+
+    # ── BONUS: CLEAN 50-DAY HIGH BREAKOUT (+5 pts) ──────────────────────────────────
+    if len(ticker) >= 50:
+        high_50d = float(ticker["High"].iloc[-51:-1].max())
+        if high_50d > 0 and float(latest["Close"]) > high_50d:
+            logger.debug(f"  +5 {tag}Clean 50D-high breakout (Close ₹{float(latest['Close']):.2f} > 50D High ₹{high_50d:.2f})")
+            bonus += 5
+
+    # ── PENALTY: YOUNG LISTING (<200 BARS) (-5 pts) ──────────────────────────────────
+    if len(ticker) < 200:
+        logger.debug(f"  -5 {tag}Young listing penalty ({len(ticker)} bars < 200)")
+        bonus -= 5
 
     # ── BONUS: ATR QUALITY MOVE — EOD ONLY ───────────────────────────────────────────
     if timeframe == "1d" and atr_val is not None and atr_val > 0:

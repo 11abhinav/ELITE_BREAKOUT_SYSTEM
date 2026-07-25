@@ -902,8 +902,11 @@ def _run_scan(force: bool = False):
                             weights=bayesian_weights,
                         )
 
-                        if reversal_score < MIN_REVERSAL_SCORE:
-                            logger.debug(f"  ⊘ {symbol} reversal score {reversal_score} < {MIN_REVERSAL_SCORE} — skipping")
+                        # Macro Regime Dampening: Reversals carry higher risk in STRONG_BEAR market regimes.
+                        current_regime = regime_ctx.get("trend", "NEUTRAL") if isinstance(regime_ctx, dict) else "NEUTRAL"
+                        effective_min_score = 90 if current_regime == "STRONG_BEAR" else MIN_REVERSAL_SCORE
+                        if reversal_score < effective_min_score:
+                            logger.debug(f"  ⊘ {symbol} reversal score {reversal_score} < {effective_min_score} (regime: {current_regime}) — skipping")
                             rejected["low_score"] += 1
                             continue
 
