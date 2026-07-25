@@ -1274,6 +1274,19 @@ def test_golden_scenario_1_bullish_breakout(self):
 - **Idempotent Database Migrations**: Database schema updates MUST be executed via idempotent SQL statements (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
 - **Backward Compatibility Invariant**: Database columns and REST API keys MUST NEVER be removed or renamed in minor updates; deprecated fields are soft-deprecated according to Rule 58.
 
+## 21.2 Deprecation & Architectural Change-Log (Old vs. New & Commit Mapping)
+
+Per Rule 63, ANY future modification, refactoring, or architectural change MUST log an entry in this section detailing Old vs. New behavior, Commit ID, Rationale, and Version Tag.
+
+| Date & Commit ID | Version Tag | Old Behavior | New Behavior | RCA & Rationale for Change |
+| :--- | :--- | :--- | :--- | :--- |
+| **2026-07-25**<br>`8d1cea6e` | `DOC_1GB_RAM_MINIMUM_v1.0` | Container memory budget defined as **500 MB RAM**. | Container minimum RAM requirement updated to **1.0 GB RAM (1024 MB)**. | Aligned container budget with empirical production memory profiles where multi-threaded 300-symbol rolling calculations reach 800-888 MB RSS before `malloc_trim(0)`. |
+| **2026-07-25**<br>`3d67d436` | `DOC_FINAL_DETERMINISTIC_SPEC_v1.0` | Wealth Engine phase contracts, telemetry JSON schema, and restart checkpoints were implied. | Added Sections 23.16–23.19 explicitly specifying Phase Contract Matrix, Telemetry Schema, Cache Destruction Timeline, and Recovery Checkpoints. | Fulfills 100% deterministic zero-code reconstruction requirement. |
+| **2026-07-25**<br>`0265cca7` | `DOC_RUNTIME_OPERATIONAL_SEMANTICS_v1.0` | Operational semantics scattered across code comments. | Added Section 23 with Rejection Taxonomy, SLAs, Ingestion Lifecycle, and Logging Taxonomy. | Standardizes dynamic execution behavior for AI models. |
+| **2026-07-25**<br>`254fc297` | `DOC_SYMBOL_RESOLUTION_ENGINE_v1.0` | Symbol mapping lookup algorithm was implicit in provider utilities. | Added Section 9.2 with explicit candidate generation order (`NSE:SYM-EQ` $\rightarrow$ `NSE:SYM-BE` $\rightarrow$ `BSE:CODE`), database lookup rules, and exponential backoff. | Prevents AI models from inventing custom fallback logic. |
+| **2026-07-25**<br>`1f46c368` | `DOC_12POINTS_EXPANDED_v1.0` | Code contracts, `config.py` dump, and indicator math were partially omitted. | Incorporated all 12 user audit review points into Sections 4, 6, 9, 11, 14, 16, 20. | Complete self-contained reconstruction specification. |
+| **2026-07-24**<br>`9866aa8e` | `DOC_2DOC_RESTRUCT_v1.0` | Documentation split across 7 fragmented markdown files. | Consolidated documentation into **EXACTLY TWO canonical files**: `docs/SYSTEM_SPECIFICATION.md` and `docs/SYSTEM_ARCHITECTURE.md`. | Mandated 2-document rule (Rule 58) for single source of truth. |
+
 ---
 
 # 22. AI RECONSTRUCTION CHECKLIST & MODULE DEPENDENCY BLUEPRINT
