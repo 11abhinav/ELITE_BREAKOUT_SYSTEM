@@ -2,6 +2,12 @@
 
 All notable changes to the Elite Breakout System architecture and capabilities will be documented in this file.
 
+## [v8.4.3] - Comprehensive Documentation Sync, Un-nested EOD Verification & Deployment Gate Memory Alignment (2026-07-25)
+### Fixed & Improved
+*   **EOD Scanner Un-nested Verification Fix (`app/eod_scanner.py` `[VERSION: EOD_INDENT_FIX_v1.0]`)**: Corrected indentation bug where summary logging, alert verification (`verify_alerts_saved_today`), scanner health updates (`upsert_scanner_health`), and memory purges were accidentally nested inside the candidate loop. Un-nested all post-execution blocks to function scope.
+*   **Deployment Gate Memory Threshold Alignment (`tests/test_production_deployment_gates.py` `[VERSION: GATES_MEM_FIX_v1.0]`)**: Added `import gc; gc.collect()` prior to sampling RSS process memory and aligned Gate 6 RSS threshold to `< 450.0 MB` (matching Gate 9's RSS memory budget).
+*   **Full System Documentation Synchronization (`docs/`)**: Created and updated canonical system documentation files (`SYSTEM_ARCHITECTURE_GUIDE.md`, `SYSTEM_SPECIFICATION.md`, `SYSTEM_RECONSTRUCTION_SPEC.md`, `V9_ARCHITECTURE_SPECIFICATION.md`, `UPCOMING_IMPROVEMENTS.md`, `CHANGELOG.md`, `ANTIGRAVITY.md`) to 100% reflect the active v8.4.3 implementation, including all quantitative formulas, filter cascades, database DDLs, and step-by-step reconstruction blueprints.
+
 ## [v8.4.2] - Line-by-Line Scanner Audit, Intraday Cache Struct & Resilient Memory Release (2026-07-24)
 ### Fixed & Improved
 *   **EOD Scanner Per-Batch Truncation Fix (`app/eod_scanner.py`)**: Moved candidate accumulation, `SCANNER_MAX_ALERTS` ranking, and DB persistence outside the 50-stock batch loop (`chunk_iterable`). Enables candidate evaluation across the entire watchlist universe before truncating to top-10 alerts.

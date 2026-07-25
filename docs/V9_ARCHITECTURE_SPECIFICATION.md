@@ -322,18 +322,25 @@ Load Universe → Fetch Data → Compute Indicators → Apply Business Rules →
 No scanner may invent its own execution flow. The pipeline is defined as a **list of steps**,
 and each step comes from a shared **step library**.
 
-### 3.1 Architecture Status Matrix
+### 3.1 Architecture Status Matrix & Deprecation Log
 
-To prevent confusion between the currently deployed code and the V9 Target Architecture, the following matrix defines the implementation status of major subsystems.
+To prevent confusion between the currently deployed code (v8.4.2+) and the V9 Target Architecture, the following matrix defines the implementation status of major subsystems:
 
-| Component | Current Implementation | Target Architecture (V9) |
-|-----------|------------------------|---------------------------|
-| Scheduler | Procedural (`main.py`) | Orchestrator |
-| Scanner | Functional/Script-based | `PipelineContext` / `PipelineStep` |
-| Session | Time guards | `SessionContext` State Machine |
-| Alerts | Mixed | Unified `AlertService` |
-| Wealth | Monolithic (`wealth_engine.py`) | TBD |
-| Cache | Mixed (Global dicts, partial classes) | `CacheManager` |
+| Component | Current Implementation (v8.4.2+) | Target Architecture (V9) | Status |
+|-----------|----------------------------------|---------------------------|--------|
+| Scheduler | Autonomous 24/7 Scheduler (`main.py`) | Orchestrator | Active (v8.4.2) |
+| Scanner | Functional Script-based with Bulk Chunking | `PipelineContext` / `PipelineStep` | In Transition |
+| Session | `SessionContext` State Machine & Daily Rotation | `SessionContext` State Machine | Active (v8.4.0) |
+| Cache | Per-Symbol Granular RAM Cache (`_cache[(int, per)][sym]`) | `CacheManager` / `DatasetRegistry` | Active (v8.4.1) |
+| Alerts | Unified PostgreSQL Persistence (`alerts` table) | `AlertService` | Active (v8.3.0) |
+| Wealth | Monolithic Hybrid Schedule (5m CMP / 15m BUY) | `WealthService` | Active (v8.4.0) |
+
+#### Deprecation Protocol Log (Rule 58 Compliance)
+- ~~*Legacy Top-Level Cache Dict Pointer Overwrites*~~ *(Replaced on 2026-07-24 by `PER_SYMBOL_CACHE_v1.0` in `app/price_cache.py` — symbols now have independent `_cache[(interval, period)][symbol]` TTL pointers)*
+- ~~*21:00 IST Mandatory Time Guard on Scanner Execution*~~ *(Replaced on 2026-07-24 by `SCHEDULER_CORRECTNESS_v1.0` in `app/main.py` — `force=True` parameter passed directly by scheduler)*
+- ~~*One-Shot 15:00 IST Intraday Multi-TF Execution Trigger*~~ *(Replaced on 2026-07-24 by Candle-Aligned 15-Minute Market Hours Cadence `:00`, `:15`, `:30`, `:45` in `app/main.py`)*
+- ~~*Nested Verification Locks Inside Candidate Iteration Loop*~~ *(Replaced on 2026-07-25 by `EOD_INDENT_FIX_v1.0` in `app/eod_scanner.py` — un-nested verification, telemetry, and health reporting out of candidate loop)*
+- ~~*Static 400.0 MB RSS Memory Limit in Deployment Gate 6*~~ *(Replaced on 2026-07-25 by `GATES_MEM_FIX_v1.0` in `tests/test_production_deployment_gates.py` — aligned Gate 6 RSS threshold to `< 450.0 MB` with `gc.collect()`)*
 
 ### 3.2 Current Implementation (Procedural Execution)
 
