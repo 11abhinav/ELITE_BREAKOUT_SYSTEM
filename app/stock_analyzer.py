@@ -351,10 +351,25 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         pb_reasons.append("Trend Failure: Price not strictly above SMA50 > SMA200")
         deficits.append("📈 Trend Structure Deficit: Price is not aligned above SMA50 > SMA200 (requires established uptrend).")
     else:
-        pivots = swing_utils.detect_confirmed_pivots(df, 5, 2)
+        pivots = swing_utils.detect_confirmed_pivots(df, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
         if pivots:
-            pb_status = "CORE MET"
-            pb_reasons.append(f"Established Uptrend (Close ₹{close_price:.2f} > SMA50 > SMA200) | Valid Swing Structure (Note: Pipeline needs strict pullback depth validation)")
+            impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+            if not impulse:
+                pb_status = "NO"
+                pb_reasons.append("❌ Pipeline Failed: No valid impulse origin found.")
+            else:
+                ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
+                if not ps.valid:
+                    pb_status = "NO"
+                    pb_reasons.append(f"❌ Pipeline Failed: Invalid pullback depth/volume structure (Depth: {ps.depth_pct:.1f}%, Vol: {ps.volume_ratio:.2f}x).")
+                else:
+                    trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
+                    if not trig.valid:
+                        pb_status = "NO"
+                        pb_reasons.append("❌ Pipeline Failed: No valid trigger bar detected today.")
+                    else:
+                        pb_status = "YES"
+                        pb_reasons.append(f"✅ Strict Pipeline Passed: Triggered Pullback at ₹{trig.entry_price:.2f} (Depth: {ps.depth_pct:.1f}%)")
         else:
             pb_status = "NO"
             pb_reasons.append("No confirmed swing pivots detected for pullback origin")
@@ -378,7 +393,36 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
 
     if not we_issues:
         we_status = "CORE MET"
-        we_reasons.append(f"Core Fundamentals Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5 (Note: Full pipeline requires Inst. Score ≥ 65)")
+        we_reasons.append(f"Core Fundamentals Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5")
+        
+        try:
+            from core.multibagger_pipeline import run_pipeline_for_symbol
+            from wealth_engine import map_watchlist_to_v5
+            mapped_data = map_watchlist_to_v5(fund_data)
+            
+            sma50_we = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
+            sma200_we = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
+            rsi_we = float(bundle.rsi_14.iloc[-1]) if bundle.rsi_14 is not None and not bundle.rsi_14.empty else 50.0
+            
+            technicals = {
+                'price': close_price,
+                'sma_50': sma50_we,
+                'sma_200': sma200_we,
+                'rsi': rsi_we
+            }
+            
+            decision = run_pipeline_for_symbol(sym_clean, mapped_data, technicals)
+            inst_score = decision.composite_score
+            
+            if inst_score >= 65:
+                we_status = "YES"
+                we_reasons.append(f"✅ Strict Pipeline Passed: Institutional Score {inst_score} ≥ 65")
+            else:
+                we_status = "NO (Failed Pipeline)"
+                we_reasons.append(f"❌ Strict Pipeline Failed: Institutional Score {inst_score} < 65")
+                deficits.append(f"📉 Institutional Scoring Deficit: Score is {inst_score} (requires ≥65).")
+        except Exception as e:
+            we_reasons.append(f"(Could not run deep analysis: {str(e)})")
     elif roce_val >= 15.0 and roe_val >= 12.0:
         we_status = "WATCHLIST"
         we_reasons = we_issues
