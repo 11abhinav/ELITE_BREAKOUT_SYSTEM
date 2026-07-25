@@ -120,27 +120,35 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     results = []
     seen = set()
 
-    # 1. Search in fundamental watchlist cache
+    # 1. Search in fundamental watchlist cache (Vectorized for speed)
     try:
         wl = get_watchlist()
         if not wl.empty:
-            for _, row in wl.iterrows():
+            stock_series = wl['Stock'].astype(str).str.upper()
+            company_series = wl['Company'].astype(str).str.upper()
+            
+            # Fast boolean mask
+            mask = (stock_series.str.startswith(q_clean)) | (stock_series.str.contains(q_clean, regex=False)) | (company_series.str.contains(q_clean, regex=False))
+            
+            matches = wl[mask].head(limit)
+            
+            for _, row in matches.iterrows():
                 stock = str(row.get("Stock", "")).upper()
                 company = str(row.get("Company", stock))
                 sector = str(row.get("Sector", ""))
                 category = str(row.get("Category", ""))
 
-                if stock.startswith(q_clean) or q_clean in stock or q_clean in company.upper():
-                    if stock not in seen:
-                        seen.add(stock)
-                        results.append({
-                            "symbol": stock,
-                            "company_name": company if company != stock else stock,
-                            "sector": sector,
-                            "category": category
-                        })
-                        if len(results) >= limit:
-                            return results
+                if stock not in seen:
+                    seen.add(stock)
+                    results.append({
+                        "symbol": stock,
+                        "company_name": company if company != stock else stock,
+                        "sector": sector,
+                        "category": category
+                    })
+            
+            if len(results) >= limit:
+                return results
     except Exception as e:
         logger.warning(f"Autocomplete watchlist lookup warning: {e}")
 

@@ -1303,30 +1303,34 @@
         </div>
       </div>
 
-      <!-- MY WATCHLIST SECTION -->
-      <div id="my-watchlist-section" style="display:none; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-          <h3 style="font-size:15px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
-            <span>⭐</span> My Monitored Watchlist
-          </h3>
-          <span style="font-size:12px; color:var(--muted);">Re-scan anytime to update live status & deficit reductions</span>
-        </div>
-        <div style="overflow-x:auto;">
-          <table class="data-table" style="width:100%;">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Health Score</th>
-                <th>Status</th>
-                <th>Added Date</th>
-                <th>Last Scanned</th>
-                <th style="text-align:center;">Action</th>
-              </tr>
-            </thead>
-            <tbody id="user-watchlist-tbody">
-              <!-- Injected by JS -->
-            </tbody>
-          </table>
+      <!-- MY WATCHLIST MODAL -->
+      <div id="my-watchlist-section" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); z-index:9999; padding:20px; justify-content:center; align-items:center;">
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:900px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
+          <button onclick="document.getElementById('my-watchlist-section').style.display='none'" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px;">
+            <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>⭐</span> My Monitored Watchlist
+            </h3>
+            <span style="font-size:12px; color:var(--muted); display:none; @media (min-width: 600px) { display:inline; }">Re-scan anytime to update live status & deficit reductions</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Health Score</th>
+                  <th>Status</th>
+                  <th>Added Date</th>
+                  <th>Last Scanned</th>
+                  <th style="text-align:center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="user-watchlist-tbody">
+                <!-- Injected by JS -->
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -6054,26 +6058,28 @@ function triggerStockDiagnostic(overrideSym) {
 }
 
 function showInvalidTickerAlert(sym, errorMsg) {
-  let modal = document.getElementById('invalid-ticker-modal');
+  let modal = document.getElementById('stock-diagnostic-modal');
   if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'invalid-ticker-modal';
-    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
-    document.body.appendChild(modal);
+    showDiagnosticLoadingModal(sym);
+    modal = document.getElementById('stock-diagnostic-modal');
   }
 
   modal.innerHTML = `
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:520px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative; text-align:center;">
-      <button onclick="document.getElementById('invalid-ticker-modal').style.display='none'" style="position:absolute; top:16px; right:16px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:28px; height:28px; border-radius:50%; font-size:14px; cursor:pointer;">✕</button>
-      <div style="font-size:42px; margin-bottom:12px;">⚠️</div>
-      <h3 style="font-size:17px; font-weight:800; color:var(--warn); margin:0 0 10px 0;">Ticker Validation Failed</h3>
-      <div style="padding:12px 16px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; font-size:13px; color:var(--text); line-height:1.4; margin-bottom:18px; text-align:left;">
-        ${errorMsg}
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:600px; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
+      <!-- Close Button -->
+      <button onclick="closeDiagnosticModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+
+      <div style="text-align:center; padding:20px 0;">
+        <div style="font-size:48px; margin-bottom:16px;">⚠️</div>
+        <h3 style="font-size:20px; font-weight:800; color:var(--warn); margin:0 0 12px 0;">Ticker Validation Failed</h3>
+        <p style="font-size:14px; color:var(--text); margin-bottom:24px; padding:12px 16px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; line-height:1.5;">
+          ${errorMsg}
+        </p>
+        <button onclick="closeDiagnosticModal(); document.getElementById('stock-search-input').focus();" 
+                style="padding:10px 24px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(59,130,246,0.3);">
+          ✏️ Correct Ticker Symbol
+        </button>
       </div>
-      <button onclick="document.getElementById('invalid-ticker-modal').style.display='none'; document.getElementById('stock-search-input').focus();" 
-              style="padding:10px 24px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">
-        ✏️ Correct Ticker Symbol
-      </button>
     </div>
   `;
   modal.style.display = 'flex';
@@ -6352,7 +6358,7 @@ function toggleUserWatchlistDrawer() {
   const sec = document.getElementById('my-watchlist-section');
   if (!sec) return;
   if (sec.style.display === 'none') {
-    sec.style.display = 'block';
+    sec.style.display = 'flex';
     loadUserWatchlist();
   } else {
     sec.style.display = 'none';
