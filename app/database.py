@@ -1439,7 +1439,7 @@ def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 40) -> set:
             with conn.cursor() as cur:
                 cur.execute("""
                     WITH LatestAlerts AS (
-                        SELECT a.symbol, a.status, COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct, a.alert_date, ao.exit_reason,
+                        SELECT a.symbol, a.status, a.pnl_pct, a.alert_date, ao.exit_reason,
                                ROW_NUMBER() OVER (PARTITION BY a.symbol ORDER BY a.alert_date DESC, a.alert_time DESC) as rn
                         FROM alerts a
                         LEFT JOIN alert_outcomes ao ON a.id = ao.alert_id

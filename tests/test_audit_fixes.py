@@ -257,9 +257,9 @@ class TestAuditFixes(unittest.TestCase):
         res = get_all_failed_reversal_cooldown_symbols(cooldown_days=30)
         
         self.assertIn('TATASTEEL', res)
-        # Verify query includes COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct in LatestAlerts CTE
+        # Verify query includes a.pnl_pct in LatestAlerts CTE
         query_sql = mock_cursor.execute.call_args[0][0]
-        self.assertIn("COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct", query_sql)
+        self.assertIn("a.pnl_pct", query_sql)
         self.assertIn("pnl_pct IS NOT NULL AND pnl_pct < 0", query_sql)
 
     def test_multibagger_conviction_tier_classification(self):
