@@ -1447,15 +1447,71 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
 
 ## 23.9 Telemetry, Performance SLAs & Data Reconciliation
 - **Mandatory Funnel Telemetry Fields**: `scanner`, `run_date`, `symbol`, `stage`, `gate`, `passed`, `observed_value`, `threshold_value`, `message`. Stored in `funnel_telemetry` table.
-- **Performance SLAs**:
-  - Phase A Bulk Data Fetch SLA: $< 30.0\text{s}$
-  - Layer 1 Candidate Selection SLA: $< 10.0\text{s}$
-  - Layer 2 Entry Timing SLA: $< 5.0\text{s}$
-  - Layer 3 Portfolio Management SLA: $< 45.0\text{s}$
-  - Total Wealth Engine SLA: $< 180.0\text{s}$
 - **Symbol Count Reconciliation**:
   - `universe_count`: 287 canonical equity symbols in `watchlist.parquet`.
   - `requested_count`: 294 symbols (includes 287 watchlist symbols PLUS index benchmarks `^NSEI`, `^NSEBANK`, and 5 BSE fallback candidates).
+
+## 23.10 Wealth Engine Rejection Taxonomy Catalog
+
+| Rejection Code | Meaning / Cause | Severity | Retryability | User Dashboard Visibility |
+| :--- | :--- | :--- | :--- | :--- |
+| `WEALTH_REJ_001` | Daily Liquidity $< \text{₹}10\text{M}$ | `WARNING` | Retryable next session | Hidden from Buy Signals |
+| `WEALTH_REJ_002` | `FM_Score` $< 55$ quality gate | `INFO` | Retryable after 1Y earnings | Visible as `WAIT` |
+| `WEALTH_REJ_003` | Price below 200 SMA (`Close < SMA_200`) | `INFO` | Retryable on trend cross | Visible as `WAIT` |
+| `WEALTH_REJ_004` | Sector Cap Exceeded ($> 25\%$ portfolio) | `INFO` | Retryable on rebalance | Visible as `Ranked Out` |
+| `WEALTH_REJ_005` | Industry Cap Exceeded ($> 2$ stocks) | `INFO` | Retryable on rebalance | Visible as `Ranked Out` |
+| `WEALTH_REJ_006` | Stale Data Flagged (`is_stale = True`) | `WARNING` | Retryable on provider fetch | Suppressed (Fake Buy Shield) |
+| `WEALTH_REJ_007` | Incomplete Fundamentals / Technicals | `WARNING` | Retryable post-01:00 IST | Visible as `Incomplete` |
+| `WEALTH_REJ_008` | 20% Hard Drawdown Stop Breach | `CRITICAL` | Non-retryable (Hard Sell) | Instant `SELL REVIEW` Alert |
+| `DB_IDEMPOTENCY` | Active position already open in DB | `INFO` | Non-retryable (Deduplicated) | Visible as `HOLD` |
+
+## 23.11 Complete Runtime Component Performance SLAs
+
+| Subsystem Component | Target SLA (Expected) | Warning Threshold | Failure / Timeout |
+| :--- | :--- | :--- | :--- |
+| **Phase A Bulk Data Fetch** | $\le 15.0\text{s}$ | $> 30.0\text{s}$ | $> 60.0\text{s}$ |
+| **Layer 1 Candidate Selection** | $\le 5.0\text{s}$ | $> 10.0\text{s}$ | $> 20.0\text{s}$ |
+| **Layer 2 Entry Timing** | $\le 2.0\text{s}$ | $> 5.0\text{s}$ | $> 10.0\text{s}$ |
+| **Layer 3 Portfolio Management** | $\le 30.0\text{s}$ | $> 45.0\text{s}$ | $> 90.0\text{s}$ |
+| **Entire Wealth Engine SLA** | $\le 60.0\text{s}$ | $> 120.0\text{s}$ | $> 180.0\text{s}$ |
+| **EOD Scanner SLA** | $\le 12.0\text{s}$ | $> 30.0\text{s}$ | $> 600.0\text{s}$ (10m hard cap) |
+| **Multi-TF Intraday Scanner SLA** | $\le 8.0\text{s}$ | $> 20.0\text{s}$ | $> 60.0\text{s}$ |
+
+## 23.12 Cache Invalidation & Ingestion Lifecycle Sequence
+
+```text
+ 1. FETCH   ──> PriceCache fetches OHLCV batch (RAM allocation)
+ 2. INDIC   ──> IndicatorManager attaches EMA/SMA/ATR/RSI vectors
+ 3. SCORE   ──> ScoringEngine computes 0-100 score + trade targets
+ 4. PERSIST ──> AlertService inserts signals into PostgreSQL alerts table
+ 5. EXPORT  ──> DashboardServer updates wealth_portfolio & parquet_cache tables
+ 6. RELEASE ──> Call ohlcv.clear() & delete transient DataFrames
+ 7. PURGE   ──> Trigger explicit gc.collect() & malloc_trim(0) heap release
+```
+
+## 23.13 Failure Recovery Checkpoints & Railway Reboot Semantics
+- **Railway Container Reboot**: On container restart at 11:40 AM, process boots up, initializes `ApplicationContext`, reads open positions from PostgreSQL `wealth_portfolio` table, and restores candidate state machine without losing historical trade logs.
+- **Phase Failure Isolation**: If Phase A (bulk fetch) fails due to a network outage, the Wealth Engine aborts the current run, logs `ProviderResult.NETWORK_ERROR` to `scanner_health`, and retains the existing `data/elite_wealth_system.parquet` file on disk for dashboard serving until the next 5-minute tick retry.
+
+## 23.14 Canonical Log Prefix Taxonomy
+
+| Log Category | Standardized Prefix | Mandatory Log Fields | Example Log Message |
+| :--- | :--- | :--- | :--- |
+| **System Info** | `[INFO]` | Component, action, timestamp | `[INFO] [SCHEDULER] Session rotated to 2026-07-25` |
+| **Warning** | `[WARN]` | Component, condition, impact | `[WARN] [PRICE_PROVIDER] YFinance retry 2/3 for RELIANCE` |
+| **Error** | `[ERROR]` | Component, exception, stacktrace | `[ERROR] [DATABASE] DB pool acquisition timeout` |
+| **Memory** | `[MEMORY]` | Current RSS, delta MB, peak RSS | `[MEMORY] Post-scan cleanup: RSS 412 MB (Delta: -380 MB)` |
+| **Telemetry** | `[TELEMETRY]` | Scanner, stage, gate, passed | `[TELEMETRY] [EOD] Passed 42/287 candidates` |
+| **Lock** | `[LOCK]` | Lock name, acquire wait sec | `[LOCK] ProcessLock("wealth_engine") acquired in 0.12s` |
+| **Fetch** | `[FETCH]` | Provider, ticker count, duration | `[FETCH] [FYERS] Downloaded 50 tickers in 1.4s` |
+| **Database** | `[DB]` | Operation, table, rows affected | `[DB] Upserted 10 alerts into alerts table` |
+| **Cache** | `[CACHE]` | Cache tier, action, symbol | `[CACHE] Evicted EPHEMERAL OHLCV cache for RELIANCE` |
+
+## 23.15 Resolution of Memory Target Allocation vs. Un-trimmed RSS Peak
+- **Architectural Clarification**:
+  - **500 MB RAM Container Budget**: The target memory allocation SLA configured for the container runtime environment.
+  - **888 MB RSS Peak**: The un-trimmed C-heap RSS memory footprint observed inside Python's memory allocator during multi-threaded bulk 300-symbol pandas rolling window calculations.
+  - **Heap Trimming Mechanism**: Python's default memory allocator (`pymalloc`) holds allocated glibc memory arenas in RSS even after Python objects are destroyed. Calling `gc.collect()` followed by `malloc_trim(0)` forces glibc to return unused heap arenas to the Linux OS, dropping active RSS back below **400 MB** before starting the next processing phase.
 
 ---
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*
