@@ -1199,6 +1199,22 @@ def init_db():
                     )
                 """)
 
+                # ── User Watchlists (Personal Monitored Watchlist) ─────────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_watchlists (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(50) DEFAULT 'DEFAULT_USER',
+                        symbol VARCHAR(30) NOT NULL,
+                        company_name VARCHAR(100) DEFAULT '',
+                        added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        last_scanned_at TIMESTAMPTZ,
+                        last_health_score NUMERIC(5,2),
+                        last_status VARCHAR(50) DEFAULT 'MONITORING',
+                        notes TEXT,
+                        UNIQUE(user_id, symbol)
+                    )
+                """)
+
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
                 # Commit the above table creations before doing heavy DDL
                 conn.commit()
@@ -5753,3 +5769,93 @@ def get_bhavcopy_cache(trading_date) -> dict:
     except Exception as e:
         logger.error(f"Failed to get bhavcopy cache: {e}")
     return None
+
+
+# ── USER WATCHLIST HELPER FUNCTIONS ──────────────────────────────────────────
+
+def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "DEFAULT_USER", notes: str = "", health_score: float = None, status: str = "MONITORING") -> bool:
+    """Add a stock to user's personal watchlist or update existing entry."""
+    init_db()
+    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s)
+                    ON CONFLICT (user_id, symbol) DO UPDATE
+                    SET company_name = EXCLUDED.company_name,
+                        last_scanned_at = CURRENT_TIMESTAMP,
+                        last_health_score = COALESCE(EXCLUDED.last_health_score, user_watchlists.last_health_score),
+                        last_status = EXCLUDED.last_status,
+                        notes = COALESCE(EXCLUDED.notes, user_watchlists.notes)
+                """, (user_id, sym_clean, company_name, health_score, status, notes))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to add symbol {sym_clean} to user watchlist: {e}")
+        return False
+
+def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bool:
+    """Remove a stock from user's personal watchlist."""
+    init_db()
+    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id, sym_clean))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to remove symbol {sym_clean} from user watchlist: {e}")
+        return False
+
+def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
+    """Fetch all stocks in user's personal watchlist ordered by added_at DESC."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes
+                    FROM user_watchlists
+                    WHERE user_id = %s
+                    ORDER BY added_at DESC
+                """, (user_id,))
+                rows = cur.fetchall()
+                results = []
+                for r in rows:
+                    results.append({
+                        "symbol": r[0],
+                        "company_name": r[1] or r[0],
+                        "added_at": r[2].isoformat() if r[2] else None,
+                        "last_scanned_at": r[3].isoformat() if r[3] else None,
+                        "last_health_score": float(r[4]) if r[4] is not None else None,
+                        "last_status": r[5] or "MONITORING",
+                        "notes": r[6] or ""
+                    })
+                return results
+    except Exception as e:
+        logger.error(f"Failed to fetch user watchlist: {e}")
+        return []
+
+def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None) -> bool:
+    """Update last scan timestamp, score, and status for a watchlist item."""
+    init_db()
+    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE user_watchlists
+                    SET last_scanned_at = CURRENT_TIMESTAMP,
+                        last_health_score = COALESCE(%s, last_health_score),
+                        last_status = COALESCE(%s, last_status)
+                    WHERE user_id = %s AND symbol = %s
+                """, (health_score, status, user_id, sym_clean))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to update user watchlist scan result for {sym_clean}: {e}")
+        return False
+

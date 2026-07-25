@@ -2929,6 +2929,119 @@ def get_multibagger_positions():
         logger.exception(f"Failed to fetch multibagger positions")
         return jsonify({"error": str(e)}), 500
 
+
+# ── KNOW ABOUT YOUR STOCK & MANUAL ALERT API ENDPOINTS ─────────────────────────
+
+@app.route("/api/v1/symbols/suggest", methods=["GET"])
+@login_required
+def api_symbols_suggest():
+    """Real-time autocomplete ticker suggestions."""
+    try:
+        from stock_analyzer import search_symbols_autocomplete
+        q = request.args.get("q", "").strip()
+        suggestions = search_symbols_autocomplete(q, limit=10)
+        return jsonify(suggestions)
+    except Exception as e:
+        logger.exception("❌ Autocomplete suggestions endpoint error")
+        return jsonify([]), 500
+
+
+@app.route("/api/v1/analyze_stock", methods=["GET"])
+@login_required
+def api_analyze_stock():
+    """Runs full 7-stage dry-run diagnostic evaluation for a single ticker."""
+    try:
+        from stock_analyzer import analyze_symbol
+        symbol = request.args.get("symbol", "").strip()
+        user_id = session.get("user_id", "DEFAULT_USER")
+        if not symbol:
+            return jsonify({"success": False, "error": "Symbol parameter is required."}), 400
+
+        result = analyze_symbol(symbol, user_id=user_id)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("❌ Stock analysis endpoint error")
+        return jsonify({"success": False, "error": f"Failed to analyze symbol: {str(e)}"}), 500
+
+
+@app.route("/api/v1/create_manual_alert", methods=["POST"])
+@login_required
+def api_create_manual_alert():
+    """Promotes a qualified setup to an ACTIVE BUY alert."""
+    try:
+        from stock_analyzer import create_manual_alert_from_analysis
+        data = request.get_json() or {}
+        symbol = data.get("symbol", "").strip()
+        scanner = data.get("scanner", "EOD").strip()
+        user_id = session.get("user_id", "DEFAULT_USER")
+
+        if not symbol:
+            return jsonify({"success": False, "error": "Symbol payload is required."}), 400
+
+        res = create_manual_alert_from_analysis(symbol, scanner_type=scanner, user_id=user_id)
+        return jsonify(res)
+    except Exception as e:
+        logger.exception("❌ Create manual alert endpoint error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/v1/user_watchlist", methods=["GET"])
+@login_required
+def api_get_user_watchlist():
+    """Fetch user's personal watchlist."""
+    try:
+        from database import get_user_watchlist
+        user_id = session.get("user_id", "DEFAULT_USER")
+        items = get_user_watchlist(user_id=user_id)
+        return jsonify(items)
+    except Exception as e:
+        logger.exception("❌ Fetch user watchlist error")
+        return jsonify([])
+
+
+@app.route("/api/v1/user_watchlist/add", methods=["POST"])
+@login_required
+def api_add_user_watchlist():
+    """Save ticker to user's personal watchlist."""
+    try:
+        from database import add_to_user_watchlist
+        data = request.get_json() or {}
+        symbol = data.get("symbol", "").strip()
+        company_name = data.get("company_name", symbol)
+        notes = data.get("notes", "")
+        health_score = data.get("health_score")
+        status = data.get("status", "MONITORING")
+        user_id = session.get("user_id", "DEFAULT_USER")
+
+        if not symbol:
+            return jsonify({"success": False, "error": "Symbol is required."}), 400
+
+        ok = add_to_user_watchlist(symbol, company_name=company_name, user_id=user_id, notes=notes, health_score=health_score, status=status)
+        return jsonify({"success": ok})
+    except Exception as e:
+        logger.exception("❌ Add to user watchlist error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/v1/user_watchlist/remove", methods=["DELETE", "POST"])
+@login_required
+def api_remove_user_watchlist():
+    """Remove ticker from user's personal watchlist."""
+    try:
+        from database import remove_from_user_watchlist
+        data = request.get_json() or {}
+        symbol = data.get("symbol", request.args.get("symbol", "")).strip()
+        user_id = session.get("user_id", "DEFAULT_USER")
+
+        if not symbol:
+            return jsonify({"success": False, "error": "Symbol is required."}), 400
+
+        ok = remove_from_user_watchlist(symbol, user_id=user_id)
+        return jsonify({"success": ok})
+    except Exception as e:
+        logger.exception("❌ Remove from user watchlist error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # ── Global Error Handlers ───────────────────────────────────────────────
 
 @app.errorhandler(500)

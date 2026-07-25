@@ -295,8 +295,14 @@
                 ├─ 2. Run EOD Breakout Scanner (max 10m hard timeout)
                 ├─ 3. Run Reversal Scanner (max 10m hard timeout)
                 └─ 4. Run Pullback Pipeline Scanner (max 10m hard timeout)
-  19:00 IST ── Multibagger Daily Scanner Run
-  ```
+  ## 4.4 "Analyse Your Watchlist" Diagnostic System & Personal Watchlist (`app/stock_analyzer.py`)
+  An on-demand stock analysis, diagnostic, and watchlist management suite accessible on both User and Admin dashboards:
+  - **Real-Time Autocomplete Search**: Subsecond NSE/BSE ticker suggestions (`/api/v1/symbols/suggest?q=PREFIX`) matching symbol prefixes and company titles.
+  - **Overall Health Score (0-100)**: Quantitative composite score combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile vs Nifty 500 (20%).
+  - **"What It Lacks" Deficit Summary**: Bulleted list of parameter gaps holding a stock back from becoming a top-tier active alert (e.g. volume ratio deficit, upper wick excess, Piotroski F-score gap, leverage).
+  - **7-Stage Scanner Funnel Table**: Sequential dry-run evaluation through Daily Builder $\rightarrow$ EOD Breakout $\rightarrow$ Multi-TF Intraday $\rightarrow$ Reversal $\rightarrow$ Pullback $\rightarrow$ Wealth Engine $\rightarrow$ Multibagger Engine.
+  - **One-Click Manual Alert Creation**: Qualified setup cards feature a `[ 🚀 Raise Alert ]` button that calculates exact SL/Targets, risk allocation, saves to `alerts` table with `is_manual=True`, and dispatches live Telegram notifications.
+  - **Personal Monitored Watchlist**: Save non-qualifying or monitored stocks with `[ ⭐️ Add to Watchlist ]` into database table `user_watchlists`. Features a `[ 🔄 Re-Scan ]` button on dashboard tables for instant re-evaluation.
 
   ---
   *End of System Specification & User/Admin Guide — `docs/SYSTEM_SPECIFICATION.md`*

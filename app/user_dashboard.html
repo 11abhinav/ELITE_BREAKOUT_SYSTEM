@@ -426,6 +426,63 @@ function playDing() {
 
   <div class="container">
 
+    <!-- ANALYSE YOUR WATCHLIST WIDGET -->
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; backdrop-filter:blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
+        <div>
+          <h2 style="font-size:16px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:18px;">🔍</span> Analyse Your Watchlist
+          </h2>
+          <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol for real-time 7-stage scanner diagnostics, health scores, and parameter deficits.</p>
+        </div>
+        <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
+          <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
+        </button>
+      </div>
+
+      <div style="position:relative; max-width:640px;">
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE, PERSISTENT)..." 
+                 style="flex:1; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
+                 oninput="handleStockSearchInput(this.value)" onkeydown="if(event.key==='Enter') triggerStockDiagnostic()" autocomplete="off" />
+          <button onclick="triggerStockDiagnostic()" style="padding:11px 20px; background:linear-gradient(135deg, #3b82f6, #8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
+            <span>⚡</span> Analyze Stock
+          </button>
+        </div>
+
+        <!-- Autocomplete Suggestions Dropdown -->
+        <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:100%; left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:8px; margin-top:4px; max-height:280px; overflow-y:auto; z-index:1000; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+        </div>
+      </div>
+    </div>
+
+    <!-- MY WATCHLIST SECTION -->
+    <div id="my-watchlist-section" style="display:none; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 style="font-size:15px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
+          <span>⭐</span> My Monitored Watchlist
+        </h3>
+        <span style="font-size:12px; color:var(--muted);">Re-scan anytime to update live status & deficit reductions</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="width:100%;">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Health Score</th>
+              <th>Status</th>
+              <th>Added Date</th>
+              <th>Last Scanned</th>
+              <th style="text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="user-watchlist-tbody">
+            <!-- Injected by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- P&L AND PORTFOLIO BAR -->
     <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
       
@@ -2763,6 +2820,339 @@ function renderMultibaggerWatchlist() {
 
 
 
-// ============================================================================
+// ── KNOW ABOUT YOUR STOCK & PERSONAL WATCHLIST JS SYSTEM ─────────────────────
+let autocompleteDebounceTimer = null;
+let currentDiagnosticData = null;
+
+function handleStockSearchInput(val) {
+  clearTimeout(autocompleteDebounceTimer);
+  const dropdown = document.getElementById('stock-autocomplete-dropdown');
+  if (!dropdown) return;
+
+  if (!val || val.trim().length < 1) {
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = '';
+    return;
+  }
+
+  autocompleteDebounceTimer = setTimeout(() => {
+    fetch(`/api/v1/symbols/suggest?q=${encodeURIComponent(val.trim())}`)
+      .then(res => res.json())
+      .then(items => {
+        if (!items || items.length === 0) {
+          dropdown.style.display = 'none';
+          dropdown.innerHTML = '';
+          return;
+        }
+
+        dropdown.innerHTML = items.map(item => `
+          <div onclick="selectAutocompleteSymbol('${item.symbol}')" 
+               style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:background 0.2s;"
+               onmouseover="this.style.background='rgba(59,130,246,0.1)'" onmouseout="this.style.background='transparent'">
+            <div>
+              <span style="font-weight:700; color:var(--text); font-family:var(--font-mono);">${item.symbol}</span>
+              <span style="font-size:11px; color:var(--muted); margin-left:8px;">${item.company_name}</span>
+            </div>
+            <span style="font-size:10px; padding:2px 6px; background:var(--card3); border-radius:4px; color:var(--muted); font-weight:600;">${item.sector || 'EQUITY'}</span>
+          </div>
+        `).join('');
+        dropdown.style.display = 'block';
+      })
+      .catch(err => {
+        console.warn('Autocomplete search failed:', err);
+        dropdown.style.display = 'none';
+      });
+  }, 200);
+}
+
+function selectAutocompleteSymbol(sym) {
+  const input = document.getElementById('stock-search-input');
+  if (input) input.value = sym;
+  const dropdown = document.getElementById('stock-autocomplete-dropdown');
+  if (dropdown) dropdown.style.display = 'none';
+  triggerStockDiagnostic(sym);
+}
+
+document.addEventListener('click', function(e) {
+  const dropdown = document.getElementById('stock-autocomplete-dropdown');
+  const input = document.getElementById('stock-search-input');
+  if (dropdown && input && !dropdown.contains(e.target) && !input.contains(e.target)) {
+    dropdown.style.display = 'none';
+  }
+});
+
+function triggerStockDiagnostic(overrideSym) {
+  const input = document.getElementById('stock-search-input');
+  const sym = (overrideSym || (input ? input.value : '')).trim().toUpperCase();
+  if (!sym) {
+    alert('Please enter a valid NSE/BSE ticker symbol.');
+    return;
+  }
+
+  showDiagnosticLoadingModal(sym);
+
+  fetch(`/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}`)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) {
+        alert(`Analysis Error: ${data.error}`);
+        closeDiagnosticModal();
+        return;
+      }
+      currentDiagnosticData = data;
+      renderStockDiagnosticModal(data);
+    })
+    .catch(err => {
+      alert(`Failed to analyze symbol ${sym}: ${err.message}`);
+      closeDiagnosticModal();
+    });
+}
+
+function showDiagnosticLoadingModal(sym) {
+  let modal = document.getElementById('stock-diagnostic-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'stock-diagnostic-modal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:820px; max-height:90vh; overflow-y:auto; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
+      <div style="text-align:center; padding:40px 20px;">
+        <div style="font-size:36px; margin-bottom:12px; animation:spin 1s infinite linear;">⚡</div>
+        <h3 style="font-size:18px; font-weight:700; color:var(--text); margin:0;">Analyzing #${sym}...</h3>
+        <p style="font-size:13px; color:var(--muted); margin-top:8px;">Running dry-run evaluation across 7 quantitative scanner pipelines...</p>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function closeDiagnosticModal() {
+  const modal = document.getElementById('stock-diagnostic-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function renderStockDiagnosticModal(data) {
+  const modal = document.getElementById('stock-diagnostic-modal');
+  if (!modal) return;
+
+  const score = data.overall_health_score || 0;
+  const scoreCls = score >= 75 ? 'badge-ok' : (score >= 55 ? 'badge-queued' : 'badge-down');
+
+  const deficitsHtml = (data.deficits || []).map(d => `
+    <div style="padding:10px 14px; background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2); border-radius:8px; margin-bottom:8px; font-size:12px; color:var(--text); line-height:1.4;">
+      ${d}
+    </div>
+  `).join('');
+
+  const funnel = data.funnel || {};
+  const funnelKeys = [
+    { key: 'daily_builder', label: '1. Daily Builder (Universe Entry)', scanner: 'DAILY_BUILDER' },
+    { key: 'eod_breakout', label: '2. EOD Breakout Scanner', scanner: 'EOD' },
+    { key: 'multi_tf', label: '3. Multi-TF Intraday Scanner', scanner: 'MULTI_TF' },
+    { key: 'reversal', label: '4. Reversal Oversold Bounce', scanner: 'REVERSAL' },
+    { key: 'pullback', label: '5. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
+    { key: 'wealth_engine', label: '6. Wealth Engine', scanner: 'WEALTH' },
+    { key: 'multibagger', label: '7. Multibagger Engine', scanner: 'MULTIBAGGER' }
+  ];
+
+  const funnelRowsHtml = funnelKeys.map(item => {
+    const stage = funnel[item.key] || { status: 'NO', reasons: [] };
+    const status = stage.status || 'NO';
+
+    let badgeCls = 'badge-down';
+    if (status.includes('YES')) badgeCls = 'badge-ok';
+    else if (status.includes('WATCHLIST')) badgeCls = 'badge-queued';
+
+    const canCreateAlert = status.includes('YES') && item.scanner !== 'DAILY_BUILDER';
+    const reasonsText = (stage.reasons || []).join(' | ') || 'Evaluated clean';
+
+    return `
+      <tr>
+        <td style="font-weight:700; font-size:13px;">${item.label}</td>
+        <td><span class="scanner-badge ${badgeCls}">${status}</span></td>
+        <td style="font-size:11px; color:var(--muted); max-width:320px; white-space:normal; line-height:1.3;">${reasonsText}</td>
+        <td style="text-align:center;">
+          ${canCreateAlert ? `
+            <button onclick="createManualAlert('${data.symbol}', '${item.scanner}')" 
+                    style="padding:5px 10px; background:linear-gradient(135deg,#059669,#10b981); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; box-shadow:0 2px 8px rgba(16,185,129,0.3);">
+              🚀 Raise ${item.scanner} Alert
+            </button>
+          ` : `
+            <span style="font-size:11px; color:var(--muted);">—</span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:880px; max-height:92vh; overflow-y:auto; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
+      <!-- Close Button -->
+      <button onclick="closeDiagnosticModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+
+      <!-- Modal Header -->
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border);">
+        <div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <h2 style="font-size:22px; font-weight:800; color:var(--text); margin:0; font-family:var(--font-mono);">${data.symbol}</h2>
+            <span style="font-size:12px; padding:3px 8px; background:var(--card3); border-radius:4px; color:var(--accent); font-weight:700;">${data.sector || 'EQUITY'}</span>
+          </div>
+          <p style="font-size:13px; color:var(--muted); margin:4px 0 0 0;">${data.company_name} • Close: ₹${data.close_price.toFixed(2)} • RSI: ${data.rsi} • Volume Ratio: ${data.volume_ratio}x</p>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="text-align:right;">
+            <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Overall Health Score</div>
+            <div style="font-size:24px; font-weight:900; font-family:var(--font-mono); color:${score >= 75 ? 'var(--win)' : (score >= 55 ? 'var(--amber)' : 'var(--warn)')}">${score.toFixed(1)} / 100</div>
+          </div>
+          <button onclick="saveToUserWatchlist('${data.symbol}', '${data.company_name}', ${score})" 
+                  style="padding:9px 14px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <span>⭐</span> Add to Watchlist
+          </button>
+        </div>
+      </div>
+
+      <!-- Deficit Summary Section -->
+      <div style="margin-bottom:24px;">
+        <h4 style="font-size:13px; font-weight:700; color:var(--text); text-transform:uppercase; letter-spacing:0.5px; margin:0 0 10px 0; display:flex; align-items:center; gap:6px;">
+          <span>⚠️</span> Deficit Summary ("What This Stock Lacks Right Now")
+        </h4>
+        ${deficitsHtml}
+      </div>
+
+      <!-- Funnel Breakdown Section -->
+      <div>
+        <h4 style="font-size:13px; font-weight:700; color:var(--text); text-transform:uppercase; letter-spacing:0.5px; margin:0 0 10px 0; display:flex; align-items:center; gap:6px;">
+          <span>📋</span> 7-Stage Scanner Funnel Qualification
+        </h4>
+        <div style="overflow-x:auto;">
+          <table class="data-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th>Scanner Stage</th>
+                <th>Qualification Status</th>
+                <th>Gate Reasons & Criteria</th>
+                <th style="text-align:center;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${funnelRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function createManualAlert(sym, scanner) {
+  if (!confirm(`Confirm raising active manual ${scanner} BUY alert for #${sym}?`)) return;
+
+  fetch('/api/v1/create_manual_alert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: sym, scanner: scanner })
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      alert(`✅ ${res.message}`);
+      doRefresh();
+    } else {
+      alert(`❌ Alert Creation Failed: ${res.error}`);
+    }
+  })
+  .catch(err => alert(`Failed to create manual alert: ${err.message}`));
+}
+
+function saveToUserWatchlist(sym, company, score) {
+  fetch('/api/v1/user_watchlist/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: sym, company_name: company, health_score: score, status: 'MONITORING' })
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      alert(`⭐ #${sym} saved to your personal watchlist!`);
+      loadUserWatchlist();
+    } else {
+      alert(`Failed to add to watchlist: ${res.error}`);
+    }
+  })
+  .catch(err => alert(`Failed to add to watchlist: ${err.message}`));
+}
+
+function removeFromWatchlist(sym) {
+  if (!confirm(`Remove #${sym} from your watchlist?`)) return;
+
+  fetch('/api/v1/user_watchlist/remove', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: sym })
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      loadUserWatchlist();
+    }
+  });
+}
+
+function loadUserWatchlist() {
+  fetch('/api/v1/user_watchlist')
+    .then(res => res.json())
+    .then(items => {
+      const countEl = document.getElementById('my-watchlist-count');
+      if (countEl) countEl.textContent = (items || []).length;
+
+      const tbody = document.getElementById('user-watchlist-tbody');
+      if (!tbody) return;
+
+      if (!items || items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = items.map(item => `
+        <tr>
+          <td class="font-bold">
+            <a href="https://chartink.com/stocks/${item.symbol}.html" target="_blank" class="symbol-link">${item.symbol}</a>
+            <div style="font-size:10px; color:var(--muted);">${item.company_name}</div>
+          </td>
+          <td class="mono font-bold" style="color:var(--text);">${item.last_health_score ? item.last_health_score.toFixed(1) : '—'}</td>
+          <td><span class="scanner-badge ${item.last_status === 'QUALIFIED' ? 'badge-ok' : 'badge-idle'}">${item.last_status || 'MONITORING'}</span></td>
+          <td style="font-size:11px; color:var(--muted);">${item.added_at ? item.added_at.substring(0, 10) : '—'}</td>
+          <td style="font-size:11px; color:var(--muted);">${item.last_scanned_at ? item.last_scanned_at.substring(0, 16).replace('T', ' ') : '—'}</td>
+          <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
+            <button onclick="triggerStockDiagnostic('${item.symbol}')" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
+              🔄 Re-Scan
+            </button>
+            <button onclick="removeFromWatchlist('${item.symbol}')" style="padding:4px 8px; background:rgba(220,38,38,0.1); color:var(--warn); border:1px solid rgba(220,38,38,0.2); border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
+              🗑️
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    })
+    .catch(err => console.warn('Failed to load user watchlist:', err));
+}
+
+function toggleUserWatchlistDrawer() {
+  const sec = document.getElementById('my-watchlist-section');
+  if (!sec) return;
+  if (sec.style.display === 'none') {
+    sec.style.display = 'block';
+    loadUserWatchlist();
+  } else {
+    sec.style.display = 'none';
+  }
+}
+
+// Initial watchlist count load
+document.addEventListener('DOMContentLoaded', loadUserWatchlist);
 
 </script>
