@@ -289,10 +289,12 @@ class TestAuditFixes(unittest.TestCase):
         import pandas as pd
         df = pd.DataFrame([{"Stock": "TCS", "Category": "LARGE", "Sector": "IT"}])
         mock_wl.return_value = df
-        mock_fetch.return_value = {}
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        sample_df = pd.DataFrame({"Close": [100.0]}, index=pd.to_datetime([today_str]))
+        mock_fetch.return_value = {"TCS": sample_df}
 
         from pullback_pipeline import run_pullback_pipeline
-        run_pullback_pipeline(force=True)
+        run_pullback_pipeline(force=False)
 
         # Check upsert_scanner_health calls
         health_calls = mock_health.call_args_list
