@@ -94,9 +94,11 @@
 
   ## 2.6 Multibagger Engine (`app/multibagger.py`)
   - **Market Objective**: Evaluates multi-year compounders combining fundamental quality, low promoter pledge ($\le 10\%$), high capital efficiency, and technical momentum.
-  - **Tier Classification**:
-    - *🚀 Prime Multibagger*: Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$, and **Piotroski F-Score $\ge 7$**.
-    - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$.
+  - **Unified Conviction Tiers & Alert Triggering**:
+    - *🚀 Prime Multibagger*: Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$, and **Piotroski F-Score $\ge 7$** ($₹100,000$ capital allocation). Generates active BUY alert when in buy zone.
+    - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$ ($₹50,000$ capital allocation). Generates active BUY alert when in buy zone.
+    - *🟡 Watchlist*: Composite Score $50–64$. **Non-alerting watchlist tier** (tracked in display cache for fundamental monitoring; strictly blocked from generating active BUY alerts).
+  - **Category Label Binding**: The `category` column in the database (`alerts`) and alert payloads is strictly bound to the final post-bonus conviction tier (`tier`), ensuring zero mis-stamping of active alerts.
   - **Exit Monitor**: Runs every 15 minutes during market hours to track trailing stops and fundamental decay signals.
 
   ---

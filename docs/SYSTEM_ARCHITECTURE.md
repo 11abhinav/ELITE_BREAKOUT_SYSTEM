@@ -734,7 +734,7 @@ For each symbol in watchlist (daily OHLCV, period="1y"):
 
 ## 7.5 Multibagger Scanner (`app/multibagger.py` — V5 Pipeline)
 
-**Purpose:** Long-term compounder scanner targeting fundamentally excellent businesses (ROCE ≥ 20%, ROE ≥ 15%, debt-free) that meet V5 pipeline quality thresholds. Runs daily at 19:00 IST.
+**Purpose:** Long-term compounder scanner targeting fundamentally excellent businesses (ROCE ≥ 20%, ROE ≥ 15%, debt-free) that meet V5 pipeline quality thresholds. Runs daily at 19:00 IST and 15-minute intraday exit monitor.
 
 **Entry Point:** `run_multibagger_scan()` or `monitor_exits()` (intraday exit monitor)
 
@@ -745,23 +745,20 @@ Input: watchlist.parquet
 Data: 1Y daily OHLCV + Screener fundamentals
 
 For each symbol:
-  ├─[Phase 1] Fundamental Gate (V5 Pipeline):
+  ├─[Phase 1] Fundamental & Valuation Gate (V5 Pipeline):
   │   run_pipeline_for_symbol(symbol, map_watchlist_to_v5(row))
   │   → PipelineDecision: composite_score, quality.score, valuation.score
-  │   • Min quality.score ≥ 60 (quality gate)
-  │   • Min composite_score ≥ 70
-> **Note**: Phase 3 bucket score thresholds (65/60/55/50) are all below the Phase 1 gate of 70. They are tautologically satisfied and bucket assignment is purely by MCap/ROCE/growth conditions. The Phase 3 score fields are retained as documentation of intent for future gate tightening.
-  ├─[Phase 2] Technical Overlay:
+  ├─[Phase 2] Technical Overlay & Institutional Footprint:
   │   • Close > SMA_200 (trend gate)
-  │   • RSI 45–70 (not overbought/oversold)
-  │   • Liquidity ≥ ₹1 Cr/day (MIN_DAILY_LIQUIDITY_RUPEES_WEALTH)
-  ├─[Phase 3] Bucket Assignment:
-  │   • Core Compounder: score≥65, MCap≥₹10,000Cr, ROCE≥20%, ROE≥15%, D/E≤0.5
-  │   • Growth Multiplier: score≥60, MCap≥₹2,000Cr, Rev growth≥20%, RS≥0%
-  │   • Quality-On-Sale: score≥50, ROCE≥15%, dist_52w>20%, D/E≤1.0
-  │   • Opportunistic: score≥55, profit growth≥40%, RS≥15%, non-SME
-  └─[Phase 4] Sector Cap:
-      Max 25% from one sector, max 2 per industry sub-group
+  │   • Apply institutional block deal bonuses
+  ├─[Phase 3] Conviction Tier Classification (classify_conviction):
+  │   • 🚀 Prime Multibagger: composite≥75, CQS≥65, PAS≥50, trend≥10, Piotroski F-Score≥7 (₹100,000 allocation)
+  │   • 💎 High Quality: composite≥65, CQS≥60, trend≥10 (₹50,000 allocation)
+  │   • 🟡 Watchlist: composite 50–64 (Non-alerting watchlist tier; strictly blocked from generating active BUY alerts)
+  └─[Phase 4] Alert Generation & Category Binding:
+      If tier IN ["🚀 Prime Multibagger", "💎 High Quality"] AND in Buy Zone AND Technicals Confirmed:
+        → Trigger active BUY alert and insert into alerts DB table with category = tier (ensuring zero category label mis-stamping)
+```
 
 Output:
   • alerts table (scanner='MULTIBAGGER')

@@ -1521,6 +1521,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 alert_candidates.append({
                     "symbol": sym,
                     "price": price_data.price,
+                    "tier": tier,
                     "tier_val": tier_val,
                     "total_score": total,
                     "cqs": cqs,
@@ -1608,7 +1609,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             c_notes = cand["notes"]
             pipeline_res = cand["pipeline_result"]
             raw_fund = cand["raw_fundamentals"]
-            c_tier = pipeline_res.classification if pipeline_res else "🟡 Watchlist"
+            c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
             
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
             

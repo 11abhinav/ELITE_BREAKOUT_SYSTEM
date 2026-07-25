@@ -262,5 +262,20 @@ class TestAuditFixes(unittest.TestCase):
         self.assertIn("COALESCE(a.pnl_pct, ao.pnl_pct) AS pnl_pct", query_sql)
         self.assertIn("pnl_pct IS NOT NULL AND pnl_pct < 0", query_sql)
 
+    def test_multibagger_conviction_tier_classification(self):
+        """Verify classify_conviction correctly assigns Prime, High Quality, or Watchlist tiers."""
+        from multibagger import classify_conviction
+        # Prime Multibagger: composite >= 75, cqs >= 65, pas >= 50, trend >= 10, f_score >= 7
+        tier1, score1 = classify_conviction(cqs=70.0, pas=60.0, trend=15.0, composite=80.0, f_score=7)
+        self.assertEqual(tier1, "🚀 Prime Multibagger")
+
+        # High Quality: composite >= 65, cqs >= 60, trend >= 10
+        tier2, score2 = classify_conviction(cqs=62.0, pas=40.0, trend=12.0, composite=68.0, f_score=5)
+        self.assertEqual(tier2, "💎 High Quality")
+
+        # Watchlist: composite >= 50 (does not trigger active BUY alert)
+        tier3, score3 = classify_conviction(cqs=52.0, pas=30.0, trend=5.0, composite=55.0, f_score=4)
+        self.assertEqual(tier3, "🟡 Watchlist")
+
 if __name__ == '__main__':
     unittest.main()
