@@ -176,28 +176,89 @@
 
   # 4. DASHBOARD SUITE & USER/ADMIN WORKFLOWS
 
-  The platform provides three integrated web interfaces served by Flask (`dashboard_server.py`):
+  The platform provides three integrated, real-time glassmorphic web dashboards served autonomously by Flask (`app/dashboard_server.py`) and Jinja2 templates (`app/templates/`):
 
   ## 4.1 User Dashboard (`/`)
-  Designed for active traders and investors monitoring live market signals:
-  - **Live Alerts Feed**: Real-time updating grid of trade cards displaying Symbol, Scanner Name, Entry, Stop Loss, Targets, Score, and Age.
-  - **Active Signals Table**: Interactive table showing current trade status (`OPEN`, `TRAILING`, `WIN`, `LOSS`), active trailing stops, and percentage gain/loss in ₹ RS.
-  - **TradingView Integration**: Clickable ticker links opening TradingView charts (`target="_blank" rel="noopener noreferrer"`).
-  - **Filtering & Search**: Instant filtering by scanner type (`EOD`, `MULTI_TF`, `REVERSAL`, `PULLBACK`, `WEALTH`), status, and symbol search.
+  Designed for active traders and portfolio managers to monitor live market signals, active position lifecycles, and risk-reward dynamics:
+
+  ### Key Components & Panels:
+  1. **Real-time Telemetry KPI Cards**:
+     - **Active Positions**: Count of currently open trades (`OPEN` / `TRAILING`).
+     - **Total Closed Trades**: Total historical trades completed (`WIN`, `PARTIAL_WIN`, `LOSS`, `EXPIRED`).
+     - **Win Rate (%)**: Realized win rate across all historical trades.
+     - **Net PnL (₹ and %)**: Cumulative realized portfolio profit/loss.
+     - **Active Viewers Badge**: Live SSE/Polling connection counter (`/api/viewers`).
+     - **Web Push VAPID Toggle**: One-click browser push notification subscription toggle (`/api/push/subscribe`).
+  2. **Scanner Category Filter Tabs**:
+     - Instant client-side filtering by scanner engine: **ALL**, **EOD Breakout**, **Multi-TF Intraday**, **Reversal**, **Pullback Pipeline**, **Wealth Engine**, **Multibagger Engine**.
+  3. **Signal Cards & Active Signals Table**:
+     - Displays every alert with real-time price updates (CMP) polled from NSE/BSE data providers:
+       - **Symbol**: Standard NSE/BSE ticker linked directly to TradingView charts (`https://in.tradingview.com/chart/?symbol=NSE:{symbol}`).
+       - **Scanner Badge**: Color-coded pill (`EOD` blue, `MULTI_TF` purple, `REVERSAL` orange, `PULLBACK` cyan, `WEALTH` green, `MULTIBAGGER` gold).
+       - **Entry Price (₹)**: Recommended execution price.
+       - **Initial Stop Loss (₹)**: Structural stop loss calculated at signal generation time (**Immutable**).
+       - **Trailing Stop Loss (₹)**: Active trailing stop updated as targets are hit.
+       - **Target Pillars (T1, T2, T3, T4)**:
+         - `Target 1`: Dynamic resistance cluster level (30% liquidation in Balanced mode; trails SL to Breakeven).
+         - `Target 2`: Dynamic resistance cluster level (40% liquidation in Balanced mode; trails SL to T1).
+         - `Target 3`: Final exit target (30% liquidation; 100% position closed).
+         - `Target 4`: **Informational Structural Runner Target** (0% position allocation; tracked for analytical quality scoring).
+       - **Natural Risk-Reward ($R:R$)**: $\frac{\text{Target}_1 - \text{Entry}}{\text{Entry} - \text{StopLoss}}$.
+       - **Composite Score**: 0–100+ quality score.
+       - **Status Badges**: `OPEN` (active), `TRAILING` (T1/T2 hit), `WIN` (T3 hit), `PARTIAL_WIN` (T1/T2 hit then stopped out), `LOSS` (stop loss hit), `EXPIRED` (holding period expiry).
+       - **Live PnL (%)**: Real-time gain/loss calculated as $\frac{\text{CMP} - \text{Entry}}{\text{Entry}} \times 100\%$.
+
+  ---
 
   ## 4.2 Admin Dashboard (`/admin`)
-  Designed for system administrators and operations monitoring:
-  - **System Health Panel**: Real-time status cards for all 6 scanners (`OK`, `RUNNING`, `QUEUED`, `DEFERRED`, `DEGRADED`, `DOWN`, `IDLE`), last run timestamp, today's alert count, and execution duration in seconds.
-  - **Manual Scanner Triggers**: Interactive buttons to trigger manual on-demand scanner sweeps (`/api/trigger-scanner`).
-  - **Dynamic Queue Management**: Displays queue positions (`QUEUED-1`, `QUEUED-2`, etc.) calculated dynamically based on request timestamps.
-  - **Mutex Lock Telemetry**: Real-time telemetry on lock acquisitions, wait times, hold times, and contention events (`/api/lock-stats`).
-  - **Notification Board**: System alerts for API rate-limit throttles, Fyers failover warnings, and Bhavcopy fallback notifications.
+  Designed for system administrators and operations monitoring to manage autonomous scanner execution, memory performance, counterfactual shadow tracking, and notifications:
+
+  ### Key Components & Panels:
+  1. **Scanner Health & Control Grid (6 Scanner Cards)**:
+     - Real-time status cards for **EOD**, **MULTI_TF**, **REVERSAL**, **PULLBACK**, **WEALTH**, and **MULTIBAGGER**.
+     - Displays Status Pill (`OK` green, `RUNNING` blue, `QUEUED` yellow, `DEFERRED` orange, `DEGRADED` purple, `DOWN` red).
+     - **Manual "Run Scanner Now" Trigger**: One-click button initiating an asynchronous manual scan cycle (`/api/trigger-scanner`).
+     - **Dynamic Sliding Queue**: Renders real-time queue positions (`QUEUED-1`, `QUEUED-2`, etc.) calculated based on request timestamps.
+  2. **Counterfactual Shadow Tracking Table & Quality Metrics**:
+     - Monitors system-rejected trades (`is_rejected = TRUE`) in the background without affecting live portfolio equity curves.
+     - Displays `ghost_symbol`, `original_scanner`, `rejection_reason`, `entry_price`, `shadow_status`, `shadow_exit_price`, `shadow_pnl_pct`:
+       - `👻 SHADOW WIN`: Rejection touched Target 1/2/3 before SL (Hypothetical Missed Win).
+       - `👻 SHADOW LOSS`: Rejection touched Stop Loss before Target (Hypothetical Correct Rejection).
+       - `👻 SHADOW EXPIRED`: Rejection timed out after 40 trading days.
+     - **Rejection Quality Metrics**:
+       - **True Negatives Rate (%)**: Percentage of rejected trades that ended in `SHADOW_LOSS` (Validates rejection engine quality).
+       - **False Negatives Rate (%)**: Percentage of rejected trades that ended in `SHADOW_WIN` (Identifies overly strict filters).
+  3. **System Notification Log & Health Telemetry**:
+     - Displays API rate-limit throttles, Fyers failover events, Bhavcopy fallback warnings, and database connection pool health.
+     - **Mutex Lock Telemetry (`/api/lock-stats`)**: Displays active lock acquisitions, wait times, hold times, and contention events for scanner process locks.
+     - **Memory Profiler Timeline**: Stage timeline breakdown and heap usage memory profiling metrics.
+  4. **System Action Controls**:
+     - **Test Telegram Alert**: Triggers a test payload to configured Telegram channels (`/api/test_telegram`).
+     - **Test Push Notification**: Triggers a test push payload to registered Web Push devices (`/api/test_push`).
+     - **Export Watchlists / Data**: Direct CSV/JSON export buttons for watchlists, alerts, and outcomes.
+
+  ---
 
   ## 4.3 Performance Tracker Dashboard (`/performance`)
-  Designed for quantitative analytics and performance auditing:
-  - **Equity Curve & Cumulative PnL**: Interactive visual tracking of net system returns.
-  - **Win Rate & Metrics KPIs**: Win rate %, Average R:R, Max Drawdown %, Average Holding Period.
-  - **Historical Trade Log**: Complete searchable audit log of every historical signal and exit reason.
+  Designed for quantitative analytics, equity curve auditing, and multi-scanner strategy comparison:
+
+  ### Key Components & Panels:
+  1. **Cumulative Equity Curve & Benchmark Comparison**:
+     - Interactive Chart.js visual tracking of cumulative portfolio return (%) over time vs Nifty 50 benchmark index.
+  2. **Strategy Key Performance Indicators (KPIs)**:
+     - **Cumulative Win Rate (%)**: $\frac{\text{Total Winning Trades}}{\text{Total Closed Trades}} \times 100\%$.
+     - **Profit Factor**: $\frac{\text{Gross Realized Profits (₹)}}{\text{Gross Realized Losses (₹)}}$.
+     - **Average Win vs Loss Ratio**: Average profit per winning trade divided by average loss per losing trade ($R:R$).
+     - **Max System Drawdown (%)**: Peak-to-trough equity decline.
+     - **Average Holding Period**: Mean trading days elapsed from entry to exit.
+  3. **Monthly Return Heatmap Matrix**:
+     - Grid displaying net realized returns (%) broken down by month and year.
+  4. **Scanner-by-Scanner Expectancy Matrix**:
+     - Detailed performance table breaking down win rate, profit factor, total signals, net PnL, and max drawdown individually across all 6 scanners (`EOD`, `MULTI_TF`, `REVERSAL`, `PULLBACK`, `WEALTH`, `MULTIBAGGER`).
+  5. **Historical Trade Audit Log**:
+     - Complete, searchable, sortable audit table of every historical trade with full entry/exit parameters, exit signal reason, and timestamp.
+
+  ---
 
   ---
 

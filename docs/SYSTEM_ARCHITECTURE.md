@@ -1554,6 +1554,24 @@ For remote mobile and desktop alerting, the server implements full Progressive W
 - **Whitelisted Data Exports**: To support external audit and spreadsheet reconstruction, administrative endpoints `/admin/export/<table>` and `/admin/export/watchlist/<list_type>` stream raw database rows as downloadable CSV formats. SQL injection is mitigated via strict hard-coded table name whitelisting in the route handler.
 - **Analytical Matrix Tools**: Provides deep mathematical evaluation endpoints including `/api/capital_info`, `/api/deposit_funds`, and `/api/analytics/expectancy_matrix`, computing Monte Carlo expectancy tables, Win/Loss distributions, and real-time portfolio margin requirements.
 
+## 17.5 Counterfactual Shadow Tracking UI Pipeline
+- **Rejected Trade Surveillance**: The Admin Dashboard (`/admin`) renders system-rejected alerts (`is_rejected = TRUE`) in a dedicated Counterfactual Shadow Table without altering live portfolio equity curves.
+- **Shadow Status Enums**:
+  - `👻 SHADOW WIN`: Rejected setup touched Target 1/2/3 before Stop Loss (Hypothetical Missed Win).
+  - `👻 SHADOW LOSS`: Rejected setup touched Stop Loss before Target (Hypothetical Correct Rejection).
+  - `👻 SHADOW EXPIRED`: Rejected setup timed out after 40 trading days.
+- **Rejection Quality Telemetry**: Evaluates rejection engine accuracy in real-time:
+  - $\text{True Negatives Rate (\%)} = \frac{\text{SHADOW\_LOSS Count}}{\text{Total Closed Shadow Alerts}} \times 100\%$ (Validates filter accuracy).
+  - $\text{False Negatives Rate (\%)} = \frac{\text{SHADOW\_WIN Count}}{\text{Total Closed Shadow Alerts}} \times 100\%$ (Highlights overly aggressive gates).
+
+## 17.6 Dynamic Sliding Queue UI Slider
+- **Queue Position Resolution**: When multiple manual or automated scanner triggers enter the execution pipeline simultaneously, the server tags active queue states dynamically based on request timestamps (`updated_at` ASC).
+- **UI Render**: Displays human-readable queue pills (`QUEUED-1`, `QUEUED-2`, `QUEUED-3`) on the Admin Dashboard health cards, updating smoothly as prior scanners release their process locks.
+
+## 17.7 Mutex Lock Telemetry & Memory Heap Profiling Surface
+- **Process Lock Telemetry (`/api/lock-stats`)**: Exposes lock acquisition counts, wait times, hold times, and contention events across `ProcessLock` instances (`eod_scanner`, `reversal_scanner`, `multi_tf_scanner`, `pullback_pipeline`, `wealth_engine`, `multibagger_scanner`).
+- **Memory Profiler Timeline**: Renders stage timeline execution durations (`StageTimelineTracker`) and peak memory heap usage per universe chunk to guarantee zero OOM memory leaks.
+
 ---
 
 # 18. VERBATIM PRODUCTION CONFIGURATION (`app/config.py`)
