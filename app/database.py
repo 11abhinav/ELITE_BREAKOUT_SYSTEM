@@ -297,6 +297,7 @@ def init_db():
                         AND column_name = 'alert_time'
                         AND data_type = 'text'
                     ) THEN
+                        ALTER TABLE alerts ALTER COLUMN alert_time DROP DEFAULT;
                         ALTER TABLE alerts ALTER COLUMN alert_time TYPE TIMESTAMPTZ USING alert_time::timestamptz;
                         ALTER TABLE alerts ALTER COLUMN alert_time SET DEFAULT NOW();
                     END IF;
@@ -1281,6 +1282,7 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $fd2$ LANGUAGE plpgsql IMMUTABLE;
 
+ALTER TABLE alerts ALTER COLUMN alert_date DROP DEFAULT;
 ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
 ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
 
