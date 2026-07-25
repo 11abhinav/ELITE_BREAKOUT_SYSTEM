@@ -340,9 +340,16 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         # Fallback fetch retry
         df = fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
 
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 15:
-        bar_cnt = len(df) if (df is not None and isinstance(df, pd.DataFrame)) else 0
-        close_val = float(df.iloc[-1]['Close']) if (df is not None and not df.empty and 'Close' in df.columns) else 0.0
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return {
+            "symbol": sym_clean,
+            "success": False,
+            "error": f"Insufficient or missing historical price data for symbol '{sym_clean}'."
+        }
+
+    if len(df) < 15:
+        bar_cnt = len(df)
+        close_val = float(df.iloc[-1]['Close']) if 'Close' in df.columns else 0.0
         return {
             "symbol": sym_clean,
             "company_name": val.get("company_name", sym_clean),
