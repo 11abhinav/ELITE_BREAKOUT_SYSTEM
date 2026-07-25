@@ -325,7 +325,9 @@ def init_db():
                             SELECT 1 FROM information_schema.columns 
                             WHERE table_name='candidates' AND column_name='alert_date' AND data_type='text'
                         ) THEN 
-                            ALTER TABLE candidates ALTER COLUMN alert_date TYPE DATE USING alert_date::DATE;
+                            ALTER TABLE candidates ALTER COLUMN alert_date DROP DEFAULT;
+                            ALTER TABLE candidates ALTER COLUMN alert_date TYPE DATE USING NULLIF(alert_date, '')::DATE;
+                            ALTER TABLE candidates ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
                         END IF;
                     END $$;
                 """)
