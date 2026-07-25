@@ -684,8 +684,8 @@ On valid trigger:
 **Key Config References:**
 - `MULTI_TF_CONFIG`: MIN_RSI=52, MAX_RSI=87, MIN_VOLUME_RATIO=2.5, PULLBACK_TRIGGER_MODE="PREVIOUS_HIGH"
 - `SCORE_THRESHOLDS["15m"] = 78`, `["1h"] = 80`
-- `ALERT_COOLDOWN_MINUTES["MULTI_TF"] = 720` (12 hours)
-- `SCANNER_MAX_ALERTS["MULTI_TF"] = 100`
+- `ALERT_COOLDOWN_MINUTES["MULTI_TF"] = 240` (4 hours)
+- `SCANNER_MAX_ALERTS["MULTI_TF"] = 15`
 
 ---
 
@@ -1062,10 +1062,7 @@ To optimize network bandwidth while ensuring candlestick accuracy, cache freshne
 ## 10.3 Thundering Herd Protection & Global Serialization
 When scheduled evening scanners or intraday Multi-TF pipelines trigger simultaneously across multiple workers, unregulated network fetches risk overwhelming external broker endpoints (Thundering Herd pattern):
 - **Global Fetch Serialization (`_fetch_lock`)**: Serializes external batch downloading across all active threads and scanner routines. Only a single thread interacts with provider HTTP sockets at a time.
-- **Double-Check Lock Pattern**: Threads waiting on `_fetch_lock` re-verify the in-memory RAM cache (`_cache`) immediately upon acquiring the lock. If the leading thread has already populated the requested symbols, waiting scanners instantly reuse the freshly populated DataFrames without generating duplicate API requests.
-
-## 10.4 Historical Shrink Protection & OHLCV Ingestion Boundaries
-Incoming DataFrames from external providers pass through rigorous structural validation prior to cache admission:
+- **Double-Check Lock Pattern**: Threads waiting on `_fetch_lock` re-verify the in-memory RAM cache (`_cache`) immediately upon acquiring the lock. If the leading thread has already populated the requested symbols, waiting scanners instantly reuse the freshly populated DataFrame.
 - **Structural Integrity Gate (`validate_ohlcv_structure`)**: Enforces strict timestamp monotonicity and fundamental price boundary rules (`High >= Low`, Open and Close within `[Low, High]` bounds, and non-negative Volume). Malformed DataFrames are instantly dropped in favor of existing stale cache elements.
 - **Anti-Shrink Protection (`MAX_HISTORY_SHRINK = 0.30`)**: Protects persistent historical caches from provider API failures or truncations. If an incoming full fetch returns a row count more than 30% smaller than the existing local Parquet record (`incoming_rows < existing_rows * (1.0 - MAX_HISTORY_SHRINK)`), the system rejects the remote payload (`Reason=HISTORICAL_SHRINK`), flags the local cache as `is_stale=True`, and retains existing historical depth.
 - **Atomic Sidecars & Pre-Enriched Indicators**: Each `.parquet` file writes an associated `.meta.json` recording `schema_version`, `indicator_version`, `ohlcv_hash` (deterministic SHA-256 fingerprint of core price columns), and row counts. Data frames are pre-calculated with canonical technical indicators via `indicator_executor` prior to persistence, ensuring read-ready analytical structures.
@@ -1702,13 +1699,13 @@ REVERSAL_CONFIG = {
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,
     "MIN_YOY_REVENUE_GROWTH": 8.0,
-    "MAX_DROP_BELOW_SMA200": 25.0,
+    "MAX_DROP_BELOW_SMA200": 20.0,
     "REVERSAL_COOLDOWN_TRADING_DAYS": 30
 }
 
 ALERT_COOLDOWN_MINUTES = {
     "WEALTH": 1440,       # 24 hours
-    "MULTI_TF": 720,      # 12 hours
+    "MULTI_TF": 240,      # 4 hours (240 minutes)
     "EOD": 1440,          # 24 hours
     "REVERSAL": 10080,    # 7 days
     "PULLBACK": 10080,    # 7 days
@@ -1865,9 +1862,15 @@ MIN_CANDLE_RANGE_PCT = 0.003   # 0.3%
 # =====================================================================================
 
 ADAPTIVE_TARGET_CAPS = {
-    "BULL":    {"15m": 8.0, "1h": 10.0, "1d": 12.0},
-    "BEAR":    {"15m": 4.0, "1h": 6.0,  "1d": 8.0},
-    "NEUTRAL": {"15m": 6.0, "1h": 8.0,  "1d": 10.0}
+    "STRONG_BULL": {"15m": 10.0, "1h": 12.0, "1d": 15.0},
+    "WEAK_BULL":   {"15m": 7.0,  "1h": 9.0,  "1d": 11.0},
+    "BULL":        {"15m": 8.0,  "1h": 10.0, "1d": 12.0},
+    "BEAR":        {"15m": 4.0,  "1h": 6.0,  "1d": 8.0},
+    "WEAK_BEAR":   {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "STRONG_BEAR": {"15m": 3.0,  "1h": 4.0,  "1d": 6.0},
+    "SIDEWAYS":    {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "RANGEBOUND":  {"15m": 5.0,  "1h": 7.0,  "1d": 9.0},
+    "NEUTRAL":     {"15m": 6.0,  "1h": 8.0,  "1d": 10.0}
 }
 
 # =====================================================================================
@@ -1876,7 +1879,7 @@ ADAPTIVE_TARGET_CAPS = {
 
 MIN_NATURAL_RR = {
     "MULTI_TF": 1.5,
-    "EOD": 2.5,
+    "EOD": 2.0,
     "REVERSAL": 2.0,
     "PULLBACK": 2.0,
 }
@@ -1923,14 +1926,6 @@ MIN_STOP_PCT = {
 TARGET_QUALITY_THRESHOLD = {
     "EOD":      55,
     "REVERSAL": 50
-}
-
-# [T1%, T2%, T3%]
-PARTIAL_EXIT = {
-    "EOD":      [40, 30, 30],
-    "REVERSAL": [30, 30, 40],
-    "MULTI_TF": [20, 30, 50],   # Aggressive partial — hold majority for momentum continuation
-    "PULLBACK": [40, 35, 25],   # Balanced partial — higher T1 given pullback entry discipline
 }
 
 STRUCTURAL_RESISTANCE_SCORES = {
