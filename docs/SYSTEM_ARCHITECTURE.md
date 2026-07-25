@@ -1428,6 +1428,9 @@ def run_system_scheduler():
         time.sleep(15) # Loop sleeps 15s for precision slot timing
 ```
 
+> [!IMPORTANT]
+> **Execution Duration Timing Rule**: `duration_seconds` logged in `scanner_health` MUST be measured strictly AFTER acquiring `scanner_execution_lock` (when the scanner enters `RUNNING` status). Queue wait time during `QUEUED` or `DEFERRED` states is excluded to ensure accurate processing latency metrics.
+
 ---
 
 # 14. ALERT LIFECYCLE, STATE MACHINE & COOLDOWN RULES
