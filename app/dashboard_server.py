@@ -3099,28 +3099,30 @@ def api_remove_user_watchlist():
 @app.route("/api/v1/user_watchlist/deep_analysis", methods=["POST"])
 @login_required
 def api_watchlist_deep_analysis():
-    """Executes full 7-stage deep diagnostic analysis on all stocks saved in user's watchlist."""
+    """Executes full 7-stage deep diagnostic analysis on all stocks saved in user's watchlist using fast 1-pass bulk batch fetching."""
     try:
         from database import get_user_watchlist
-        from stock_analyzer import analyze_symbol
+        from stock_analyzer import analyze_watchlist
         user_id = str(session.get("user_id", "DEFAULT_USER"))
         watchlist = get_user_watchlist(user_id=user_id)
         if not watchlist:
             return jsonify({"success": False, "error": "Your watchlist is empty. Add stocks first to run deep analysis."}), 400
 
+        symbols_list = [item.get("symbol") for item in watchlist if item.get("symbol")]
+        batch_res = analyze_watchlist(symbols_list, user_id=user_id, is_deep_analysis=True)
+        batch_dict = batch_res.get("batch_results", {})
+
         analyzed_items = []
-        for item in watchlist:
-            sym = item.get("symbol")
-            if sym:
-                res = analyze_symbol(sym, user_id=user_id, is_deep_analysis=True)
-                analyzed_items.append({
-                    "symbol": sym,
-                    "company_name": res.get("company_name", sym),
-                    "health_score": res.get("overall_health_score", 0.0),
-                    "watchlist_status": res.get("watchlist_status", "MONITORING"),
-                    "deficits": res.get("deficits", []),
-                    "success": res.get("success", False)
-                })
+        for sym in symbols_list:
+            res = batch_dict.get(sym, {})
+            analyzed_items.append({
+                "symbol": sym,
+                "company_name": res.get("company_name", sym),
+                "health_score": res.get("overall_health_score", 0.0),
+                "watchlist_status": res.get("watchlist_status", "MONITORING"),
+                "deficits": res.get("deficits", []),
+                "success": res.get("success", False)
+            })
 
         return jsonify({
             "success": True,

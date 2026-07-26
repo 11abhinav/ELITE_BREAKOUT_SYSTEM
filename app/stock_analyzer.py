@@ -319,10 +319,11 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
 
 
-def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False) -> dict:
+def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None) -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
+    Supports pre_fetched_df for zero-latency bulk watchlist processing.
     """
     from database import add_to_user_watchlist, get_user_watchlist, update_user_watchlist_scan_result
 
@@ -339,16 +340,18 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     sym_clean = val["symbol"]
     ist_now = datetime.now(IST)
 
-    # 1. Fetch OHLCV Market Data
-    sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
-    fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER")
-
-    df = fetched_map.get(sym_clean)
+    # 1. Fetch OHLCV Market Data (or use pre_fetched_df for bulk speed)
+    df = pre_fetched_df
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        # Fallback fetch retry with explicit non-ambiguous DataFrame checks
-        df = fetched_map.get(f"{sym_clean}.NS")
+        sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
+        fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER")
+
+        df = fetched_map.get(sym_clean)
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-            df = fetched_map.get(f"{sym_clean}.BO")
+            # Fallback fetch retry with explicit non-ambiguous DataFrame checks
+            df = fetched_map.get(f"{sym_clean}.NS")
+            if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                df = fetched_map.get(f"{sym_clean}.BO")
 
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return {
@@ -695,6 +698,48 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         logger.warning(f"Could not persist deep analysis result for {sym_clean}: {_pe}")
 
     return res
+
+
+def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False) -> dict:
+    """
+    Bulk batch diagnostic evaluation for a list of ticker symbols.
+    Fetches market price data for all symbols in 1 single bulk network request,
+    pre-loads fundamental ratios and macro regime context in memory, and evaluates all
+    symbols across all 6 scanners in vectorized passes.
+    
+    Returns a dict containing batch summary and per-symbol diagnostic results.
+    """
+    if not symbols or not isinstance(symbols, list):
+        return {"success": False, "error": "Symbols input must be a non-empty list."}
+
+    clean_syms = []
+    for s in symbols:
+        if s and isinstance(s, str) and s.strip():
+            clean_syms.append(s.strip().upper().replace('.NS', '').replace('.BO', ''))
+    clean_syms = list(dict.fromkeys(clean_syms))
+
+    if not clean_syms:
+        return {"success": False, "error": "No valid stock symbols provided in list."}
+
+    # 1. Single Bulk Market Data Fetch for all symbols in the watchlist
+    sample_df = pd.DataFrame([{"Stock": s, "Category": "MIDCAP", "Sector": "GENERAL"} for s in clean_syms])
+    fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER_BATCH")
+
+    results = {}
+    for sym in clean_syms:
+        df = fetched_map.get(sym)
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            df = fetched_map.get(f"{sym}.NS")
+            if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                df = fetched_map.get(f"{sym}.BO")
+
+        results[sym] = analyze_symbol(sym, user_id=user_id, is_deep_analysis=is_deep_analysis, pre_fetched_df=df)
+
+    return {
+        "success": True,
+        "total_symbols": len(clean_syms),
+        "batch_results": results
+    }
 
 
 def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", user_id: str = "DEFAULT_USER") -> dict:

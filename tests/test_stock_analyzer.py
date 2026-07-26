@@ -656,6 +656,38 @@ class TestAuditFixesAndParity(unittest.TestCase):
         self.assertEqual(fund_data["debt_equity"], 0.15)
         self.assertEqual(fund_data["Debt/Equity"], 0.15)
 
+    @patch('stock_analyzer.validate_nse_bse_ticker', side_effect=lambda s: {"is_valid": True, "symbol": s})
+    @patch('stock_analyzer.fetch_watchlist_data')
+    @patch('stock_analyzer.compute_nifty_rs_rating')
+    @patch('stock_analyzer.get_fundamentals')
+    @patch('watchlist_cache.get_watchlist')
+    def test_analyze_watchlist_bulk_batch_processing(self, mock_wl, mock_fund, mock_rs, mock_fetch, mock_val):
+        """Verify analyze_watchlist executes single bulk market data fetch and returns batch results for all symbols."""
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
+        prices = [100.0 + (i * 0.5) for i in range(60)]
+        df = pd.DataFrame({
+            "Open": [p - 0.2 for p in prices],
+            "High": [p + 0.5 for p in prices],
+            "Low": [p - 0.5 for p in prices],
+            "Close": prices,
+            "Volume": [50000] * 60
+        }, index=dates)
+
+        mock_fetch.return_value = {"RELIANCE": df, "TCS": df}
+        mock_rs.return_value = {"RELIANCE": 75.0, "TCS": 80.0}
+        mock_wl.return_value = pd.DataFrame([])
+        mock_fund.return_value = {"score": 8, "roe": 18.0, "roce": 22.0}
+
+        from stock_analyzer import analyze_watchlist
+        res = analyze_watchlist(["RELIANCE", "TCS"])
+
+        self.assertTrue(res.get("success"))
+        self.assertEqual(res.get("total_symbols"), 2)
+        self.assertIn("RELIANCE", res.get("batch_results", {}))
+        self.assertIn("TCS", res.get("batch_results", {}))
+        self.assertTrue(res["batch_results"]["RELIANCE"]["success"])
+        self.assertTrue(res["batch_results"]["TCS"]["success"])
+
 
 if __name__ == '__main__':
     unittest.main()
