@@ -570,17 +570,38 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # ---------------- STAGE 4: REVERSAL OVERSOLD BOUNCE ----------------
     rev_status = "NO"
     rev_reasons = []
+
+    high_52w = float(df['High'].iloc[-252:].max()) if len(df) >= 252 else float(df['High'].max())
+    drop_pct = ((high_52w - close_price) / high_52w) * 100.0 if high_52w > 0 else 0.0
+
     rsi_series = bundle.rsi_14 if hasattr(bundle, 'rsi_14') else None
     rsi_val = float(rsi_series.iloc[-1]) if rsi_series is not None and not rsi_series.empty else 50.0
+    past_15_rsi = float(rsi_series.iloc[-16:-1].min()) if rsi_series is not None and len(rsi_series) >= 16 else rsi_val
 
-    if rsi_val <= 35.0:
+    ema20_val = float(bundle.ema_20.iloc[-1]) if hasattr(bundle, 'ema_20') and bundle.ema_20 is not None and not bundle.ema_20.empty else None
+
+    rev_checks = []
+    if drop_pct < 15.0 or drop_pct > 45.0:
+        rev_checks.append(f"Drop from 52W High {drop_pct:.1f}% outside 15%–45% correction band")
+
+    is_oversold_curl = (rsi_val >= 50.0 and past_15_rsi <= 38.0) or (rsi_val <= 38.0)
+    if not is_oversold_curl:
+        rev_checks.append(f"Daily RSI {rsi_val:.1f} (requires RSI ≤38 or RSI curl ≥50 from oversold min {past_15_rsi:.1f})")
+        if rsi_val > 60:
+            deficits.append(f"🔄 Reversal RSI Deficit: RSI is {rsi_val:.1f} (requires RSI ≤38 or RSI curl from oversold for mean-reversion bounce).")
+
+    if ema20_val is not None and close_price < ema20_val:
+        rev_checks.append(f"Close ₹{close_price:.2f} < 20 EMA ₹{ema20_val:.2f} (requires 20 EMA reclaim for momentum)")
+
+    if not rev_checks:
         rev_status = "CORE MET"
-        rev_reasons.append(f"Daily RSI {rsi_val:.1f} ≤ 35.0 Oversold threshold")
+        rev_reasons.append(f"Reversal Setup Valid: Drop -{drop_pct:.1f}% from 52W High | RSI {rsi_val:.1f} (Oversold Min {past_15_rsi:.1f})" + (f" | Reclaimed 20 EMA ₹{ema20_val:.2f}" if ema20_val is not None else ""))
+    elif 15.0 <= drop_pct <= 45.0 and (past_15_rsi <= 38.0 or rsi_val <= 45.0):
+        rev_status = "WATCHLIST"
+        rev_reasons = rev_checks
     else:
         rev_status = "NO"
-        rev_reasons.append(f"Daily RSI {rsi_val:.1f} > 35.0 (Not in oversold bounce zone)")
-        if rsi_val > 60:
-            deficits.append(f"🔄 Reversal RSI Deficit: RSI is {rsi_val:.1f} (requires RSI ≤ 35.0 for mean-reversion bounce).")
+        rev_reasons = rev_checks
 
     # ---------------- STAGE 5: PULLBACK CONTINUATION PIPELINE ----------------
     # [VERSION: STOCK_ANALYZER_PB_FIX_v2.0] Full Pullback pipeline evaluation matching pullback_pipeline.py
