@@ -36,6 +36,20 @@ from config import EOD_CONFIG, REVERSAL_CONFIG, PULLBACK_CONFIG, MULTI_TF_CONFIG
 logger = logging.getLogger("stock_analyzer")
 IST = ZoneInfo("Asia/Kolkata")
 
+def _safe_num_or_none(val):
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+        res = float(val)
+        import math
+        if math.isnan(res) or math.isinf(res):
+            return None
+        return res
+    except Exception:
+        return None
+
 
 def validate_nse_bse_ticker(symbol: str) -> dict:
     """
@@ -395,8 +409,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # Defaults
     company_name = sym_clean
     sector_name = "GENERAL"
-    roce_val = 0.0
-    roe_val = 0.0
+    roce_val = None
+    roe_val = None
     debt_equity = None
     
     # 1. Fetch Core fundamental ratios from watchlist cache
@@ -404,7 +418,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         from watchlist_cache import get_watchlist
         wl = get_watchlist()
         if not wl.empty:
-            match = wl[wl['Stock'].str.upper() == sym_clean]
+            match = wl[wl['Stock'].str.upper().str.replace('.NS', '').str.replace('.BO', '') == sym_clean]
             if not match.empty:
                 row = match.iloc[0]
                 company_name = str(row.get("Company", company_name))
@@ -412,23 +426,24 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                 
                 raw_roce = row.get("ROCE %")
                 if raw_roce is not None and not pd.isna(raw_roce):
-                    roce_val = float(raw_roce)
+                    roce_val = _safe_num_or_none(raw_roce)
                     
                 raw_roe = row.get("ROE %")
                 if raw_roe is not None and not pd.isna(raw_roe):
-                    roe_val = float(raw_roe)
+                    roe_val = _safe_num_or_none(raw_roe)
                     
                 raw_de = row.get("Debt/Equity", row.get("Debt to equity"))
                 if raw_de is not None and not pd.isna(raw_de):
-                    debt_equity = float(raw_de)
+                    debt_equity = _safe_num_or_none(raw_de)
     except Exception as e:
         logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
 
     # 2. Fallback to temp_universe.parquet (940+ equities with TradingView fundamental ratios)
-    if (roce_val <= 0.0 or roe_val <= 0.0 or debt_equity is None) and os.path.exists("data/temp_universe.parquet"):
+    if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None) and os.path.exists("data/temp_universe.parquet"):
         try:
             tu_df = pd.read_parquet("data/temp_universe.parquet")
-            tu_match = tu_df[tu_df['ticker'].astype(str).str.upper().str.contains(sym_clean)]
+            clean_tickers = tu_df['ticker'].astype(str).str.upper().str.replace('.NS', '').str.replace('.BO', '')
+            tu_match = tu_df[clean_tickers == sym_clean]
             if tu_match.empty:
                 tu_match = tu_df[tu_df['name'].astype(str).str.upper() == sym_clean]
             if not tu_match.empty:
@@ -438,38 +453,38 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                 if sector_name == "GENERAL" and pd.notna(tu_row.get("sector")):
                     sector_name = str(tu_row.get("sector"))
 
-                if roce_val <= 0.0:
+                if roce_val is None:
                     raw_roce = tu_row.get("return_on_invested_capital_fq", tu_row.get("roce"))
                     if raw_roce is not None and not pd.isna(raw_roce):
-                        roce_val = float(raw_roce)
+                        roce_val = _safe_num_or_none(raw_roce)
 
-                if roe_val <= 0.0:
+                if roe_val is None:
                     raw_roe = tu_row.get("return_on_equity_fy", tu_row.get("return_on_equity"))
                     if raw_roe is not None and not pd.isna(raw_roe):
-                        roe_val = float(raw_roe)
+                        roe_val = _safe_num_or_none(raw_roe)
 
                 if debt_equity is None:
                     raw_de = tu_row.get("debt_to_equity_fq", tu_row.get("debt_to_equity"))
                     if raw_de is not None and not pd.isna(raw_de):
-                        debt_equity = float(raw_de)
+                        debt_equity = _safe_num_or_none(raw_de)
         except Exception as _tue:
             logger.warning(f"Failed to fetch temp_universe fundamentals for {sym_clean}: {_tue}")
 
     # 3. Fallback to fund_data (Piotroski / Yahoo Cache)
-    if (roce_val <= 0.0 or roe_val <= 0.0 or debt_equity is None) and fund_data:
-        if roce_val <= 0.0 and fund_data.get("roce") is not None:
-            roce_val = float(fund_data.get("roce"))
-        if roe_val <= 0.0 and fund_data.get("roe") is not None:
-            roe_val = float(fund_data.get("roe"))
+    if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None) and fund_data:
+        if (roce_val is None or roce_val <= 0.0) and fund_data.get("roce") is not None:
+            roce_val = _safe_num_or_none(fund_data.get("roce"))
+        if (roe_val is None or roe_val <= 0.0) and fund_data.get("roe") is not None:
+            roe_val = _safe_num_or_none(fund_data.get("roe"))
         if debt_equity is None and fund_data.get("debt_equity") is not None:
-            debt_equity = float(fund_data.get("debt_equity"))
+            debt_equity = _safe_num_or_none(fund_data.get("debt_equity"))
 
     # 4. On-demand fundamentals cache fallback for missing ROE/ROCE or Piotroski Score
     # [VERSION: FUND_MERGE_FIX_v1.0] CRITICAL FIX: Never overwrite a valid cached Piotroski score (e.g. 8)
     # with a live on-demand fetch score (e.g. 3). The batch scan runs quarterly with full annual data;
     # live on-demand fetches use daily Yahoo data and can produce lower/different scores.
     # Rule: existing score in cache wins; on-demand only fills MISSING fields.
-    if roce_val <= 0.0 or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
+    if roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
         try:
             from fundamentals_cache import fetch_single_piotroski
             lookup_sym = "TMCV" if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"] else sym_clean
@@ -486,12 +501,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                     # Restore the cached score if it existed and was valid (>= 0)
                     if existing_score is not None and existing_score >= 0:
                         fund_data["score"] = existing_score
-                if roe_val <= 0.0 and on_demand_fund.get("roe") is not None:
-                    roe_val = float(on_demand_fund.get("roe"))
-                if roce_val <= 0.0 and on_demand_fund.get("roce") is not None:
-                    roce_val = float(on_demand_fund.get("roce"))
+                if (roe_val is None or roe_val <= 0.0) and on_demand_fund.get("roe") is not None:
+                    roe_val = _safe_num_or_none(on_demand_fund.get("roe"))
+                if (roce_val is None or roce_val <= 0.0) and on_demand_fund.get("roce") is not None:
+                    roce_val = _safe_num_or_none(on_demand_fund.get("roce"))
                 if debt_equity is None and on_demand_fund.get("debt_equity") is not None:
-                    debt_equity = float(on_demand_fund.get("debt_equity"))
+                    debt_equity = _safe_num_or_none(on_demand_fund.get("debt_equity"))
         except Exception as _fe:
             logger.warning(f"On-demand fundamental fetch fallback failed for {sym_clean}: {_fe}")
 
@@ -560,9 +575,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         tech_score += 15.0
 
     fund_score = 50.0
-    if roce_val >= 20.0:
+    if roce_val is not None and roce_val >= 20.0:
         fund_score += 20.0
-    if roe_val >= 15.0:
+    if roe_val is not None and roe_val >= 15.0:
         fund_score += 15.0
     if debt_equity is not None and debt_equity <= 0.5:
         fund_score += 15.0
