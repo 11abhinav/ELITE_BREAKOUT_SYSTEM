@@ -2976,14 +2976,22 @@ def api_symbols_master_list():
 @app.route("/api/v1/analyze_stock", methods=["GET"])
 @login_required
 def api_analyze_stock():
-    """Runs full 7-stage dry-run diagnostic evaluation for a single ticker."""
+    """Runs full 7-stage dry-run diagnostic evaluation for a single ticker with stock_analysis_master caching."""
     try:
         from stock_analyzer import analyze_symbol
+        from database import get_stock_master_analysis
         symbol = request.args.get("symbol", "").strip()
         is_deep = request.args.get("is_deep_analysis", "false").lower() == "true"
+        force_refresh = request.args.get("force_refresh", "false").lower() == "true"
         user_id = session.get("user_id", "DEFAULT_USER")
         if not symbol:
             return jsonify({"success": False, "error": "Symbol parameter is required."}), 400
+
+        # Check stock_analysis_master repository first for instant 0ms pre-scanned report
+        if not force_refresh:
+            cached_master = get_stock_master_analysis(symbol)
+            if cached_master and isinstance(cached_master, dict) and cached_master.get("funnel"):
+                return jsonify(cached_master)
 
         result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep)
         return jsonify(result)

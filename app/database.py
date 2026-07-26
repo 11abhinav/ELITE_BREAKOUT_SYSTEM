@@ -5975,6 +5975,34 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
         return False
 
 
+def get_stock_master_analysis(symbol: str) -> dict:
+    """Fetch cached deep analysis result JSON from stock_analysis_master global repository."""
+    if not symbol:
+        return None
+    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT deep_analysis_result, last_deep_analysis_at, health_score, status
+                    FROM stock_analysis_master
+                    WHERE symbol = %s
+                """, (sym_clean,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    try:
+                        res = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                        if isinstance(res, dict):
+                            res["cached_from_master"] = True
+                            return res
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.warning(f"Could not fetch stock_analysis_master for {sym_clean}: {e}")
+    return None
+
+
 # ── MASTER SYMBOLS REGISTRY HELPER FUNCTIONS ─────────────────────────────────────
 
 def sync_master_symbols(symbol_rows: list) -> bool:
