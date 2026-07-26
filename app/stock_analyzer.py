@@ -15,9 +15,15 @@ import swing_utils
 import scoring_engine
 from macro_utils import compute_nifty_rs_rating, MarketRegimeEngine
 from price_cache import fetch_watchlist_data
+from technical_indicators import apply_indicators
 from fundamentals_cache import get_fundamentals
 from watchlist_cache import get_watchlist
 from sl_target_helper import compute_sl_and_target
+from eod_scanner import evaluate_eod_symbol
+from reversal_scanner import evaluate_reversal_symbol
+from pullback_pipeline import evaluate_pullback_symbol
+from wealth_engine import evaluate_wealth_symbol
+from multibagger import evaluate_multibagger_symbol
 from database import (
     init_db, get_connection, save_alert_if_new,
     get_user_watchlist, update_user_watchlist_scan_result,
@@ -516,7 +522,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         db_reasons.append(f"Price ₹{close_price:.2f} ≥ ₹100.0 | Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {history_len} ≥ 50")
 
     # Indicators & Moving Averages
-    vol_ratio = 1.0
+    vol_20d_med = float(df['Volume'].iloc[-21:-1].median()) if len(df) >= 21 else float(df['Volume'].median())
+    vol_ratio = (volume_val / vol_20d_med) if vol_20d_med > 0 else 1.0
+    rsi_val = float(bundle.rsi_14.iloc[-1]) if hasattr(bundle, 'rsi_14') and bundle.rsi_14 is not None and not bundle.rsi_14.empty and not pd.isna(bundle.rsi_14.iloc[-1]) else 50.0
     sma50_val = float(bundle.sma_50.iloc[-1]) if hasattr(bundle, 'sma_50') and bundle.sma_50 is not None and not bundle.sma_50.empty and not pd.isna(bundle.sma_50.iloc[-1]) else None
     sma200_val = float(bundle.sma_200.iloc[-1]) if hasattr(bundle, 'sma_200') and bundle.sma_200 is not None and not bundle.sma_200.empty and not pd.isna(bundle.sma_200.iloc[-1]) else None
     ema20_val = float(bundle.ema_20.iloc[-1]) if hasattr(bundle, 'ema_20') and bundle.ema_20 is not None and not bundle.ema_20.empty and not pd.isna(bundle.ema_20.iloc[-1]) else None
@@ -525,182 +533,26 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # Trend alignment: Close > SMA50 > SMA200
     is_uptrend = (sma50_val is not None and sma200_val is not None and close_price > sma50_val > sma200_val)
 
-    # ---------------- STAGE 2: EOD BREAKOUT SCANNER ----------------
-    eod_status = "NO"
-    eod_reasons = []
+    # Evaluate canonical per-symbol evaluators directly from production scanner modules
+    regime_ctx = {"trend": "NEUTRAL", "biases": {}}
+    eod_eval = evaluate_eod_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    rev_eval = evaluate_reversal_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    pb_eval = evaluate_pullback_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    we_eval = evaluate_wealth_symbol(sym_clean, df, fund_data=fund_data)
+    mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
 
-    if not db_pass:
-        eod_reasons.append("Skipped (Failed Daily Builder Universe Gate)")
-    else:
-        prior_20d_high = float(df['High'].iloc[-21:-1].max()) if len(df) >= 21 else float(df['High'].max())
-        is_breakout = close_price > prior_20d_high
-
-        vol_20d_med = float(df['Volume'].iloc[-21:-1].median()) if len(df) >= 21 else float(df['Volume'].median())
-        vol_ratio = (volume_val / vol_20d_med) if vol_20d_med > 0 else 1.0
-
-        candle_range = high_price - low_price
-        candle_body = abs(close_price - open_price)
-        upper_wick = high_price - max(close_price, open_price)
-        body_ratio = (candle_body / candle_range) if candle_range > 0 else 0.0
-        wick_ratio = (upper_wick / candle_range) if candle_range > 0 else 0.0
-        close_pos = ((close_price - low_price) / candle_range) if candle_range > 0 else 0.0
-        atr_exp_ratio = (candle_range / atr20_val) if atr20_val and atr20_val > 0 else 1.0
-
-        eod_checks = []
-        if not is_breakout:
-            eod_checks.append(f"Close ₹{close_price:.2f} ≤ Prior 20D High ₹{prior_20d_high:.2f}")
-        if vol_ratio < 1.8:
-            eod_checks.append(f"Volume Ratio {vol_ratio:.2f}x < 1.8x threshold")
-            deficits.append(f"🔊 Volume Surge Deficit: Current Volume Ratio is {vol_ratio:.2f}x (lacks +{max(0.0, 1.8 - vol_ratio):.2f}x for 1.8x EOD threshold).")
-        if wick_ratio > 0.35:
-            eod_checks.append(f"Upper Wick {wick_ratio*100:.1f}% > 35% max limit")
-            deficits.append(f"🕯️ Upper Wick Deficit: Upper Wick is {wick_ratio*100:.1f}% of candle range (needs ≤35% for clean breakout close).")
-        if close_price <= open_price:
-            eod_checks.append("Candle is not bullish (Close ≤ Open)")
-        if body_ratio < 0.45:
-            eod_checks.append(f"Body Ratio {body_ratio*100:.1f}% < 45% min")
-        if close_pos < 0.65:
-            eod_checks.append(f"Close Position {close_pos*100:.1f}% < 65% min")
-        if atr_exp_ratio < 0.9:
-            eod_checks.append(f"ATR Expansion {atr_exp_ratio:.2f}x < 0.9x min")
-
-        if not eod_checks:
-            eod_status = "CORE MET"
-            eod_reasons.append(f"Clean Breakout Close (₹{close_price:.2f} > ₹{prior_20d_high:.2f}) | Volume Surge {vol_ratio:.2f}x ≥ 1.8x | Bullish Candle (Body {body_ratio*100:.0f}%, Wick {wick_ratio*100:.0f}%)")
-        else:
-            eod_status = "NO"
-            eod_reasons = eod_checks
-
-    # ---------------- STAGE 3: MULTI-TF INTRADAY SCANNER ----------------
+    eod_status = eod_eval.get("status", "NO")
+    eod_reasons = eod_eval.get("reasons", [])
+    rev_status = rev_eval.get("status", "NO")
+    rev_reasons = rev_eval.get("reasons", [])
+    pb_status = pb_eval.get("status", "NO")
+    pb_reasons = pb_eval.get("reasons", [])
+    we_status = we_eval.get("status", "NO")
+    we_reasons = we_eval.get("reasons", [])
+    mb_status = mb_eval.get("status", "NO")
+    mb_reasons = mb_eval.get("reasons", [])
     mtf_status = "NO"
-    mtf_reasons = []
-    if not db_pass:
-        mtf_reasons.append("Skipped (Failed Daily Builder Universe Gate)")
-    else:
-        mtf_reasons.append("INTRADAY ONLY: Requires live 15-minute volume explosion spike during market hours (09:30–14:45 IST)")
-
-    # ---------------- STAGE 4: REVERSAL OVERSOLD BOUNCE ----------------
-    rev_status = "NO"
-    rev_reasons = []
-
-    high_52w = float(df['High'].iloc[-252:].max()) if len(df) >= 252 else float(df['High'].max())
-    drop_pct = ((high_52w - close_price) / high_52w) * 100.0 if high_52w > 0 else 0.0
-
-    rsi_series = bundle.rsi_14 if hasattr(bundle, 'rsi_14') else None
-    rsi_val = float(rsi_series.iloc[-1]) if rsi_series is not None and not rsi_series.empty and not pd.isna(rsi_series.iloc[-1]) else 50.0
-    past_15_rsi = float(rsi_series.iloc[-16:-1].min()) if rsi_series is not None and len(rsi_series) >= 16 else rsi_val
-
-    rev_checks = []
-    if drop_pct < 20.0 or drop_pct > 45.0:
-        rev_checks.append(f"Drop from 52W High {drop_pct:.1f}% outside strict 20%–45% correction band")
-
-    is_oversold_curl = (rsi_val >= 50.0 and past_15_rsi <= 38.0) or (rsi_val <= 38.0)
-    if not is_oversold_curl:
-        rev_checks.append(f"Daily RSI {rsi_val:.1f} (requires RSI ≤38 or RSI curl ≥50 from oversold min {past_15_rsi:.1f})")
-        if rsi_val > 60:
-            deficits.append(f"🔄 Reversal RSI Deficit: RSI is {rsi_val:.1f} (requires RSI ≤38 or RSI curl from oversold for mean-reversion bounce).")
-
-    if sma50_val is not None and close_price < sma50_val:
-        rev_checks.append(f"Close ₹{close_price:.2f} < 50 SMA ₹{sma50_val:.2f} (requires trend recovery reclaim)")
-    elif ema20_val is not None and close_price < ema20_val:
-        rev_checks.append(f"Close ₹{close_price:.2f} < 20 EMA ₹{ema20_val:.2f} (requires EMA20 momentum reclaim)")
-
-    if not rev_checks:
-        rev_status = "CORE MET"
-        rev_reasons.append(f"Reversal Setup Valid: Drop -{drop_pct:.1f}% from 52W High | RSI {rsi_val:.1f} (Oversold Min {past_15_rsi:.1f})" + (f" | Reclaimed 50 SMA ₹{sma50_val:.2f}" if sma50_val is not None else ""))
-    elif 20.0 <= drop_pct <= 45.0 and (past_15_rsi <= 38.0 or rsi_val <= 45.0):
-        rev_status = "WATCHLIST"
-        rev_reasons = rev_checks
-    else:
-        rev_status = "NO"
-        rev_reasons = rev_checks
-
-    # ---------------- STAGE 5: PULLBACK CONTINUATION PIPELINE ----------------
-    pb_status = "NO"
-    pb_reasons = []
-
-    if not is_uptrend:
-        pb_status = "NO"
-        pb_reasons.append("Trend Failure: Price not strictly above SMA50 > SMA200")
-        deficits.append("📈 Trend Structure Deficit: Price is not aligned above SMA50 > SMA200 (requires established uptrend).")
-    else:
-        try:
-            pivots = swing_utils.detect_confirmed_pivots(df, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
-            if not pivots:
-                pb_status = "NO"
-                pb_reasons.append("No confirmed swing pivots detected")
-                deficits.append("📉 Swing Structure Deficit: No confirmed swing high/low pivots found for pullback calculation.")
-            else:
-                impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
-                if not impulse:
-                    pb_status = "NO"
-                    pb_reasons.append("No valid impulse origin wave found (requires impulse gain ≥8.0%)")
-                    deficits.append("🌊 Impulse Wave Deficit: No valid impulse leg identified from swing pivots (requires ≥8.0% gain).")
-                else:
-                    ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
-                    if not ps.valid:
-                        pb_status = "NO"
-                        pb_reasons.append(f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x)")
-                        deficits.append(f"📐 Retracement Deficit: Pullback depth {ps.depth_pct:.1f}% or volume ratio {ps.volume_ratio:.2f}x outside 23.6%–61.8% bounds.")
-                    else:
-                        trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
-                        if trig.valid:
-                            pb_status = "CORE MET"
-                            pb_reasons.append(f"Resumption Trigger Confirmed @ ₹{trig.entry_price:.2f} (Depth {ps.depth_pct:.1f}%, Vol {ps.volume_ratio:.2f}x)")
-                        else:
-                            pb_status = "WATCHLIST"
-                            pb_reasons.append(f"Valid Pullback Structure (Depth {ps.depth_pct:.1f}%) — Awaiting Resumption Trigger Bar")
-                            deficits.append("⌛ Resumption Trigger Deficit: Stock is in pullback zone, but hasn't formed a bullish resumption trigger candle yet.")
-        except Exception as _pbe:
-            pb_status = "NO"
-            pb_reasons.append(f"Pullback calculation error: {str(_pbe)}")
-
-    # ---------------- STAGE 6: WEALTH ENGINE ----------------
-    we_status = "NO"
-    we_reasons = []
-
-    mcap_cr = fund_data.get("market_cap", 0.0) / 1e7 if fund_data.get("market_cap") else 0.0
-    yoy_sales = fund_data.get("yoy_revenue") * 100.0 if fund_data.get("yoy_revenue") is not None else None
-    yoy_profit = fund_data.get("yoy_profit") * 100.0 if fund_data.get("yoy_profit") is not None else None
-    peg_val = fund_data.get("peg_ratio")
-
-    we_buckets = []
-    # 1. Core Compounder (ROCE >= 20%, ROE >= 15%, D/E <= 0.50)
-    if roce_val >= 20.0 and roe_val >= 15.0 and debt_equity <= 0.50:
-        we_buckets.append("Core Compounder")
-
-    # 2. Growth Multiplier (YoY Sales >= 20%, YoY Profit >= 20%, ROCE >= 15%)
-    sales_ok = (yoy_sales is not None and yoy_sales >= 20.0)
-    profit_ok = (yoy_profit is not None and yoy_profit >= 20.0)
-    if sales_ok and profit_ok and roce_val >= 15.0:
-        we_buckets.append("Growth Multiplier")
-
-    # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 15%)
-    if roce_val >= 15.0 and debt_equity <= 1.0 and drop_pct >= 15.0:
-        we_buckets.append("Quality-On-Sale")
-
-    # 4. Opportunistic (YoY Profit >= 40%)
-    if yoy_profit is not None and yoy_profit >= 40.0:
-        we_buckets.append("Opportunistic")
-
-    # Wealth Engine Technical Trend Gate: CMP > SMA200
-    is_trend_ok = (sma200_val is not None and not pd.isna(sma200_val) and sma200_val > 0 and close_price > sma200_val)
-
-    # Check valuation ceiling PEG <= 3.0
-    peg_ok = (peg_val is None or peg_val <= 3.0)
-
-    if we_buckets and is_trend_ok and peg_ok:
-        we_status = "CORE MET"
-        we_reasons.append(f"Wealth Engine Qualified ({', '.join(we_buckets)}) | Close ₹{close_price:.2f} > 200DMA ₹{float(sma200_val):.2f}")
-    elif we_buckets and not is_trend_ok:
-        we_status = "WATCHLIST"
-        we_reasons.append(f"Wealth Bucket Met ({', '.join(we_buckets)}) — Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{float(sma200_val) if sma200_val else 0.0:.2f}")
-    elif debt_equity <= 1.0 and roce_val >= 12.0:
-        we_status = "WATCHLIST"
-        we_reasons.append(f"Wealth Watchlist Tier: ROCE {roce_val:.1f}%, D/E {debt_equity:.2f}")
-    else:
-        we_status = "NO"
-        we_reasons.append(f"Lacks Wealth Engine Setup (ROCE {roce_val:.1f}%, D/E {debt_equity:.2f})")
+    mtf_reasons = ["INTRADAY ONLY: Requires live 15-minute volume explosion spike during market hours (09:30–14:45 IST)"]
 
     # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
     tech_score = 50.0
@@ -720,42 +572,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         fund_score += 15.0
 
     overall_health_score = min(100.0, round((tech_score * 0.5) + (fund_score * 0.3) + (rs_percentile * 0.2), 1))
-
-    # ---------------- STAGE 7: MULTIBAGGER ENGINE ----------------
-    mb_status = "NO"
-    mb_reasons = []
-
-    raw_f_score = fund_data.get("score", fund_data.get("piotroski_score"))
-    f_score = int(raw_f_score) if raw_f_score is not None else 6
-    raw_pledge = fund_data.get("promoter_pledge_pct")
-    pledge_pct = float(raw_pledge) if raw_pledge is not None else 0.0
-
-    mb_issues = []
-    if pledge_pct > 15.0:
-        mb_issues.append(f"Promoter Pledge {pledge_pct:.1f}% > 15.0% max limit")
-        deficits.append(f"🔒 Promoter Pledge Deficit: Promoter Pledge is {pledge_pct:.1f}% (requires ≤15.0%).")
-
-    # Check 🚀 Prime Multibagger (requires Piotroski >= 7, Pledge <= 10%, Uptrend)
-    is_prime_fscore = (f_score >= 7) and (pledge_pct <= 10.0)
-    # Check 💎 High Quality Multibagger (requires Health Score >= 65, Pledge <= 15%, Uptrend)
-    is_high_quality = (overall_health_score >= 65.0) and (pledge_pct <= 15.0) and is_uptrend
-
-    if is_prime_fscore and is_uptrend:
-        mb_status = "CORE MET (Prime)"
-        mb_reasons.append(f"🚀 Prime Compounder: Piotroski {f_score}/9 | Pledge {pledge_pct:.1f}% ≤ 10% | Strong Trend")
-    elif is_high_quality:
-        mb_status = "CORE MET (High Quality)"
-        mb_reasons.append(f"💎 High Quality Multibagger: Health Score {overall_health_score:.1f} ≥ 65 | Piotroski {f_score}/9 | Pledge {pledge_pct:.1f}% ≤ 15%")
-    elif f_score >= 5 or overall_health_score >= 50.0:
-        mb_status = "WATCHLIST"
-        if f_score < 7:
-            mb_issues.append(f"Piotroski F-Score {f_score} < 7 (Prime Tier requires F-Score ≥7)")
-        mb_reasons = mb_issues if mb_issues else ["Score in Watchlist tier (50-64)"]
-    else:
-        mb_status = "NO"
-        if f_score < 7:
-            mb_issues.append(f"Piotroski F-Score {f_score} < 7 min")
-        mb_reasons = mb_issues
 
     # Clean duplicates in deficits list (max 4 deficits)
     deficits = list(dict.fromkeys(deficits))[:4]
@@ -840,12 +656,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         "deficits": deficits,
         "funnel": {
             "daily_builder": {"status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
-            "eod_breakout": {"status": eod_status, "reasons": eod_reasons},
+            "eod_breakout": {**eod_eval, "status": eod_status, "reasons": eod_reasons},
             "multi_tf": {"status": mtf_status, "reasons": mtf_reasons},
-            "reversal": {"status": rev_status, "reasons": rev_reasons},
-            "pullback": {"status": pb_status, "reasons": pb_reasons},
-            "wealth_engine": {"status": we_status, "reasons": we_reasons},
-            "multibagger": {"status": mb_status, "reasons": mb_reasons}
+            "reversal": {**rev_eval, "status": rev_status, "reasons": rev_reasons},
+            "pullback": {**pb_eval, "status": pb_status, "reasons": pb_reasons},
+            "wealth_engine": {**we_eval, "status": we_status, "reasons": we_reasons},
+            "multibagger": {**mb_eval, "status": mb_status, "reasons": mb_reasons}
         }
     }
 
@@ -866,7 +682,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", user_id: str = "DEFAULT_USER") -> dict:
     """
     Promotes a qualified analysis result to an ACTIVE BUY ALERT in the database.
-    Calculates exact Entry, Stop Loss, Target 1/2/3, Scores, and dispatches Telegram notification.
+    Enforces Deep Analysis execution (is_deep_analysis=True) and uses production evaluator scores, real ATRs, structural stop losses, and target levels.
     """
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     scanner_type = scanner_type.strip().upper()
@@ -875,7 +691,8 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     if scanner_type not in ALLOWED_SCANNERS:
         return {"success": False, "error": f"Invalid scanner type '{scanner_type}'. Allowed scanners: {', '.join(sorted(ALLOWED_SCANNERS))}"}
 
-    res = analyze_symbol(sym_clean, user_id=user_id)
+    # Enforce Deep Analysis Execution
+    res = analyze_symbol(sym_clean, user_id=user_id, is_deep_analysis=True)
     if not res.get("success"):
         return {"success": False, "error": res.get("error", "Analysis failed")}
 
@@ -898,30 +715,26 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
             "error": f"Symbol '{sym_clean}' did not qualify for {scanner_type} scanner (Status: {stage_status}). Reasons: {reasons_str}"
         }
 
-    entry_price = float(res.get("close_price", 100.0))
+    entry_price = float(scanner_stage.get("entry_price", res.get("close_price", 100.0)))
+    atr_val = float(scanner_stage.get("atr_20", res.get("close_price", 100.0) * 0.025))
+    score_val = int(scanner_stage.get("score", res.get("overall_health_score", 85)))
+    sl_val = scanner_stage.get("stop_loss")
+    t1_val = scanner_stage.get("target_1")
+    t2_val = scanner_stage.get("target_2")
+    t3_val = scanner_stage.get("target_3")
+    t4_val = scanner_stage.get("target_4")
 
-    # Fetch real 20-day ATR for exact stop loss and target calculation
-    atr_val = None
-    try:
-        data_res = fetch_symbol_price_data(sym_clean)
-        if data_res.get("success") and isinstance(data_res.get("df"), pd.DataFrame):
-            df_temp = data_res["df"]
-            bundle = get_indicator_bundle(sym_clean, df_temp)
-            if hasattr(bundle, 'atr_20') and bundle.atr_20 is not None and not bundle.atr_20.empty and not pd.isna(bundle.atr_20.iloc[-1]):
-                atr_val = float(bundle.atr_20.iloc[-1])
-    except Exception as _atre:
-        logger.warning(f"Failed to fetch 20D ATR for manual alert on {sym_clean}: {_atre}")
-
-    if not atr_val or atr_val <= 0:
-        atr_val = entry_price * 0.025 # Fallback to 2.5% ATR approximation
-
-    sl_target = compute_sl_and_target(entry_price=entry_price, atr=atr_val, mode=scanner_type)
-
-    if sl_target.get("is_rejected"):
-        return {"success": False, "error": f"Risk engine rejected target calculation: {sl_target.get('rejection_reason')}"}
+    if not sl_val or not t1_val:
+        sl_target = compute_sl_and_target(entry_price=entry_price, atr=atr_val, mode=scanner_type)
+        if sl_target.get("is_rejected"):
+            return {"success": False, "error": f"Risk engine rejected target calculation: {sl_target.get('rejection_reason')}"}
+        sl_val = sl_target.get("stop_loss")
+        t1_val = sl_target.get("target_1")
+        t2_val = sl_target.get("target_2")
+        t3_val = sl_target.get("target_3")
+        t4_val = sl_target.get("target_4")
 
     ist_now = datetime.now(IST)
-    score_val = int(res.get("overall_health_score", 85))
 
     saved, reason, alert_id, _ = save_alert_if_new(
         symbol=sym_clean,

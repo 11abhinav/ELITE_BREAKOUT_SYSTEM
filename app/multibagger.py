@@ -40,6 +40,96 @@ from core.multibagger_pipeline import run_pipeline_for_symbol
 
 logger = logging.getLogger("multibagger")
 IST = ZoneInfo("Asia/Kolkata")
+def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production Multibagger V5 scanner rules.
+    Runs full V5 composite scoring, quality/valuation/trend gates, Piotroski & promoter pledge checks, conviction tier classification, and target calculations without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0.0,
+            "qualified": False
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(ticker) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
+
+    latest = ticker.iloc[-1]
+    close_price = float(latest["Close"])
+
+    fd = fund_data or {}
+    raw_f_score = fd.get("score", fd.get("piotroski_score"))
+    f_score = int(raw_f_score) if (raw_f_score is not None and not pd.isna(raw_f_score)) else None
+    raw_pledge = fd.get("promoter_pledge_pct")
+    pledge_pct = float(raw_pledge) if (raw_pledge is not None and not pd.isna(raw_pledge)) else None
+
+    # Call V5 pipeline for exact composite scoring
+    composite_score = 70.0
+    try:
+        from wealth_engine import map_watchlist_to_v5
+        v5_dict = map_watchlist_to_v5({**fd, "Stock": symbol, "Close": close_price})
+        v5_decision = run_pipeline_for_symbol(symbol, v5_dict)
+        if v5_decision and hasattr(v5_decision, 'composite_score'):
+            composite_score = float(v5_decision.composite_score)
+    except Exception as _v5e:
+        logger.warning(f"Could not compute V5 score for {symbol}: {_v5e}")
+
+    sma50 = float(ticker["Close"].rolling(50).mean().iloc[-1]) if len(ticker) >= 50 else close_price
+    sma200 = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else close_price
+    is_uptrend = (close_price > sma50 > sma200)
+
+    is_prime = False
+    is_high_quality = False
+
+    if f_score is not None and pledge_pct is not None:
+        is_prime = (f_score >= 7) and (pledge_pct <= 10.0) and is_uptrend and (composite_score >= 70.0)
+        is_high_quality = (composite_score >= 65.0) and (pledge_pct <= 15.0) and is_uptrend
+    else:
+        is_prime = (composite_score >= 75.0) and is_uptrend
+        is_high_quality = (composite_score >= 65.0) and is_uptrend
+
+    is_qualified = bool(is_prime or is_high_quality)
+
+    reasons = []
+    if is_prime:
+        reasons.append(f"🚀 Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {pledge_pct if pledge_pct is not None else 0.0:.1f}% ≤ 10%")
+    elif is_high_quality:
+        reasons.append(f"💎 High Quality Multibagger: V5 Score {composite_score:.1f} ≥ 65 | Pledge {pledge_pct if pledge_pct is not None else 0.0:.1f}% ≤ 15%")
+    elif f_score is not None and f_score < 7:
+        reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score ≥7)")
+    elif pledge_pct is not None and pledge_pct > 15.0:
+        reasons.append(f"Promoter Pledge {pledge_pct:.1f}% > 15.0% maximum ceiling")
+    else:
+        reasons.append(f"Multibagger V5 Score {composite_score:.1f} < 65.0 threshold")
+
+    from sl_target_helper import compute_sl_and_target
+    atr_val = float(latest.get("ATR", close_price * 0.025)) if "ATR" in ticker.columns else (close_price * 0.025)
+    sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTIBAGGER", ticker=ticker)
+
+    status_str = "CORE MET (Prime)" if is_prime else ("CORE MET (High Quality)" if is_high_quality else ("WATCHLIST" if composite_score >= 50.0 else "NO"))
+
+    return {
+        "status": status_str,
+        "reasons": reasons,
+        "score": composite_score,
+        "qualified": is_qualified,
+        "conviction_tier": "Prime" if is_prime else ("High Quality" if is_high_quality else "Watchlist"),
+        "entry_price": close_price,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": atr_val
+    }
+
 CACHE_PATH = "data/multibagger_fundamentals_cache.json"
 
 

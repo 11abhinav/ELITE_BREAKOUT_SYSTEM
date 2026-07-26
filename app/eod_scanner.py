@@ -77,6 +77,133 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
+def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production EOD breakout scanner rules.
+    Runs full breakout detection, candle body/wick gates, ATR expansion, trend alignment, scoring engine, and target calculations without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0.0,
+            "qualified": False
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.loc[:, ~ticker.columns.duplicated()]
+
+    required_cols = ["Open", "High", "Low", "Close", "Volume"]
+    for col in required_cols:
+        if col not in ticker.columns:
+            return {"status": "NO", "reasons": [f"Missing required price column '{col}'"], "score": 0.0, "qualified": False}
+        ticker[col] = pd.Series(ticker[col]).astype(float)
+
+    ticker = ticker.dropna(subset=required_cols)
+    if ticker.empty or len(ticker) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
+
+    ticker = apply_indicators(ticker, timeframe="1d")
+    latest = ticker.iloc[-1]
+    candle_high = _safe_float(latest.get("High"))
+    candle_low = _safe_float(latest.get("Low"))
+    candle_open = _safe_float(latest.get("Open"))
+    candle_close = _safe_float(latest.get("Close"))
+    candle_range = candle_high - candle_low
+
+    if candle_range <= 0:
+        return {"status": "NO", "reasons": ["Invalid zero candle price range"], "score": 0.0, "qualified": False}
+
+    candle_body = abs(candle_close - candle_open)
+    upper_wick = candle_high - max(candle_close, candle_open)
+    body_ratio = candle_body / candle_range
+    close_pos = (candle_close - candle_low) / candle_range
+    wick_ratio = upper_wick / candle_range
+
+    avg_volume = float(ticker["Volume"].iloc[-21:-1].mean()) if len(ticker) >= 22 else float(ticker["Volume"].iloc[:-1].mean())
+    vol_ratio = (_safe_float(latest.get("Volume")) / avg_volume) if avg_volume > 0 else 1.0
+    rsi_val = _safe_float(latest.get("RSI"), 50.0)
+
+    prior_high = float(ticker['High'].iloc[-21:-1].max()) if len(ticker) >= 21 else float(ticker['High'].max())
+    is_breakout = (candle_close > prior_high)
+
+    atr20 = _safe_float(latest.get("ATR20"), _safe_float(latest.get("ATR"), candle_close * 0.025))
+    atr_exp_ratio = (candle_range / atr20) if atr20 > 0 else 1.0
+    ema20_ext = ((candle_close - prior_high) / atr20) if atr20 > 0 else 0.0
+
+    checks = []
+    if not is_breakout:
+        checks.append(f"Close ₹{candle_close:.2f} ≤ Prior 20D High ₹{prior_high:.2f}")
+    if vol_ratio < MIN_VOLUME_RATIO:
+        checks.append(f"Volume Ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x threshold")
+    if wick_ratio > MAX_UPPER_WICK_RATIO:
+        checks.append(f"Upper Wick {wick_ratio*100:.1f}% > {MAX_UPPER_WICK_RATIO*100:.0f}% max limit")
+    if candle_close <= candle_open:
+        checks.append("Bearish candle (Close ≤ Open)")
+    if body_ratio < MIN_BODY_RATIO:
+        checks.append(f"Body Ratio {body_ratio*100:.1f}% < {MIN_BODY_RATIO*100:.0f}% min")
+    if close_pos < MIN_CLOSE_POSITION:
+        checks.append(f"Close Position {close_pos*100:.1f}% < {MIN_CLOSE_POSITION*100:.0f}% min")
+    if candle_close < MIN_STOCK_PRICE:
+        checks.append(f"Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum price floor")
+
+    if checks:
+        return {
+            "status": "NO",
+            "reasons": checks,
+            "score": 0.0,
+            "qualified": False,
+            "entry_price": candle_close,
+            "atr_20": atr20
+        }
+
+    signals = detect_breakouts(ticker, timeframe="1d")
+    score, _, _ = calculate_score(
+        category=fund_data.get("Category", "EQUITY") if fund_data else "EQUITY",
+        breakout_count=len(signals),
+        rsi=rsi_val,
+        volume_ratio=vol_ratio,
+        breakout_signals=signals,
+        ticker=ticker,
+        latest=latest,
+        symbol=symbol,
+        timeframe="1d",
+        atr_val=atr20,
+        regime_ctx=regime_ctx
+    )
+
+    score_threshold = SCORE_THRESHOLDS.get("1d", 82)
+    is_qualified = (score >= score_threshold)
+
+    sl_result = compute_sl_and_target(
+        entry_price=candle_close,
+        atr=atr20,
+        candle_range=candle_range,
+        mode="EOD",
+        rsi=rsi_val,
+        candle_low=candle_low,
+        ticker=ticker
+    )
+
+    status_str = "CORE MET" if is_qualified else "NO"
+    reasons = [f"Clean Breakout Close (₹{candle_close:.2f} > ₹{prior_high:.2f}) | Volume Surge {vol_ratio:.2f}x ≥ 1.8x | EOD Score {score:.1f}/100"] if is_qualified else [f"Score {score:.1f} < {score_threshold} minimum threshold"]
+
+    return {
+        "status": status_str,
+        "reasons": reasons,
+        "score": score,
+        "qualified": is_qualified,
+        "entry_price": candle_close,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": atr20
+    }
+
 def start(force: bool = False):
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")

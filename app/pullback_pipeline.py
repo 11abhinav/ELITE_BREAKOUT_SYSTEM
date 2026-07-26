@@ -30,6 +30,103 @@ logger = logging.getLogger("pullback_scanner")
 IST = ZoneInfo("Asia/Kolkata")
 _scan_lock = ProcessLock("pullback_scanner")
 
+def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production Pullback Continuation scanner rules.
+    Runs trend alignment (Close > SMA50 > SMA200), swing pivot detection, impulse wave selection (gain >= 8%), retracement depth (23.6%-61.8%), resumption trigger candle, scoring, and target calculations without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0.0,
+            "qualified": False
+        }
+
+    historical_view = df.copy()
+    if isinstance(historical_view.columns, pd.MultiIndex):
+        historical_view.columns = historical_view.columns.get_level_values(0)
+    historical_view = historical_view.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(historical_view) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(historical_view)} < 50)"], "score": 0.0, "qualified": False}
+
+    from indicator_manager import manager
+    try:
+        bundle = manager.compute_base_indicators(historical_view, symbol)
+    except Exception as _ie:
+        return {"status": "NO", "reasons": [f"Failed to compute technical indicators: {_ie}"], "score": 0.0, "qualified": False}
+
+    last_bar = historical_view.iloc[-1]
+    close_price = float(last_bar['Close'])
+    sma50_val = float(bundle.sma_50.iloc[-1]) if hasattr(bundle, 'sma_50') and bundle.sma_50 is not None and not bundle.sma_50.empty and not pd.isna(bundle.sma_50.iloc[-1]) else None
+    sma200_val = float(bundle.sma_200.iloc[-1]) if hasattr(bundle, 'sma_200') and bundle.sma_200 is not None and not bundle.sma_200.empty and not pd.isna(bundle.sma_200.iloc[-1]) else None
+
+    if not (sma50_val and sma200_val and close_price > sma50_val > sma200_val):
+        return {
+            "status": "NO",
+            "reasons": [f"Trend Failure: Close ₹{close_price:.2f} is not aligned above SMA50 ₹{sma50_val if sma50_val else 0:.2f} > SMA200 ₹{sma200_val if sma200_val else 0:.2f}"],
+            "score": 0.0,
+            "qualified": False,
+            "entry_price": close_price
+        }
+
+    pivots = swing_utils.detect_confirmed_pivots(historical_view, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
+    if not pivots:
+        return {"status": "NO", "reasons": ["No confirmed swing high/low pivots found for pullback calculation"], "score": 0.0, "qualified": False, "entry_price": close_price}
+
+    impulse = swing_utils.select_pullback_origin(pivots, historical_view, PULLBACK_CONFIG)
+    if not impulse:
+        return {"status": "NO", "reasons": ["No valid impulse origin leg identified (requires impulse gain ≥8.0%)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+
+    ps = swing_utils.measure_pullback(historical_view, impulse, PULLBACK_CONFIG)
+    if not ps.valid:
+        return {"status": "NO", "reasons": [f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x outside 23.6%–61.8% bounds)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+
+    trig = swing_utils.detect_resumption_trigger(historical_view, ps, PULLBACK_CONFIG)
+    if not trig.valid:
+        return {
+            "status": "WATCHLIST",
+            "reasons": [f"Valid Pullback Structure (Depth {ps.depth_pct:.1f}%) — Awaiting Bullish Resumption Trigger Candle"],
+            "score": 65.0,
+            "qualified": False,
+            "entry_price": close_price
+        }
+
+    entry_val = float(trig.entry_price)
+    base_score = 70.0
+    maturity_penalties = {0: 0, 1: 0, 2: -3, 3: -6}
+    penalty = maturity_penalties.get(ps.pullback_count_in_trend, -10)
+    final_score = min(100.0, base_score + penalty)
+
+    required_threshold = 75.0
+    is_qualified = (final_score >= required_threshold)
+
+    sl_result = compute_sl_and_target(
+        entry_price=entry_val,
+        atr=float(ps.impulse.end.price - ps.pullback_low.price) * 0.2 if hasattr(ps, 'pullback_low') and ps.pullback_low else (entry_val * 0.025),
+        mode="PULLBACK",
+        swing_low=ps.pullback_low.price if hasattr(ps, 'pullback_low') and ps.pullback_low else None,
+        swing_high=ps.impulse.end.price if hasattr(ps, 'impulse') and ps.impulse else None
+    )
+
+    status_str = "CORE MET" if is_qualified else "NO"
+    reasons = [f"Resumption Trigger Confirmed @ ₹{entry_val:.2f} (Depth {ps.depth_pct:.1f}%, Vol {ps.volume_ratio:.2f}x) | Pullback Score {final_score:.1f}/100"] if is_qualified else [f"Pullback Score {final_score:.1f} < {required_threshold} threshold"]
+
+    return {
+        "status": status_str,
+        "reasons": reasons,
+        "score": final_score,
+        "qualified": is_qualified,
+        "entry_price": entry_val,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": float(entry_val * 0.025)
+    }
+
 def start(force: bool = False):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.

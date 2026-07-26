@@ -1628,7 +1628,7 @@ class ReversalAdapter(BaseRiskEngine):
 def compute_sl_and_target(
     entry_price:    float,
     atr:            Optional[float],
-    candle_range:   float,
+    candle_range:   float = 0.0,
     mode:           Optional[str]   = None,     
     engine_version: str             = "v1.0",
     **kwargs

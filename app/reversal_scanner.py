@@ -257,6 +257,147 @@ def _score_reversal(
     return min(score + inst_bonus, 100)
 
 
+def evaluate_reversal_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production Reversal Oversold Bounce scanner rules.
+    Runs full 52W drop band checks, RSI curl, EMA20/SMA50 reclaims, volume surges, MACD crossovers, reversal scoring, and target calculations without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0,
+            "qualified": False
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(ticker) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0, "qualified": False}
+
+    ticker = apply_indicators(ticker, timeframe="1d")
+    if ticker is None or ticker.empty:
+        return {"status": "NO", "reasons": ["Failed to calculate technical indicators"], "score": 0, "qualified": False}
+
+    latest = ticker.iloc[-1]
+    close_price = float(latest["Close"])
+    high_52w = float(latest.get("HIGH_52W", ticker["High"].iloc[-252:].max() if len(ticker) >= 252 else ticker["High"].max()))
+
+    if high_52w <= 0:
+        return {"status": "NO", "reasons": ["Invalid 52-week high price"], "score": 0, "qualified": False}
+
+    drop_pct = ((high_52w - close_price) / high_52w) * 100.0
+    cat_str = str(fund_data.get("Category", "")).lower() if fund_data else ""
+    is_quality_cat = any(q in cat_str for q in ["wealth", "blue chip", "debt-free"])
+    effective_min_drop = 15.0 if is_quality_cat else MIN_DROP_FROM_52W_HIGH
+
+    checks = []
+    if drop_pct < effective_min_drop or drop_pct > MAX_DROP_FROM_52W_HIGH:
+        checks.append(f"Drop from 52W High {drop_pct:.1f}% outside {effective_min_drop:.1f}%–{MAX_DROP_FROM_52W_HIGH:.1f}% correction band")
+
+    if close_price < MIN_STOCK_PRICE:
+        checks.append(f"Close ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum price floor")
+
+    avg_vol_20d = float(ticker["Volume"].iloc[-21:-1].mean()) if len(ticker) >= 22 else float(ticker["Volume"].mean())
+    if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
+        checks.append(f"20D Avg Volume {avg_vol_20d:.0f} < {MIN_AVG_DAILY_VOLUME:.0f} shares minimum liquidity")
+
+    current_rsi = float(latest.get("RSI", 50.0))
+    recent_rsi = ticker["RSI"].dropna().iloc[-16:-1] if "RSI" in ticker.columns else pd.Series()
+    past_15_rsi = recent_rsi.min() if not recent_rsi.empty else current_rsi
+
+    if current_rsi < RSI_CURL_MIN or past_15_rsi > RSI_OVERSOLD_THRESHOLD:
+        checks.append(f"Current RSI {current_rsi:.1f} < {RSI_CURL_MIN} or minimum 15-bar RSI {past_15_rsi:.1f} > {RSI_OVERSOLD_THRESHOLD}")
+
+    ema20 = float(latest.get("EMA20", close_price))
+    if close_price < ema20:
+        checks.append(f"Close ₹{close_price:.2f} < 20 EMA ₹{ema20:.2f} (requires momentum reclaim)")
+
+    vol_now = float(latest.get("Volume", 0.0))
+    vol_ratio = (vol_now / avg_vol_20d) if avg_vol_20d > 0 else 1.0
+    if vol_ratio < MIN_VOLUME_RATIO:
+        checks.append(f"Volume Ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x threshold")
+
+    macd_bullish_cross_recent = False
+    if len(ticker) >= 11 and "MACD" in ticker.columns and "MACD_SIGNAL" in ticker.columns:
+        try:
+            macd_bullish_cross_recent = any(
+                float(ticker["MACD"].iloc[-i]) > float(ticker["MACD_SIGNAL"].iloc[-i]) and
+                float(ticker["MACD"].iloc[-i-1]) <= float(ticker["MACD_SIGNAL"].iloc[-i-1])
+                for i in range(1, min(11, len(ticker)-1))
+            )
+        except Exception:
+            pass
+
+    if not macd_bullish_cross_recent:
+        checks.append("No fresh MACD bullish crossover in last 10 daily bars")
+
+    if checks:
+        return {
+            "status": "NO",
+            "reasons": checks,
+            "score": 0,
+            "qualified": False,
+            "entry_price": close_price,
+            "atr_20": float(latest.get("ATR", close_price * 0.025))
+        }
+
+    pct_below_sma200 = None
+    if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")):
+        sma200_val = float(latest["SMA200"])
+        if sma200_val > 0:
+            pct_below_sma200 = (sma200_val - close_price) / sma200_val * 100.0
+
+    above_sma50 = bool(close_price >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else False
+    above_sma200 = bool(close_price >= float(latest["SMA200"])) if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")) else False
+    atr_val = float(latest.get("ATR", close_price * 0.025))
+
+    score = _score_reversal(
+        vol_ratio=vol_ratio,
+        drop_pct=drop_pct,
+        current_rsi=current_rsi,
+        past_10_rsi_min=past_15_rsi,
+        macd_hist=float(latest.get("MACD_HIST", 0.0)),
+        pct_below_sma200=pct_below_sma200,
+        category=fund_data.get("Category", "EQUITY") if fund_data else "EQUITY",
+        rr_ratio=2.5,
+        above_sma50=above_sma50,
+        above_sma200=above_sma200,
+        close_price=close_price,
+        symbol=symbol,
+        atr_val=atr_val
+    )
+
+    is_qualified = (score >= MIN_REVERSAL_SCORE)
+    sl_result = compute_sl_and_target(
+        entry_price=close_price,
+        atr=atr_val,
+        mode="REVERSAL",
+        rsi=current_rsi,
+        ticker=ticker
+    )
+
+    status_str = "CORE MET" if is_qualified else "NO"
+    reasons = [f"Reversal Setup Valid: Drop -{drop_pct:.1f}% from 52W High | RSI {current_rsi:.1f} | Reversal Score {score}/100"] if is_qualified else [f"Score {score} < {MIN_REVERSAL_SCORE} minimum threshold"]
+
+    return {
+        "status": status_str,
+        "reasons": reasons,
+        "score": score,
+        "qualified": is_qualified,
+        "entry_price": close_price,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": atr_val
+    }
+
+
 # [FIX 1] FAILED-REVERSAL COOLDOWN HELPER ──────────────────────────────────────────────
 def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
     try:

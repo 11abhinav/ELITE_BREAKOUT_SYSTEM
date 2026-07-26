@@ -39,7 +39,104 @@ from database import get_recent_concall_analysis
 WORKER_COUNT = 3  # Hardcoded to 3 to prevent OOM kills on Railway (500MB RAM limit)
 RETRY_ATTEMPTS = 3
 
-logger = logging.getLogger(__name__)
+def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production Wealth Engine rules.
+    Evaluates 4 buckets (Core Compounder, Growth Multiplier, Quality-On-Sale, Opportunistic), CMP > SMA200 trend gate, PEG <= 3.0 valuation ceiling, and computes targets without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0.0,
+            "qualified": False
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(ticker) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
+
+    latest = ticker.iloc[-1]
+    close_price = float(latest["Close"])
+    high_52w = float(ticker["High"].iloc[-252:].max()) if len(ticker) >= 252 else float(ticker["High"].max())
+    drop_pct = ((high_52w - close_price) / high_52w) * 100.0 if high_52w > 0 else 0.0
+
+    sma200_val = None
+    if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")):
+        sma200_val = float(latest["SMA200"])
+    else:
+        sma200_val = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else None
+
+    is_trend_ok = (sma200_val is not None and sma200_val > 0 and close_price > sma200_val)
+
+    fd = fund_data or {}
+    roce = _safe_num(fd.get("roce", fd.get("ROCE %", fd.get("roce_val", 0.0))))
+    roe = _safe_num(fd.get("roe", fd.get("ROE %", fd.get("roe_val", 0.0))))
+    debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
+    yoy_sales = fd.get("yoy_revenue", fd.get("YOY Revenue %"))
+    yoy_profit = fd.get("yoy_profit", fd.get("YOY Profit %"))
+    peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
+
+    yoy_sales_pct = (float(yoy_sales) * 100.0) if (yoy_sales is not None and not pd.isna(yoy_sales)) else None
+    yoy_profit_pct = (float(yoy_profit) * 100.0) if (yoy_profit is not None and not pd.isna(yoy_profit)) else None
+    peg_num = float(peg_val) if (peg_val is not None and not pd.isna(peg_val)) else None
+
+    buckets = []
+    # 1. Core Compounder (ROCE >= 20%, ROE >= 15%, D/E <= 0.50)
+    if roce >= 20.0 and roe >= 15.0 and debt_equity <= 0.50:
+        buckets.append("Core Compounder")
+
+    # 2. Growth Multiplier (YoY Sales >= 20%, YoY Profit >= 20%, ROCE >= 15%)
+    sales_ok = (yoy_sales_pct is not None and yoy_sales_pct >= 20.0)
+    profit_ok = (yoy_profit_pct is not None and yoy_profit_pct >= 20.0)
+    if sales_ok and profit_ok and roce >= 15.0:
+        buckets.append("Growth Multiplier")
+
+    # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 15%)
+    if roce >= 15.0 and debt_equity <= 1.0 and drop_pct >= 15.0:
+        buckets.append("Quality-On-Sale")
+
+    # 4. Opportunistic (YoY Profit >= 40%)
+    if yoy_profit_pct is not None and yoy_profit_pct >= 40.0:
+        buckets.append("Opportunistic")
+
+    peg_ok = (peg_num is None or peg_num <= 3.0)
+    is_qualified = bool(buckets and is_trend_ok and peg_ok)
+
+    reasons = []
+    if is_qualified:
+        reasons.append(f"Wealth Engine Qualified ({', '.join(buckets)}) | Close ₹{close_price:.2f} > 200DMA ₹{sma200_val:.2f}")
+    elif buckets and not is_trend_ok:
+        reasons.append(f"Wealth Setup Met ({', '.join(buckets)}) — Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{sma200_val if sma200_val else 0:.2f}")
+    elif buckets and not peg_ok:
+        reasons.append(f"Wealth Setup Met ({', '.join(buckets)}) — PEG Ceiling Rejection: PEG {peg_num:.2f} > 3.0 max limit")
+    else:
+        reasons.append(f"Lacks Wealth Engine Setup (ROCE {roce:.1f}%, D/E {debt_equity:.2f})")
+
+    from sl_target_helper import compute_sl_and_target
+    atr_val = float(latest.get("ATR", close_price * 0.025)) if "ATR" in ticker.columns else (close_price * 0.025)
+    sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="WEALTH", ticker=ticker)
+
+    status_str = "CORE MET" if is_qualified else ("WATCHLIST" if buckets else "NO")
+
+    return {
+        "status": status_str,
+        "reasons": reasons,
+        "buckets": buckets,
+        "score": 85.0 if is_qualified else 50.0,
+        "qualified": is_qualified,
+        "entry_price": close_price,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": atr_val
+    }
 
 WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 
