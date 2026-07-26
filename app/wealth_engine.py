@@ -77,12 +77,24 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     roce = _safe_num(fd.get("roce", fd.get("ROCE %", fd.get("roce_val", 0.0))))
     roe = _safe_num(fd.get("roe", fd.get("ROE %", fd.get("roe_val", 0.0))))
     debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
-    yoy_sales = fd.get("yoy_revenue", fd.get("YOY Revenue %"))
-    yoy_profit = fd.get("yoy_profit", fd.get("YOY Profit %"))
+    yoy_sales_raw = fd.get("yoy_revenue", fd.get("YOY Revenue %"))
+    yoy_profit_raw = fd.get("yoy_profit", fd.get("YOY Profit %"))
     peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
 
-    yoy_sales_pct = (float(yoy_sales) * 100.0) if (yoy_sales is not None and not pd.isna(yoy_sales)) else None
-    yoy_profit_pct = (float(yoy_profit) * 100.0) if (yoy_profit is not None and not pd.isna(yoy_profit)) else None
+    yoy_sales_pct = None
+    if yoy_sales_raw is not None and not pd.isna(yoy_sales_raw):
+        try:
+            v_sales = float(yoy_sales_raw)
+            yoy_sales_pct = v_sales * 100.0 if abs(v_sales) <= 5.0 else v_sales
+        except Exception: pass
+
+    yoy_profit_pct = None
+    if yoy_profit_raw is not None and not pd.isna(yoy_profit_raw):
+        try:
+            v_profit = float(yoy_profit_raw)
+            yoy_profit_pct = v_profit * 100.0 if abs(v_profit) <= 5.0 else v_profit
+        except Exception: pass
+
     peg_num = float(peg_val) if (peg_val is not None and not pd.isna(peg_val)) else None
 
     buckets = []

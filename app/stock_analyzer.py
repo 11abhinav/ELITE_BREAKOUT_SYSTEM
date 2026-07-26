@@ -418,6 +418,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     roce_val = None
     roe_val = None
     debt_equity = None
+    yoy_sales_val = None
+    yoy_profit_val = None
     
     # 1. Fetch Core fundamental ratios from watchlist cache
     try:
@@ -441,6 +443,14 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                 raw_de = row.get("Debt/Equity", row.get("Debt to equity"))
                 if raw_de is not None and not pd.isna(raw_de):
                     debt_equity = _safe_num_or_none(raw_de)
+
+                raw_ys = row.get("YOY Revenue %", row.get("YOY Revenue", row.get("yoy_revenue")))
+                if raw_ys is not None and not pd.isna(raw_ys):
+                    yoy_sales_val = _safe_num_or_none(raw_ys)
+
+                raw_yp = row.get("YOY Profit %", row.get("YOY Profit", row.get("yoy_profit")))
+                if raw_yp is not None and not pd.isna(raw_yp):
+                    yoy_profit_val = _safe_num_or_none(raw_yp)
     except Exception as e:
         logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
 
@@ -473,6 +483,16 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                     raw_de = tu_row.get("debt_to_equity_fq", tu_row.get("debt_to_equity"))
                     if raw_de is not None and not pd.isna(raw_de):
                         debt_equity = _safe_num_or_none(raw_de)
+
+                if yoy_sales_val is None:
+                    raw_tu_ys = tu_row.get("revenue_growth_yoy", tu_row.get("yoy_revenue"))
+                    if raw_tu_ys is not None and not pd.isna(raw_tu_ys):
+                        yoy_sales_val = _safe_num_or_none(raw_tu_ys)
+
+                if yoy_profit_val is None:
+                    raw_tu_yp = tu_row.get("net_income_growth_yoy", tu_row.get("yoy_profit"))
+                    if raw_tu_yp is not None and not pd.isna(raw_tu_yp):
+                        yoy_profit_val = _safe_num_or_none(raw_tu_yp)
         except Exception as _tue:
             logger.warning(f"Failed to fetch temp_universe fundamentals for {sym_clean}: {_tue}")
 
@@ -531,6 +551,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         fund_data["debt_equity"] = debt_equity
         fund_data["debt_to_equity"] = debt_equity
         fund_data["Debt/Equity"] = debt_equity
+    if yoy_sales_val is not None:
+        fund_data["yoy_revenue"] = yoy_sales_val
+        fund_data["YOY Revenue %"] = yoy_sales_val
+    if yoy_profit_val is not None:
+        fund_data["yoy_profit"] = yoy_profit_val
+        fund_data["YOY Profit %"] = yoy_profit_val
 
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
