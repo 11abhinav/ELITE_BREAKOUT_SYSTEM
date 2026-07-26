@@ -3,6 +3,8 @@
 # ON-DEMAND STOCK ANALYZER, FUNNEL DIAGNOSTICS & MANUAL ALERT ENGINE
 # =====================================================================================
 
+import os
+import json
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -363,7 +365,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     roe_val = 0.0
     debt_equity = 0.0
     
-    # Fetch Core fundamental ratios from watchlist cache
+    # 1. Fetch Core fundamental ratios from watchlist cache
     try:
         from watchlist_cache import get_watchlist
         wl = get_watchlist()
@@ -387,6 +389,69 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                     debt_equity = float(raw_de)
     except Exception as e:
         logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
+
+    # 2. Fallback to temp_universe.parquet (940+ equities with TradingView fundamental ratios)
+    if (roce_val <= 0.0 or roe_val <= 0.0) and os.path.exists("data/temp_universe.parquet"):
+        try:
+            tu_df = pd.read_parquet("data/temp_universe.parquet")
+            tu_match = tu_df[tu_df['ticker'].astype(str).str.upper().str.contains(sym_clean)]
+            if tu_match.empty:
+                tu_match = tu_df[tu_df['name'].astype(str).str.upper() == sym_clean]
+            if not tu_match.empty:
+                tu_row = tu_match.iloc[0]
+                if company_name == sym_clean and pd.notna(tu_row.get("name")):
+                    company_name = str(tu_row.get("name"))
+                if sector_name == "GENERAL" and pd.notna(tu_row.get("sector")):
+                    sector_name = str(tu_row.get("sector"))
+
+                if roce_val <= 0.0:
+                    raw_roce = tu_row.get("return_on_invested_capital_fq", tu_row.get("roce"))
+                    if raw_roce is not None and not pd.isna(raw_roce):
+                        roce_val = float(raw_roce)
+
+                if roe_val <= 0.0:
+                    raw_roe = tu_row.get("return_on_equity_fy", tu_row.get("return_on_equity"))
+                    if raw_roe is not None and not pd.isna(raw_roe):
+                        roe_val = float(raw_roe)
+
+                if debt_equity <= 0.0:
+                    raw_de = tu_row.get("debt_to_equity_fq", tu_row.get("debt_to_equity"))
+                    if raw_de is not None and not pd.isna(raw_de):
+                        debt_equity = float(raw_de)
+        except Exception as _tue:
+            logger.warning(f"Failed to fetch temp_universe fundamentals for {sym_clean}: {_tue}")
+
+    # 3. Fallback to fund_data (Piotroski / Yahoo Cache)
+    if (roce_val <= 0.0 or roe_val <= 0.0) and fund_data:
+        if roce_val <= 0.0 and fund_data.get("roce") is not None:
+            roce_val = float(fund_data.get("roce"))
+        if roe_val <= 0.0 and fund_data.get("roe") is not None:
+            roe_val = float(fund_data.get("roe"))
+        if debt_equity <= 0.0 and fund_data.get("debt_equity") is not None:
+            debt_equity = float(fund_data.get("debt_equity"))
+
+    # 4. On-demand Yahoo Finance ticker info fallback for missing ROE/ROCE
+    if roce_val <= 0.0 or roe_val <= 0.0:
+        try:
+            import yfinance as yf
+            yf_sym = f"{sym_clean}.NS"
+            if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"]:
+                yf_sym = "TMCV.NS"
+            t_obj = yf.Ticker(yf_sym)
+            inf = t_obj.info or {}
+            if inf:
+                if roe_val <= 0.0 and inf.get("returnOnEquity") is not None:
+                    roe_val = float(inf.get("returnOnEquity")) * 100.0
+                if roce_val <= 0.0:
+                    roa = inf.get("returnOnAssets")
+                    if roa is not None:
+                        roce_val = float(roa) * 100.0 * 1.35
+                    elif roe_val > 0.0:
+                        roce_val = roe_val * 0.95
+                if debt_equity <= 0.0 and inf.get("debtToEquity") is not None:
+                    debt_equity = float(inf.get("debtToEquity")) / 100.0
+        except Exception:
+            pass
 
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
