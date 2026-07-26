@@ -133,7 +133,16 @@ def _load_master_symbol_dictionary() -> dict:
 
     master = {}
 
-    # 1. Load from temp_universe.parquet (940+ universe tickers with name & sector)
+    # 1. Load from DB table master_symbols
+    try:
+        from database import get_all_master_symbols
+        db_symbols = get_all_master_symbols()
+        if db_symbols:
+            master.update(db_symbols)
+    except Exception as e:
+        logger.warning(f"Error loading master_symbols from DB in autocomplete: {e}")
+
+    # 2. Load from temp_universe.parquet (940+ universe tickers with name & sector)
     if os.path.exists("data/temp_universe.parquet"):
         try:
             df = pd.read_parquet("data/temp_universe.parquet")
@@ -142,7 +151,7 @@ def _load_master_symbol_dictionary() -> dict:
                 sym = re.sub(r"^(NSE|BSE):", "", raw).replace(".NS", "").replace(".BO", "").strip()
                 name = str(r.get("name", sym)).strip()
                 sec = str(r.get("sector", "EQUITY")).strip()
-                if sym:
+                if sym and sym not in master:
                     master[sym] = {
                         "symbol": sym,
                         "company_name": name if name != "nan" else sym,
@@ -151,7 +160,7 @@ def _load_master_symbol_dictionary() -> dict:
         except Exception as e:
             logger.warning(f"Error loading temp_universe in autocomplete: {e}")
 
-    # 2. Load from watchlist CSV files (active and excluded)
+    # 3. Load from watchlist CSV files (active and excluded)
     for f in ["data/elite_fundamental_watchlist.csv", "data/elite_fundamental_watchlist_excluded.csv"]:
         if os.path.exists(f):
             try:
@@ -177,7 +186,7 @@ def _load_master_symbol_dictionary() -> dict:
             except Exception as e:
                 logger.warning(f"Error loading {f} in autocomplete: {e}")
 
-    # 3. Load from history directory Parquet files (~685 tickers)
+    # 4. Load from history directory Parquet files (~685 tickers)
     hist_dir = "data/history/1d"
     if os.path.exists(hist_dir):
         try:
@@ -193,7 +202,7 @@ def _load_master_symbol_dictionary() -> dict:
         except Exception as e:
             logger.warning(f"Error loading history parquet in autocomplete: {e}")
 
-    # 4. Load from DB tables if connection is available
+    # 5. Load from DB tables if connection is available
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -232,19 +241,35 @@ def _load_master_symbol_dictionary() -> dict:
     return master
 
 
+def refresh_master_symbols_universe() -> bool:
+    """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols into DB master_symbols table."""
+    try:
+        from database import sync_master_symbols
+        m = _load_master_symbol_dictionary()
+        if m:
+            symbol_rows = list(m.values())
+            ok = sync_master_symbols(symbol_rows)
+            logger.info(f"✅ 07:00 AM IST Master Symbol Refresh: Synced {len(symbol_rows)} equities into master_symbols table.")
+            return ok
+        return False
+    except Exception as e:
+        logger.error(f"❌ Failed to execute master symbols universe refresh: {e}")
+        return False
+
+
 def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     """
     Real-time autocomplete search returning matching NSE/BSE symbols & company titles.
-    Searches across active watchlist, excluded list, full universe, history caches, and DB mappings.
-    Always includes what user typed as a fallback option if it's a valid ticker format.
+    Searches across active watchlist, excluded list, full universe, history caches, and DB master_symbols.
+    Supports space/punctuation insensitive matching (e.g. 'tata motors' -> TATAMOTORS).
     """
     if not query or len(query.strip()) < 1:
         return []
 
     import re
-    q_clean = query.strip().upper()
+    q_raw = query.strip().upper()
+    q_nospace = re.sub(r"[\s\-\&\.]+", "", q_raw)
 
-    # 1. Dynamically load get_watchlist() to support mock objects in tests and live updates
     wl_items = {}
     try:
         wl = get_watchlist()
@@ -270,31 +295,20 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     contains_matches = []
     seen = set()
 
-    # If get_watchlist returned non-empty wl_items, prioritize them
-    if wl_items:
-        for sym, item in wl_items.items():
-            comp = item["company_name"].upper()
-            if sym == q_clean:
-                exact_matches.append(item)
-                seen.add(sym)
-            elif sym.startswith(q_clean):
-                prefix_matches.append(item)
-                seen.add(sym)
-            elif q_clean in sym or q_clean in comp:
-                contains_matches.append(item)
-                seen.add(sym)
-
     for sym, item in m.items():
         if sym in seen:
             continue
         comp = item["company_name"].upper()
-        if sym == q_clean:
+        sym_nospace = re.sub(r"[\s\-\&\.]+", "", sym)
+        comp_nospace = re.sub(r"[\s\-\&\.]+", "", comp)
+
+        if sym == q_raw or sym_nospace == q_nospace or comp == q_raw or comp_nospace == q_nospace:
             exact_matches.append(item)
             seen.add(sym)
-        elif sym.startswith(q_clean):
+        elif sym.startswith(q_raw) or sym_nospace.startswith(q_nospace) or comp.startswith(q_raw) or comp_nospace.startswith(q_nospace):
             prefix_matches.append(item)
             seen.add(sym)
-        elif q_clean in sym or q_clean in comp:
+        elif q_raw in sym or q_raw in comp or q_nospace in sym_nospace or q_nospace in comp_nospace:
             contains_matches.append(item)
             seen.add(sym)
 

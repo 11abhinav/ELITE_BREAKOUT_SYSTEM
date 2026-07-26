@@ -1231,6 +1231,12 @@ def run_system_scheduler():
     except Exception as e:
         logger.error(f"Boot perf tracker failed: {e}")
         
+    try:
+        from stock_analyzer import refresh_master_symbols_universe
+        refresh_master_symbols_universe()
+    except Exception as _msb:
+        logger.warning(f"Boot master symbols refresh warning: {_msb}")
+
     verify_scans()
 
     while True:
@@ -1270,7 +1276,15 @@ def run_system_scheduler():
                 safe_run_multibagger_scan_initial()
             elif now.hour != 4:
                 multibagger_initial_ran = False
-            
+
+            # 7:00 AM - Master Symbols Universe Refresh (active NSE/BSE equities refresh)
+            if now.hour == 7 and now.minute >= 0 and not verify_scans_ran:
+                try:
+                    from stock_analyzer import refresh_master_symbols_universe
+                    refresh_master_symbols_universe()
+                except Exception as _mse:
+                    logger.warning(f"⚠️ [07:00 AM IST] Master symbols refresh warning: {_mse}")
+
             now = datetime.now(IST)
             
             # 8:30 AM - Verify Scans

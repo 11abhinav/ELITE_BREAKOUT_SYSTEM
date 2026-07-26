@@ -242,6 +242,19 @@ def init_db():
                 """)
 
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS master_symbols (
+                        symbol TEXT PRIMARY KEY,
+                        company_name TEXT NOT NULL,
+                        exchange TEXT DEFAULT 'NSE',
+                        sector TEXT DEFAULT 'EQUITY',
+                        is_active BOOLEAN DEFAULT TRUE,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
+
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS breakout_watchlist (
                         symbol TEXT PRIMARY KEY,
                         category TEXT,
@@ -5884,4 +5897,64 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
     except Exception as e:
         logger.error(f"Failed to update user watchlist scan result for {sym_clean}: {e}")
         return False
+
+
+# ── MASTER SYMBOLS REGISTRY HELPER FUNCTIONS ─────────────────────────────────────
+
+def sync_master_symbols(symbol_rows: list) -> bool:
+    """
+    Bulk upsert active NSE & BSE equity symbols into master_symbols table.
+    symbol_rows: list of dicts [{'symbol': 'TATAMOTORS', 'company_name': 'Tata Motors Limited', 'exchange': 'NSE', 'sector': 'AUTOMOBILE'}]
+    """
+    if not symbol_rows:
+        return False
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                args = [
+                    (
+                        r["symbol"].upper().strip(),
+                        r.get("company_name", r["symbol"]).strip(),
+                        r.get("exchange", "NSE").strip(),
+                        r.get("sector", "EQUITY").strip()
+                    )
+                    for r in symbol_rows if r.get("symbol")
+                ]
+                cur.executemany("""
+                    INSERT INTO master_symbols (symbol, company_name, exchange, sector, is_active, last_updated)
+                    VALUES (%s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (symbol) DO UPDATE
+                    SET company_name = EXCLUDED.company_name,
+                        exchange = EXCLUDED.exchange,
+                        sector = EXCLUDED.sector,
+                        is_active = TRUE,
+                        last_updated = CURRENT_TIMESTAMP
+                """, args)
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to sync master symbols: {e}")
+        return False
+
+def get_all_master_symbols() -> dict:
+    """Fetch dictionary of all active master symbols for subsecond autocomplete & validation."""
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol, company_name, sector, exchange FROM master_symbols WHERE is_active = TRUE")
+                rows = cur.fetchall()
+                res = {}
+                for r in rows:
+                    res[r[0]] = {
+                        "symbol": r[0],
+                        "company_name": r[1] or r[0],
+                        "sector": r[2] or "EQUITY",
+                        "exchange": r[3] or "NSE"
+                    }
+                return res
+    except Exception as e:
+        logger.warning(f"Failed to fetch master symbols from DB: {e}")
+        return {}
 
