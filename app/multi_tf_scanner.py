@@ -131,10 +131,11 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     score = 80.0 if adx_val >= 30.0 else 75.0
     atr_val = float(latest.get("ATR", close_price * 0.025))
 
-    # Evaluate 30m (Phase B) and 15m (Phase C) intraday timeframes if available
+    # Evaluate 30m (Phase B), 15m (Phase C), and 5m (Phase D) intraday timeframes if available
     phase_details = [f"1H Trend Permission Met (EMA Alignment | ADX {adx_val:.1f} | Close ₹{close_price:.2f} near Breakout ₹{prior_high:.2f})"]
     has_30m_pass = False
     has_15m_pass = False
+    has_5m_pass = False
 
     try:
         m30_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="30m")
@@ -167,7 +168,32 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     except Exception:
         pass
 
-    status_tag = "CORE MET (Phase A+B+C)" if (has_30m_pass and has_15m_pass) else ("CORE MET (Phase A+B)" if has_30m_pass else "CORE MET (1H Setup)")
+    try:
+        m5_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="5m")
+        if m5_data and symbol in m5_data and isinstance(m5_data[symbol], pd.DataFrame) and not m5_data[symbol].empty:
+            df_5 = apply_indicators(m5_data[symbol].copy(), timeframe="5m")
+            if df_5 is not None and len(df_5) >= 2:
+                lat_5 = df_5.iloc[-1]
+                close_5 = float(lat_5.get("Close"))
+                vol_5 = float(lat_5.get("Volume", 0))
+                mean_vol_5 = float(df_5["Volume"].iloc[-21:-1].mean()) if len(df_5) >= 22 else float(df_5["Volume"].mean())
+                vr_5 = (vol_5 / mean_vol_5) if mean_vol_5 > 0 else 1.0
+                if close_5 >= prior_high and vr_5 >= 1.2:
+                    has_5m_pass = True
+                    phase_details.append(f"5m Phase D Trigger Active! (Breakout Close ₹{close_5:.2f} ≥ ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x ≥ 1.2x)")
+                else:
+                    phase_details.append(f"5m Phase D Pending (Close ₹{close_5:.2f} vs Breakout ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x)")
+    except Exception:
+        pass
+
+    if has_30m_pass and has_15m_pass and has_5m_pass:
+        status_tag = "CORE MET (Phase A+B+C+D Trigger Ready)"
+    elif has_30m_pass and has_15m_pass:
+        status_tag = "CORE MET (Phase A+B+C Entry Ready)"
+    elif has_30m_pass:
+        status_tag = "CORE MET (Phase A+B Squeeze Armed)"
+    else:
+        status_tag = "CORE MET (1H Setup Approved)"
 
     from sl_target_helper import compute_sl_and_target
     sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTI_TF", ticker=ticker)
