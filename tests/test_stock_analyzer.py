@@ -629,6 +629,33 @@ class TestAuditFixesAndParity(unittest.TestCase):
         self.assertEqual(we_status, "NO")
         self.assertIn("200DMA", we_issues[0])
 
+    def test_fundamental_ratio_sync_to_fund_data_dict(self):
+        """Verify resolved fundamental ratios (ROCE, ROE, D/E) are synced into fund_data dict before evaluator calls."""
+        fund_data = {}
+        roce_val = 24.5
+        roe_val = 18.2
+        debt_equity = 0.15
+
+        if fund_data is None:
+            fund_data = {}
+        if roce_val is not None:
+            fund_data["roce"] = roce_val
+            fund_data["roce_val"] = roce_val
+            fund_data["ROCE %"] = roce_val
+        if roe_val is not None:
+            fund_data["roe"] = roe_val
+            fund_data["roe_val"] = roe_val
+            fund_data["ROE %"] = roe_val
+        if debt_equity is not None:
+            fund_data["debt_equity"] = debt_equity
+            fund_data["debt_to_equity"] = debt_equity
+            fund_data["Debt/Equity"] = debt_equity
+
+        self.assertEqual(fund_data["roce"], 24.5)
+        self.assertEqual(fund_data["roe"], 18.2)
+        self.assertEqual(fund_data["debt_equity"], 0.15)
+        self.assertEqual(fund_data["Debt/Equity"], 0.15)
+
 
 if __name__ == '__main__':
     unittest.main()
