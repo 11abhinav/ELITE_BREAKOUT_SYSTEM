@@ -700,8 +700,8 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
 
     # Surveillance Blacklist Gate
     try:
-        from daily_builder import _is_blacklisted
-        if _is_blacklisted(sym_clean):
+        from surveillance import get_live_blacklist
+        if sym_clean in get_live_blacklist():
             return {"success": False, "error": f"Symbol '{sym_clean}' is on the NSE/BSE Surveillance Blacklist (ASM/GSM) and cannot be promoted to an active alert."}
     except Exception:
         pass
