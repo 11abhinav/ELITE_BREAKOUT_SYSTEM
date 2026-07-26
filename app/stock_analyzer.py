@@ -652,35 +652,42 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     we_status = "NO"
     we_reasons = []
 
-    # roce_val, roe_val, and debt_equity are already fetched from watchlist above
+    mcap_cr = fund_data.get("market_cap", 0.0) / 1e7
+    yoy_sales = fund_data.get("yoy_revenue", 0.0) * 100.0
+    yoy_profit = fund_data.get("yoy_profit", 0.0) * 100.0
 
-    we_issues = []
-    if roce_val < 20.0:
-        we_issues.append(f"ROCE {roce_val:.1f}% < 20.0% min")
-        deficits.append(f"💎 ROCE Quality Deficit: ROCE is {roce_val:.1f}% (requires ≥20.0% for Wealth Engine).")
-    if roe_val < 15.0:
-        we_issues.append(f"ROE {roe_val:.1f}% < 15.0% min")
-        deficits.append(f"💎 ROE Quality Deficit: ROE is {roe_val:.1f}% (requires ≥15.0% for Wealth Engine).")
-    if debt_equity > 0.5:
-        we_issues.append(f"Debt-to-Equity {debt_equity:.2f} > 0.50 max")
-        deficits.append(f"🏦 Leverage Deficit: Debt to Equity is {debt_equity:.2f} (requires ≤0.50 debt free/low debt).")
+    we_buckets = []
+    # 1. Core Compounder (ROCE >= 20%, ROE >= 15%, D/E <= 0.50)
+    if roce_val >= 20.0 and roe_val >= 15.0 and debt_equity <= 0.50:
+        we_buckets.append("Core Compounder")
+
+    # 2. Growth Multiplier (YoY Sales >= 20%, YoY Profit >= 20%)
+    if (yoy_sales >= 20.0 or yoy_sales == 0.0) and (yoy_profit >= 20.0 or yoy_profit == 0.0) and roce_val >= 15.0:
+        we_buckets.append("Growth Multiplier")
+
+    # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 15%)
+    if roce_val >= 15.0 and debt_equity <= 1.0 and drop_pct >= 15.0:
+        we_buckets.append("Quality-On-Sale")
+
+    # 4. Opportunistic (YoY Profit >= 40%)
+    if yoy_profit >= 40.0:
+        we_buckets.append("Opportunistic")
 
     # Wealth Engine Mandatory Technical Trend Gate: CMP > SMA200
-    if sma200_val is not None and not pd.isna(sma200_val) and float(sma200_val) > 0:
-        if close_price <= float(sma200_val):
-            we_issues.append(f"Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{float(sma200_val):.2f} (Wealth Engine requires CMP > 200DMA)")
-            deficits.append(f"📈 200DMA Trend Deficit: Close is ₹{close_price:.2f} (below 200DMA ₹{float(sma200_val):.2f}). Wealth Engine active signals require CMP > 200DMA.")
+    is_trend_ok = (sma200_val is not None and not pd.isna(sma200_val) and float(sma200_val) > 0 and close_price > float(sma200_val))
 
-    if not we_issues:
+    if we_buckets and is_trend_ok:
         we_status = "CORE MET"
-        safe_sma200 = float(sma200_val) if sma200_val is not None and not pd.isna(sma200_val) else 0.0
-        we_reasons.append(f"Core Fundamentals & Trend Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5" + (f" | Close ₹{close_price:.2f} > 200DMA ₹{safe_sma200:.2f}" if safe_sma200 > 0 else ""))
-    elif roce_val >= 15.0 and roe_val >= 12.0 and (sma200_val is not None and close_price > float(sma200_val)):
+        we_reasons.append(f"Wealth Engine Qualified ({', '.join(we_buckets)}) | Close ₹{close_price:.2f} > 200DMA ₹{float(sma200_val):.2f}")
+    elif we_buckets and not is_trend_ok:
         we_status = "WATCHLIST"
-        we_reasons = we_issues
+        we_reasons.append(f"Wealth Bucket Met ({', '.join(we_buckets)}) — Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{float(sma200_val) if sma200_val else 0.0:.2f}")
+    elif debt_equity <= 1.0 and roce_val >= 12.0:
+        we_status = "WATCHLIST"
+        we_reasons.append(f"Wealth Watchlist Tier: ROCE {roce_val:.1f}%, D/E {debt_equity:.2f}")
     else:
         we_status = "NO"
-        we_reasons = we_issues
+        we_reasons.append(f"Lacks Wealth Engine Setup (ROCE {roce_val:.1f}%, D/E {debt_equity:.2f})")
 
     # ---------------- STAGE 7: MULTIBAGGER ENGINE ----------------
     mb_status = "NO"
