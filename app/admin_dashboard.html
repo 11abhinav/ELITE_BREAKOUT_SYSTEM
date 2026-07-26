@@ -6560,11 +6560,28 @@ function showAnalysisInfoModal(sym) {
   modal.style.display = 'flex';
 }
 
-function openSavedWatchlistAnalysis(idx) {
-  const item = WATCHLIST_ITEMS_CACHE[idx];
-  if (!item) return;
+function openSavedWatchlistAnalysis(target) {
+  let item = null;
+  let sym = '';
 
-  let report = item.deep_analysis_result;
+  if (typeof target === 'number' || (typeof target === 'string' && /^\d+$/.test(target))) {
+    const idx = parseInt(target, 10);
+    item = WATCHLIST_ITEMS_CACHE[idx];
+    if (item) sym = item.symbol;
+  } else if (typeof target === 'string') {
+    sym = target.trim().toUpperCase();
+    item = WATCHLIST_ITEMS_CACHE.find(x => x && x.symbol && x.symbol.toUpperCase() === sym);
+  } else if (typeof target === 'object' && target) {
+    item = target;
+    sym = item.symbol;
+  }
+
+  if (!sym) {
+    console.warn('openSavedWatchlistAnalysis: Could not resolve target:', target);
+    return;
+  }
+
+  let report = item ? item.deep_analysis_result : null;
   while (typeof report === 'string' && report.trim().length > 0) {
     try {
       report = JSON.parse(report);
@@ -6576,8 +6593,8 @@ function openSavedWatchlistAnalysis(idx) {
   if (report && typeof report === 'object' && (report.funnel || report.overall_health_score !== undefined)) {
     renderStockDiagnosticModal(report);
   } else {
-    // If no saved JSON exists in cache, execute diagnostic fetch on-the-fly
-    triggerStockDiagnostic(item.symbol, false);
+    // If no saved JSON exists in cache, execute diagnostic fetch and render loading modal on-the-fly
+    triggerStockDiagnostic(sym, false);
   }
 }
 
