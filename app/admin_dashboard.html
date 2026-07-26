@@ -5988,8 +5988,12 @@ function handleStockSearchInput(val) {
       .then(res => res.json())
       .then(items => {
         if (!items || items.length === 0) {
-          dropdown.style.display = 'none';
-          dropdown.innerHTML = '';
+          dropdown.innerHTML = `
+            <div style="padding:12px 16px; color:var(--muted); font-size:12px; font-weight:600; text-align:center; background:var(--card);">
+              ⚠️ No valid NSE/BSE stock ticker matches "${val.trim().toUpperCase()}"
+            </div>
+          `;
+          dropdown.style.display = 'block';
           return;
         }
 

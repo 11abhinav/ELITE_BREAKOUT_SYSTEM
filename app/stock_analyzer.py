@@ -299,15 +299,6 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
             seen.add(sym)
 
     results = (exact_matches + prefix_matches + contains_matches)[:limit]
-
-    # If no results matched pre-indexed lists, ensure user can select what they typed as a fallback (2-20 chars)
-    if len(results) == 0 and re.match(r"^[A-Z0-9&\-]{2,20}$", q_clean):
-        results.append({
-            "symbol": q_clean,
-            "company_name": f"Select '{q_clean}' (NSE/BSE)",
-            "sector": "NSE/BSE"
-        })
-
     return results
 
 
