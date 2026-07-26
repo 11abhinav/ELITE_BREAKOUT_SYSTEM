@@ -3017,11 +3017,12 @@ def api_get_user_watchlist():
 @app.route("/api/v1/user_watchlist/add", methods=["POST"])
 @login_required
 def api_add_user_watchlist():
-    """Save ticker to user's personal watchlist."""
+    """Save ticker to user's personal watchlist after strict ticker validation."""
     try:
         from database import add_to_user_watchlist
+        from stock_analyzer import validate_nse_bse_ticker
         data = request.get_json() or {}
-        symbol = data.get("symbol", "").strip()
+        symbol = data.get("symbol", "").strip().upper()
         company_name = data.get("company_name", symbol)
         notes = data.get("notes", "")
         health_score = data.get("health_score")
@@ -3030,6 +3031,14 @@ def api_add_user_watchlist():
 
         if not symbol:
             return jsonify({"success": False, "error": "Symbol is required."}), 400
+
+        # Strict Ticker Validation
+        v_res = validate_nse_bse_ticker(symbol)
+        if not v_res.get("valid"):
+            return jsonify({
+                "success": False,
+                "error": f"❌ '{symbol}' is not a recognized active NSE/BSE stock ticker symbol. Please select a valid ticker from the autocomplete suggestion list."
+            }), 400
 
         ok = add_to_user_watchlist(symbol, company_name=company_name, user_id=user_id, notes=notes, health_score=health_score, status=status)
         return jsonify({"success": ok})
