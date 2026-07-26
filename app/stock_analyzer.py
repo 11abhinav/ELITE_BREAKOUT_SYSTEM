@@ -649,13 +649,13 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         # User requested: "YOU CAN SHOW CORE CONDTION MET, ADD TO WTAHCLIST ,STATUS WILL BE UPDATED THERE"
         add_to_user_watchlist(sym_clean, company_name, user_id, status=watchlist_status, health_score=overall_health_score)
         
-        append_msg = "Added to Watchlist for deep scanning. Status will be updated there."
-        if eod_status.startswith("CORE MET"): eod_reasons.append(append_msg)
-        if pb_status.startswith("CORE MET"): pb_reasons.append(append_msg)
-        if we_status.startswith("CORE MET"): we_reasons.append(append_msg)
-        if rev_status.startswith("CORE MET"): rev_reasons.append(append_msg)
-        if mb_status.startswith("CORE MET"): mb_reasons.append(append_msg)
-        if mtf_status.startswith("CORE MET"): mtf_reasons.append(append_msg)
+        outcome_msg = f"⚡ CORE CONDITION MET: Added to Watchlist. Current Status: {watchlist_status} (Health Score: {overall_health_score:.1f})"
+        if eod_status.startswith("CORE MET"): eod_reasons.append(outcome_msg)
+        if pb_status.startswith("CORE MET"): pb_reasons.append(outcome_msg)
+        if we_status.startswith("CORE MET"): we_reasons.append(outcome_msg)
+        if rev_status.startswith("CORE MET"): rev_reasons.append(outcome_msg)
+        if mb_status.startswith("CORE MET"): mb_reasons.append(outcome_msg)
+        if mtf_status.startswith("CORE MET"): mtf_reasons.append(outcome_msg)
 
     # Update User Watchlist database state if exists
     update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status=watchlist_status)
@@ -671,6 +671,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         "sector": sector_name,
         "success": True,
         "is_in_watchlist": is_in_watchlist,
+        "watchlist_status": watchlist_status,
         "close_price": close_price,
         "volume_ratio": round(vol_ratio, 2),
         "rsi": round(rsi_val, 1),

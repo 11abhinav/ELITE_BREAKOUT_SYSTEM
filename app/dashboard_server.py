@@ -3076,7 +3076,10 @@ def api_watchlist_deep_analysis():
                 res = analyze_symbol(sym, user_id=user_id)
                 analyzed_items.append({
                     "symbol": sym,
+                    "company_name": res.get("company_name", sym),
                     "health_score": res.get("overall_health_score", 0.0),
+                    "watchlist_status": res.get("watchlist_status", "MONITORING"),
+                    "deficits": res.get("deficits", []),
                     "success": res.get("success", False)
                 })
 
@@ -3084,7 +3087,7 @@ def api_watchlist_deep_analysis():
             "success": True,
             "count": len(analyzed_items),
             "items": analyzed_items,
-            "message": f"Successfully executed deep analysis on {len(analyzed_items)} watchlist stock(s)."
+            "message": f"Successfully executed deep diagnostic analysis on {len(analyzed_items)} watchlist stock(s)."
         })
     except Exception as e:
         logger.exception("❌ Watchlist deep analysis endpoint error")

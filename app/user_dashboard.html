@@ -3351,6 +3351,7 @@ function runWatchlistDeepAnalysis() {
       if (res.success) {
         showCustomToast(`✅ ${res.message || 'Deep Analysis completed!'}`, 'success');
         loadUserWatchlist();
+        showWatchlistDeepAnalysisSummaryModal(res.items || []);
       } else {
         showCustomToast(`Failed to run deep analysis: ${res.error}`, 'error');
       }
@@ -3362,6 +3363,82 @@ function runWatchlistDeepAnalysis() {
       }
       showCustomToast(`Deep Analysis error: ${err.message}`, 'error');
     });
+}
+
+function showWatchlistDeepAnalysisSummaryModal(items) {
+  let modal = document.getElementById('watchlist-deep-summary-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'watchlist-deep-summary-modal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    document.body.appendChild(modal);
+  }
+
+  const rowsHtml = (items || []).map(it => {
+    let badge = '';
+    const st = (it.watchlist_status || 'MONITORING').toUpperCase();
+    if (st.includes('CORE MET')) {
+      badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4);">⚡ CORE MET</span>`;
+    } else if (st.includes('QUALIFIED')) {
+      badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4);">✓ ${it.watchlist_status}</span>`;
+    } else {
+      badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">🔍 ${it.watchlist_status}</span>`;
+    }
+
+    const deficitText = (it.deficits && it.deficits.length > 0) ? it.deficits[0] : 'All criteria verified cleanly.';
+
+    return `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${it.symbol}</td>
+        <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--accent); font-family:var(--font-mono);">${it.health_score ? it.health_score.toFixed(1) : '0.0'}</td>
+        <td style="padding:10px 12px; text-align:center;">${badge}</td>
+        <td style="padding:10px 12px; font-size:11px; color:var(--muted);">${deficitText}</td>
+        <td style="padding:10px 12px; text-align:center;">
+          <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'; triggerStockDiagnostic('${it.symbol}');" style="padding:4px 10px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:10px; cursor:pointer;">
+            🔍 Full Diagnostic
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:850px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.7); position:relative;">
+      <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+      
+      <div style="margin-bottom:20px;">
+        <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0 0 6px 0; display:flex; align-items:center; gap:10px;">
+          <span>⚡</span> Deep Analysis Outcome Summary
+        </h3>
+        <p style="font-size:12px; color:var(--muted); margin:0;">Real-time 7-stage diagnostic scan completed for all ${items ? items.length : 0} watchlist stock(s).</p>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; text-align:left; font-size:12px;">
+          <thead>
+            <tr style="background:var(--card2); border-bottom:1px solid var(--border);">
+              <th style="padding:10px 12px;">Symbol</th>
+              <th style="padding:10px 12px; text-align:center;">Health Score</th>
+              <th style="padding:10px 12px; text-align:center;">Scanner Status</th>
+              <th style="padding:10px 12px;">Diagnostic Outcome / Deficit</th>
+              <th style="padding:10px 12px; text-align:center;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align:right; margin-top:20px;">
+        <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'" style="padding:8px 20px; background:var(--card3); border:1px solid var(--border); color:var(--text); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+          Close Summary
+        </button>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
 }
 
 function toggleUserWatchlistDrawer() {
