@@ -785,10 +785,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         watchlist_status = "MONITORING"
 
     if any_core_met:
-        # User requested: "YOU CAN SHOW CORE CONDTION MET, ADD TO WTAHCLIST ,STATUS WILL BE UPDATED THERE"
-        add_to_user_watchlist(sym_clean, company_name, user_id, status=watchlist_status, health_score=overall_health_score)
-        
-        outcome_msg = f"⚡ CORE CONDITION MET: Added to Watchlist. Current Status: {watchlist_status} (Health Score: {overall_health_score:.1f})"
+        outcome_msg = f"⚡ CORE CONDITION MET: Current Status: {watchlist_status} (Health Score: {overall_health_score:.1f})"
         if eod_status.startswith("CORE MET"): eod_reasons.append(outcome_msg)
         if pb_status.startswith("CORE MET"): pb_reasons.append(outcome_msg)
         if we_status.startswith("CORE MET"): we_reasons.append(outcome_msg)
