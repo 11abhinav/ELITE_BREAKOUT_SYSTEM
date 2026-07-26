@@ -5976,50 +5976,68 @@ function renderMultibaggerWatchlist() {
 // ── KNOW ABOUT YOUR STOCK & PERSONAL WATCHLIST JS SYSTEM ─────────────────────
 let autocompleteDebounceTimer = null;
 let currentDiagnosticData = null;
+const AUTOCOMPLETE_CLIENT_CACHE = {};
 
 function handleStockSearchInput(val) {
   clearTimeout(autocompleteDebounceTimer);
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
   if (!dropdown) return;
 
-  if (!val || val.trim().length < 1) {
+  const rawVal = (val || '').trim();
+  if (!rawVal) {
     dropdown.style.display = 'none';
     dropdown.innerHTML = '';
     return;
   }
 
+  const queryKey = rawVal.toUpperCase();
+
+  // Instant local cache hit (0ms)
+  if (AUTOCOMPLETE_CLIENT_CACHE[queryKey]) {
+    renderAutocompleteDropdown(AUTOCOMPLETE_CLIENT_CACHE[queryKey], rawVal);
+    return;
+  }
+
   autocompleteDebounceTimer = setTimeout(() => {
-    fetch(`/api/v1/symbols/suggest?q=${encodeURIComponent(val.trim())}`)
+    fetch(`/api/v1/symbols/suggest?q=${encodeURIComponent(rawVal)}`)
       .then(res => res.json())
       .then(items => {
-        if (!items || items.length === 0) {
-          dropdown.innerHTML = `
-            <div style="padding:12px 16px; color:var(--muted); font-size:12px; font-weight:600; text-align:center; background:var(--card);">
-              ⚠️ No valid NSE/BSE stock ticker matches "${val.trim().toUpperCase()}"
-            </div>
-          `;
-          dropdown.style.display = 'block';
-          return;
-        }
-
-        dropdown.innerHTML = items.map(item => `
-          <div onclick="selectAutocompleteSymbol('${item.symbol}')" 
-               style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; background:var(--card); transition:background 0.15s;"
-               onmouseover="this.style.background='var(--card3)'" onmouseout="this.style.background='var(--card)'">
-            <div>
-              <span style="font-weight:700; color:var(--text); font-family:var(--font-mono);">${item.symbol}</span>
-              <span style="font-size:11px; color:var(--muted); margin-left:8px;">${item.company_name}</span>
-            </div>
-            <span style="font-size:10px; padding:2px 6px; background:var(--card2); border-radius:4px; color:var(--muted); font-weight:600;">${item.sector || 'EQUITY'}</span>
-          </div>
-        `).join('');
-        dropdown.style.display = 'block';
+        AUTOCOMPLETE_CLIENT_CACHE[queryKey] = items || [];
+        renderAutocompleteDropdown(items, rawVal);
       })
       .catch(err => {
         console.warn('Autocomplete search failed:', err);
         dropdown.style.display = 'none';
       });
-  }, 200);
+  }, 30);
+}
+
+function renderAutocompleteDropdown(items, rawVal) {
+  const dropdown = document.getElementById('stock-autocomplete-dropdown');
+  if (!dropdown) return;
+
+  if (!items || items.length === 0) {
+    dropdown.innerHTML = `
+      <div style="padding:12px 16px; color:var(--muted); font-size:12px; font-weight:600; text-align:center; background:var(--card);">
+        ⚠️ No valid NSE/BSE stock ticker matches "${rawVal.toUpperCase()}"
+      </div>
+    `;
+    dropdown.style.display = 'block';
+    return;
+  }
+
+  dropdown.innerHTML = items.map(item => `
+    <div onclick="selectAutocompleteSymbol('${item.symbol}')" 
+         style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; background:var(--card); transition:background 0.15s;"
+         onmouseover="this.style.background='var(--card3)'" onmouseout="this.style.background='var(--card)'">
+      <div>
+        <span style="font-weight:700; color:var(--text); font-family:var(--font-mono);">${item.symbol}</span>
+        <span style="font-size:11px; color:var(--muted); margin-left:8px;">${item.company_name}</span>
+      </div>
+      <span style="font-size:10px; padding:2px 6px; background:var(--card2); border-radius:4px; color:var(--muted); font-weight:600;">${item.sector || 'EQUITY'}</span>
+    </div>
+  `).join('');
+  dropdown.style.display = 'block';
 }
 
 function selectAutocompleteSymbol(sym) {
@@ -6477,10 +6495,16 @@ let WATCHLIST_ITEMS_CACHE = [];
 function openSavedWatchlistAnalysis(idx) {
   const item = WATCHLIST_ITEMS_CACHE[idx];
   if (!item) return;
-  if (item.deep_analysis_result) {
-    renderStockDiagnosticModal(item.deep_analysis_result);
+
+  let report = item.deep_analysis_result;
+  if (typeof report === 'string') {
+    try { report = JSON.parse(report); } catch(e) {}
+  }
+
+  if (report && typeof report === 'object' && report.funnel) {
+    renderStockDiagnosticModal(report);
   } else {
-    triggerStockDiagnostic(item.symbol, true);
+    showInvalidTickerAlert(item.symbol, `ℹ️ No saved diagnostic report exists for <strong>${item.symbol}</strong> yet.<br><br>Click the <strong>'🔄 Re-Scan'</strong> button to execute a fresh 7-stage Deep Analysis.`);
   }
 }
 
