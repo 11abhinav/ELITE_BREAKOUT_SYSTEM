@@ -242,7 +242,7 @@ def refresh_master_symbols_universe() -> bool:
             ok = sync_master_symbols(symbol_rows)
             if ok:
                 try:
-                    upsert_scanner_health("MASTER_SYMBOLS", "OK", f"Synced {len(symbol_rows)} NSE/BSE equities")
+                    upsert_scanner_health("MASTER_SYMBOLS", "OK", error_msg=f"Synced {len(symbol_rows)} NSE/BSE equities")
                 except Exception:
                     pass
             logger.info(f"✅ 07:00 AM IST Master Symbol Refresh: Synced {len(symbol_rows)} equities into master_symbols table.")
