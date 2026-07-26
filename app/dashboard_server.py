@@ -3047,7 +3047,8 @@ def api_add_user_watchlist():
 
         # Strict Ticker Validation
         v_res = validate_nse_bse_ticker(symbol)
-        if not v_res.get("valid"):
+        is_valid_ticker = bool(v_res.get("is_valid") or v_res.get("valid"))
+        if not is_valid_ticker:
             return jsonify({
                 "success": False,
                 "error": f"❌ '{symbol}' is not a recognized active NSE/BSE stock ticker symbol. Please select a valid ticker from the autocomplete suggestion list."
