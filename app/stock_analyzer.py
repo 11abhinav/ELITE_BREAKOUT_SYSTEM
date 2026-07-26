@@ -602,13 +602,27 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # Trend alignment: Close > SMA50 > SMA200
     is_uptrend = (sma50_val is not None and sma200_val is not None and close_price > sma50_val > sma200_val)
 
+    logger.info(f"🔍 [STOCK ANALYZER] [{sym_clean}] Starting deep multi-scanner evaluation (CMP: ₹{close_price:.2f} | ROCE: {roce_val if roce_val is not None else 'N/A'}% | D/E: {debt_equity if debt_equity is not None else 'N/A'})...")
+
     # Evaluate canonical per-symbol evaluators directly from production scanner modules with REAL macro regime context
     regime_ctx = MarketRegimeEngine.get_regime_context()
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running EOD Breakout Evaluator...")
     eod_eval = evaluate_eod_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Reversal Bounce Evaluator...")
     rev_eval = evaluate_reversal_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Pullback Evaluator...")
     pb_eval = evaluate_pullback_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Wealth Engine Evaluator...")
     we_eval = evaluate_wealth_symbol(sym_clean, df, fund_data=fund_data)
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multibagger Engine Evaluator...")
     mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
+    
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multi-TF Intraday Evaluator...")
     mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx)
 
     eod_status = eod_eval.get("status", "NO")
@@ -659,8 +673,10 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     for name, ev in eval_pairs:
         if ev.get("qualified", False):
             scanners_met.append(name)
-        elif ev.get("status") == "WATCHLIST":
+        elif ev.get("status", "NO") not in ["NO", "QUALIFIED"]:
             scanners_wl.append(name)
+
+    logger.info(f"✅ [STOCK ANALYZER] [{sym_clean}] Complete | Health: {overall_health_score}/100 | Scanners Met: {scanners_met} | Watchlist: {scanners_wl}")
 
     any_core_met = bool(scanners_met)
 
