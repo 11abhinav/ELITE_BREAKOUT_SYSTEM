@@ -3045,7 +3045,7 @@ def api_remove_user_watchlist():
         from database import remove_from_user_watchlist
         data = request.get_json() or {}
         symbol = data.get("symbol", request.args.get("symbol", "")).strip()
-        user_id = session.get("user_id", "DEFAULT_USER")
+        user_id = str(session.get("user_id", "DEFAULT_USER"))
 
         if not symbol:
             return jsonify({"success": False, "error": "Symbol is required."}), 400
@@ -3054,6 +3054,40 @@ def api_remove_user_watchlist():
         return jsonify({"success": ok})
     except Exception as e:
         logger.exception("❌ Remove from user watchlist error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/v1/user_watchlist/deep_analysis", methods=["POST"])
+@login_required
+def api_watchlist_deep_analysis():
+    """Executes full 7-stage deep diagnostic analysis on all stocks saved in user's watchlist."""
+    try:
+        from database import get_user_watchlist
+        from stock_analyzer import analyze_symbol
+        user_id = str(session.get("user_id", "DEFAULT_USER"))
+        watchlist = get_user_watchlist(user_id=user_id)
+        if not watchlist:
+            return jsonify({"success": False, "error": "Your watchlist is empty. Add stocks first to run deep analysis."}), 400
+
+        analyzed_items = []
+        for item in watchlist:
+            sym = item.get("symbol")
+            if sym:
+                res = analyze_symbol(sym, user_id=user_id)
+                analyzed_items.append({
+                    "symbol": sym,
+                    "health_score": res.get("overall_health_score", 0.0),
+                    "success": res.get("success", False)
+                })
+
+        return jsonify({
+            "success": True,
+            "count": len(analyzed_items),
+            "items": analyzed_items,
+            "message": f"Successfully executed deep analysis on {len(analyzed_items)} watchlist stock(s)."
+        })
+    except Exception as e:
+        logger.exception("❌ Watchlist deep analysis endpoint error")
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ── Global Error Handlers ───────────────────────────────────────────────

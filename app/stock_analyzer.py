@@ -628,9 +628,26 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
 
     # Check if ANY scanner met core conditions to auto-add to watchlist for deep processing
     any_core_met = any(status.startswith("CORE MET") for status in [eod_status, pb_status, we_status, rev_status, mb_status, mtf_status])
+    
+    # Determine precise scanner status for Watchlist display
+    scanners_met = []
+    if eod_status in ("YES", "ACTIVE"): scanners_met.append("EOD")
+    if pb_status in ("YES", "ACTIVE"): scanners_met.append("PULLBACK")
+    if we_status in ("YES", "ACTIVE"): scanners_met.append("WEALTH")
+    if rev_status in ("YES", "ACTIVE"): scanners_met.append("REVERSAL")
+    if mb_status in ("YES", "ACTIVE"): scanners_met.append("MULTIBAGGER")
+    if mtf_status in ("YES", "ACTIVE"): scanners_met.append("MULTI-TF")
+
+    if scanners_met:
+        watchlist_status = "QUALIFIED (" + ", ".join(scanners_met) + ")"
+    elif any_core_met:
+        watchlist_status = "CORE MET"
+    else:
+        watchlist_status = "MONITORING"
+
     if any_core_met:
         # User requested: "YOU CAN SHOW CORE CONDTION MET, ADD TO WTAHCLIST ,STATUS WILL BE UPDATED THERE"
-        add_to_user_watchlist(sym_clean, company_name, user_id, status="ADDED_FOR_SCAN", health_score=overall_health_score)
+        add_to_user_watchlist(sym_clean, company_name, user_id, status=watchlist_status, health_score=overall_health_score)
         
         append_msg = "Added to Watchlist for deep scanning. Status will be updated there."
         if eod_status.startswith("CORE MET"): eod_reasons.append(append_msg)
@@ -641,7 +658,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         if mtf_status.startswith("CORE MET"): mtf_reasons.append(append_msg)
 
     # Update User Watchlist database state if exists
-    update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status="QUALIFIED" if any_core_met else "MONITORING")
+    update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status=watchlist_status)
 
     # Check if symbol is already in user watchlist
     user_watchlist = get_user_watchlist(user_id)
