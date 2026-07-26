@@ -451,10 +451,10 @@ function playDing() {
       </div>
     </div>
 
-    <!-- MY WATCHLIST MODAL -->
-    <div id="my-watchlist-section" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); z-index:9999; padding:20px; justify-content:center; align-items:center;">
-      <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:900px; max-height:85vh; overflow-y:auto; overscroll-behavior:contain; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
-        <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+    <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
+    <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
+      <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
+        <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
           <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
@@ -483,6 +483,9 @@ function playDing() {
         </div>
       </div>
     </div>
+
+    <!-- INLINE STOCK DIAGNOSTIC CONTAINER (Main Screen display) -->
+    <div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
 
     <!-- P&L AND PORTFOLIO BAR -->
     <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
@@ -3703,8 +3706,8 @@ function toggleUserWatchlistDrawer() {
   const sec = document.getElementById('my-watchlist-section');
   if (!sec) return;
   if (sec.style.display === 'none' || !sec.style.display) {
-    sec.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    sec.style.display = 'block';
+    sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     loadUserWatchlist();
   } else {
     closeMyWatchlistModal();
@@ -3715,11 +3718,6 @@ function closeMyWatchlistModal() {
   const sec = document.getElementById('my-watchlist-section');
   if (sec) {
     sec.style.display = 'none';
-  }
-  const diagModal = document.getElementById('stock-diagnostic-modal');
-  const confirmModal = document.getElementById('custom-confirm-modal');
-  if ((!diagModal || diagModal.style.display === 'none') && (!confirmModal || confirmModal.style.display === 'none')) {
-    document.body.style.overflow = '';
   }
 }
 
