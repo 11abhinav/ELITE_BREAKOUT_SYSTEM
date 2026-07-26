@@ -38,17 +38,35 @@ def _safe_float(val, default=0.0):
 def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None) -> dict:
     """
     Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
-    Evaluates 1H trend permission (EMA9 > EMA20 > SMA50, Close > SMA200, ADX >= 20), distance to breakout level (-2% to +5%), scoring engine, and target calculations without side effects.
+    Attempts to fetch true 1H intraday data for Phase A trend permission verification when daily bars are supplied.
     """
-    if df is None or df.empty or len(df) < 50:
+    ticker = None
+    if df is not None and not df.empty and len(df) >= 50:
+        # Check if df contains 1H intraday data or daily data
+        time_diffs = (df.index[1:] - df.index[:-1]).seconds / 60 if isinstance(df.index, pd.DatetimeIndex) and len(df) > 1 else [1440]
+        med_tf = pd.Series(time_diffs).median() if len(time_diffs) > 0 else 1440
+        if med_tf < 300:
+            ticker = df.copy()
+
+    if ticker is None:
+        try:
+            h1_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="1mo", interval="1h")
+            if h1_data and symbol in h1_data and isinstance(h1_data[symbol], pd.DataFrame) and not h1_data[symbol].empty:
+                ticker = h1_data[symbol].copy()
+        except Exception as _e:
+            logger.debug(f"Could not fetch 1H intraday data for {symbol}: {_e}")
+
+    if ticker is None:
+        ticker = df.copy() if df is not None and not df.empty else None
+
+    if ticker is None or ticker.empty or len(ticker) < 50:
         return {
             "status": "NO",
-            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "reasons": [f"Insufficient historical price data ({len(ticker) if ticker is not None else 0} bars < 50 minimum)"],
             "score": 0.0,
             "qualified": False
         }
 
-    ticker = df.copy()
     if isinstance(ticker.columns, pd.MultiIndex):
         ticker.columns = ticker.columns.get_level_values(0)
     ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])

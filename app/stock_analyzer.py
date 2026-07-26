@@ -328,8 +328,10 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 
     df = fetched_map.get(sym_clean)
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        # Fallback fetch retry
-        df = fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
+        # Fallback fetch retry with explicit non-ambiguous DataFrame checks
+        df = fetched_map.get(f"{sym_clean}.NS")
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            df = fetched_map.get(f"{sym_clean}.BO")
 
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return {
@@ -338,6 +340,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
             "error": f"Insufficient or missing historical price data for symbol '{sym_clean}'."
         }
 
+    history_len = len(df)
     if len(df) < 15:
         bar_cnt = len(df)
         close_val = float(df.iloc[-1]['Close']) if 'Close' in df.columns else 0.0
@@ -394,7 +397,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     sector_name = "GENERAL"
     roce_val = 0.0
     roe_val = 0.0
-    debt_equity = 0.0
+    debt_equity = None
     
     # 1. Fetch Core fundamental ratios from watchlist cache
     try:
@@ -422,7 +425,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
 
     # 2. Fallback to temp_universe.parquet (940+ equities with TradingView fundamental ratios)
-    if (roce_val <= 0.0 or roe_val <= 0.0) and os.path.exists("data/temp_universe.parquet"):
+    if (roce_val <= 0.0 or roe_val <= 0.0 or debt_equity is None) and os.path.exists("data/temp_universe.parquet"):
         try:
             tu_df = pd.read_parquet("data/temp_universe.parquet")
             tu_match = tu_df[tu_df['ticker'].astype(str).str.upper().str.contains(sym_clean)]
@@ -445,7 +448,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                     if raw_roe is not None and not pd.isna(raw_roe):
                         roe_val = float(raw_roe)
 
-                if debt_equity <= 0.0:
+                if debt_equity is None:
                     raw_de = tu_row.get("debt_to_equity_fq", tu_row.get("debt_to_equity"))
                     if raw_de is not None and not pd.isna(raw_de):
                         debt_equity = float(raw_de)
@@ -453,12 +456,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
             logger.warning(f"Failed to fetch temp_universe fundamentals for {sym_clean}: {_tue}")
 
     # 3. Fallback to fund_data (Piotroski / Yahoo Cache)
-    if (roce_val <= 0.0 or roe_val <= 0.0) and fund_data:
+    if (roce_val <= 0.0 or roe_val <= 0.0 or debt_equity is None) and fund_data:
         if roce_val <= 0.0 and fund_data.get("roce") is not None:
             roce_val = float(fund_data.get("roce"))
         if roe_val <= 0.0 and fund_data.get("roe") is not None:
             roe_val = float(fund_data.get("roe"))
-        if debt_equity <= 0.0 and fund_data.get("debt_equity") is not None:
+        if debt_equity is None and fund_data.get("debt_equity") is not None:
             debt_equity = float(fund_data.get("debt_equity"))
 
     # 4. On-demand fundamentals cache fallback for missing ROE/ROCE or Piotroski Score
@@ -487,7 +490,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                     roe_val = float(on_demand_fund.get("roe"))
                 if roce_val <= 0.0 and on_demand_fund.get("roce") is not None:
                     roce_val = float(on_demand_fund.get("roce"))
-                if debt_equity <= 0.0 and on_demand_fund.get("debt_equity") is not None:
+                if debt_equity is None and on_demand_fund.get("debt_equity") is not None:
                     debt_equity = float(on_demand_fund.get("debt_equity"))
         except Exception as _fe:
             logger.warning(f"On-demand fundamental fetch fallback failed for {sym_clean}: {_fe}")
@@ -535,17 +538,17 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx)
 
     eod_status = eod_eval.get("status", "NO")
-    eod_reasons = eod_eval.get("reasons", [])
+    eod_reasons = list(eod_eval.get("reasons", []))
     rev_status = rev_eval.get("status", "NO")
-    rev_reasons = rev_eval.get("reasons", [])
+    rev_reasons = list(rev_eval.get("reasons", []))
     pb_status = pb_eval.get("status", "NO")
-    pb_reasons = pb_eval.get("reasons", [])
+    pb_reasons = list(pb_eval.get("reasons", []))
     we_status = we_eval.get("status", "NO")
-    we_reasons = we_eval.get("reasons", [])
+    we_reasons = list(we_eval.get("reasons", []))
     mb_status = mb_eval.get("status", "NO")
-    mb_reasons = mb_eval.get("reasons", [])
+    mb_reasons = list(mb_eval.get("reasons", []))
     mtf_status = mtf_eval.get("status", "NO")
-    mtf_reasons = mtf_eval.get("reasons", [])
+    mtf_reasons = list(mtf_eval.get("reasons", []))
 
     # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
     tech_score = 50.0
@@ -691,9 +694,9 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
             "error": f"Symbol '{sym_clean}' did not qualify for {scanner_type} scanner. Reasons: {reasons_str}"
         }
 
-    entry_price = float(scanner_stage.get("entry_price", res.get("close_price", 100.0)))
-    atr_val = float(scanner_stage.get("atr_20", res.get("close_price", 100.0) * 0.025))
-    score_val = int(scanner_stage.get("score", res.get("overall_health_score", 85)))
+    entry_price = scanner_stage.get("entry_price") or res.get("close_price")
+    atr_val = scanner_stage.get("atr_20") or (entry_price * 0.025 if entry_price else 2.5)
+    score_val = scanner_stage.get("score") or res.get("overall_health_score", 85)
     sl_val = scanner_stage.get("stop_loss")
     t1_val = scanner_stage.get("target_1")
     t2_val = scanner_stage.get("target_2")
@@ -701,7 +704,7 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     t4_val = scanner_stage.get("target_4")
 
     if not sl_val or not t1_val:
-        sl_target = compute_sl_and_target(entry_price=entry_price, atr=atr_val, mode=scanner_type)
+        sl_target = compute_sl_and_target(entry_price=float(entry_price), atr=float(atr_val), mode=scanner_type)
         if sl_target.get("is_rejected"):
             return {"success": False, "error": f"Risk engine rejected target calculation: {sl_target.get('rejection_reason')}"}
         sl_val = sl_target.get("stop_loss")
@@ -710,11 +713,13 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
         t3_val = sl_target.get("target_3")
         t4_val = sl_target.get("target_4")
 
+    entry_price = float(entry_price)
+    score_val = int(score_val)
     ist_now = datetime.now(IST)
 
     # Dynamic Category Determination
     if scanner_type == "MULTIBAGGER":
-        category_val = str(scanner_stage.get("conviction_tier", "Prime"))
+        category_val = str(scanner_stage.get("conviction_tier") or "Prime Multibagger")
     elif scanner_type == "WEALTH":
         buckets = scanner_stage.get("buckets", [])
         category_val = ", ".join(buckets) if buckets else "Wealth Compounder"
@@ -724,16 +729,16 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     # Dynamic RS & Sector Bonus Calculation
     rs_dict = compute_nifty_rs_rating([sym_clean])
     rs_pct_val = float(rs_dict.get(sym_clean, 80.0))
-    rs_bonus_val = 3 if rs_pct_val >= 80.0 else 0
+    rs_bonus_val = int(scanner_stage.get("rs_bonus", 3 if rs_pct_val >= 80.0 else 0))
 
     from macro_utils import compute_sector_regime_rankings
     sector_rankings = compute_sector_regime_rankings()
     sector_info = sector_rankings.get(res.get("sector"), {}) if res.get("sector") else {}
     sector_status = sector_info.get("effective_status", "NEUTRAL")
-    sector_bonus_val = 2 if sector_status == "TAILWIND" else 0
+    sector_bonus_val = int(scanner_stage.get("sector_bonus", 2 if sector_status == "TAILWIND" else 0))
 
     regime_ctx_active = MarketRegimeEngine.get_regime_context()
-    regime_score_val = float(regime_ctx_active.get("market_score", 80.0))
+    regime_score_val = float(scanner_stage.get("regime_score", regime_ctx_active.get("market_score", 80.0)))
 
     saved, reason, alert_id, _ = save_alert_if_new(
         symbol=sym_clean,
@@ -746,6 +751,7 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
         target_1=t1_val,
         target_2=t2_val,
         target_3=t3_val,
+        target_4=t4_val,
         score=score_val,
         context={
             "is_manual": True,
