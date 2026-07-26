@@ -109,11 +109,15 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
         except Exception as _yerr:
             logger.debug(f"Yahoo Search fallback failed for {sym_clean}: {_yerr}")
 
-    # 5. Fallback for valid structured ticker format (e.g. ARIHANTCAP, SANOFI, etc.)
-    if not found:
-        # If it passes standard Indian equity ticker regex rules and isn't explicitly blacklisted invalid
-        if len(sym_clean) <= 15 and not sym_clean.startswith("INVALID"):
-            found = True
+    # 5. Fallback check: If Yahoo Search API fails due to rate-limit/network, verify via fast light price data fetcher
+    if not found and not sym_clean.startswith("NONEXISTENT") and not sym_clean.startswith("INVALID"):
+        try:
+            from price_cache import fetch_unified_historical
+            test_res = fetch_unified_historical([sym_clean], period="5d", interval="1d", requester="TICKER_VAL")
+            if test_res and sym_clean in test_res and test_res[sym_clean] is not None and not test_res[sym_clean].empty:
+                found = True
+        except Exception:
+            pass
 
     if not found:
         return {
