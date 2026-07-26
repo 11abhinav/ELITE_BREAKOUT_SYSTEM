@@ -5912,16 +5912,16 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
                             last_health_score = COALESCE(%s, last_health_score),
                             last_status = COALESCE(%s, last_status),
                             deep_analysis_result = %s
-                        WHERE user_id::text = %s AND symbol = %s
-                    """, (health_score, status, analysis_json_str, user_id_str, sym_clean))
+                        WHERE symbol = %s
+                    """, (health_score, status, analysis_json_str, sym_clean))
                 else:
                     cur.execute("""
                         UPDATE user_watchlists
                         SET last_scanned_at = CURRENT_TIMESTAMP,
                             last_health_score = COALESCE(%s, last_health_score),
                             last_status = COALESCE(%s, last_status)
-                        WHERE user_id::text = %s AND symbol = %s
-                    """, (health_score, status, user_id_str, sym_clean))
+                        WHERE symbol = %s
+                    """, (health_score, status, sym_clean))
             conn.commit()
             return True
     except Exception as e:

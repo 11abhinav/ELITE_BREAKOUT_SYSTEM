@@ -6275,7 +6275,7 @@ function renderStockDiagnosticModal(data) {
               🚀 Raise ${item.scanner} Alert
             </button>
           ` : ((status.includes('YES') || isCoreMet) ? `
-            <span style="font-size:10px; color:var(--accent); font-weight:700; display:inline-block; max-width:110px; line-height:1.2;">⭐ Run Deep Analysis to Enable Alert</span>
+            <span style="font-size:10px; color:#10b981; font-weight:800; display:inline-flex; align-items:center; gap:3px;">⚡ Deep Analysis Completed</span>
           ` : `
             <span style="font-size:11px; color:var(--muted);">—</span>
           `)}
