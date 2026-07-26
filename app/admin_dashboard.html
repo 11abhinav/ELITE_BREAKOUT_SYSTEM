@@ -6252,6 +6252,10 @@ function renderStockDiagnosticModal(data) {
   let container = document.getElementById('stock-diagnostic-main-container');
   if (!container) return;
 
+  const realSym = (data.symbol || '').trim().toUpperCase();
+  const isActuallyInWatchlist = WATCHLIST_ITEMS_CACHE.some(x => x && x.symbol && x.symbol.toUpperCase() === realSym);
+  data.is_in_watchlist = isActuallyInWatchlist;
+
   const score = data.overall_health_score || 0;
   const scoreCls = score >= 75 ? 'badge-ok' : (score >= 55 ? 'badge-queued' : 'badge-down');
 

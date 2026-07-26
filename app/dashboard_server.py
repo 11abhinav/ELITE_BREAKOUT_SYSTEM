@@ -2979,7 +2979,7 @@ def api_analyze_stock():
     """Runs full 7-stage dry-run diagnostic evaluation for a single ticker with stock_analysis_master caching."""
     try:
         from stock_analyzer import analyze_symbol
-        from database import get_stock_master_analysis
+        from database import get_stock_master_analysis, get_user_watchlist
         symbol = request.args.get("symbol", "").strip()
         is_deep = request.args.get("is_deep_analysis", "false").lower() == "true"
         force_refresh = request.args.get("force_refresh", "false").lower() == "true"
@@ -2987,13 +2987,20 @@ def api_analyze_stock():
         if not symbol:
             return jsonify({"success": False, "error": "Symbol parameter is required."}), 400
 
+        sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+        user_wl = get_user_watchlist(user_id)
+        wl_symbols = {item["symbol"].upper() for item in (user_wl or []) if item.get("symbol")}
+        is_in_wl = (sym_clean in wl_symbols)
+
         # Check stock_analysis_master repository first for instant 0ms pre-scanned report
         if not force_refresh:
             cached_master = get_stock_master_analysis(symbol)
             if cached_master and isinstance(cached_master, dict) and cached_master.get("funnel"):
+                cached_master["is_in_watchlist"] = is_in_wl
                 return jsonify(cached_master)
 
         result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep)
+        result["is_in_watchlist"] = is_in_wl
         return jsonify(result)
     except Exception as e:
         logger.exception("❌ Stock analysis endpoint error")
