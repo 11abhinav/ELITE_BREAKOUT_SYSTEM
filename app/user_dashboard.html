@@ -458,7 +458,7 @@ function playDing() {
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
           <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
-            <span>⭐</span> My Monitored Watchlist
+            <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
           </h3>
           <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
             ⚡ Execute Deep Analysis on All Watchlist Stocks
@@ -469,10 +469,10 @@ function playDing() {
             <thead>
               <tr>
                 <th>Symbol</th>
-                <th>Health Score</th>
-                <th>Status</th>
-                <th>Added Date</th>
-                <th>Last Scanned</th>
+                <th style="text-align:center;">Health Score</th>
+                <th style="text-align:center;">Scanner Status</th>
+                <th style="text-align:center;">Added Date (IST)</th>
+                <th style="text-align:center;">Last Scanned (IST)</th>
                 <th style="text-align:center;">Action</th>
               </tr>
             </thead>
@@ -3240,13 +3240,49 @@ function removeFromWatchlist(sym) {
   });
 }
 
+function formatISTDateTime(isoStr) {
+  if (!isoStr) return 'Pending';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }) + ' IST';
+  } catch (e) {
+    return isoStr;
+  }
+}
+
+function formatISTDate(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  } catch (e) {
+    return isoStr;
+  }
+}
+
 function loadUserWatchlist() {
   fetch('/api/v1/user_watchlist')
     .then(res => res.json())
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
-      const countEl = document.getElementById('my-watchlist-count');
-      if (countEl) countEl.textContent = watchlistItems.length;
+      document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {
+        el.textContent = watchlistItems.length;
+      });
 
       const tbody = document.getElementById('user-watchlist-tbody');
       if (!tbody) return;
@@ -3279,8 +3315,8 @@ function loadUserWatchlist() {
               ${item.last_health_score !== null && item.last_health_score !== undefined ? item.last_health_score.toFixed(1) : '—'}
             </td>
             <td style="text-align:center;">${statusBadge}</td>
-            <td style="font-size:11px; color:var(--muted); text-align:center;">${item.added_at ? item.added_at.substring(0, 10) : '—'}</td>
-            <td style="font-size:11px; color:var(--muted); text-align:center;">${item.last_scanned_at ? item.last_scanned_at.substring(0, 16).replace('T', ' ') : 'Pending'}</td>
+            <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>
+            <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono); text-align:center;">${formatISTDateTime(item.last_scanned_at)}</td>
             <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
               <button onclick="triggerStockDiagnostic('${item.symbol}')" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
                 🔄 Re-Scan
