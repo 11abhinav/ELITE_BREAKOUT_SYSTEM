@@ -319,7 +319,7 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
 
 
-def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None) -> dict:
+def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None, _pre_fetched_regime_ctx: dict = None, _pre_fetched_temp_universe: pd.DataFrame = None) -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
@@ -455,9 +455,16 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         logger.warning(f"Failed to fetch watchlist fundamentals for {sym_clean}: {e}")
 
     # 2. Fallback to temp_universe.parquet (940+ equities with TradingView fundamental ratios)
-    if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None) and os.path.exists("data/temp_universe.parquet"):
+    # [BUG FIX: BATCH_TEMP_UNIVERSE_v1.0] Use pre-loaded cache if available (avoids N full parquet reads in batch)
+    _tu_df_source = _pre_fetched_temp_universe
+    if _tu_df_source is None and (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None) and os.path.exists("data/temp_universe.parquet"):
         try:
-            tu_df = pd.read_parquet("data/temp_universe.parquet")
+            _tu_df_source = pd.read_parquet("data/temp_universe.parquet")
+        except Exception as _tue2:
+            logger.warning(f"Failed to load temp_universe.parquet for {sym_clean}: {_tue2}")
+    if _tu_df_source is not None and (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None):
+        try:
+            tu_df = _tu_df_source
             clean_tickers = tu_df['ticker'].astype(str).str.upper().str.replace('.NS', '').str.replace('.BO', '')
             tu_match = tu_df[clean_tickers == sym_clean]
             if tu_match.empty:
@@ -495,6 +502,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                         yoy_profit_val = _safe_num_or_none(raw_tu_yp)
         except Exception as _tue:
             logger.warning(f"Failed to fetch temp_universe fundamentals for {sym_clean}: {_tue}")
+    # end temp_universe block
 
     # 3. Fallback to fund_data (Piotroski / Yahoo Cache)
     if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or debt_equity is None) and fund_data:
@@ -605,7 +613,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     logger.info(f"🔍 [STOCK ANALYZER] [{sym_clean}] Starting deep multi-scanner evaluation (CMP: ₹{close_price:.2f} | ROCE: {roce_val if roce_val is not None else 'N/A'}% | D/E: {debt_equity if debt_equity is not None else 'N/A'})...")
 
     # Evaluate canonical per-symbol evaluators directly from production scanner modules with REAL macro regime context
-    regime_ctx = MarketRegimeEngine.get_regime_context()
+    # [BUG FIX: BATCH_REGIME_v1.0] Use pre-fetched regime ctx from batch caller if available (avoids N redundant calls)
+    regime_ctx = _pre_fetched_regime_ctx if _pre_fetched_regime_ctx is not None else MarketRegimeEngine.get_regime_context()
     
     logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running EOD Breakout Evaluator...")
     eod_eval = evaluate_eod_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
@@ -774,19 +783,50 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
     if not clean_syms:
         return {"success": False, "error": "No valid stock symbols provided in list."}
 
+    logger.info(f"📦 [STOCK ANALYZER BATCH] Starting bulk evaluation for {len(clean_syms)} symbols: {clean_syms}")
+
+    # [BUG FIX: BATCH_REGIME_v1.0] Pre-fetch regime context ONCE for all symbols (not N times inside analyze_symbol)
+    try:
+        from macro_utils import MarketRegimeEngine as _RegimeEngine
+        _regime_ctx_cache = _RegimeEngine.get_regime_context()
+        logger.info(f"📊 [STOCK ANALYZER BATCH] Regime context pre-fetched: {_regime_ctx_cache.get('regime', 'UNKNOWN')}")
+    except Exception:
+        _regime_ctx_cache = {}
+
+    # [BUG FIX: BATCH_TEMP_UNIVERSE_v1.0] Pre-load temp_universe.parquet ONCE for all symbols (not N times inside analyze_symbol)
+    _temp_universe_cache = None
+    if os.path.exists("data/temp_universe.parquet"):
+        try:
+            _temp_universe_cache = pd.read_parquet("data/temp_universe.parquet")
+            logger.info(f"📊 [STOCK ANALYZER BATCH] temp_universe loaded ({len(_temp_universe_cache)} rows)")
+        except Exception as _tue:
+            logger.warning(f"[BATCH] Failed to pre-load temp_universe.parquet: {_tue}")
+
     # 1. Single Bulk Market Data Fetch for all symbols in the watchlist
     sample_df = pd.DataFrame([{"Stock": s, "Category": "MIDCAP", "Sector": "GENERAL"} for s in clean_syms])
+    logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1Y daily OHLCV for {len(clean_syms)} symbols in 1 bulk request...")
     fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER_BATCH")
+    logger.info(f"✅ [STOCK ANALYZER BATCH] Bulk fetch complete. {len(fetched_map)} datasets received.")
 
     results = {}
-    for sym in clean_syms:
+    for idx, sym in enumerate(clean_syms, 1):
         df = fetched_map.get(sym)
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             df = fetched_map.get(f"{sym}.NS")
             if df is None or not isinstance(df, pd.DataFrame) or df.empty:
                 df = fetched_map.get(f"{sym}.BO")
 
-        results[sym] = analyze_symbol(sym, user_id=user_id, is_deep_analysis=is_deep_analysis, pre_fetched_df=df)
+        logger.info(f"🔄 [STOCK ANALYZER BATCH] [{idx}/{len(clean_syms)}] Processing {sym}...")
+        results[sym] = analyze_symbol(
+            sym,
+            user_id=user_id,
+            is_deep_analysis=is_deep_analysis,
+            pre_fetched_df=df,
+            _pre_fetched_regime_ctx=_regime_ctx_cache,
+            _pre_fetched_temp_universe=_temp_universe_cache
+        )
+
+    logger.info(f"✅ [STOCK ANALYZER BATCH] Complete. {len(results)}/{len(clean_syms)} symbols evaluated.")
 
     return {
         "success": True,

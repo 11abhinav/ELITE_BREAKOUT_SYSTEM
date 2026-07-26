@@ -138,6 +138,9 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         checks.append(f"Close ₹{candle_close:.2f} ≤ Prior 20D High ₹{prior_high:.2f}")
     if vol_ratio < MIN_VOLUME_RATIO:
         checks.append(f"Volume Ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x threshold")
+    if avg_volume < MIN_AVG_VOLUME_SHARES:
+        # [BUG FIX: EVAL_EOD_LIQUIDITY_v1.0] Match production scanner MIN_AVG_VOLUME_SHARES liquidity gate
+        checks.append(f"Avg Volume {avg_volume:.0f} shares < {MIN_AVG_VOLUME_SHARES:.0f} minimum liquidity floor")
     if wick_ratio > MAX_UPPER_WICK_RATIO:
         checks.append(f"Upper Wick {wick_ratio*100:.1f}% > {MAX_UPPER_WICK_RATIO*100:.0f}% max limit")
     if candle_close <= candle_open:
@@ -148,6 +151,9 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         checks.append(f"Close Position {close_pos*100:.1f}% < {MIN_CLOSE_POSITION*100:.0f}% min")
     if candle_close < MIN_STOCK_PRICE:
         checks.append(f"Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum price floor")
+    if not (MIN_RSI <= rsi_val <= MAX_RSI):
+        # [BUG FIX: EVAL_EOD_RSI_v1.0] Match production scanner RSI range gate (MIN_RSI <= RSI <= MAX_RSI)
+        checks.append(f"RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} valid range")
 
     if checks:
         return {

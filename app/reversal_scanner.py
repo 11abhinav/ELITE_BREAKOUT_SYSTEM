@@ -305,6 +305,36 @@ def evaluate_reversal_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
         checks.append(f"20D Avg Volume {avg_vol_20d:.0f} < {MIN_AVG_DAILY_VOLUME:.0f} shares minimum liquidity")
 
+    # [BUG FIX: EVAL_REV_SMA200CAP_v1.0] Match production scanner: reject if stock is too far below SMA200 (falling knife)
+    pct_below_sma200 = None
+    if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")):
+        sma200_val = float(latest["SMA200"])
+        if sma200_val > 0:
+            pct_below_sma200 = (sma200_val - close_price) / sma200_val * 100.0
+            if pct_below_sma200 > MAX_DROP_BELOW_SMA200:
+                checks.append(f"{pct_below_sma200:.1f}% below SMA200 exceeds {MAX_DROP_BELOW_SMA200:.1f}% max (falling knife)")
+
+    # [BUG FIX: EVAL_REV_FUNDAMENTALS_v1.0] Match production scanner: ROE and YOY Revenue quality filters
+    if fund_data:
+        roe_val = fund_data.get("roe", fund_data.get("ROE %"))
+        if roe_val is not None and not pd.isna(roe_val):
+            try:
+                if float(roe_val) < MIN_ROE:
+                    checks.append(f"ROE {float(roe_val):.1f}% < {MIN_ROE:.1f}% minimum quality threshold")
+            except (ValueError, TypeError):
+                pass
+        yoy_rev_val = fund_data.get("yoy_revenue", fund_data.get("YOY Revenue %"))
+        if yoy_rev_val is not None and not pd.isna(yoy_rev_val):
+            try:
+                yoy_rev_float = float(yoy_rev_val)
+                # Normalise: if stored as decimal (0.15), convert to percent
+                if abs(yoy_rev_float) <= 5.0:
+                    yoy_rev_float *= 100.0
+                if yoy_rev_float < MIN_YOY_REVENUE_GROWTH:
+                    checks.append(f"YoY Revenue {yoy_rev_float:.1f}% < {MIN_YOY_REVENUE_GROWTH:.1f}% minimum growth threshold")
+            except (ValueError, TypeError):
+                pass
+
     current_rsi = float(latest.get("RSI", 50.0))
     recent_rsi = ticker["RSI"].dropna().iloc[-16:-1] if "RSI" in ticker.columns else pd.Series()
     past_15_rsi = recent_rsi.min() if not recent_rsi.empty else current_rsi
@@ -315,6 +345,23 @@ def evaluate_reversal_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     ema20 = float(latest.get("EMA20", close_price))
     if close_price < ema20:
         checks.append(f"Close ₹{close_price:.2f} < 20 EMA ₹{ema20:.2f} (requires momentum reclaim)")
+
+    # [BUG FIX: EVAL_REV_EMA20TREND_v1.0] Match production scanner: EMA20 must be > EMA50 OR EMA20 slope must be positive
+    ema20_gt_ema50 = None
+    ema20_slope_pos = None
+    try:
+        if "EMA50" in ticker.columns and not pd.isna(latest.get("EMA50")):
+            ema50_val = float(latest["EMA50"])
+            ema20_gt_ema50 = (ema20 > ema50_val)
+        if "EMA20" in ticker.columns and len(ticker) >= 2:
+            prev_ema20 = float(ticker["EMA20"].iloc[-2])
+            ema20_slope_pos = (ema20 - prev_ema20) > 0
+    except Exception:
+        ema20_gt_ema50 = None
+        ema20_slope_pos = None
+
+    if ema20_gt_ema50 is not True and ema20_slope_pos is not True:
+        checks.append(f"EMA20 trend weak: EMA20 not > EMA50 and EMA20 slope not positive (requires at least one)")
 
     vol_now = float(latest.get("Volume", 0.0))
     vol_ratio = (vol_now / avg_vol_20d) if avg_vol_20d > 0 else 1.0
@@ -344,12 +391,6 @@ def evaluate_reversal_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
             "entry_price": close_price,
             "atr_20": float(latest.get("ATR", close_price * 0.025))
         }
-
-    pct_below_sma200 = None
-    if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")):
-        sma200_val = float(latest["SMA200"])
-        if sma200_val > 0:
-            pct_below_sma200 = (sma200_val - close_price) / sma200_val * 100.0
 
     above_sma50 = bool(close_price >= float(latest["SMA50"])) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else False
     above_sma200 = bool(close_price >= float(latest["SMA200"])) if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")) else False
