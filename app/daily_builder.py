@@ -130,6 +130,64 @@ MIN_OPM_NONFIN    = 10               # 10% OPM — excludes commodity-level marg
 # PATH B only
 MIN_ROA_FIN       = 0.8              
 
+def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None) -> dict:
+    """
+    Evaluates a single symbol against canonical Daily Builder universe eligibility criteria.
+    Checks Price >= ₹100, History >= 50 bars, 20D turnover >= ₹1.0Cr, promoter blacklist, D/E ceiling, and OPM limits.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "qualified": False,
+            "reasons": [f"Bar history {len(df) if df is not None else 0} < 50 minimum required daily bars"]
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(ticker) < 50:
+        return {"status": "NO", "qualified": False, "reasons": [f"Bar history {len(ticker)} < 50 minimum required daily bars"]}
+
+    latest = ticker.iloc[-1]
+    close_price = float(latest["Close"])
+
+    checks = []
+    if close_price < MIN_PRICE:
+        checks.append(f"Price ₹{close_price:.2f} < ₹{MIN_PRICE:.0f} minimum price floor")
+
+    avg_turnover_20d = (ticker['Close'] * ticker['Volume']).tail(20).mean() / 1e7
+    if avg_turnover_20d < 1.0:
+        checks.append(f"20D Avg Turnover ₹{avg_turnover_20d:.2f}Cr < ₹1.0Cr minimum liquidity")
+
+    if symbol.upper() in _BLACKLIST_SYMBOLS:
+        checks.append("JUNK BLOCKED: Symbol listed on Promoter Blacklist / NSE Surveillance (ASM/GSM)")
+
+    fd = fund_data or {}
+    debt_equity = fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity")))
+    opm = fd.get("operating_margin", fd.get("opm"))
+
+    if debt_equity is not None and not pd.isna(debt_equity):
+        de_val = float(debt_equity)
+        category = str(fd.get("Category", "")).lower()
+        if "utilities" not in category and "bank" not in category and de_val > MAX_DEBT_EQUITY:
+            checks.append(f"JUNK BLOCKED: D/E {de_val:.2f} > {MAX_DEBT_EQUITY:.1f} maximum leverage ceiling")
+
+    if opm is not None and not pd.isna(opm):
+        opm_val = float(opm)
+        if opm_val < 0:
+            checks.append(f"JUNK BLOCKED: Negative Operating Margin {opm_val:.1f}%")
+
+    if checks:
+        return {"status": "NO", "qualified": False, "reasons": checks}
+
+    return {
+        "status": "CORE MET",
+        "qualified": True,
+        "reasons": [f"Price ₹{close_price:.2f} ≥ ₹{MIN_PRICE:.0f} | 20D Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {len(ticker)} ≥ 50"]
+    }
+
 # =====================================================================================
 # GROWTH THRESHOLDS 
 # =====================================================================================

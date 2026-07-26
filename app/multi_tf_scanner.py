@@ -29,12 +29,106 @@ IST = ZoneInfo("Asia/Kolkata")
 
 def _safe_float(val, default=0.0):
     try:
-        import pandas as pd
         if val is None or pd.isna(val) or val == "":
             return default
         return float(val)
     except Exception:
         return default
+
+def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None) -> dict:
+    """
+    Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
+    Evaluates 1H trend permission (EMA9 > EMA20 > SMA50, Close > SMA200, ADX >= 20), distance to breakout level (-2% to +5%), scoring engine, and target calculations without side effects.
+    """
+    if df is None or df.empty or len(df) < 50:
+        return {
+            "status": "NO",
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "score": 0.0,
+            "qualified": False
+        }
+
+    ticker = df.copy()
+    if isinstance(ticker.columns, pd.MultiIndex):
+        ticker.columns = ticker.columns.get_level_values(0)
+    ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    if len(ticker) < 50:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
+
+    ticker = apply_indicators(ticker, timeframe="1h" if "EMA9" not in ticker.columns else "1d")
+    if ticker is None or ticker.empty:
+        return {"status": "NO", "reasons": ["Failed to calculate technical indicators"], "score": 0.0, "qualified": False}
+
+    latest = ticker.iloc[-1]
+    close_price = float(latest["Close"])
+
+    if close_price < MIN_STOCK_PRICE:
+        return {
+            "status": "NO",
+            "reasons": [f"Close ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.0f} price floor"],
+            "score": 0.0,
+            "qualified": False,
+            "entry_price": close_price
+        }
+
+    e9 = _safe_float(latest.get("EMA9"))
+    e20 = _safe_float(latest.get("EMA20"))
+    s50 = _safe_float(latest.get("SMA50"))
+    s200 = _safe_float(latest.get("SMA200"))
+    adx_val = _safe_float(latest.get("ADX", 25.0))
+    prior_high = _safe_float(latest.get("PRIOR_20D_HIGH", ticker["High"].iloc[-21:-1].max() if len(ticker) >= 21 else ticker["High"].max()))
+
+    checks = []
+    if s200 > 0:
+        ema_ok = (e9 > e20 > s50 and close_price > s200)
+        if not ema_ok:
+            checks.append(f"Trend Permission Fail: Requires EMA9 ({e9:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f}) & Close ({close_price:.2f}) > SMA200 ({s200:.2f})")
+    else:
+        ema_ok = (e9 > e20 > s50)
+        if not ema_ok:
+            checks.append(f"Trend Permission Fail: Requires EMA9 ({e9:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
+
+    from config import ADX_MIN_THRESHOLD
+    if adx_val < ADX_MIN_THRESHOLD:
+        checks.append(f"ADX {adx_val:.1f} < {ADX_MIN_THRESHOLD:.0f} minimum trend strength threshold")
+
+    if prior_high <= 0:
+        checks.append("Invalid prior 20-day high level")
+    else:
+        dist_to_breakout = (prior_high - close_price) / prior_high
+        if not (-0.02 <= dist_to_breakout <= 0.05):
+            checks.append(f"Distance to breakout level {dist_to_breakout*100:.1f}% outside -2.0% to +5.0% window")
+
+    if checks:
+        return {
+            "status": "NO",
+            "reasons": checks,
+            "score": 0.0,
+            "qualified": False,
+            "entry_price": close_price,
+            "atr_20": float(latest.get("ATR", close_price * 0.025))
+        }
+
+    score = 80.0 if adx_val >= 30.0 else 75.0
+    atr_val = float(latest.get("ATR", close_price * 0.025))
+
+    from sl_target_helper import compute_sl_and_target
+    sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTI_TF", ticker=ticker)
+
+    return {
+        "status": "CORE MET",
+        "reasons": [f"1H Trend Permission Met (EMA Alignment | ADX {adx_val:.1f} | Close ₹{close_price:.2f} near Breakout ₹{prior_high:.2f})"],
+        "score": score,
+        "qualified": True,
+        "entry_price": close_price,
+        "stop_loss": sl_result.get("stop_loss"),
+        "target_1": sl_result.get("target_1"),
+        "target_2": sl_result.get("target_2"),
+        "target_3": sl_result.get("target_3"),
+        "target_4": sl_result.get("target_4"),
+        "atr_20": atr_val
+    }
 
 def strip_forming_candle(df, tf_minutes, ist_now):
     """Remove the forming (incomplete) candle from dataframe if it's still being built.

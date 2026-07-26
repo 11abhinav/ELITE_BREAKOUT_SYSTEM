@@ -24,6 +24,8 @@ from reversal_scanner import evaluate_reversal_symbol
 from pullback_pipeline import evaluate_pullback_symbol
 from wealth_engine import evaluate_wealth_symbol
 from multibagger import evaluate_multibagger_symbol
+from multi_tf_scanner import evaluate_multi_tf_symbol
+from daily_builder import evaluate_daily_builder_symbol
 from database import (
     init_db, get_connection, save_alert_if_new,
     get_user_watchlist, update_user_watchlist_scan_result,
@@ -498,28 +500,18 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     deficits = []
 
     # ---------------- STAGE 1: DAILY BUILDER (UNIVERSE ELIGIBILITY) ----------------
-    db_pass = True
-    db_reasons = []
+    db_eval = evaluate_daily_builder_symbol(sym_clean, df, fund_data=fund_data)
+    db_pass = db_eval.get("qualified", False)
+    db_reasons = db_eval.get("reasons", [])
 
-    if close_price < 100.0:
-        db_pass = False
-        db_reasons.append(f"Price ₹{close_price:.2f} < ₹100.0 minimum price floor")
-        deficits.append(f"💵 Price Floor Deficit: Current price ₹{close_price:.2f} is below the ₹100.0 universe entry threshold.")
-
-    history_len = len(df)
-    if history_len < 50:
-        db_pass = False
-        db_reasons.append(f"Bar history {history_len} < 50 minimum required daily bars")
-        deficits.append(f"📅 History Deficit: Symbol has only {history_len} daily bars (requires ≥50 bars).")
-
-    avg_turnover_20d = (df['Close'] * df['Volume']).tail(20).mean() / 1e7 # in Cr
-    if avg_turnover_20d < 1.0:
-        db_pass = False
-        db_reasons.append(f"20D Avg Turnover ₹{avg_turnover_20d:.2f}Cr < ₹1.0Cr minimum liquidity")
-        deficits.append(f"💧 Liquidity Deficit: 20-day average turnover ₹{avg_turnover_20d:.2f}Cr is below ₹1.0Cr minimum.")
-
-    if db_pass:
-        db_reasons.append(f"Price ₹{close_price:.2f} ≥ ₹100.0 | Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {history_len} ≥ 50")
+    if not db_pass:
+        for r in db_reasons:
+            if "Price" in r:
+                deficits.append(f"💵 Price Floor Deficit: Current price ₹{close_price:.2f} is below the ₹100.0 universe entry threshold.")
+            elif "history" in r:
+                deficits.append(f"📅 History Deficit: Symbol has only {history_len} daily bars (requires ≥50 bars).")
+            elif "Turnover" in r:
+                deficits.append(f"💧 Liquidity Deficit: 20-day average turnover is below ₹1.0Cr minimum.")
 
     # Indicators & Moving Averages
     vol_20d_med = float(df['Volume'].iloc[-21:-1].median()) if len(df) >= 21 else float(df['Volume'].median())
@@ -533,13 +525,14 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # Trend alignment: Close > SMA50 > SMA200
     is_uptrend = (sma50_val is not None and sma200_val is not None and close_price > sma50_val > sma200_val)
 
-    # Evaluate canonical per-symbol evaluators directly from production scanner modules
-    regime_ctx = {"trend": "NEUTRAL", "biases": {}}
+    # Evaluate canonical per-symbol evaluators directly from production scanner modules with REAL macro regime context
+    regime_ctx = MarketRegimeEngine.get_regime_context()
     eod_eval = evaluate_eod_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
     rev_eval = evaluate_reversal_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
     pb_eval = evaluate_pullback_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
     we_eval = evaluate_wealth_symbol(sym_clean, df, fund_data=fund_data)
     mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
+    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx)
 
     eod_status = eod_eval.get("status", "NO")
     eod_reasons = eod_eval.get("reasons", [])
@@ -551,8 +544,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     we_reasons = we_eval.get("reasons", [])
     mb_status = mb_eval.get("status", "NO")
     mb_reasons = mb_eval.get("reasons", [])
-    mtf_status = "NO"
-    mtf_reasons = ["INTRADAY ONLY: Requires live 15-minute volume explosion spike during market hours (09:30–14:45 IST)"]
+    mtf_status = mtf_eval.get("status", "NO")
+    mtf_reasons = mtf_eval.get("reasons", [])
 
     # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
     tech_score = 50.0
@@ -568,7 +561,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         fund_score += 20.0
     if roe_val >= 15.0:
         fund_score += 15.0
-    if debt_equity <= 0.5:
+    if debt_equity is not None and debt_equity <= 0.5:
         fund_score += 15.0
 
     overall_health_score = min(100.0, round((tech_score * 0.5) + (fund_score * 0.3) + (rs_percentile * 0.2), 1))
@@ -578,60 +571,42 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     if not deficits:
         deficits.append("🌟 Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment.")
 
-    # Check if ANY scanner met core conditions to auto-add to watchlist for deep processing
-    any_core_met = any(status.startswith("CORE MET") for status in [eod_status, pb_status, we_status, rev_status, mb_status, mtf_status])
-    
-    # Determine precise scanner status for Watchlist display
+    # Determine precise scanner status for Watchlist display using BOOLEAN QUALIFIED CONTRACT
     scanners_met = []
     scanners_wl = []
-    
-    if eod_status.startswith("CORE MET") or eod_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("EOD")
-    elif eod_status == "WATCHLIST":
-        scanners_wl.append("EOD")
 
-    if pb_status.startswith("CORE MET") or pb_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("PULLBACK")
-    elif pb_status == "WATCHLIST":
-        scanners_wl.append("PULLBACK")
+    eval_pairs = [
+        ("EOD", eod_eval),
+        ("PULLBACK", pb_eval),
+        ("WEALTH", we_eval),
+        ("REVERSAL", rev_eval),
+        ("MULTIBAGGER", mb_eval),
+        ("MULTI-TF", mtf_eval)
+    ]
 
-    if we_status.startswith("CORE MET") or we_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("WEALTH")
-    elif we_status == "WATCHLIST":
-        scanners_wl.append("WEALTH")
+    for name, ev in eval_pairs:
+        if ev.get("qualified", False):
+            scanners_met.append(name)
+        elif ev.get("status") == "WATCHLIST":
+            scanners_wl.append(name)
 
-    if rev_status.startswith("CORE MET") or rev_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("REVERSAL")
-    elif rev_status == "WATCHLIST":
-        scanners_wl.append("REVERSAL")
-
-    if mb_status.startswith("CORE MET") or mb_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("MULTIBAGGER")
-    elif mb_status == "WATCHLIST":
-        scanners_wl.append("MULTIBAGGER")
-
-    if mtf_status.startswith("CORE MET") or mtf_status in ("YES", "ACTIVE", "QUALIFIED"):
-        scanners_met.append("MULTI-TF")
-    elif mtf_status == "WATCHLIST":
-        scanners_wl.append("MULTI-TF")
+    any_core_met = bool(scanners_met)
 
     if scanners_met:
         watchlist_status = "QUALIFIED (" + ", ".join(scanners_met) + ")"
     elif scanners_wl:
         watchlist_status = "WATCHLIST (" + ", ".join(scanners_wl) + ")"
-    elif any_core_met:
-        watchlist_status = "CORE MET"
     else:
         watchlist_status = "MONITORING"
 
     if any_core_met:
         outcome_msg = f"⚡ CORE CONDITION MET: Current Status: {watchlist_status} (Health Score: {overall_health_score:.1f})"
-        if eod_status.startswith("CORE MET"): eod_reasons.append(outcome_msg)
-        if pb_status.startswith("CORE MET"): pb_reasons.append(outcome_msg)
-        if we_status.startswith("CORE MET"): we_reasons.append(outcome_msg)
-        if rev_status.startswith("CORE MET"): rev_reasons.append(outcome_msg)
-        if mb_status.startswith("CORE MET"): mb_reasons.append(outcome_msg)
-        if mtf_status.startswith("CORE MET"): mtf_reasons.append(outcome_msg)
+        if eod_eval.get("qualified"): eod_reasons.append(outcome_msg)
+        if pb_eval.get("qualified"): pb_reasons.append(outcome_msg)
+        if we_eval.get("qualified"): we_reasons.append(outcome_msg)
+        if rev_eval.get("qualified"): rev_reasons.append(outcome_msg)
+        if mb_eval.get("qualified"): mb_reasons.append(outcome_msg)
+        if mtf_eval.get("qualified"): mtf_reasons.append(outcome_msg)
 
     # Check if symbol is already in user watchlist
     user_watchlist = get_user_watchlist(user_id)
@@ -655,9 +630,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         "rs_percentile": round(rs_percentile, 1),
         "deficits": deficits,
         "funnel": {
-            "daily_builder": {"status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
+            "daily_builder": {**db_eval, "status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
             "eod_breakout": {**eod_eval, "status": eod_status, "reasons": eod_reasons},
-            "multi_tf": {"status": mtf_status, "reasons": mtf_reasons},
+            "multi_tf": {**mtf_eval, "status": mtf_status, "reasons": mtf_reasons},
             "reversal": {**rev_eval, "status": rev_status, "reasons": rev_reasons},
             "pullback": {**pb_eval, "status": pb_status, "reasons": pb_reasons},
             "wealth_engine": {**we_eval, "status": we_status, "reasons": we_reasons},
@@ -682,7 +657,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", user_id: str = "DEFAULT_USER") -> dict:
     """
     Promotes a qualified analysis result to an ACTIVE BUY ALERT in the database.
-    Enforces Deep Analysis execution (is_deep_analysis=True) and uses production evaluator scores, real ATRs, structural stop losses, and target levels.
+    Enforces Deep Analysis execution (is_deep_analysis=True) and uses production evaluator scores, real ATRs, structural stop losses, and target levels T1-T4.
     """
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     scanner_type = scanner_type.strip().upper()
@@ -706,13 +681,14 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     }
     funnel_key = funnel_map[scanner_type]
     scanner_stage = res.get("funnel", {}).get(funnel_key, {})
-    stage_status = scanner_stage.get("status", "NO")
+    stage_status = str(scanner_stage.get("status", "NO"))
+    is_qualified = bool(scanner_stage.get("qualified", False)) or stage_status.startswith("CORE MET") or stage_status.startswith("QUALIFIED")
 
-    if not (stage_status.startswith("CORE MET") or stage_status.startswith("QUALIFIED")):
+    if not is_qualified:
         reasons_str = " | ".join(scanner_stage.get("reasons", []))
         return {
             "success": False,
-            "error": f"Symbol '{sym_clean}' did not qualify for {scanner_type} scanner (Status: {stage_status}). Reasons: {reasons_str}"
+            "error": f"Symbol '{sym_clean}' did not qualify for {scanner_type} scanner. Reasons: {reasons_str}"
         }
 
     entry_price = float(scanner_stage.get("entry_price", res.get("close_price", 100.0)))
@@ -736,25 +712,54 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
 
     ist_now = datetime.now(IST)
 
+    # Dynamic Category Determination
+    if scanner_type == "MULTIBAGGER":
+        category_val = str(scanner_stage.get("conviction_tier", "Prime"))
+    elif scanner_type == "WEALTH":
+        buckets = scanner_stage.get("buckets", [])
+        category_val = ", ".join(buckets) if buckets else "Wealth Compounder"
+    else:
+        category_val = f"{scanner_type} (MANUAL)"
+
+    # Dynamic RS & Sector Bonus Calculation
+    rs_dict = compute_nifty_rs_rating([sym_clean])
+    rs_pct_val = float(rs_dict.get(sym_clean, 80.0))
+    rs_bonus_val = 3 if rs_pct_val >= 80.0 else 0
+
+    from macro_utils import compute_sector_regime_rankings
+    sector_rankings = compute_sector_regime_rankings()
+    sector_info = sector_rankings.get(res.get("sector"), {}) if res.get("sector") else {}
+    sector_status = sector_info.get("effective_status", "NEUTRAL")
+    sector_bonus_val = 2 if sector_status == "TAILWIND" else 0
+
+    regime_ctx_active = MarketRegimeEngine.get_regime_context()
+    regime_score_val = float(regime_ctx_active.get("market_score", 80.0))
+
     saved, reason, alert_id, _ = save_alert_if_new(
         symbol=sym_clean,
         breakout_type=scanner_type,
         alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
         scanner=scanner_type,
-        category=f"{scanner_type} (MANUAL)",
+        category=category_val,
         entry_price=entry_price,
-        stop_loss=sl_target.get("stop_loss"),
-        target_1=sl_target.get("target_1"),
-        target_2=sl_target.get("target_2"),
-        target_3=sl_target.get("target_3"),
+        stop_loss=sl_val,
+        target_1=t1_val,
+        target_2=t2_val,
+        target_3=t3_val,
         score=score_val,
-        context={"is_manual": True, "created_by": user_id, "analysis_snapshot": res.get("funnel")},
+        context={
+            "is_manual": True,
+            "created_by": user_id,
+            "is_deep_analysis": True,
+            "target_4": t4_val,
+            "analysis_snapshot": res.get("funnel")
+        },
         base_score=score_val,
-        rs_bonus=5,
-        sector_bonus=5,
-        rs_percentile=res.get("rs_percentile", 80.0),
+        rs_bonus=rs_bonus_val,
+        sector_bonus=sector_bonus_val,
+        rs_percentile=rs_pct_val,
         sector_name=res.get("sector", "GENERAL"),
-        regime_score=80.0
+        regime_score=regime_score_val
     )
 
     if not saved:
@@ -766,11 +771,13 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
         msg = (
             f"🚀 <b>MANUAL {scanner_type} BUY ALERT CREATED</b> 🚀\n\n"
             f"📌 <b>Symbol:</b> #{sym_clean}\n"
+            f"🏷️ <b>Category/Tier:</b> {category_val}\n"
             f"💰 <b>Entry Price:</b> ₹{entry_price:.2f}\n"
-            f"🛑 <b>Stop Loss:</b> ₹{sl_target.get('stop_loss', 0):.2f}\n"
-            f"🎯 <b>Target 1:</b> ₹{sl_target.get('target_1', 0):.2f}\n"
-            f"🎯 <b>Target 2:</b> ₹{sl_target.get('target_2', 0):.2f}\n"
-            f"🎯 <b>Target 3:</b> ₹{sl_target.get('target_3', 0):.2f}\n"
+            f"🛑 <b>Stop Loss:</b> ₹{sl_val:.2f}\n"
+            f"🎯 <b>Target 1:</b> ₹{t1_val:.2f}\n"
+            f"🎯 <b>Target 2:</b> ₹{t2_val if t2_val else 0:.2f}\n"
+            f"🎯 <b>Target 3:</b> ₹{t3_val if t3_val else 0:.2f}\n"
+            f"🎯 <b>Target 4:</b> ₹{t4_val if t4_val else 0:.2f}\n"
             f"📊 <b>Score:</b> {score_val}/100\n"
             f"👤 <b>Initiated By:</b> {user_id}"
         )
@@ -784,7 +791,10 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
         "symbol": sym_clean,
         "scanner": scanner_type,
         "entry_price": entry_price,
-        "stop_loss": sl_target.get("stop_loss"),
-        "target_1": sl_target.get("target_1"),
+        "stop_loss": sl_val,
+        "target_1": t1_val,
+        "target_2": t2_val,
+        "target_3": t3_val,
+        "target_4": t4_val,
         "message": f"Manual {scanner_type} alert successfully raised for #{sym_clean} @ ₹{entry_price:.2f}."
     }
