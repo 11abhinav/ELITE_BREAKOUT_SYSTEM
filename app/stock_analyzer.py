@@ -92,20 +92,25 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
         except Exception:
             pass
 
-    # 4. Live Yahoo Search API fallback (Fast & light HTTP GET search)
+    # 4. Live Yahoo Search API fallback (Fast & light HTTP GET search via stdlib urllib)
     if not found:
         try:
-            import requests
-            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={sym_clean}&quotesCount=5&country=India"
-            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-            if r.status_code == 200:
-                quotes = r.json().get('quotes', [])
-                for q in quotes:
-                    s = q.get('symbol', '').upper()
-                    if s.startswith(sym_clean) and (s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE')):
-                        found = True
-                        company_name = q.get('shortname') or q.get('longname') or sym_clean
-                        break
+            import urllib.request
+            import json
+            req = urllib.request.Request(
+                f"https://query2.finance.yahoo.com/v1/finance/search?q={sym_clean}&quotesCount=5&country=India",
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    quotes = data.get('quotes', [])
+                    for q in quotes:
+                        s = q.get('symbol', '').upper()
+                        if s.startswith(sym_clean) and (s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE')):
+                            found = True
+                            company_name = q.get('shortname') or q.get('longname') or sym_clean
+                            break
         except Exception as _yerr:
             logger.debug(f"Yahoo Search fallback failed for {sym_clean}: {_yerr}")
 
