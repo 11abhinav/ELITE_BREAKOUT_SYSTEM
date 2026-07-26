@@ -3094,6 +3094,28 @@ def api_watchlist_deep_analysis():
         logger.exception("❌ Watchlist deep analysis endpoint error")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+@app.route("/api/v1/admin/master_symbols/refresh", methods=["POST"])
+@login_required
+def api_admin_refresh_master_symbols():
+    """Allows Admin to manually refresh and update the master list of all NSE/BSE stocks anytime."""
+    try:
+        from stock_analyzer import refresh_master_symbols_universe, _load_master_symbol_dictionary
+        ok = refresh_master_symbols_universe()
+        m = _load_master_symbol_dictionary()
+        count = len(m) if m else 0
+        if ok:
+            return jsonify({
+                "success": True,
+                "message": f"Successfully updated Master Symbol Registry with {count} active NSE/BSE equities!",
+                "count": count
+            })
+        else:
+            return jsonify({"success": False, "error": "Failed to sync master symbol universe into database."}), 500
+    except Exception as e:
+        logger.exception("❌ Admin master symbols refresh error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # ── Global Error Handlers ───────────────────────────────────────────────
 
 @app.errorhandler(500)

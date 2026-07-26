@@ -697,6 +697,20 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         }
     }
 
+    try:
+        from database import update_user_watchlist_scan_result
+        update_user_watchlist_scan_result(
+            symbol=sym_clean,
+            user_id=user_id,
+            health_score=overall_health_score,
+            status=overall_status,
+            deep_analysis_result=res
+        )
+    except Exception as _pe:
+        logger.warning(f"Could not persist deep analysis result for {sym_clean}: {_pe}")
+
+    return res
+
 
 def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", user_id: str = "DEFAULT_USER") -> dict:
     """

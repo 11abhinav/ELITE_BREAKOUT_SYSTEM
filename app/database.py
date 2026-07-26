@@ -1224,9 +1224,13 @@ def init_db():
                         last_health_score NUMERIC(5,2),
                         last_status VARCHAR(50) DEFAULT 'MONITORING',
                         notes TEXT,
+                        last_deep_analysis_at TIMESTAMPTZ,
+                        deep_analysis_result TEXT,
                         UNIQUE(user_id, symbol)
                     )
                 """)
+                cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ")
+                cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT")
 
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
                 # Commit the above table creations before doing heavy DDL
@@ -5850,7 +5854,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes
+                    SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes, last_deep_analysis_at, deep_analysis_result
                     FROM user_watchlists
                     WHERE user_id::text = %s
                     ORDER BY added_at DESC
@@ -5863,6 +5867,12 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     if sym in seen_symbols:
                         continue
                     seen_symbols.add(sym)
+                    deep_res = None
+                    if len(r) > 8 and r[8]:
+                        try:
+                            deep_res = json.loads(r[8]) if isinstance(r[8], str) else r[8]
+                        except Exception:
+                            deep_res = None
                     results.append({
                         "symbol": sym,
                         "company_name": r[1] or sym,
@@ -5870,28 +5880,48 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "last_scanned_at": r[3].isoformat() if r[3] else None,
                         "last_health_score": float(r[4]) if r[4] is not None else None,
                         "last_status": r[5] or "MONITORING",
-                        "notes": r[6] or ""
+                        "notes": r[6] or "",
+                        "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and r[7] else None,
+                        "deep_analysis_result": deep_res
                     })
                 return results
     except Exception as e:
         logger.error(f"Failed to fetch user watchlist for {user_id}: {e}")
         return []
 
-def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None) -> bool:
-    """Update last scan timestamp, score, and status for a watchlist item."""
+def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None, deep_analysis_result: dict = None) -> bool:
+    """Update last scan timestamp, score, status, and full deep analysis outcome JSON for a watchlist item."""
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
+    analysis_json_str = None
+    if deep_analysis_result is not None:
+        try:
+            analysis_json_str = json.dumps(deep_analysis_result, default=str)
+        except Exception as je:
+            logger.warning(f"Could not serialize deep_analysis_result to JSON: {je}")
+
     try:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE user_watchlists
-                    SET last_scanned_at = CURRENT_TIMESTAMP,
-                        last_health_score = COALESCE(%s, last_health_score),
-                        last_status = COALESCE(%s, last_status)
-                    WHERE user_id::text = %s AND symbol = %s
-                """, (health_score, status, user_id_str, sym_clean))
+                if analysis_json_str is not None:
+                    cur.execute("""
+                        UPDATE user_watchlists
+                        SET last_scanned_at = CURRENT_TIMESTAMP,
+                            last_deep_analysis_at = CURRENT_TIMESTAMP,
+                            last_health_score = COALESCE(%s, last_health_score),
+                            last_status = COALESCE(%s, last_status),
+                            deep_analysis_result = %s
+                        WHERE user_id::text = %s AND symbol = %s
+                    """, (health_score, status, analysis_json_str, user_id_str, sym_clean))
+                else:
+                    cur.execute("""
+                        UPDATE user_watchlists
+                        SET last_scanned_at = CURRENT_TIMESTAMP,
+                            last_health_score = COALESCE(%s, last_health_score),
+                            last_status = COALESCE(%s, last_status)
+                        WHERE user_id::text = %s AND symbol = %s
+                    """, (health_score, status, user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
