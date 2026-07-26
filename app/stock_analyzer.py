@@ -513,6 +513,22 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         except Exception as _fe:
             logger.warning(f"On-demand fundamental fetch fallback failed for {sym_clean}: {_fe}")
 
+    # Ensure fund_data dict contains the resolved fundamental ratios for evaluators
+    if fund_data is None:
+        fund_data = {}
+    if roce_val is not None:
+        fund_data["roce"] = roce_val
+        fund_data["roce_val"] = roce_val
+        fund_data["ROCE %"] = roce_val
+    if roe_val is not None:
+        fund_data["roe"] = roe_val
+        fund_data["roe_val"] = roe_val
+        fund_data["ROE %"] = roe_val
+    if debt_equity is not None:
+        fund_data["debt_equity"] = debt_equity
+        fund_data["debt_to_equity"] = debt_equity
+        fund_data["Debt/Equity"] = debt_equity
+
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
     rs_percentile = float(rs_dict.get(sym_clean, 50.0))
