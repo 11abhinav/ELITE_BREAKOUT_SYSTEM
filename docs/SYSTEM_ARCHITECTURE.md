@@ -2704,35 +2704,222 @@ t + 5.2s   DESTROY     Invoke gc.collect() & malloc_trim(0)     Reclaims C-heap 
 
 # 21. ANALYSE YOUR WATCHLIST DIAGNOSTIC ARCHITECTURE & REPOSITORY
 
-The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py`), REST API layer (`app/dashboard_server.py`), and PostgreSQL repository (`app/database.py`).
+The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py`), REST API layer (`app/dashboard_server.py`), PostgreSQL multi-tenant repository (`app/database.py`), and inline glassmorphic UI components (`app/admin_dashboard.html`, `app/user_dashboard.html`).
+
+---
 
 ## 21.1 Core Architecture Components
-1. **Real-time Autocomplete Engine (`search_symbols_autocomplete`)**:
-   - Performs dual-tier lookup across `watchlist_cache` and `symbol_mappings` table.
-   - Matches symbol prefix, company name substring, and produces custom fallback entries.
-2. **7-Stage Dry-Run Funnel (`analyze_symbol`)**:
-   - Runs dry-run evaluation through 7 scanner stages: *Daily Builder $\rightarrow$ EOD Breakout $\rightarrow$ Multi-TF Intraday $\rightarrow$ Reversal $\rightarrow$ Pullback $\rightarrow$ Wealth Engine $\rightarrow$ Multibagger Engine*.
-   - Calculates Overall Health Score (0-100) combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile (20%).
-   - Generates Deficit Summary list ("What This Stock Lacks Right Now").
-3. **Manual Alert Promotion Engine (`create_manual_alert_from_analysis`)**:
-   - Calculates dynamic SL, T1, T2, T3 targets via `compute_sl_and_target()`.
-   - Saves alert to `alerts` table (`is_manual=True`) and dispatches Telegram notifications.
 
-## 21.2 Personal Watchlist Schema (`user_watchlists`)
+1. **Sub-Millisecond Autocomplete Engine (`search_symbols_autocomplete` / `/api/v1/symbols/suggest`)**:
+   - Performs instant prefix & substring matches across RAM caches (`window.MASTER_SYMBOLS_CLIENT_ARRAY`), active watchlists, `temp_universe.parquet` (940+ tickers), historical price caches (~685 tickers), and Postgres `symbol_mappings` table.
+   - Includes dynamic fallback (`Select 'TICKER' (NSE/BSE)`) guaranteeing coverage for all ~4,000+ listed NSE & BSE equities in `<0.1ms`.
+
+2. **7-Stage Dry-Run Funnel (`analyze_symbol` / `/api/v1/analyze_stock`)**:
+   - Evaluates any stock ticker symbol through all 7 scanner stages in sequence: *Daily Builder $\rightarrow$ EOD Breakout $\rightarrow$ Multi-TF Intraday $\rightarrow$ Reversal $\rightarrow$ Pullback $\rightarrow$ Wealth Engine $\rightarrow$ Multibagger Engine*.
+   - Calculates **Overall Health Score (0–100)** combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile vs Nifty 500 (20%).
+   - Generates up to 4 primary **Quantitative Deficits** explaining specific parameter gaps holding a stock back from becoming an active breakout alert.
+
+3. **Manual Alert Promotion Engine (`create_manual_alert_from_analysis` / `/api/v1/create_manual_alert`)**:
+   - Gated to run ONLY after full Deep Analysis execution (`is_deep_analysis = True`).
+   - Calculates dynamic SL, T1, T2, T3, T4 targets via `compute_sl_and_target()`.
+   - Saves alert to `alerts` table (`category = 'SCANNER (MANUAL)'`) and dispatches Telegram channel broadcasts and VAPID Web Push notifications.
+
+---
+
+## 21.2 API Endpoint Specifications
+
+### 1. Analyze Stock (`GET /api/v1/analyze_stock`)
+- **HTTP Method**: `GET` | **Auth**: Required (`@login_required`)
+- **Params**: `symbol` (string, required), `is_deep_analysis` (bool, default `false`), `force_refresh` (bool, default `false`).
+- **Processing Flow**:
+  1. Sanitizes `symbol` (uppercase, strip `.NS`/`.BO`).
+  2. Queries `stock_analysis_master` table for pre-scanned 0ms report cache.
+  3. Fetches OHLCV historical price data (minimum 50 bars) and fundamental metrics.
+  4. Runs 7-Stage Funnel evaluation (Stage 1 to Stage 7).
+  5. Dynamically evaluates `is_in_watchlist` for requesting session `user_id` against `user_watchlists` in real-time, overriding frozen master cache fields.
+  6. Aggregates up to 4 quantitative deficits.
+
+### 2. Autocomplete Suggestions (`GET /api/v1/symbols/suggest`)
+- **HTTP Method**: `GET` | **Auth**: Required (`@login_required`)
+- **Params**: `q` (string, required prefix or substring).
+- **Response**: Array of `{ symbol, company_name, sector, exchange }`.
+
+### 3. Master Symbol List (`GET /api/v1/symbols/master_list`)
+- **HTTP Method**: `GET` | **Auth**: Required (`@login_required`)
+- **Response**: Full JSON array of 2,389+ listed NSE/BSE equities pre-loaded into browser memory (`window.MASTER_SYMBOLS_CLIENT_ARRAY`) on page load.
+
+### 4. Get User Watchlist (`GET /api/v1/user_watchlist`)
+- **HTTP Method**: `GET` | **Auth**: Required (`@login_required`)
+- **Isolation**: Enforces `WHERE user_id::text = %s` casting. Returns array of monitored stock records.
+
+### 5. Add to Personal Watchlist (`POST /api/v1/user_watchlist/add`)
+- **HTTP Method**: `POST` | **Auth**: Required (`@login_required`)
+- **Payload**: `{ "symbol": "NAVINFLUOR", "company_name": "...", "health_score": 79.0 }`.
+- **Validation**: Enforces 5-Stage Ticker Validation Cascade (`validate_nse_bse_ticker`). Executes `INSERT ... ON CONFLICT (user_id, symbol) DO UPDATE`.
+
+### 6. Remove from Watchlist (`DELETE` / `POST /api/v1/user_watchlist/remove`)
+- **HTTP Method**: `DELETE` / `POST` | **Auth**: Required (`@login_required`)
+- **Payload**: `{ "symbol": "NAVINFLUOR" }`.
+
+### 7. Watchlist Deep Analysis Batch (`POST /api/v1/user_watchlist/deep_analysis`)
+- **HTTP Method**: `POST` | **Auth**: Required (`@login_required`)
+- **Behavior**: Concurrently executes 7-stage deep diagnostic analysis on all stocks saved in user's personal watchlist and updates `deep_analysis_result` JSONB.
+
+### 8. Create Manual Alert (`POST /api/v1/create_manual_alert`)
+- **HTTP Method**: `POST` | **Auth**: Required (`@login_required`)
+- **Payload**: `{ "symbol": "THANGAMAYL", "scanner": "MULTIBAGGER" }`.
+
+### 9. Admin Refresh Master Symbols (`POST /api/v1/admin/master_symbols/refresh`)
+- **HTTP Method**: `POST` | **Auth**: Required (`@login_required` admin)
+- **Behavior**: Rebuilds database `master_symbols` registry from active exchange lists.
+
+---
+
+## 21.3 Strict 5-Stage Ticker Validation Cascade
+
+To block invalid, delisted, or spoofed ticker inputs before hitting database queries or external market data APIs, `validate_nse_bse_ticker(symbol)` executes a 5-stage verification cascade:
+
+```
+[User Ticker Input]
+       │
+       ▼
+ ┌───────────┐  YES
+ │  Stage 1  ├──────► [VALID TICKER] (Return True)
+ └─────┬─────┘
+       │ NO
+       ▼
+ ┌───────────┐  YES
+ │  Stage 2  ├──────► [VALID TICKER] (Return True)
+ └─────┬─────┘
+       │ NO
+       ▼
+ ┌───────────┐  YES
+ │  Stage 3  ├──────► [VALID TICKER] (Return True)
+ └─────┬─────┘
+       │ NO
+       ▼
+ ┌───────────┐  YES
+ │  Stage 4  ├──────► [VALID TICKER] (Return True)
+ └─────┬─────┘
+       │ NO
+       ▼
+ ┌───────────┐  YES
+ │  Stage 5  ├──────► [VALID TICKER] (Return True)
+ └─────┬─────┘
+       │ NO
+       ▼
+ [REJECT TICKER] (HTTP 400 Bad Request)
+```
+
+1. **Stage 1 (Master Symbol Dictionary)**: Checked against `_load_master_symbol_dictionary()` (RAM cache covering 2,389+ equities).
+2. **Stage 2 (BSE Mapping Engine)**: Checked against `bse_mapping_utils.load_bse_mappings()` for security codes.
+3. **Stage 3 (Database Mappings Table)**: Queries PostgreSQL `symbol_mappings` table.
+4. **Stage 4 (Yahoo Search API Fallback)**: Queries `https://query2.finance.yahoo.com/v1/finance/search` for Indian exchange quotes (`.NS` / `.BO`).
+5. **Stage 5 (Provider Price Verification)**: Attempts lightweight OHLCV fetch via `data_provider.get_fetcher().get_ohlcv()`.
+
+---
+
+## 21.4 7-Stage Scanner Funnel Mathematical Formulas
+
+### Stage 1: Daily Builder (Universe Entry)
+$$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } P \ge 100.0 \land \bar{T}_{20D} \ge 1.0\text{ Cr} \land N_{\text{bars}} \ge 50 \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 2: EOD Breakout Scanner
+$$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } P > \max_{20D}(H) \land \frac{V}{\text{Med}_{20D}(V)} \ge 1.8 \land \frac{H - \max(C,O)}{H - L} \le 0.35 \land C > O \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 3: Multi-TF Intraday Scanner
+$$\text{Status} = \begin{cases} \text{QUALIFIED} & \text{if } \text{Time} \in [09:30, 14:45] \land V_{15m} \ge 3.0 \times \bar{V}_{15m} \land \text{Trend}_{1H} \text{ Active} \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 4: Reversal Oversold Bounce
+$$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } 15\% \le \frac{H_{52W} - C}{H_{52W}} \le 45\% \land (\text{RSI}_{14} \le 38 \lor (\text{RSI}_{14} \ge 50 \land \min_{15D}(\text{RSI}) \le 38)) \land C > \text{EMA}_{20} \\ \text{WATCHLIST} & \text{if } 15\% \le \frac{H_{52W} - C}{H_{52W}} \le 45\% \land \text{RSI}_{14} \le 45 \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 5: Pullback Continuation Pipeline
+$$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } C > \text{SMA}_{50} > \text{SMA}_{200} \land 20\% \le \text{Depth}_{\text{Fib}} \le 60\% \land \text{Trigger}_{\text{Resumption}} = \text{True} \\ \text{WATCHLIST} & \text{if } C > \text{SMA}_{50} > \text{SMA}_{200} \land 20\% \le \text{Depth}_{\text{Fib}} \le 60\% \land \text{Trigger}_{\text{Resumption}} = \text{False} \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 6: Wealth Engine (4-Bucket Parity)
+$$\text{Bucket}_{\text{Core}} = (\text{ROCE} \ge 20\% \land \text{ROE} \ge 15\% \land \text{D/E} \le 0.50)$$
+$$\text{Bucket}_{\text{Growth}} = ((\text{YoY}_{\text{Rev}} \ge 20\% \lor \text{YoY}_{\text{Rev}}=0) \land (\text{YoY}_{\text{Prof}} \ge 20\% \lor \text{YoY}_{\text{Prof}}=0) \land \text{ROCE} \ge 15\%)$$
+$$\text{Bucket}_{\text{Quality-Sale}} = (\text{ROCE} \ge 15\% \land \text{D/E} \le 1.0 \land \text{Drop}_{52W} \ge 15\%)$$
+$$\text{Bucket}_{\text{Opportunistic}} = (\text{YoY}_{\text{Prof}} \ge 40\%)$$
+$$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } (\text{Any Bucket Met}) \land C > \text{SMA}_{200} \\ \text{WATCHLIST} & \text{if } (\text{Any Bucket Met}) \land C \le \text{SMA}_{200} \text{ or } (\text{ROCE} \ge 12\% \land \text{D/E} \le 1.0) \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+### Stage 7: Multibagger Engine (2-Tier Conviction Parity)
+$$\text{Status} = \begin{cases} \text{CORE MET (Prime)} & \text{if } \text{Piotroski} \ge 7 \land \text{Pledge} \le 10\% \land C > \text{SMA}_{50} > \text{SMA}_{200} \\ \text{CORE MET (High Quality)} & \text{if } \text{Health Score} \ge 65.0 \land \text{Pledge} \le 15\% \land C > \text{SMA}_{50} > \text{SMA}_{200} \\ \text{WATCHLIST} & \text{if } \text{Health Score} \ge 50.0 \lor \text{Piotroski} \ge 5 \\ \text{NO} & \text{otherwise} \end{cases}$$
+
+---
+
+## 21.5 Database DDL Schemas & Multi-Tenant Isolation
+
+### 1. Personal Watchlist Table (`user_watchlists`)
 ```sql
 CREATE TABLE IF NOT EXISTS user_watchlists (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL DEFAULT 'DEFAULT_USER',
-    symbol VARCHAR(32) NOT NULL,
+    user_id TEXT NOT NULL,
+    symbol VARCHAR(30) NOT NULL,
     company_name VARCHAR(255),
-    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_scanned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_scanned_at TIMESTAMPTZ,
     last_health_score NUMERIC(5,2),
-    last_status VARCHAR(32) DEFAULT 'MONITORING',
+    last_status VARCHAR(100),
     notes TEXT,
-    UNIQUE(user_id, symbol)
+    last_deep_analysis_at TIMESTAMPTZ,
+    deep_analysis_result JSONB,
+    PRIMARY KEY (user_id, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_watchlists_symbol ON user_watchlists(symbol);
+```
+
+### 2. Global Analysis Master Table (`stock_analysis_master`)
+```sql
+CREATE TABLE IF NOT EXISTS stock_analysis_master (
+    symbol VARCHAR(30) PRIMARY KEY,
+    health_score NUMERIC(5,2),
+    status VARCHAR(100),
+    deep_analysis_result JSONB,
+    last_scanned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_deep_analysis_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
+### 3. Master Symbols Table (`master_symbols`)
+```sql
+CREATE TABLE IF NOT EXISTS master_symbols (
+    symbol VARCHAR(30) PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    exchange VARCHAR(10) DEFAULT 'NSE',
+    sector VARCHAR(100) DEFAULT 'EQUITY',
+    is_active BOOLEAN DEFAULT TRUE,
+    last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Multi-Tenant Data Isolation Principle
+Every database operation targeting `user_watchlists` executes strict user casting (`WHERE user_id::text = %s`). This eliminates session ID collisions between numeric user IDs (e.g. `57880`) and string identifiers (e.g. `'admin'`, `'DEFAULT_USER'`), guaranteeing 100% data isolation across concurrent sessions.
+
 ---
+
+## 21.6 Frontend Inline DOM Architecture
+
+Both `#my-watchlist-section` and `#stock-diagnostic-main-container` are rendered directly inline on the main screen of `admin_dashboard.html` and `user_dashboard.html`:
+
+```html
+<!-- Search Input & Autocomplete Dropdown -->
+<div class="search-widget">
+  <input type="text" id="stock-search-input" oninput="handleStockSearchInput(this.value)" />
+  <div id="stock-autocomplete-dropdown"></div>
+</div>
+
+<!-- Inline Main Screen Diagnostic Container (No Fixed Popup Modal) -->
+<div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
+
+<!-- Inline Main Screen Personal Watchlist Container -->
+<div id="my-watchlist-section" style="display:none; margin-bottom:24px;"></div>
+```
+
+When a user selects a stock ticker, `renderStockDiagnosticModal(data)` populates `#stock-diagnostic-main-container`, sets `display = 'block'`, and executes a smooth `scrollIntoView({ behavior: 'smooth', block: 'nearest' })`. Clicking `✕ Close Diagnostic View` hides the container cleanly without locking background page scrolling.
+
+---
+
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*
