@@ -46,14 +46,13 @@ class TestStockAnalyzerAutocomplete(unittest.TestCase):
 
     @patch('stock_analyzer.get_watchlist')
     def test_autocomplete_custom_symbol_fallback(self, mock_wl):
-        """Verify unknown ticker query generates custom fallback option."""
+        """Verify unknown ticker query returns no fallback invalid ticker row."""
         mock_wl.return_value = pd.DataFrame([])
 
         from stock_analyzer import search_symbols_autocomplete
         results = search_symbols_autocomplete("UNKNOWNSTOCK", limit=5)
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["symbol"], "UNKNOWNSTOCK")
+        self.assertEqual(len(results), 0)
 
 
 class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
