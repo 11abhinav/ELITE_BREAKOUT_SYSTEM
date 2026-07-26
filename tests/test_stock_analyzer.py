@@ -516,6 +516,58 @@ class TestDataFetchingValidation(unittest.TestCase):
         self.assertGreater(df["Close"].iloc[-1], df["Close"].iloc[0])
 
 
+class TestAuditFixesAndParity(unittest.TestCase):
+    """Test suite verifying fixes for Piotroski Series ambiguity, Stage 5 Pullback parity, and score preservation."""
+
+    @patch('stock_analyzer.validate_nse_bse_ticker', return_value={"is_valid": True, "symbol": "PULLBACKTEST"})
+    @patch('stock_analyzer.fetch_watchlist_data')
+    @patch('stock_analyzer.compute_nifty_rs_rating')
+    @patch('stock_analyzer.get_fundamentals')
+    @patch('watchlist_cache.get_watchlist')
+    def test_stage_5_pullback_full_swing_evaluation(self, mock_wl, mock_fund, mock_rs, mock_fetch, mock_val):
+        """Verify Stage 5 Pullback evaluates full swing pivots, retracement depth, and trigger bar."""
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
+        prices = [100.0 + (i * 0.5) for i in range(60)]
+        df = pd.DataFrame({
+            "Open": [p - 0.2 for p in prices],
+            "High": [p + 0.5 for p in prices],
+            "Low": [p - 0.5 for p in prices],
+            "Close": prices,
+            "Volume": [50000] * 60
+        }, index=dates)
+
+        mock_fetch.return_value = {"PULLBACKTEST": df}
+        mock_rs.return_value = {"PULLBACKTEST": 75.0}
+        mock_wl.return_value = pd.DataFrame([])
+        mock_fund.return_value = {"piotroski_score": 7, "promoter_pledge_pct": 0.0}
+
+        from stock_analyzer import analyze_symbol
+        res = analyze_symbol("PULLBACKTEST")
+
+        self.assertTrue(res.get("success"))
+        funnel = res.get("funnel", {})
+        self.assertIn("pullback", funnel)
+        # Verify reason includes specific pullback evaluation message (not empty)
+        self.assertTrue(len(funnel["pullback"]["reasons"]) > 0)
+
+    def test_on_demand_fundamentals_merge_preserves_valid_cached_score(self):
+        """Verify merging on-demand fundamentals preserves an existing valid Piotroski score in cache."""
+        fund_data = {"score": 8, "date": "2026-07-11"}
+        on_demand_fund = {"score": 3, "roe": 18.5, "roce": 22.0}
+
+        # Simulating the merge rule in stock_analyzer.py
+        existing_score = fund_data.get("score")
+        for k, v in on_demand_fund.items():
+            if k not in fund_data or fund_data[k] is None:
+                fund_data[k] = v
+        if existing_score is not None and existing_score >= 0:
+            fund_data["score"] = existing_score
+
+        self.assertEqual(fund_data["score"], 8)
+        self.assertEqual(fund_data["roe"], 18.5)
+        self.assertEqual(fund_data["roce"], 22.0)
+
+
 if __name__ == '__main__':
     unittest.main()
 

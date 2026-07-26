@@ -83,3 +83,54 @@ def test_fundamentals_cache_bse_fallback(mocker):
     assert mappings.get("500180") == "500180.BO"
     
     bse_mapping_utils._bse_mappings_cache = None
+
+
+def test_compute_piotroski_multi_row_duplicate_indexing():
+    """Verify compute_piotroski handles duplicate row index names without raising Pandas Series ambiguity exceptions."""
+    from fundamentals_cache import compute_piotroski
+
+    # Create a DataFrame with duplicate index rows (e.g. from concats or yfinance duplicates)
+    fin_df = pd.DataFrame(
+        [[100, 80], [100, 80]],
+        columns=["2025", "2024"],
+        index=["Net Income", "Net Income"]  # Duplicate index!
+    )
+    bs_df = pd.DataFrame(
+        [[500, 450], [500, 450]],
+        columns=["2025", "2024"],
+        index=["Total Assets", "Total Assets"]  # Duplicate index!
+    )
+
+    info = {"operatingCashflow": 150, "grossMargins": 0.45, "prevGrossMargins": 0.40, "currentRatio": 1.5, "previousCurrentRatio": 1.4}
+
+    score = compute_piotroski(info, fin_df, balance_sheet=bs_df)
+    assert score >= 0, f"Expected non-negative Piotroski score, got {score}"
+    assert score >= 4, f"Expected valid positive Piotroski score, got {score}"
+
+
+def test_compute_piotroski_separate_fin_bs_dataframes():
+    """Verify passing fin and bs DataFrames separately computes valid Piotroski score even when date columns differ."""
+    from fundamentals_cache import compute_piotroski
+
+    fin = pd.DataFrame(
+        [[200, 150], [1000, 800]],
+        columns=["2025-03-31", "2024-03-31"],
+        index=["Net Income", "Total Revenue"]
+    )
+    bs = pd.DataFrame(
+        [[1200, 1000], [50, 60], [100, 100]],
+        columns=["2025-03-31", "2024-03-31"],
+        index=["Total Assets", "Long Term Debt", "Ordinary Shares Number"]
+    )
+
+    info = {
+        "operatingCashflow": 250,
+        "grossMargins": 0.50,
+        "prevGrossMargins": 0.45,
+        "currentRatio": 2.0,
+        "previousCurrentRatio": 1.8
+    }
+
+    score = compute_piotroski(info, fin, balance_sheet=bs)
+    assert score >= 8, f"Expected Piotroski score >= 8, got {score}"
+
