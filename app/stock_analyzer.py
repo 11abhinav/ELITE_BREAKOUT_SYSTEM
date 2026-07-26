@@ -697,21 +697,30 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     pledge_pct = fund_data.get("promoter_pledge_pct", 0.0)
 
     mb_issues = []
-    if f_score < 7:
-        mb_issues.append(f"Piotroski F-Score {f_score} < 7 min")
-        deficits.append(f"📊 Piotroski F-Score Deficit: F-Score is {f_score}/9 (requires F-Score ≥7 for Prime Multibagger alert).")
-    if pledge_pct > 10.0:
-        mb_issues.append(f"Promoter Pledge {pledge_pct:.1f}% > 10.0% max")
-        deficits.append(f"🔒 Promoter Pledge Deficit: Promoter Pledge is {pledge_pct:.1f}% (requires ≤10.0%).")
+    if pledge_pct > 15.0:
+        mb_issues.append(f"Promoter Pledge {pledge_pct:.1f}% > 15.0% max limit")
+        deficits.append(f"🔒 Promoter Pledge Deficit: Promoter Pledge is {pledge_pct:.1f}% (requires ≤15.0%).")
 
-    if not mb_issues and is_uptrend:
+    # Check 🚀 Prime Multibagger (requires Piotroski >= 7, Pledge <= 10%, Uptrend)
+    is_prime_fscore = (f_score >= 7) and (pledge_pct <= 10.0)
+    # Check 💎 High Quality Multibagger (requires Health Score >= 65, Pledge <= 15%, Uptrend)
+    is_high_quality = (overall_health_score >= 65.0) and (pledge_pct <= 15.0) and is_uptrend
+
+    if is_prime_fscore and is_uptrend:
         mb_status = "CORE MET (Prime)"
         mb_reasons.append(f"🚀 Prime Compounder: Piotroski {f_score}/9 | Pledge {pledge_pct:.1f}% ≤ 10% | Strong Trend")
-    elif f_score >= 5 and pledge_pct <= 15.0:
+    elif is_high_quality:
+        mb_status = "CORE MET (High Quality)"
+        mb_reasons.append(f"💎 High Quality Multibagger: Health Score {overall_health_score:.1f} ≥ 65 | Piotroski {f_score}/9 | Pledge {pledge_pct:.1f}% ≤ 15%")
+    elif f_score >= 5 or overall_health_score >= 50.0:
         mb_status = "WATCHLIST"
+        if f_score < 7:
+            mb_issues.append(f"Piotroski F-Score {f_score} < 7 (Prime Tier requires F-Score ≥7)")
         mb_reasons = mb_issues if mb_issues else ["Score in Watchlist tier (50-64)"]
     else:
         mb_status = "NO"
+        if f_score < 7:
+            mb_issues.append(f"Piotroski F-Score {f_score} < 7 min")
         mb_reasons = mb_issues
 
     # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
