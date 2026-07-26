@@ -84,6 +84,7 @@ class YFinanceFetcher(DataFetcher):
         # Fix ampersand symbols.
         from daily_builder import SYMBOL_CORRECTIONS
         STALE_MAP = {
+            "TATAMOTORS": "TMCV",
             "M-M": "M&M",
             "M-MFIN": "M&MFIN",
             "J-KBANK": "J&KBANK",
