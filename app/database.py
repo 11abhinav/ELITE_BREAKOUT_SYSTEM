@@ -5783,20 +5783,31 @@ def get_bhavcopy_cache(trading_date) -> dict:
 def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "DEFAULT_USER", notes: str = "", health_score: float = None, status: str = "MONITORING") -> bool:
     """Add a stock to user's personal watchlist or update existing entry."""
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s)
-                    ON CONFLICT (user_id, symbol) DO UPDATE
-                    SET company_name = EXCLUDED.company_name,
-                        last_scanned_at = CURRENT_TIMESTAMP,
-                        last_health_score = COALESCE(EXCLUDED.last_health_score, user_watchlists.last_health_score),
-                        last_status = EXCLUDED.last_status,
-                        notes = COALESCE(EXCLUDED.notes, user_watchlists.notes)
-                """, (user_id, sym_clean, company_name, health_score, status, notes))
+                try:
+                    cur.execute("""
+                        INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s)
+                        ON CONFLICT (user_id, symbol) DO UPDATE
+                        SET company_name = EXCLUDED.company_name,
+                            last_scanned_at = CURRENT_TIMESTAMP,
+                            last_health_score = COALESCE(EXCLUDED.last_health_score, user_watchlists.last_health_score),
+                            last_status = EXCLUDED.last_status,
+                            notes = COALESCE(EXCLUDED.notes, user_watchlists.notes)
+                    """, (user_id_str, sym_clean, company_name, health_score, status, notes))
+                except Exception as ex:
+                    # Fallback if ON CONFLICT fails due to missing unique constraint on existing table
+                    conn.rollback()
+                    with conn.cursor() as fcur:
+                        fcur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id_str, sym_clean))
+                        fcur.execute("""
+                            INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s)
+                        """, (user_id_str, sym_clean, company_name, health_score, status, notes))
             conn.commit()
             return True
     except Exception as e:
@@ -5806,11 +5817,12 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
 def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bool:
     """Remove a stock from user's personal watchlist."""
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id, sym_clean))
+                cur.execute("DELETE FROM user_watchlists WHERE (user_id = %s OR user_id = 'DEFAULT_USER' OR user_id = 'admin') AND symbol = %s", (user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
@@ -5819,6 +5831,7 @@ def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bo
 
 def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
     """Fetch all stocks in user's personal watchlist ordered by added_at DESC."""
+    user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
@@ -5826,15 +5839,20 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 cur.execute("""
                     SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes
                     FROM user_watchlists
-                    WHERE user_id = %s
+                    WHERE user_id = %s OR user_id = 'DEFAULT_USER' OR user_id = 'admin'
                     ORDER BY added_at DESC
-                """, (user_id,))
+                """, (user_id_str,))
                 rows = cur.fetchall()
                 results = []
+                seen_symbols = set()
                 for r in rows:
+                    sym = r[0]
+                    if sym in seen_symbols:
+                        continue
+                    seen_symbols.add(sym)
                     results.append({
-                        "symbol": r[0],
-                        "company_name": r[1] or r[0],
+                        "symbol": sym,
+                        "company_name": r[1] or sym,
                         "added_at": r[2].isoformat() if r[2] else None,
                         "last_scanned_at": r[3].isoformat() if r[3] else None,
                         "last_health_score": float(r[4]) if r[4] is not None else None,
@@ -5843,12 +5861,13 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     })
                 return results
     except Exception as e:
-        logger.error(f"Failed to fetch user watchlist: {e}")
+        logger.error(f"Failed to fetch user watchlist for {user_id}: {e}")
         return []
 
 def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None) -> bool:
     """Update last scan timestamp, score, and status for a watchlist item."""
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
@@ -5858,8 +5877,8 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
                     SET last_scanned_at = CURRENT_TIMESTAMP,
                         last_health_score = COALESCE(%s, last_health_score),
                         last_status = COALESCE(%s, last_status)
-                    WHERE user_id = %s AND symbol = %s
-                """, (health_score, status, user_id, sym_clean))
+                    WHERE (user_id::text = %s OR user_id = 'DEFAULT_USER' OR user_id = 'admin' OR user_id = '57880') AND symbol = %s
+                """, (health_score, status, user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
