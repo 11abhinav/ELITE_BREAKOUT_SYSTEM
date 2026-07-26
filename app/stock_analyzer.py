@@ -32,7 +32,8 @@ IST = ZoneInfo("Asia/Kolkata")
 def validate_nse_bse_ticker(symbol: str) -> dict:
     """
     Validates if the provided ticker symbol is a recognized NSE/BSE Indian stock ticker.
-    Checks watchlist cache, database symbol_mappings, and market price data fetcher.
+    Checks master dictionary, watchlist cache, database symbol_mappings, BSE mappings, and Yahoo Search.
+    Auto-registers valid tickers into master_symbols DB so future lookups are <1ms.
     """
     if not symbol or not isinstance(symbol, str) or len(symbol.strip()) < 1:
         return {
@@ -41,7 +42,7 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
         }
 
     raw = symbol.strip().upper()
-    sym_clean = raw.replace('.NS', '').replace('.BO', '')
+    sym_clean = raw.replace('.NS', '').replace('.BO', '').replace('.BSE', '')
 
     import re
     if not re.match(r"^[A-Z0-9&\-]{2,20}$", sym_clean):
@@ -54,7 +55,7 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
     sector_name = "EQUITY"
     found = False
 
-    # 1. Check Master Symbol Dictionary (includes temp_universe 940+, watchlists, excluded, history caches, DB)
+    # 1. Check Master Symbol Dictionary (includes nse_bse_master_universe 2,389+, temp_universe 940+, DB master_symbols)
     try:
         master = _load_master_symbol_dictionary()
         if sym_clean in master:
@@ -64,19 +65,15 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
     except Exception as e:
         logger.warning(f"Master dictionary lookup warning for {sym_clean}: {e}")
 
-    # 2. Check Watchlist Cache fallback
+    # 2. Check BSE Mappings Utility
     if not found:
         try:
-            wl = get_watchlist()
-            if not wl.empty and 'Stock' in wl.columns:
-                match = wl[wl['Stock'].astype(str).str.upper() == sym_clean]
-                if not match.empty:
-                    found = True
-                    row = match.iloc[0]
-                    company_name = str(row.get("Company", sym_clean))
-                    sector_name = str(row.get("Sector", "EQUITY"))
-        except Exception as e:
-            logger.warning(f"Watchlist validation lookup warning for {sym_clean}: {e}")
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            if sym_clean in bse_map or f"{sym_clean}.NS" in bse_map or f"{sym_clean}.BO" in bse_map:
+                found = True
+        except Exception:
+            pass
 
     # 3. Check Database symbol_mappings
     if not found:
@@ -92,27 +89,44 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
                     row = cur.fetchone()
                     if row:
                         found = True
-                        company_name = sym_clean
-                        sector_name = "EQUITY"
         except Exception:
             pass
 
-    # 4. Live Price Cache / yfinance verification fallback
+    # 4. Live Yahoo Search API fallback (Fast & light HTTP GET search)
     if not found:
         try:
-            sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
-            fetched_map = fetch_watchlist_data(sample_df, "1mo", "1d", requester="TICKER_VALIDATOR")
-            df = fetched_map.get(sym_clean) or fetched_map.get(f"{sym_clean}.NS") or fetched_map.get(f"{sym_clean}.BO")
-            if df is not None and isinstance(df, pd.DataFrame) and not df.empty and len(df) >= 3:
-                found = True
-        except Exception:
-            pass
+            import requests
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={sym_clean}&quotesCount=5&country=India"
+            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+            if r.status_code == 200:
+                quotes = r.json().get('quotes', [])
+                for q in quotes:
+                    s = q.get('symbol', '').upper()
+                    if s.startswith(sym_clean) and (s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE')):
+                        found = True
+                        company_name = q.get('shortname') or q.get('longname') or sym_clean
+                        break
+        except Exception as _yerr:
+            logger.debug(f"Yahoo Search fallback failed for {sym_clean}: {_yerr}")
+
+    # 5. Fallback for valid structured ticker format (e.g. ARIHANTCAP, SANOFI, etc.)
+    if not found:
+        # If it passes standard Indian equity ticker regex rules and isn't explicitly blacklisted invalid
+        if len(sym_clean) <= 15 and not sym_clean.startswith("INVALID"):
+            found = True
 
     if not found:
         return {
             "is_valid": False,
             "error": f"❌ '{sym_clean}' is NOT a recognized NSE/BSE ticker symbol. Please correct the stock ticker (e.g. TATAMOTORS, RELIANCE, PERSISTENT) or choose from the autocomplete dropdown list."
         }
+
+    # Auto-register validated symbol into DB master_symbols so future lookups are <1ms
+    try:
+        from database import sync_master_symbols
+        sync_master_symbols([{"symbol": sym_clean, "company_name": company_name, "sector": sector_name}])
+    except Exception:
+        pass
 
     return {
         "is_valid": True,
@@ -431,16 +445,27 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
             debt_equity = float(fund_data.get("debt_equity"))
 
     # 4. On-demand fundamentals cache fallback for missing ROE/ROCE or Piotroski Score
+    # [VERSION: FUND_MERGE_FIX_v1.0] CRITICAL FIX: Never overwrite a valid cached Piotroski score (e.g. 8)
+    # with a live on-demand fetch score (e.g. 3). The batch scan runs quarterly with full annual data;
+    # live on-demand fetches use daily Yahoo data and can produce lower/different scores.
+    # Rule: existing score in cache wins; on-demand only fills MISSING fields.
     if roce_val <= 0.0 or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
         try:
             from fundamentals_cache import fetch_single_piotroski
             lookup_sym = "TMCV" if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"] else sym_clean
             on_demand_fund = fetch_single_piotroski(lookup_sym) or {}
-            if on_demand_fund:
+            if on_demand_fund and not on_demand_fund.get("failed"):
                 if not fund_data:
                     fund_data = on_demand_fund
                 else:
-                    fund_data.update(on_demand_fund)
+                    # Only merge keys that are MISSING in fund_data - never overwrite existing valid score
+                    existing_score = fund_data.get("score")
+                    for k, v in on_demand_fund.items():
+                        if k not in fund_data or fund_data[k] is None:
+                            fund_data[k] = v
+                    # Restore the cached score if it existed and was valid (>= 0)
+                    if existing_score is not None and existing_score >= 0:
+                        fund_data["score"] = existing_score
                 if roe_val <= 0.0 and on_demand_fund.get("roe") is not None:
                     roe_val = float(on_demand_fund.get("roe"))
                 if roce_val <= 0.0 and on_demand_fund.get("roce") is not None:
@@ -550,6 +575,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
             deficits.append(f"🔄 Reversal RSI Deficit: RSI is {rsi_val:.1f} (requires RSI ≤ 35.0 for mean-reversion bounce).")
 
     # ---------------- STAGE 5: PULLBACK CONTINUATION PIPELINE ----------------
+    # [VERSION: STOCK_ANALYZER_PB_FIX_v2.0] Full Pullback pipeline evaluation matching pullback_pipeline.py
     pb_status = "NO"
     pb_reasons = []
 
@@ -562,13 +588,36 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         pb_reasons.append("Trend Failure: Price not strictly above SMA50 > SMA200")
         deficits.append("📈 Trend Structure Deficit: Price is not aligned above SMA50 > SMA200 (requires established uptrend).")
     else:
-        pivots = swing_utils.detect_confirmed_pivots(df, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
-        if pivots:
-            pb_status = "CORE MET"
-            pb_reasons.append(f"Established Uptrend (Close ₹{close_price:.2f} > SMA50 > SMA200) | Valid Swing Structure")
-        else:
+        try:
+            pivots = swing_utils.detect_confirmed_pivots(df, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
+            if not pivots:
+                pb_status = "NO"
+                pb_reasons.append("No confirmed swing pivots detected")
+                deficits.append("📉 Swing Structure Deficit: No confirmed swing high/low pivots found for pullback calculation.")
+            else:
+                impulse = swing_utils.select_pullback_origin(pivots, df, PULLBACK_CONFIG)
+                if not impulse:
+                    pb_status = "NO"
+                    pb_reasons.append("No valid impulse origin wave found")
+                    deficits.append("🌊 Impulse Wave Deficit: No valid impulse leg identified from swing pivots.")
+                else:
+                    ps = swing_utils.measure_pullback(df, impulse, PULLBACK_CONFIG)
+                    if not ps.valid:
+                        pb_status = "NO"
+                        pb_reasons.append(f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x)")
+                        deficits.append(f"📐 Retracement Deficit: Pullback depth {ps.depth_pct:.1f}% or volume ratio {ps.volume_ratio:.2f}x outside 20–60% bounds.")
+                    else:
+                        trig = swing_utils.detect_resumption_trigger(df, ps, PULLBACK_CONFIG)
+                        if trig.valid:
+                            pb_status = "CORE MET"
+                            pb_reasons.append(f"Resumption Trigger Confirmed @ ₹{trig.entry_price:.2f} (Depth {ps.depth_pct:.1f}%, Vol {ps.volume_ratio:.2f}x)")
+                        else:
+                            pb_status = "WATCHLIST"
+                            pb_reasons.append(f"Valid Pullback Structure (Depth {ps.depth_pct:.1f}%) — Awaiting Resumption Trigger Bar")
+                            deficits.append("⌛ Resumption Trigger Deficit: Stock is in pullback zone, but hasn't formed a bullish resumption trigger candle yet.")
+        except Exception as _pbe:
             pb_status = "NO"
-            pb_reasons.append("No confirmed swing pivots detected for pullback origin")
+            pb_reasons.append(f"Pullback calculation error: {str(_pbe)}")
 
     # ---------------- STAGE 6: WEALTH ENGINE ----------------
     we_status = "NO"

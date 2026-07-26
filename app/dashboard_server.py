@@ -73,11 +73,11 @@ app = Flask(__name__)
 # Tell Flask it is behind a reverse proxy (Railway) so it sets the secure cookie on HTTPS
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-app.secret_key = os.getenv("SECRET_KEY", "fallback_dev_key_if_missing_in_prod")
+app.secret_key = os.getenv("SECRET_KEY", "ELITE_BREAKOUT_SYSTEM_SECURE_PERMANENT_SECRET_KEY_PROD_2026_V10")
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 csrf = CSRFProtect(app)
@@ -123,7 +123,7 @@ def gzip_response(response):
 # On page load with ~10 API calls, that's 10 redundant DB round-trips.
 # Cache the result for 60 seconds per (user_id, session_token) pair.
 _session_cache = {}  # (user_id, token) -> (is_valid, timestamp)
-_SESSION_CACHE_TTL = 60  # seconds
+_SESSION_CACHE_TTL = 300  # seconds (5 minutes — reduces DB hits and false session expirations)
 
 def _cached_check_session(user_id, session_token):
     """Check session validity with 60s in-memory cache to avoid DB on every API call."""

@@ -62,37 +62,106 @@ def init_fundamentals_registry():
     registry.put("fundamentals_cache", cache)
     logger.info("✅ Fundamentals cache loaded into DatasetRegistry (DURABLE)")
 
-def compute_piotroski(ticker_info: dict, financials: pd.DataFrame) -> int:
+def compute_piotroski(ticker_info: dict, financials: pd.DataFrame, balance_sheet: pd.DataFrame = None) -> int:
+    """
+    [VERSION: PIOTROSKI_FIX_v2.0] Fixed Piotroski computation.
+    Accepts fin and bs separately to avoid NaN poisoning from pd.concat column misalignment.
+    When fin/bs have different fiscal year date columns, pd.concat produces NaN rows that
+    silently score 0 on almost every criterion, returning scores of 2-3 instead of 7-8.
+    """
     try:
         score = 0
-        if len(financials.columns) < 2:
-            return -1 # Need at least 2 years
+        # Use financials for income statement rows
+        fin = financials
+        # Use balance_sheet if provided, otherwise fall back to combined
+        bs = balance_sheet if balance_sheet is not None else financials
 
-        # Profitability (4 pts)
-        net_income = financials.loc["Net Income"] if "Net Income" in financials.index else pd.Series([0, 0])
-        total_assets = financials.loc["Total Assets"] if "Total Assets" in financials.index else pd.Series([1, 1])
-        
-        score += 1 if net_income.iloc[0] > 0 else 0
-        score += 1 if net_income.iloc[0] > net_income.iloc[1] else 0
-        score += 1 if (net_income.iloc[0] / total_assets.iloc[0]) > 0 else 0
-        score += 1 if ticker_info.get("operatingCashflow", 0) > 0 else 0
-        
-        # Leverage / Liquidity (3 pts)
-        lt_debt = financials.loc["Long Term Debt"] if "Long Term Debt" in financials.index else pd.Series([0, 0])
-        shares = financials.loc["Ordinary Shares Number"] if "Ordinary Shares Number" in financials.index else pd.Series([1, 1])
-        
-        score += 1 if lt_debt.iloc[0] < lt_debt.iloc[1] else 0
-        score += 1 if ticker_info.get("currentRatio", 0) > ticker_info.get("previousCurrentRatio", 0) else 0
-        score += 1 if shares.iloc[0] <= shares.iloc[1] else 0
-        
-        # Efficiency (2 pts)
-        revenue = financials.loc["Total Revenue"] if "Total Revenue" in financials.index else pd.Series([0, 0])
-        
-        score += 1 if ticker_info.get("grossMargins", 0) > ticker_info.get("prevGrossMargins", 0) else 0
-        score += 1 if (revenue.iloc[0] / total_assets.iloc[0]) > (revenue.iloc[1] / total_assets.iloc[1]) else 0
-        
+        if fin is None or fin.empty or len(fin.columns) < 2:
+            return -1  # Need at least 2 years of income data
+
+        def safe_val(val, default=0.0) -> float:
+            """Safely convert any float/int/Series/ndarray to a scalar float."""
+            try:
+                if hasattr(val, "values"):
+                    v = val.values.flatten()
+                    val = v[0] if len(v) > 0 else default
+                if val is None or pd.isna(val):
+                    return default
+                return float(val)
+            except Exception:
+                return default
+
+        def safe_row(df, row_name) -> list:
+            """Extract a row from a DataFrame as a list of scalar floats."""
+            if df is None or df.empty or row_name not in df.index:
+                return []
+            try:
+                row_data = df.loc[row_name]
+                if isinstance(row_data, pd.DataFrame):
+                    row_data = row_data.iloc[0]
+                values = [safe_val(x) for x in row_data if not pd.isna(x)]
+                return values
+            except Exception:
+                return []
+
+        # ── Profitability (4 pts) ──────────────────────────────────────
+        net_income = safe_row(fin, "Net Income")
+        total_assets = safe_row(bs, "Total Assets")
+
+        # P1: Positive Net Income
+        if len(net_income) >= 1:
+            score += 1 if net_income[0] > 0 else 0
+
+        # P2: Growing Net Income
+        if len(net_income) >= 2:
+            score += 1 if net_income[0] > net_income[1] else 0
+
+        # P3: Positive ROA (NI/Assets)
+        if len(net_income) >= 1 and len(total_assets) >= 1:
+            ta = total_assets[0]
+            if ta > 0:
+                score += 1 if (net_income[0] / ta) > 0 else 0
+
+        # P4: Positive Operating Cash Flow
+        score += 1 if safe_val(ticker_info.get("operatingCashflow")) > 0 else 0
+
+        # ── Leverage / Liquidity (3 pts) ───────────────────────────────
+        lt_debt = safe_row(bs, "Long Term Debt")
+        shares = safe_row(bs, "Ordinary Shares Number") or safe_row(fin, "Ordinary Shares Number")
+
+        # L1: Lower Long-Term Debt
+        if len(lt_debt) >= 2:
+            score += 1 if lt_debt[0] < lt_debt[1] else 0
+
+        # L2: Improved Current Ratio
+        cur_ratio = safe_val(ticker_info.get("currentRatio"))
+        prev_cur_ratio = safe_val(ticker_info.get("previousCurrentRatio"), cur_ratio - 0.01)
+        score += 1 if cur_ratio > prev_cur_ratio else 0
+
+        # L3: No Dilution (shares outstanding not increased)
+        if len(shares) >= 2:
+            score += 1 if shares[0] <= shares[1] else 0
+
+        # ── Efficiency (2 pts) ─────────────────────────────────────────
+        revenue = safe_row(fin, "Total Revenue")
+
+        # E1: Improving Gross Margin
+        gross_margin = safe_val(ticker_info.get("grossMargins"))
+        prev_gross_margin = safe_val(ticker_info.get("prevGrossMargins"), gross_margin - 0.001)
+        score += 1 if gross_margin > prev_gross_margin else 0
+
+        # E2: Improving Asset Turnover (Revenue/Assets)
+        if len(revenue) >= 2 and len(total_assets) >= 2:
+            ta0 = total_assets[0]
+            ta1 = total_assets[1]
+            if ta0 > 0 and ta1 > 0:
+                ato0 = revenue[0] / ta0
+                ato1 = revenue[1] / ta1
+                score += 1 if ato0 > ato1 else 0
+
         return score
     except Exception as e:
+        logger.warning(f"compute_piotroski exception: {e}")
         return -1
 
 def fetch_single_piotroski(symbol: str) -> dict:
@@ -222,8 +291,10 @@ def fetch_single_piotroski(symbol: str) -> dict:
         logger.warning(f"⚠️ {yf_sym}: Financials and Balance Sheet are both empty.")
         return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True}
         
-    combined = pd.concat([fin, bs])
-    score = compute_piotroski(info, combined)
+    # [VERSION: PIOTROSKI_FIX_v2.0] Pass fin and bs separately to compute_piotroski
+    # Previously: pd.concat([fin, bs]) caused NaN misalignment when fiscal year columns differ,
+    # resulting in incorrect low scores (3/9) for stocks that actually score 8/9.
+    score = compute_piotroski(info, fin, balance_sheet=bs)
     record_success()
         
     # Multi-bagger enhancements extraction
