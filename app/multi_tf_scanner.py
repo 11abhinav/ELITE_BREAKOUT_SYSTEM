@@ -131,12 +131,50 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     score = 80.0 if adx_val >= 30.0 else 75.0
     atr_val = float(latest.get("ATR", close_price * 0.025))
 
+    # Evaluate 30m (Phase B) and 15m (Phase C) intraday timeframes if available
+    phase_details = [f"1H Trend Permission Met (EMA Alignment | ADX {adx_val:.1f} | Close ₹{close_price:.2f} near Breakout ₹{prior_high:.2f})"]
+    has_30m_pass = False
+    has_15m_pass = False
+
+    try:
+        m30_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="30m")
+        if m30_data and symbol in m30_data and isinstance(m30_data[symbol], pd.DataFrame) and not m30_data[symbol].empty:
+            df_30 = apply_indicators(m30_data[symbol].copy(), timeframe="30m")
+            if df_30 is not None and len(df_30) >= 2:
+                prev_30 = df_30.iloc[-2]
+                bb_pctile = float(prev_30.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                dist_to_bo = (prior_high - close_price) / prior_high
+                if bb_pctile < 0.45 or dist_to_bo < -0.015:
+                    has_30m_pass = True
+                    phase_details.append(f"30m Phase B Squeeze Met (BB Pctile {bb_pctile:.2f} < 0.45)")
+                else:
+                    phase_details.append(f"30m Phase B Pending (BB Pctile {bb_pctile:.2f} ≥ 0.45)")
+    except Exception:
+        pass
+
+    try:
+        m15_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="15m")
+        if m15_data and symbol in m15_data and isinstance(m15_data[symbol], pd.DataFrame) and not m15_data[symbol].empty:
+            df_15 = apply_indicators(m15_data[symbol].copy(), timeframe="15m")
+            if df_15 is not None and len(df_15) >= 2:
+                lat_15 = df_15.iloc[-1]
+                ema15 = float(lat_15.get("EMA15", lat_15.get("EMA20", close_price)))
+                if close_price >= ema15:
+                    has_15m_pass = True
+                    phase_details.append(f"15m Phase C Entry Ready (Close ₹{close_price:.2f} ≥ EMA15 ₹{ema15:.2f})")
+                else:
+                    phase_details.append(f"15m Phase C Pending (Close ₹{close_price:.2f} < EMA15 ₹{ema15:.2f})")
+    except Exception:
+        pass
+
+    status_tag = "CORE MET (Phase A+B+C)" if (has_30m_pass and has_15m_pass) else ("CORE MET (Phase A+B)" if has_30m_pass else "CORE MET (1H Setup)")
+
     from sl_target_helper import compute_sl_and_target
     sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTI_TF", ticker=ticker)
 
     return {
-        "status": "CORE MET",
-        "reasons": [f"1H Trend Permission Met (EMA Alignment | ADX {adx_val:.1f} | Close ₹{close_price:.2f} near Breakout ₹{prior_high:.2f})"],
+        "status": status_tag,
+        "reasons": phase_details,
         "score": score,
         "qualified": True,
         "entry_price": close_price,
