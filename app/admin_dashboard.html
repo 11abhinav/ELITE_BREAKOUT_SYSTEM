@@ -5976,10 +5976,21 @@ function renderMultibaggerWatchlist() {
 // ── KNOW ABOUT YOUR STOCK & PERSONAL WATCHLIST JS SYSTEM ─────────────────────
 let autocompleteDebounceTimer = null;
 let currentDiagnosticData = null;
-const AUTOCOMPLETE_CLIENT_CACHE = {};
+let MASTER_SYMBOLS_CLIENT_ARRAY = [];
+
+function preloadMasterSymbolsList() {
+  fetch('/api/v1/symbols/master_list')
+    .then(res => res.json())
+    .then(items => {
+      if (Array.isArray(items) && items.length > 0) {
+        MASTER_SYMBOLS_CLIENT_ARRAY = items;
+      }
+    })
+    .catch(err => console.warn('Master symbols preload failed:', err));
+}
+document.addEventListener('DOMContentLoaded', preloadMasterSymbolsList);
 
 function handleStockSearchInput(val) {
-  clearTimeout(autocompleteDebounceTimer);
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
   if (!dropdown) return;
 
@@ -5990,26 +6001,54 @@ function handleStockSearchInput(val) {
     return;
   }
 
-  const queryKey = rawVal.toUpperCase();
+  // ⚡ INSTANT CLIENT-SIDE SEARCH (0ms RESPONSE!)
+  if (MASTER_SYMBOLS_CLIENT_ARRAY.length > 0) {
+    const q_raw = rawVal.toUpperCase();
+    const q_nospace = q_raw.replace(/[\s\-\&\.]+/g, '');
 
-  // Instant local cache hit (0ms)
-  if (AUTOCOMPLETE_CLIENT_CACHE[queryKey]) {
-    renderAutocompleteDropdown(AUTOCOMPLETE_CLIENT_CACHE[queryKey], rawVal);
+    const exact = [];
+    const prefix = [];
+    const contains = [];
+    const seen = new Set();
+
+    for (let i = 0; i < MASTER_SYMBOLS_CLIENT_ARRAY.length; i++) {
+      const item = MASTER_SYMBOLS_CLIENT_ARRAY[i];
+      const sym = (item.symbol || '').toUpperCase();
+      if (!sym || seen.has(sym)) continue;
+
+      const comp = (item.company_name || sym).toUpperCase();
+      const sym_nospace = sym.replace(/[\s\-\&\.]+/g, '');
+      const comp_nospace = comp.replace(/[\s\-\&\.]+/g, '');
+
+      if (sym === q_raw || sym_nospace === q_nospace || comp === q_raw || comp_nospace === q_nospace) {
+        exact.push(item);
+        seen.add(sym);
+      } else if (sym.startsWith(q_raw) || sym_nospace.startsWith(q_nospace) || comp.startsWith(q_raw) || comp_nospace.startsWith(q_nospace)) {
+        prefix.push(item);
+        seen.add(sym);
+      } else if (sym.includes(q_raw) || comp.includes(q_raw) || sym_nospace.includes(q_nospace) || comp_nospace.includes(q_nospace)) {
+        contains.push(item);
+        seen.add(sym);
+      }
+      if (exact.length + prefix.length + contains.length >= 30) break;
+    }
+
+    const matches = [...exact, ...prefix, ...contains].slice(0, 10);
+    renderAutocompleteDropdown(matches, rawVal);
     return;
   }
 
+  // Server Fallback
+  clearTimeout(autocompleteDebounceTimer);
   autocompleteDebounceTimer = setTimeout(() => {
     fetch(`/api/v1/symbols/suggest?q=${encodeURIComponent(rawVal)}`)
       .then(res => res.json())
-      .then(items => {
-        AUTOCOMPLETE_CLIENT_CACHE[queryKey] = items || [];
-        renderAutocompleteDropdown(items, rawVal);
-      })
+      .then(items => renderAutocompleteDropdown(items, rawVal))
       .catch(err => {
         console.warn('Autocomplete search failed:', err);
         dropdown.style.display = 'none';
       });
-  }, 30);
+  }, 20);
 }
 
 function renderAutocompleteDropdown(items, rawVal) {

@@ -2960,6 +2960,19 @@ def api_symbols_suggest():
         return jsonify([]), 500
 
 
+@app.route("/api/v1/symbols/master_list", methods=["GET"])
+@login_required
+def api_symbols_master_list():
+    """Returns all 2,389+ master stock symbols for instant client-side browser search."""
+    try:
+        from stock_analyzer import _load_master_symbol_dictionary
+        m = _load_master_symbol_dictionary()
+        return jsonify(list(m.values()))
+    except Exception as e:
+        logger.exception("❌ Master symbol list endpoint error")
+        return jsonify([]), 500
+
+
 @app.route("/api/v1/analyze_stock", methods=["GET"])
 @login_required
 def api_analyze_stock():
