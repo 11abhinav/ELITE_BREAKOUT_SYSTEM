@@ -2723,8 +2723,9 @@ The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py
 3. **Manual Alert Promotion Engine (`create_manual_alert_from_analysis` / `/api/v1/create_manual_alert`)**:
    - Gated to run ONLY after full Deep Analysis execution (`is_deep_analysis = True`).
    - **Scanner Allowlist Validation**: Restricts input `scanner_type` to `{"EOD", "MULTI_TF", "REVERSAL", "PULLBACK", "WEALTH", "MULTIBAGGER"}`. Rejects invalid scanner inputs with HTTP 400.
-   - **Strict Qualification Gate**: Verifies `res["funnel"][scanner_type]["status"]` is `CORE MET` or `QUALIFIED`. Blocks manual alert promotion for unqualified stocks (`status == "NO"` or `"WATCHLIST"`).
-   - **Exact 20-Day ATR Target Engine**: Fetches actual 20-day ATR (`bundle.atr_20.iloc[-1]`) from daily OHLCV price history and passes it to `compute_sl_and_target()` to calculate exact Stop Loss and Target levels ($T_1, T_2, T_3, T_4$).
+   - **Strict Boolean Qualification Contract**: Verifies `scanner_stage.get("qualified") is True`. Blocks manual alert promotion for unqualified stocks without text fallback matching.
+   - **Zero-Fallback Canonical Evaluator Package**: Requires `entry_price`, `stop_loss`, `target_1`, and `score` directly from the production evaluator. Eliminates artificial fallback risk calculations (`compute_sl_and_target`) and generic default scores. Rejects incomplete evaluator returns as contract failures with HTTP 400.
+   - **Verbatim Evaluator Metadata**: Passes verbatim $T_4$, $RS$ percentile, sector bonus, and macro regime score to PostgreSQL `alerts` table (`save_alert_if_new()`).
    - Saves alert to `alerts` table (`category = '<SCANNER> (MANUAL)'`) and dispatches Telegram channel broadcasts and VAPID Web Push notifications.
 
 ---

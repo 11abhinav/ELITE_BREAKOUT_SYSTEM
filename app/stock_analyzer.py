@@ -631,6 +631,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         "technical_score": round(tech_score, 1),
         "fundamental_score": round(fund_score, 1),
         "rs_percentile": round(rs_percentile, 1),
+        "setup_qualified": any_core_met,
+        "production_eligible": bool(db_pass and (not deficits or "Pristine" in deficits[0])),
+        "selected_for_alert": False,
         "deficits": deficits,
         "funnel": {
             "daily_builder": {**db_eval, "status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
@@ -684,8 +687,7 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     }
     funnel_key = funnel_map[scanner_type]
     scanner_stage = res.get("funnel", {}).get(funnel_key, {})
-    stage_status = str(scanner_stage.get("status", "NO"))
-    is_qualified = bool(scanner_stage.get("qualified", False)) or stage_status.startswith("CORE MET") or stage_status.startswith("QUALIFIED")
+    is_qualified = scanner_stage.get("qualified") is True
 
     if not is_qualified:
         reasons_str = " | ".join(scanner_stage.get("reasons", []))
@@ -694,24 +696,19 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
             "error": f"Symbol '{sym_clean}' did not qualify for {scanner_type} scanner. Reasons: {reasons_str}"
         }
 
-    entry_price = scanner_stage.get("entry_price") or res.get("close_price")
-    atr_val = scanner_stage.get("atr_20") or (entry_price * 0.025 if entry_price else 2.5)
-    score_val = scanner_stage.get("score") or res.get("overall_health_score", 85)
+    entry_price = scanner_stage.get("entry_price")
     sl_val = scanner_stage.get("stop_loss")
     t1_val = scanner_stage.get("target_1")
     t2_val = scanner_stage.get("target_2")
     t3_val = scanner_stage.get("target_3")
     t4_val = scanner_stage.get("target_4")
+    score_val = scanner_stage.get("score")
 
-    if not sl_val or not t1_val:
-        sl_target = compute_sl_and_target(entry_price=float(entry_price), atr=float(atr_val), mode=scanner_type)
-        if sl_target.get("is_rejected"):
-            return {"success": False, "error": f"Risk engine rejected target calculation: {sl_target.get('rejection_reason')}"}
-        sl_val = sl_target.get("stop_loss")
-        t1_val = sl_target.get("target_1")
-        t2_val = sl_target.get("target_2")
-        t3_val = sl_target.get("target_3")
-        t4_val = sl_target.get("target_4")
+    if entry_price is None or sl_val is None or t1_val is None or score_val is None:
+        return {
+            "success": False,
+            "error": f"Evaluator contract failure for {scanner_type}: missing canonical risk package (entry/SL/T1/score)."
+        }
 
     entry_price = float(entry_price)
     score_val = int(score_val)
@@ -719,26 +716,21 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
 
     # Dynamic Category Determination
     if scanner_type == "MULTIBAGGER":
-        category_val = str(scanner_stage.get("conviction_tier") or "Prime Multibagger")
+        category_val = scanner_stage.get("conviction_tier")
+        if not category_val:
+            return {"success": False, "error": "Evaluator contract failure for MULTIBAGGER: missing conviction tier."}
+        category_val = str(category_val)
     elif scanner_type == "WEALTH":
         buckets = scanner_stage.get("buckets", [])
-        category_val = ", ".join(buckets) if buckets else "Wealth Compounder"
+        category_val = ", ".join(buckets) if buckets else scanner_stage.get("category", "Wealth Compounder")
     else:
         category_val = f"{scanner_type} (MANUAL)"
 
-    # Dynamic RS & Sector Bonus Calculation
-    rs_dict = compute_nifty_rs_rating([sym_clean])
-    rs_pct_val = float(rs_dict.get(sym_clean, 80.0))
-    rs_bonus_val = int(scanner_stage.get("rs_bonus", 3 if rs_pct_val >= 80.0 else 0))
-
-    from macro_utils import compute_sector_regime_rankings
-    sector_rankings = compute_sector_regime_rankings()
-    sector_info = sector_rankings.get(res.get("sector"), {}) if res.get("sector") else {}
-    sector_status = sector_info.get("effective_status", "NEUTRAL")
-    sector_bonus_val = int(scanner_stage.get("sector_bonus", 2 if sector_status == "TAILWIND" else 0))
-
-    regime_ctx_active = MarketRegimeEngine.get_regime_context()
-    regime_score_val = float(scanner_stage.get("regime_score", regime_ctx_active.get("market_score", 80.0)))
+    # Copy Verbatim Evaluator Metadata
+    rs_bonus_val = int(scanner_stage.get("rs_bonus", 0))
+    sector_bonus_val = int(scanner_stage.get("sector_bonus", 0))
+    regime_score_val = float(scanner_stage.get("regime_score", 80.0))
+    rs_pct_val = float(scanner_stage.get("rs_percentile", res.get("rs_percentile", 80.0)))
 
     saved, reason, alert_id, _ = save_alert_if_new(
         symbol=sym_clean,

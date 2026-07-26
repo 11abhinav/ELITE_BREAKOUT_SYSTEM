@@ -186,10 +186,9 @@ class TestManualAlertPromotion(unittest.TestCase):
     """Test suite for 1-click manual alert promotion to active alerts table."""
 
     @patch('stock_analyzer.analyze_symbol')
-    @patch('stock_analyzer.compute_sl_and_target')
     @patch('stock_analyzer.save_alert_if_new')
     @patch('telegram_engine.send_telegram_message')
-    def test_create_manual_alert_success(self, mock_tg, mock_save, mock_sl, mock_analyze):
+    def test_create_manual_alert_success(self, mock_tg, mock_save, mock_analyze):
         """Verify successful promotion of analyzed setup into an active BUY alert."""
         mock_analyze.return_value = {
             "success": True,
@@ -198,15 +197,19 @@ class TestManualAlertPromotion(unittest.TestCase):
             "rs_percentile": 90.0,
             "sector": "AUTO",
             "funnel": {
-                "eod_breakout": {"status": "CORE MET", "reasons": ["Clean breakout"]}
+                "eod_breakout": {
+                    "qualified": True,
+                    "status": "CORE MET",
+                    "reasons": ["Clean breakout"],
+                    "entry_price": 500.0,
+                    "stop_loss": 475.0,
+                    "target_1": 530.0,
+                    "target_2": 560.0,
+                    "target_3": 600.0,
+                    "target_4": 650.0,
+                    "score": 88
+                }
             }
-        }
-        mock_sl.return_value = {
-            "is_rejected": False,
-            "stop_loss": 475.0,
-            "target_1": 530.0,
-            "target_2": 560.0,
-            "target_3": 600.0
         }
         mock_save.return_value = (True, "Alert Created", 202, None)
 
@@ -225,7 +228,7 @@ class TestManualAlertPromotion(unittest.TestCase):
             "success": True,
             "close_price": 500.0,
             "funnel": {
-                "eod_breakout": {"status": "NO", "reasons": ["Close <= Prior 20D High"]}
+                "eod_breakout": {"qualified": False, "status": "NO", "reasons": ["Close <= Prior 20D High"]}
             }
         }
 
@@ -244,23 +247,27 @@ class TestManualAlertPromotion(unittest.TestCase):
         self.assertIn("Invalid scanner type", res.get("error"))
 
     @patch('stock_analyzer.analyze_symbol')
-    @patch('stock_analyzer.compute_sl_and_target')
-    def test_create_manual_alert_sl_rejection(self, mock_sl, mock_analyze):
-        """Verify rejection response when risk manager rejects SL/Target parameters."""
+    def test_create_manual_alert_evaluator_contract_missing_risk_package(self, mock_analyze):
+        """Verify rejection response when evaluator fails to supply canonical risk parameters."""
         mock_analyze.return_value = {
             "success": True,
             "close_price": 500.0,
             "funnel": {
-                "eod_breakout": {"status": "CORE MET", "reasons": ["Clean breakout"]}
+                "eod_breakout": {
+                    "qualified": True,
+                    "status": "CORE MET",
+                    "reasons": ["Clean breakout"],
+                    "entry_price": 500.0,
+                    "stop_loss": None  # Missing canonical SL
+                }
             }
         }
-        mock_sl.return_value = {"is_rejected": True, "rejection_reason": "Stop Loss exceeds 10% maximum risk limit"}
 
         from stock_analyzer import create_manual_alert_from_analysis
         res = create_manual_alert_from_analysis("HIGHVOLATILITY", scanner_type="EOD")
 
         self.assertFalse(res.get("success"))
-        self.assertIn("Stop Loss exceeds", res.get("error"))
+        self.assertIn("missing canonical risk package", res.get("error"))
 
 
 class TestUserWatchlistRepository(unittest.TestCase):
