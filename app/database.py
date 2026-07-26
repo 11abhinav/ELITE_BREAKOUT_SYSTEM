@@ -5822,7 +5822,7 @@ def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bo
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM user_watchlists WHERE (user_id::text = %s OR user_id::text = '57880' OR user_id = 'DEFAULT_USER' OR user_id = 'admin') AND symbol = %s", (user_id_str, sym_clean))
+                cur.execute("DELETE FROM user_watchlists WHERE user_id::text = %s AND symbol = %s", (user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
@@ -5839,7 +5839,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 cur.execute("""
                     SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes
                     FROM user_watchlists
-                    WHERE user_id::text = %s OR user_id::text = '57880' OR user_id = 'DEFAULT_USER' OR user_id = 'admin'
+                    WHERE user_id::text = %s
                     ORDER BY added_at DESC
                 """, (user_id_str,))
                 rows = cur.fetchall()
@@ -5877,7 +5877,7 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
                     SET last_scanned_at = CURRENT_TIMESTAMP,
                         last_health_score = COALESCE(%s, last_health_score),
                         last_status = COALESCE(%s, last_status)
-                    WHERE (user_id::text = %s OR user_id = 'DEFAULT_USER' OR user_id = 'admin' OR user_id = '57880') AND symbol = %s
+                    WHERE user_id::text = %s AND symbol = %s
                 """, (health_score, status, user_id_str, sym_clean))
             conn.commit()
             return True

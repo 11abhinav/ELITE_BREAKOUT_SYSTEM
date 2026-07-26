@@ -3006,7 +3006,7 @@ def api_get_user_watchlist():
     """Fetch user's personal watchlist."""
     try:
         from database import get_user_watchlist
-        user_id = session.get("user_id", "DEFAULT_USER")
+        user_id = str(session.get("user_id", "DEFAULT_USER"))
         items = get_user_watchlist(user_id=user_id)
         return jsonify(items)
     except Exception as e:
@@ -3026,7 +3026,7 @@ def api_add_user_watchlist():
         notes = data.get("notes", "")
         health_score = data.get("health_score")
         status = data.get("status", "MONITORING")
-        user_id = session.get("user_id", "DEFAULT_USER")
+        user_id = str(session.get("user_id", "DEFAULT_USER"))
 
         if not symbol:
             return jsonify({"success": False, "error": "Symbol is required."}), 400
