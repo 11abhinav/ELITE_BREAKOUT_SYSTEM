@@ -1389,87 +1389,6 @@
       <!-- KPI ROW (SCANNER HEALTH GRID) -->
       <div class="kpi-row" id="kpis"></div>
 
-      <!-- FEATURE F-13: PREVIEW ANALYTICS CARD (MOVED DIRECTLY BELOW SCANNER HEALTH) -->
-      <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
-
-        <div id="preview-analytics-header"
-          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border);"
-          onclick="togglePreviewAnalytics()">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-weight: 700; color: var(--text); font-size:16px;">📊 Advanced Outcome Analytics <span style="font-size:11px; font-weight:700; background:rgba(217,119,6,0.15); color:var(--amber); padding:2px 8px; border-radius:12px; border:1px solid rgba(217,119,6,0.3);">PREVIEW</span></span>
-          </div>
-          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 12px;">
-            <span id="pa-confidence-badge" class="badge" style="background:rgba(220,38,38,0.1); color:#dc2626; border:1px solid rgba(220,38,38,0.3);">Confidence: LOW</span>
-            <span id="pa-trades-count" style="font-family:var(--font-mono); font-size:12px;">Completed Trades: 0 / 100</span>
-            <svg id="pa-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </div>
-        </div>
-        <div id="preview-analytics-body" style="padding: 20px; background: var(--bg);">
-          <div style="padding: 10px 14px; background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25); border-radius: 6px; margin-bottom: 20px; font-size: 12px; color: var(--amber); display: flex; align-items: center; gap: 10px;">
-            <span style="font-size:16px;">⚠️</span>
-            <div><strong>Informational / Preview Mode:</strong> Sample size is currently below 100 completed trades. Metrics are displayed for real-time pipeline verification only and must not be used for strategy auto-tuning.</div>
-          </div>
-
-          <!-- Capture Efficiency Diagnostic -->
-          <div class="card-title">1. Execution Capture Efficiency Diagnostic</div>
-          <div class="mini-stats" id="pa-capture-stats">
-            <div class="mini-stat"><span class="mini-stat-label">Snapshot Coverage</span><span class="mini-stat-value" id="pa-coverage-val">0.0%</span></div>
-            <div class="mini-stat"><span class="mini-stat-label">Avg MFE</span><span class="mini-stat-value" id="pa-mfe-val">0.0R</span></div>
-            <div class="mini-stat"><span class="mini-stat-label">Avg MAE</span><span class="mini-stat-value" id="pa-mae-val">0.0R</span></div>
-            <div class="mini-stat"><span class="mini-stat-label">Avg Realized</span><span class="mini-stat-value" id="pa-realized-val">0.0R</span></div>
-            <div class="mini-stat"><span class="mini-stat-label">Capture Efficiency</span><span class="mini-stat-value blue" id="pa-eff-val">0.0%</span></div>
-          </div>
-
-          <!-- Feature Attribution & Score Bands Grid -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-top: 20px;">
-            <div>
-              <div class="card-title">2. Feature Attribution Breakdown</div>
-              <div class="tbl-wrap">
-                <table>
-                  <thead>
-                    <tr><th>Feature</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
-                  </thead>
-                  <tbody id="pa-feature-table">
-                    <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div>
-              <div class="card-title">3. Score Band Expectancy</div>
-              <div class="tbl-wrap">
-                <table>
-                  <thead>
-                    <tr><th>Score Band</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
-                  </thead>
-                  <tbody id="pa-scoreband-table">
-                    <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- Rolling Window Validation -->
-          <div style="margin-top: 24px;">
-            <div class="card-title">4. Rolling Window Performance Validation</div>
-            <div class="tbl-wrap">
-              <table>
-                <thead>
-                  <tr><th>Window</th><th>Trades in Window</th><th>Win Rate %</th><th>Avg Realized R</th><th>Expectancy R</th><th>Confidence</th></tr>
-                </thead>
-                <tbody id="pa-rolling-table">
-                  <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      </div>
 
       <!-- PENDING USERS -->
       <div id="pendingUsersContainer" style="display:none; margin-bottom: 28px;">
@@ -1813,6 +1732,88 @@
             </button>
           </div>
           <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
+
+          <!-- FEATURE F-13: PREVIEW ANALYTICS CARD (MOVED DIRECTLY BELOW SCANNER HEALTH) -->
+          <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
+
+            <div id="preview-analytics-header"
+              style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border);"
+              onclick="togglePreviewAnalytics()">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-weight: 700; color: var(--text); font-size:16px;">📊 Advanced Outcome Analytics <span style="font-size:11px; font-weight:700; background:rgba(217,119,6,0.15); color:var(--amber); padding:2px 8px; border-radius:12px; border:1px solid rgba(217,119,6,0.3);">PREVIEW</span></span>
+              </div>
+              <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 12px;">
+                <span id="pa-confidence-badge" class="badge" style="background:rgba(220,38,38,0.1); color:#dc2626; border:1px solid rgba(220,38,38,0.3);">Confidence: LOW</span>
+                <span id="pa-trades-count" style="font-family:var(--font-mono); font-size:12px;">Completed Trades: 0 / 100</span>
+                <svg id="pa-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+            </div>
+            <div id="preview-analytics-body" style="padding: 20px; background: var(--bg);">
+              <div style="padding: 10px 14px; background: rgba(217,119,6,0.08); border: 1px solid rgba(217,119,6,0.25); border-radius: 6px; margin-bottom: 20px; font-size: 12px; color: var(--amber); display: flex; align-items: center; gap: 10px;">
+                <span style="font-size:16px;">⚠️</span>
+                <div><strong>Informational / Preview Mode:</strong> Sample size is currently below 100 completed trades. Metrics are displayed for real-time pipeline verification only and must not be used for strategy auto-tuning.</div>
+              </div>
+
+              <!-- Capture Efficiency Diagnostic -->
+              <div class="card-title">1. Execution Capture Efficiency Diagnostic</div>
+              <div class="mini-stats" id="pa-capture-stats">
+                <div class="mini-stat"><span class="mini-stat-label">Snapshot Coverage</span><span class="mini-stat-value" id="pa-coverage-val">0.0%</span></div>
+                <div class="mini-stat"><span class="mini-stat-label">Avg MFE</span><span class="mini-stat-value" id="pa-mfe-val">0.0R</span></div>
+                <div class="mini-stat"><span class="mini-stat-label">Avg MAE</span><span class="mini-stat-value" id="pa-mae-val">0.0R</span></div>
+                <div class="mini-stat"><span class="mini-stat-label">Avg Realized</span><span class="mini-stat-value" id="pa-realized-val">0.0R</span></div>
+                <div class="mini-stat"><span class="mini-stat-label">Capture Efficiency</span><span class="mini-stat-value blue" id="pa-eff-val">0.0%</span></div>
+              </div>
+
+              <!-- Feature Attribution & Score Bands Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-top: 20px;">
+                <div>
+                  <div class="card-title">2. Feature Attribution Breakdown</div>
+                  <div class="tbl-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Feature</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
+                      </thead>
+                      <tbody id="pa-feature-table">
+                        <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="card-title">3. Score Band Expectancy</div>
+                  <div class="tbl-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Score Band</th><th>Trades</th><th>Win Rate</th><th>Avg R</th><th>Expectancy</th><th>Confidence</th></tr>
+                      </thead>
+                      <tbody id="pa-scoreband-table">
+                        <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Rolling Window Validation -->
+              <div style="margin-top: 24px;">
+                <div class="card-title">4. Rolling Window Performance Validation</div>
+                <div class="tbl-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>Window</th><th>Trades in Window</th><th>Win Rate %</th><th>Avg Realized R</th><th>Expectancy R</th><th>Confidence</th></tr>
+                    </thead>
+                    <tbody id="pa-rolling-table">
+                      <tr><td colspan="6" style="text-align:center; color:var(--muted)">Loading analytics...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          </div>
 
           <!-- SYSTEM LOGS PANEL (Python Errors) -->
           <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
