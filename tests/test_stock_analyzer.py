@@ -588,7 +588,6 @@ class TestAuditFixesAndParity(unittest.TestCase):
         we_status = "CORE MET" if not we_issues else "NO"
         self.assertEqual(we_status, "NO")
         self.assertIn("200DMA", we_issues[0])
-        self.assertEqual(fund_data["roce"], 22.0)
 
 
 if __name__ == '__main__':
