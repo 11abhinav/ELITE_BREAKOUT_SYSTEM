@@ -515,8 +515,10 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     if db_pass:
         db_reasons.append(f"Price ₹{close_price:.2f} ≥ ₹100.0 | Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {history_len} ≥ 50")
 
-    # Default indicators
+    # Default indicators & moving averages
     vol_ratio = 1.0
+    sma50_val = bundle.sma_50.iloc[-1] if hasattr(bundle, 'sma_50') and bundle.sma_50 is not None and not bundle.sma_50.empty else None
+    sma200_val = bundle.sma_200.iloc[-1] if hasattr(bundle, 'sma_200') and bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
     # ---------------- STAGE 2: EOD BREAKOUT SCANNER ----------------
     eod_status = "NO"
@@ -537,9 +539,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         upper_wick = high_price - max(close_price, open_price)
         body_ratio = (candle_body / candle_range) if candle_range > 0 else 0.0
         wick_ratio = (upper_wick / candle_range) if candle_range > 0 else 0.0
-
-        sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
-        sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
         eod_checks = []
         if not is_breakout:
@@ -645,10 +644,17 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         we_issues.append(f"Debt-to-Equity {debt_equity:.2f} > 0.50 max")
         deficits.append(f"🏦 Leverage Deficit: Debt to Equity is {debt_equity:.2f} (requires ≤0.50 debt free/low debt).")
 
+    # Wealth Engine Mandatory Technical Trend Gate: CMP > SMA200
+    if sma200_val is not None and not pd.isna(sma200_val) and float(sma200_val) > 0:
+        if close_price <= float(sma200_val):
+            we_issues.append(f"Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{float(sma200_val):.2f} (Wealth Engine requires CMP > 200DMA)")
+            deficits.append(f"📈 200DMA Trend Deficit: Close is ₹{close_price:.2f} (below 200DMA ₹{float(sma200_val):.2f}). Wealth Engine active signals require CMP > 200DMA.")
+
     if not we_issues:
         we_status = "CORE MET"
-        we_reasons.append(f"Core Fundamentals Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5")
-    elif roce_val >= 15.0 and roe_val >= 12.0:
+        safe_sma200 = float(sma200_val) if sma200_val is not None and not pd.isna(sma200_val) else 0.0
+        we_reasons.append(f"Core Fundamentals & Trend Pristine: ROCE {roce_val:.1f}% ≥ 20% | ROE {roe_val:.1f}% ≥ 15% | D/E {debt_equity:.2f} ≤ 0.5" + (f" | Close ₹{close_price:.2f} > 200DMA ₹{safe_sma200:.2f}" if safe_sma200 > 0 else ""))
+    elif roce_val >= 15.0 and roe_val >= 12.0 and (sma200_val is not None and close_price > float(sma200_val)):
         we_status = "WATCHLIST"
         we_reasons = we_issues
     else:
@@ -709,15 +715,42 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     
     # Determine precise scanner status for Watchlist display
     scanners_met = []
-    if eod_status in ("YES", "ACTIVE"): scanners_met.append("EOD")
-    if pb_status in ("YES", "ACTIVE"): scanners_met.append("PULLBACK")
-    if we_status in ("YES", "ACTIVE"): scanners_met.append("WEALTH")
-    if rev_status in ("YES", "ACTIVE"): scanners_met.append("REVERSAL")
-    if mb_status in ("YES", "ACTIVE"): scanners_met.append("MULTIBAGGER")
-    if mtf_status in ("YES", "ACTIVE"): scanners_met.append("MULTI-TF")
+    scanners_wl = []
+    
+    if eod_status.startswith("CORE MET") or eod_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("EOD")
+    elif eod_status == "WATCHLIST":
+        scanners_wl.append("EOD")
+
+    if pb_status.startswith("CORE MET") or pb_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("PULLBACK")
+    elif pb_status == "WATCHLIST":
+        scanners_wl.append("PULLBACK")
+
+    if we_status.startswith("CORE MET") or we_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("WEALTH")
+    elif we_status == "WATCHLIST":
+        scanners_wl.append("WEALTH")
+
+    if rev_status.startswith("CORE MET") or rev_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("REVERSAL")
+    elif rev_status == "WATCHLIST":
+        scanners_wl.append("REVERSAL")
+
+    if mb_status.startswith("CORE MET") or mb_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("MULTIBAGGER")
+    elif mb_status == "WATCHLIST":
+        scanners_wl.append("MULTIBAGGER")
+
+    if mtf_status.startswith("CORE MET") or mtf_status in ("YES", "ACTIVE", "QUALIFIED"):
+        scanners_met.append("MULTI-TF")
+    elif mtf_status == "WATCHLIST":
+        scanners_wl.append("MULTI-TF")
 
     if scanners_met:
         watchlist_status = "QUALIFIED (" + ", ".join(scanners_met) + ")"
+    elif scanners_wl:
+        watchlist_status = "WATCHLIST (" + ", ".join(scanners_wl) + ")"
     elif any_core_met:
         watchlist_status = "CORE MET"
     else:

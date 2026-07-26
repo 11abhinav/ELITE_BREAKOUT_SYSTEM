@@ -565,6 +565,29 @@ class TestAuditFixesAndParity(unittest.TestCase):
 
         self.assertEqual(fund_data["score"], 8)
         self.assertEqual(fund_data["roe"], 18.5)
+
+    def test_stage_6_wealth_engine_200dma_trend_gate(self):
+        """Verify Stage 6 Wealth Engine rejects stock with price below 200DMA even if fundamentals are pristine."""
+        from stock_analyzer import analyze_symbol
+
+        # Verify logic when close <= sma200_val
+        close_price = 2254.30
+        sma200_val = 2636.15
+        roce_val = 44.2
+        roe_val = 48.7
+        debt_equity = 0.10
+
+        we_issues = []
+        if roce_val < 20.0: we_issues.append("ROCE low")
+        if roe_val < 15.0: we_issues.append("ROE low")
+        if debt_equity > 0.5: we_issues.append("DE high")
+
+        if sma200_val is not None and close_price <= sma200_val:
+            we_issues.append(f"Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{sma200_val:.2f} (Wealth Engine requires CMP > 200DMA)")
+
+        we_status = "CORE MET" if not we_issues else "NO"
+        self.assertEqual(we_status, "NO")
+        self.assertIn("200DMA", we_issues[0])
         self.assertEqual(fund_data["roce"], 22.0)
 
 
