@@ -389,8 +389,8 @@ $$\text{Bucket}_{\text{Quality-Sale}} = (\text{ROCE} \ge 15\% \land \text{D/E} \
 $$\text{Bucket}_{\text{Opportunistic}} = (\text{YoY}_{\text{Prof}} \ge 40\%)$$
 $$\text{Status} = \begin{cases} \text{CORE MET} & \text{if } (\text{Any Bucket Met}) \land C > \text{SMA}_{200} \\ \text{WATCHLIST} & \text{if } (\text{Any Bucket Met}) \land C \le \text{SMA}_{200} \text{ or } (\text{ROCE} \ge 12\% \land \text{D/E} \le 1.0) \\ \text{NO} & \text{otherwise} \end{cases}$$
 
-### Stage 7: Multibagger Engine
-$$\text{Status} = \begin{cases} \text{CORE MET (Prime)} & \text{if } \text{Piotroski} \ge 7 \land \text{Pledge} \le 10\% \land C > \text{SMA}_{50} > \text{SMA}_{200} \\ \text{WATCHLIST} & \text{if } \text{Piotroski} \ge 5 \land \text{Pledge} \le 15\% \\ \text{NO} & \text{otherwise} \end{cases}$$
+### Stage 7: Multibagger Engine (2-Tier Conviction Parity)
+$$\text{Status} = \begin{cases} \text{CORE MET (Prime)} & \text{if } \text{Piotroski} \ge 7 \land \text{Pledge} \le 10\% \land C > \text{SMA}_{50} > \text{SMA}_{200} \\ \text{CORE MET (High Quality)} & \text{if } \text{Health Score} \ge 65.0 \land \text{Pledge} \le 15\% \land C > \text{SMA}_{50} > \text{SMA}_{200} \\ \text{WATCHLIST} & \text{if } \text{Health Score} \ge 50.0 \lor \text{Piotroski} \ge 5 \\ \text{NO} & \text{otherwise} \end{cases}$$
 
 ---
 
