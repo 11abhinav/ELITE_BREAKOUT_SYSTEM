@@ -3055,8 +3055,14 @@ document.addEventListener('keydown', function(e) {
 });
 
 function renderStockDiagnosticModal(data) {
-  const modal = document.getElementById('stock-diagnostic-modal');
-  if (!modal) return;
+  let modal = document.getElementById('stock-diagnostic-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'stock-diagnostic-modal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
 
   const score = data.overall_health_score || 0;
   const scoreCls = score >= 75 ? 'badge-ok' : (score >= 55 ? 'badge-queued' : 'badge-down');
@@ -3362,14 +3368,18 @@ function loadUserWatchlist() {
       tbody.innerHTML = watchlistItems.map((item, idx) => {
         let statusBadge = '';
         const st = (item.last_status || 'MONITORING').toUpperCase();
-        if (st.includes('CORE MET')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(245,158,11,0.25); cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})" title="Core Condition Met: Stock meets scanner core setup criteria (e.g. Oversold RSI ≤ 35). Click to view breakdown.">⚡ CORE MET</span>`;
+        if (st.includes('IN PROGRESS') || st.includes('PROCESSING')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(99,102,241,0.25);" title="Scanner Analysis In Progress..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> IN PROGRESS</span>`;
+        } else if (st.includes('PROCESSED')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Analysis Processed cleanly. Click to view breakdown.">✓ PROCESSED</span>`;
+        } else if (st.includes('CORE MET')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(245,158,11,0.25); cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Core Condition Met: Stock meets scanner core setup criteria (e.g. Oversold RSI ≤ 35). Click to view breakdown.">⚡ CORE MET</span>`;
         } else if (st.includes('QUALIFIED')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})" title="Qualified Signal: Passed all 7-stage scanner gates. Click to view breakdown.">✓ ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Qualified Signal: Passed all 7-stage scanner gates. Click to view breakdown.">✓ ${item.last_status}</span>`;
         } else if (st.includes('ALERT')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})" title="Alert Active: Potential setup identified. Click to view breakdown.">🚨 ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Alert Active: Potential setup identified. Click to view breakdown.">🚨 ${item.last_status}</span>`;
         } else {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})" title="Monitoring Mode: Analyzed. Stock does not currently meet active breakout/reversal setups. Click to view 7-stage details.">🔍 ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Monitoring Mode: Analyzed. Stock does not currently meet active breakout/reversal setups. Click to view 7-stage details.">🔍 ${item.last_status}</span>`;
         }
 
         return `
@@ -3388,7 +3398,7 @@ function loadUserWatchlist() {
               ${item.last_deep_analysis_at ? '<div style="font-size:9px; color:#10b981; font-weight:700;">💾 Saved Analysis</div>' : ''}
             </td>
             <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
-              <button onclick="openSavedWatchlistAnalysis(${idx})" style="padding:4px 8px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="View Full 7-Stage Deep Analysis Breakdown">
+              <button onclick="openSavedWatchlistAnalysis('${item.symbol}')" style="padding:4px 8px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="View Full 7-Stage Deep Analysis Breakdown">
                 🔍 View Analysis
               </button>
               <button onclick="triggerStockDiagnostic('${item.symbol}', true)" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="Execute Fresh Deep Analysis">
