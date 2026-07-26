@@ -430,21 +430,25 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if debt_equity <= 0.0 and fund_data.get("debt_equity") is not None:
             debt_equity = float(fund_data.get("debt_equity"))
 
-    # 4. On-demand fundamentals cache fallback for missing ROE/ROCE
-    if roce_val <= 0.0 or roe_val <= 0.0:
+    # 4. On-demand fundamentals cache fallback for missing ROE/ROCE or Piotroski Score
+    if roce_val <= 0.0 or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
         try:
             from fundamentals_cache import fetch_single_piotroski
             lookup_sym = "TMCV" if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"] else sym_clean
             on_demand_fund = fetch_single_piotroski(lookup_sym) or {}
             if on_demand_fund:
+                if not fund_data:
+                    fund_data = on_demand_fund
+                else:
+                    fund_data.update(on_demand_fund)
                 if roe_val <= 0.0 and on_demand_fund.get("roe") is not None:
                     roe_val = float(on_demand_fund.get("roe"))
                 if roce_val <= 0.0 and on_demand_fund.get("roce") is not None:
                     roce_val = float(on_demand_fund.get("roce"))
                 if debt_equity <= 0.0 and on_demand_fund.get("debt_equity") is not None:
                     debt_equity = float(on_demand_fund.get("debt_equity"))
-        except Exception:
-            pass
+        except Exception as _fe:
+            logger.warning(f"On-demand fundamental fetch fallback failed for {sym_clean}: {_fe}")
 
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
@@ -597,7 +601,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     mb_status = "NO"
     mb_reasons = []
 
-    f_score = fund_data.get("piotroski_score", 6)
+    f_score = fund_data.get("score", fund_data.get("piotroski_score", 6))
     pledge_pct = fund_data.get("promoter_pledge_pct", 0.0)
 
     mb_issues = []
