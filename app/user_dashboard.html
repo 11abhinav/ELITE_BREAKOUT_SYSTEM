@@ -453,8 +453,8 @@ function playDing() {
 
     <!-- MY WATCHLIST MODAL -->
     <div id="my-watchlist-section" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); z-index:9999; padding:20px; justify-content:center; align-items:center;">
-      <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:900px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
-        <button onclick="document.getElementById('my-watchlist-section').style.display='none'" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+      <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:900px; max-height:85vh; overflow-y:auto; overscroll-behavior:contain; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative;">
+        <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
           <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
@@ -3029,6 +3029,7 @@ function showDiagnosticLoadingModal(sym) {
       </div>
     </div>
   `;
+  document.body.style.overflow = 'hidden';
   modal.style.display = 'flex';
 }
 
@@ -3038,6 +3039,59 @@ function closeDiagnosticModal() {
     modal.style.display = 'none';
     modal.innerHTML = '';
   }
+  const confirmModal = document.getElementById('custom-confirm-modal');
+  if (!confirmModal || confirmModal.style.display === 'none') {
+    document.body.style.overflow = '';
+  }
+}
+
+function showCustomConfirmModal({ title, message, icon = '🗑️', confirmText = 'Remove', onConfirm }) {
+  let modal = document.getElementById('custom-confirm-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'custom-confirm-modal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:10000; padding:20px;';
+    document.body.appendChild(modal);
+  }
+
+  document.body.style.overflow = 'hidden';
+
+  modal.innerHTML = `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:18px; width:100%; max-width:440px; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6); position:relative; text-align:center;">
+      <button onclick="closeCustomConfirmModal()" style="position:absolute; top:18px; right:18px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+      <div style="font-size:48px; margin-bottom:12px;">${icon}</div>
+      <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0 0 14px 0;">${title}</h3>
+      <div style="padding:14px 18px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:12px; font-size:13px; color:var(--text); line-height:1.5; margin-bottom:24px;">
+        ${message}
+      </div>
+      <div style="display:flex; justify-content:center; gap:12px;">
+        <button onclick="closeCustomConfirmModal()" style="padding:10px 22px; background:var(--card3); color:var(--text); border:1px solid var(--border); border-radius:10px; font-weight:700; font-size:13px; cursor:pointer;">
+          Cancel
+        </button>
+        <button id="confirm-action-btn" style="padding:10px 24px; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; border-radius:10px; font-weight:800; font-size:13px; cursor:pointer; box-shadow:0 4px 14px rgba(239,68,68,0.35);">
+          ${confirmText}
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+
+  document.getElementById('confirm-action-btn').onclick = function() {
+    closeCustomConfirmModal();
+    if (typeof onConfirm === 'function') onConfirm();
+  };
+}
+
+function closeCustomConfirmModal() {
+  const modal = document.getElementById('custom-confirm-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.innerHTML = '';
+  }
+  const diagModal = document.getElementById('stock-diagnostic-modal');
+  if (!diagModal || diagModal.style.display === 'none') {
+    document.body.style.overflow = '';
+  }
 }
 
 // Global listeners for closing stock diagnostic modal via backdrop click or ESC key
@@ -3046,11 +3100,16 @@ document.addEventListener('click', function(e) {
   if (modal && modal.style.display !== 'none' && e.target === modal) {
     closeDiagnosticModal();
   }
+  const confirmModal = document.getElementById('custom-confirm-modal');
+  if (confirmModal && confirmModal.style.display !== 'none' && e.target === confirmModal) {
+    closeCustomConfirmModal();
+  }
 });
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeDiagnosticModal();
+    closeCustomConfirmModal();
   }
 });
 
@@ -3062,6 +3121,7 @@ function renderStockDiagnosticModal(data) {
     modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
     document.body.appendChild(modal);
   }
+  document.body.style.overflow = 'hidden';
   modal.style.display = 'flex';
 
   const score = data.overall_health_score || 0;
@@ -3336,18 +3396,24 @@ function saveToUserWatchlist(sym, company, score) {
 }
 
 function removeFromWatchlist(sym) {
-  if (!confirm(`Remove #${sym} from your watchlist?`)) return;
-
-  fetch('/api/v1/user_watchlist/remove', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ symbol: sym })
-  })
-  .then(res => res.json())
-  .then(res => {
-    if (res.success) {
-      showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
-      loadUserWatchlist();
+  showCustomConfirmModal({
+    title: `Remove #${sym} from Watchlist?`,
+    message: `Are you sure you want to remove <strong>#${sym}</strong> from your personal watchlist view?`,
+    icon: '🗑️',
+    confirmText: 'Remove Stock',
+    onConfirm: () => {
+      fetch('/api/v1/user_watchlist/remove', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
+          loadUserWatchlist();
+        }
+      });
     }
   });
 }
@@ -3636,11 +3702,24 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
 function toggleUserWatchlistDrawer() {
   const sec = document.getElementById('my-watchlist-section');
   if (!sec) return;
-  if (sec.style.display === 'none') {
+  if (sec.style.display === 'none' || !sec.style.display) {
     sec.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
     loadUserWatchlist();
   } else {
+    closeMyWatchlistModal();
+  }
+}
+
+function closeMyWatchlistModal() {
+  const sec = document.getElementById('my-watchlist-section');
+  if (sec) {
     sec.style.display = 'none';
+  }
+  const diagModal = document.getElementById('stock-diagnostic-modal');
+  const confirmModal = document.getElementById('custom-confirm-modal');
+  if ((!diagModal || diagModal.style.display === 'none') && (!confirmModal || confirmModal.style.display === 'none')) {
+    document.body.style.overflow = '';
   }
 }
 
