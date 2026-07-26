@@ -244,11 +244,16 @@ def _load_master_symbol_dictionary() -> dict:
 def refresh_master_symbols_universe() -> bool:
     """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols into DB master_symbols table."""
     try:
-        from database import sync_master_symbols
+        from database import sync_master_symbols, upsert_scanner_health
         m = _load_master_symbol_dictionary()
         if m:
             symbol_rows = list(m.values())
             ok = sync_master_symbols(symbol_rows)
+            if ok:
+                try:
+                    upsert_scanner_health("MASTER_SYMBOLS", "OK", f"Synced {len(symbol_rows)} NSE/BSE equities")
+                except Exception:
+                    pass
             logger.info(f"✅ 07:00 AM IST Master Symbol Refresh: Synced {len(symbol_rows)} equities into master_symbols table.")
             return ok
         return False
