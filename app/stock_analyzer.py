@@ -558,6 +558,17 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         fund_data["yoy_profit"] = yoy_profit_val
         fund_data["YOY Profit %"] = yoy_profit_val
 
+    # Fetch promoter pledge % from DB promoter_pledge_cache if missing
+    if "promoter_pledge_pct" not in fund_data or fund_data["promoter_pledge_pct"] is None:
+        try:
+            from database import get_pledge_map
+            pm = get_pledge_map([sym_clean])
+            if pm and sym_clean in pm and pm[sym_clean] is not None:
+                fund_data["promoter_pledge_pct"] = float(pm[sym_clean])
+                fund_data["Promoter pledge %"] = float(pm[sym_clean])
+        except Exception as _pme:
+            logger.debug(f"Pledge map fetch failed for {sym_clean}: {_pme}")
+
     # Compute RS Percentile
     rs_dict = compute_nifty_rs_rating([sym_clean])
     rs_percentile = float(rs_dict.get(sym_clean, 50.0))
