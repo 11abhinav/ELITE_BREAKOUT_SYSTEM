@@ -129,7 +129,8 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
                     quotes = data.get('quotes', [])
                     for q in quotes:
                         s = q.get('symbol', '').upper()
-                        if s.startswith(sym_clean) and (s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE')):
+                        s_root = s.split('.')[0]
+                        if s_root == sym_clean and (s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE')):
                             found = True
                             company_name = q.get('shortname') or q.get('longname') or sym_clean
                             break
@@ -167,6 +168,8 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
     }
 
 
+import threading
+_MASTER_LOCK = threading.Lock()
 _MASTER_SYMBOLS_CACHE = None
 _MASTER_PRECOMPILED_LIST = None
 _MASTER_SYMBOLS_MTIME = 0
@@ -176,8 +179,9 @@ def _load_master_symbol_dictionary() -> dict:
     import os, re, json
 
     now_ts = datetime.now(IST).timestamp()
-    if _MASTER_SYMBOLS_CACHE is not None and (now_ts - _MASTER_SYMBOLS_MTIME) < 300:
-        return _MASTER_SYMBOLS_CACHE
+    with _MASTER_LOCK:
+        if _MASTER_SYMBOLS_CACHE is not None and (now_ts - _MASTER_SYMBOLS_MTIME) < 300:
+            return _MASTER_SYMBOLS_CACHE
 
     master = {}
 
@@ -311,7 +315,6 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
             seen.add(sym)
 
     return (exact_matches + prefix_matches + contains_matches)[:limit]
-    return results
 
 
 
@@ -487,7 +490,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     if roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
         try:
             from fundamentals_cache import fetch_single_piotroski
-            lookup_sym = "TMCV" if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"] else sym_clean
+            lookup_sym = "TMCV" if sym_clean in ["TMCV", "TATAMOTORS"] else sym_clean
             on_demand_fund = fetch_single_piotroski(lookup_sym) or {}
             if on_demand_fund and not on_demand_fund.get("failed"):
                 if not fund_data:
@@ -584,11 +587,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 
     overall_health_score = min(100.0, round((tech_score * 0.5) + (fund_score * 0.3) + (rs_percentile * 0.2), 1))
 
-    # Clean duplicates in deficits list (max 4 deficits)
-    deficits = list(dict.fromkeys(deficits))[:4]
-    if not deficits:
-        deficits.append("🌟 Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment.")
-
     # Determine precise scanner status for Watchlist display using BOOLEAN QUALIFIED CONTRACT
     scanners_met = []
     scanners_wl = []
@@ -609,6 +607,14 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
             scanners_wl.append(name)
 
     any_core_met = bool(scanners_met)
+
+    # Clean duplicates in deficits list (max 4 deficits)
+    deficits = list(dict.fromkeys(deficits))[:4]
+    if not deficits:
+        if any_core_met:
+            deficits.append("🌟 Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment.")
+        else:
+            deficits.append("🔍 Setup Deficit: Stock has not triggered breakout parameters across any of the 6 core scanner engines.")
 
     if scanners_met:
         watchlist_status = "QUALIFIED (" + ", ".join(scanners_met) + ")"
@@ -691,6 +697,23 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     res = analyze_symbol(sym_clean, user_id=user_id, is_deep_analysis=True)
     if not res.get("success"):
         return {"success": False, "error": res.get("error", "Analysis failed")}
+
+    # Surveillance Blacklist Gate
+    try:
+        from daily_builder import _is_blacklisted
+        if _is_blacklisted(sym_clean):
+            return {"success": False, "error": f"Symbol '{sym_clean}' is on the NSE/BSE Surveillance Blacklist (ASM/GSM) and cannot be promoted to an active alert."}
+    except Exception:
+        pass
+
+    # Reversal Cooldown Gate
+    if scanner_type == "REVERSAL":
+        try:
+            from reversal_scanner import _is_symbol_in_reversal_cooldown
+            if _is_symbol_in_reversal_cooldown(sym_clean, 40):
+                return {"success": False, "error": f"Symbol '{sym_clean}' is under a 40-day fallen-knife reversal cooldown and cannot be promoted to an active alert."}
+        except Exception:
+            pass
 
     funnel_map = {
         "EOD": "eod_breakout",
