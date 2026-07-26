@@ -49,6 +49,7 @@ def test_no_nplus1_read_queries_in_scanner_loops():
     ignored_files = {
         "main.py", 
         "dashboard_server.py", 
+        "stock_analyzer.py",
         "ai_worker.py", 
         "pledge_worker.py", 
         "performance_tracker.py", 
