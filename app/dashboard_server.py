@@ -2967,11 +2967,12 @@ def api_analyze_stock():
     try:
         from stock_analyzer import analyze_symbol
         symbol = request.args.get("symbol", "").strip()
+        is_deep = request.args.get("is_deep_analysis", "false").lower() == "true"
         user_id = session.get("user_id", "DEFAULT_USER")
         if not symbol:
             return jsonify({"success": False, "error": "Symbol parameter is required."}), 400
 
-        result = analyze_symbol(symbol, user_id=user_id)
+        result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep)
         return jsonify(result)
     except Exception as e:
         logger.exception("❌ Stock analysis endpoint error")
@@ -3073,7 +3074,7 @@ def api_watchlist_deep_analysis():
         for item in watchlist:
             sym = item.get("symbol")
             if sym:
-                res = analyze_symbol(sym, user_id=user_id)
+                res = analyze_symbol(sym, user_id=user_id, is_deep_analysis=True)
                 analyzed_items.append({
                     "symbol": sym,
                     "company_name": res.get("company_name", sym),

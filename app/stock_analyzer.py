@@ -313,7 +313,7 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
 
 
-def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
+def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False) -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
@@ -671,6 +671,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER") -> dict:
         "sector": sector_name,
         "success": True,
         "is_in_watchlist": is_in_watchlist,
+        "is_deep_analysis": is_deep_analysis,
         "watchlist_status": watchlist_status,
         "close_price": close_price,
         "volume_ratio": round(vol_ratio, 2),
