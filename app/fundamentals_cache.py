@@ -271,6 +271,22 @@ def fetch_single_piotroski(symbol: str) -> dict:
     except Exception:
         pass
 
+    # ROE / ROCE / Debt-to-Equity extraction for Wealth Engine
+    roe = None
+    if info.get("returnOnEquity") is not None:
+        roe = float(info.get("returnOnEquity")) * 100.0
+
+    roce = None
+    roa = info.get("returnOnAssets")
+    if roa is not None:
+        roce = float(roa) * 100.0 * 1.35
+    elif roe is not None:
+        roce = roe * 0.95
+
+    debt_equity = None
+    if info.get("debtToEquity") is not None:
+        debt_equity = float(info.get("debtToEquity")) / 100.0
+
     return {
         "score": score, 
         "date": str(datetime.now(IST).date()),
@@ -279,7 +295,10 @@ def fetch_single_piotroski(symbol: str) -> dict:
         "insider_hold": insider_hold,
         "forensic_flags": forensic_flags,
         "pb_fallback": pb_fallback,
-        "pe_fallback": pe_fallback
+        "pe_fallback": pe_fallback,
+        "roe": roe,
+        "roce": roce,
+        "debt_equity": debt_equity
     }
 
 

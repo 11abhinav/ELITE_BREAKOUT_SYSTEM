@@ -430,26 +430,19 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if debt_equity <= 0.0 and fund_data.get("debt_equity") is not None:
             debt_equity = float(fund_data.get("debt_equity"))
 
-    # 4. On-demand Yahoo Finance ticker info fallback for missing ROE/ROCE
+    # 4. On-demand fundamentals cache fallback for missing ROE/ROCE
     if roce_val <= 0.0 or roe_val <= 0.0:
         try:
-            import yfinance as yf
-            yf_sym = f"{sym_clean}.NS"
-            if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"]:
-                yf_sym = "TMCV.NS"
-            t_obj = yf.Ticker(yf_sym)
-            inf = t_obj.info or {}
-            if inf:
-                if roe_val <= 0.0 and inf.get("returnOnEquity") is not None:
-                    roe_val = float(inf.get("returnOnEquity")) * 100.0
-                if roce_val <= 0.0:
-                    roa = inf.get("returnOnAssets")
-                    if roa is not None:
-                        roce_val = float(roa) * 100.0 * 1.35
-                    elif roe_val > 0.0:
-                        roce_val = roe_val * 0.95
-                if debt_equity <= 0.0 and inf.get("debtToEquity") is not None:
-                    debt_equity = float(inf.get("debtToEquity")) / 100.0
+            from fundamentals_cache import fetch_single_piotroski
+            lookup_sym = "TMCV" if sym_clean in ["TMCV", "TMPV", "TATAMOTORS"] else sym_clean
+            on_demand_fund = fetch_single_piotroski(lookup_sym) or {}
+            if on_demand_fund:
+                if roe_val <= 0.0 and on_demand_fund.get("roe") is not None:
+                    roe_val = float(on_demand_fund.get("roe"))
+                if roce_val <= 0.0 and on_demand_fund.get("roce") is not None:
+                    roce_val = float(on_demand_fund.get("roce"))
+                if debt_equity <= 0.0 and on_demand_fund.get("debt_equity") is not None:
+                    debt_equity = float(on_demand_fund.get("debt_equity"))
         except Exception:
             pass
 
