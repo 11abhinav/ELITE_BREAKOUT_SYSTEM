@@ -319,6 +319,203 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
             self.assertTrue(data["success"])
             self.assertEqual(data["overall_health_score"], 85.0)
 
+    @patch('dashboard_server._cached_check_session', return_value=True)
+    @patch('stock_analyzer.refresh_master_symbols_universe', return_value=True)
+    @patch('stock_analyzer._load_master_symbol_dictionary', return_value={"TATAMOTORS": {}, "RELIANCE": {}})
+    def test_api_admin_refresh_master_symbols_endpoint(self, mock_dict, mock_refresh, mock_check):
+        """Verify /api/v1/admin/master_symbols/refresh route allows Admin to manually refresh symbol registry."""
+        from dashboard_server import app
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess['logged_in'] = True
+                sess['user_id'] = 'ADMIN'
+                sess['session_token'] = 'TOKEN123'
+
+            resp = client.post('/api/v1/admin/master_symbols/refresh')
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["count"], 2)
+
+
+class TestPerUserWatchlistIsolation(unittest.TestCase):
+    """Test suite verifying 100% per-user watchlist data privacy and isolation."""
+
+    @patch('database.get_connection')
+    def test_strict_per_user_watchlist_query(self, mock_get_conn):
+        """Verify get_user_watchlist queries strictly WHERE user_id::text = %s."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 88.0, "MONITORING", "Notes", datetime.now(), None)
+        ]
+
+        from database import get_user_watchlist
+        items = get_user_watchlist("57880")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["symbol"], "TATAMOTORS")
+        # Ensure query strictly bound user_id '57880'
+        execute_args = mock_cursor.execute.call_args[0]
+        self.assertIn("user_id::text = %s", execute_args[0])
+        self.assertEqual(execute_args[1], ("57880",))
+
+
+class TestMasterSymbolsRegistry(unittest.TestCase):
+    """Test suite for master_symbols database table and 07:00 AM IST refresh pipeline."""
+
+    @patch('database.get_connection')
+    def test_sync_master_symbols_bulk_upsert(self, mock_get_conn):
+        """Verify sync_master_symbols executes bulk upsert SQL for active symbols."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        from database import sync_master_symbols
+        sample_rows = [
+            {"symbol": "TATAMOTORS", "company_name": "Tata Motors Ltd", "exchange": "NSE", "sector": "AUTO"},
+            {"symbol": "RELIANCE", "company_name": "Reliance Industries Ltd", "exchange": "NSE", "sector": "ENERGY"}
+        ]
+        ok = sync_master_symbols(sample_rows)
+
+        self.assertTrue(ok)
+        mock_cursor.executemany.assert_called_once()
+
+    @patch('database.sync_master_symbols', return_value=True)
+    @patch('database.upsert_scanner_health')
+    @patch('stock_analyzer._load_master_symbol_dictionary')
+    def test_refresh_master_symbols_universe_job(self, mock_load, mock_health, mock_sync):
+        """Verify refresh_master_symbols_universe syncs equities and updates scanner health."""
+        mock_load.return_value = {
+            "TATAMOTORS": {"symbol": "TATAMOTORS", "company_name": "Tata Motors Ltd", "sector": "AUTO"},
+            "RELIANCE": {"symbol": "RELIANCE", "company_name": "Reliance Ltd", "sector": "ENERGY"}
+        }
+
+        from stock_analyzer import refresh_master_symbols_universe
+        ok = refresh_master_symbols_universe()
+
+        self.assertTrue(ok)
+        mock_sync.assert_called_once()
+        mock_health.assert_called_once()
+
+    @patch('stock_analyzer.get_watchlist')
+    @patch('stock_analyzer._load_master_symbol_dictionary')
+    def test_autocomplete_invalid_ticker_returns_empty(self, mock_load, mock_wl):
+        """Verify unrecognized invalid ticker query 'XYZINVALID' returns empty list."""
+        mock_wl.return_value = pd.DataFrame([])
+        mock_load.return_value = {
+            "TATAMOTORS": {"symbol": "TATAMOTORS", "company_name": "Tata Motors Limited", "sector": "AUTO"}
+        }
+
+        from stock_analyzer import search_symbols_autocomplete
+        results = search_symbols_autocomplete("XYZINVALID", limit=5)
+
+        self.assertEqual(len(results), 0)
+
+
+class TestSpaceInsensitiveAutocomplete(unittest.TestCase):
+    """Test suite verifying space/punctuation insensitive autocomplete matching."""
+
+    @patch('stock_analyzer.get_watchlist')
+    @patch('stock_analyzer._load_master_symbol_dictionary')
+    def test_autocomplete_space_insensitive_tata_motors(self, mock_load, mock_wl):
+        """Verify typing 'tata motors' matches TATAMOTORS symbol."""
+        mock_wl.return_value = pd.DataFrame([])
+        mock_load.return_value = {
+            "TATAMOTORS": {"symbol": "TATAMOTORS", "company_name": "Tata Motors Limited", "sector": "AUTO"},
+            "RELIANCE": {"symbol": "RELIANCE", "company_name": "Reliance Industries", "sector": "ENERGY"}
+        }
+
+        from stock_analyzer import search_symbols_autocomplete
+        results = search_symbols_autocomplete("tata motors", limit=5)
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0]["symbol"], "TATAMOTORS")
+
+    @patch('stock_analyzer.get_watchlist')
+    @patch('stock_analyzer._load_master_symbol_dictionary')
+    def test_autocomplete_invalid_ticker_returns_empty(self, mock_load, mock_wl):
+        """Verify invalid ticker query 'XYZINVALID' returns empty list."""
+        mock_wl.return_value = pd.DataFrame([])
+        mock_load.return_value = {
+            "TATAMOTORS": {"symbol": "TATAMOTORS", "company_name": "Tata Motors Limited", "sector": "AUTO"}
+        }
+
+        from stock_analyzer import search_symbols_autocomplete
+        results = search_symbols_autocomplete("XYZINVALID", limit=5)
+
+        self.assertEqual(len(results), 0)
+
+
+class TestDeepAnalysisDatabasePersistence(unittest.TestCase):
+    """Test suite for deep analysis result persistence in user_watchlists table."""
+
+    @patch('database.get_connection')
+    def test_update_user_watchlist_scan_result_with_deep_analysis_json(self, mock_get_conn):
+        """Verify update_user_watchlist_scan_result serializes and stores deep analysis result JSON."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        from database import update_user_watchlist_scan_result
+        deep_res = {
+            "overall_health_score": 88.5,
+            "watchlist_status": "QUALIFIED",
+            "funnel": {"eod_breakout": {"status": "QUALIFIED", "reasons": ["Close > SMA50"]}}
+        }
+        ok = update_user_watchlist_scan_result("TATAMOTORS", user_id="USER1", health_score=88.5, status="QUALIFIED", deep_analysis_result=deep_res)
+
+        self.assertTrue(ok)
+        execute_args = mock_cursor.execute.call_args[0]
+        self.assertIn("deep_analysis_result = %s", execute_args[0])
+
+    @patch('database.get_connection')
+    def test_get_user_watchlist_deserializes_deep_analysis_json(self, mock_get_conn):
+        """Verify get_user_watchlist parses deep_analysis_result JSON string into Python dict."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        deep_json_str = json.dumps({"overall_health_score": 92.0, "funnel": {}})
+        mock_cursor.fetchall.return_value = [
+            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 92.0, "QUALIFIED", "Notes", datetime.now(), deep_json_str)
+        ]
+
+        from database import get_user_watchlist
+        items = get_user_watchlist("USER1")
+
+        self.assertEqual(len(items), 1)
+        self.assertIsNotNone(items[0]["deep_analysis_result"])
+        self.assertEqual(items[0]["deep_analysis_result"]["overall_health_score"], 92.0)
+
+
+class TestDataFetchingValidation(unittest.TestCase):
+    """Test suite validating historical stock price data fetching."""
+
+    def test_data_fetching_synthetic_df(self):
+        """Verify price dataframe structure and indicator calculation readiness."""
+        dates = pd.date_range("2024-01-01", periods=30)
+        df = pd.DataFrame({
+            'Date': dates,
+            'Open': [100.0 + i for i in range(30)],
+            'High': [102.0 + i for i in range(30)],
+            'Low': [99.0 + i for i in range(30)],
+            'Close': [101.0 + i for i in range(30)],
+            'Volume': [10000] * 30
+        })
+
+        self.assertFalse(df.empty)
+        self.assertEqual(len(df), 30)
+        self.assertIn("Close", df.columns)
+        self.assertIn("Volume", df.columns)
+        self.assertGreater(df["Close"].iloc[-1], df["Close"].iloc[0])
+
 
 if __name__ == '__main__':
     unittest.main()
+

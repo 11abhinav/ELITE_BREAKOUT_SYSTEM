@@ -3301,17 +3301,18 @@ function loadUserWatchlist() {
         return;
       }
 
-      tbody.innerHTML = watchlistItems.map(item => {
+      USER_WATCHLIST_ITEMS_CACHE = watchlistItems;
+      tbody.innerHTML = watchlistItems.map((item, idx) => {
         let statusBadge = '';
         const st = (item.last_status || 'MONITORING').toUpperCase();
         if (st.includes('CORE MET')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(245,158,11,0.25);">⚡ CORE MET</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(245,158,11,0.25); cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">⚡ CORE MET</span>`;
         } else if (st.includes('QUALIFIED')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px;">✓ ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">✓ ${item.last_status}</span>`;
         } else if (st.includes('ALERT')) {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px;">🚨 ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🚨 ${item.last_status}</span>`;
         } else {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px;">🔍 ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🔍 ${item.last_status}</span>`;
         }
 
         return `
@@ -3330,7 +3331,10 @@ function loadUserWatchlist() {
               ${item.last_deep_analysis_at ? '<div style="font-size:9px; color:#10b981; font-weight:700;">💾 Saved Analysis</div>' : ''}
             </td>
             <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
-              <button onclick="triggerStockDiagnostic('${item.symbol}', true)" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
+              <button onclick="openSavedWatchlistAnalysis(${idx})" style="padding:4px 8px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="View Full 7-Stage Deep Analysis Breakdown">
+                🔍 View Analysis
+              </button>
+              <button onclick="triggerStockDiagnostic('${item.symbol}', true)" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="Execute Fresh Deep Analysis">
                 🔄 Re-Scan
               </button>
               <button onclick="removeFromWatchlist('${item.symbol}')" style="padding:4px 8px; background:rgba(220,38,38,0.1); color:var(--warn); border:1px solid rgba(220,38,38,0.2); border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
@@ -3342,6 +3346,18 @@ function loadUserWatchlist() {
       }).join('');
     })
     .catch(err => console.warn('Failed to load user watchlist:', err));
+}
+
+let USER_WATCHLIST_ITEMS_CACHE = [];
+
+function openSavedWatchlistAnalysis(idx) {
+  const item = USER_WATCHLIST_ITEMS_CACHE[idx];
+  if (!item) return;
+  if (item.deep_analysis_result) {
+    renderStockDiagnosticModal(item.deep_analysis_result);
+  } else {
+    triggerStockDiagnostic(item.symbol, true);
+  }
 }
 
 function runWatchlistDeepAnalysis() {

@@ -323,6 +323,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
     """
+    from database import add_to_user_watchlist, get_user_watchlist, update_user_watchlist_scan_result
+
     # 0. Validate NSE/BSE Ticker
     val = validate_nse_bse_ticker(symbol)
     if not val["is_valid"]:
@@ -662,15 +664,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if mb_status.startswith("CORE MET"): mb_reasons.append(outcome_msg)
         if mtf_status.startswith("CORE MET"): mtf_reasons.append(outcome_msg)
 
-    # Update User Watchlist database state if exists
-    update_user_watchlist_scan_result(sym_clean, user_id, health_score=overall_health_score, status=watchlist_status)
-
     # Check if symbol is already in user watchlist
     user_watchlist = get_user_watchlist(user_id)
     watchlist_symbols = {item["symbol"] for item in (user_watchlist or [])}
     is_in_watchlist = (sym_clean in watchlist_symbols)
 
-    return {
+    res = {
         "symbol": sym_clean,
         "company_name": company_name,
         "sector": sector_name,
@@ -698,12 +697,11 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     }
 
     try:
-        from database import update_user_watchlist_scan_result
         update_user_watchlist_scan_result(
             symbol=sym_clean,
             user_id=user_id,
             health_score=overall_health_score,
-            status=overall_status,
+            status=watchlist_status,
             deep_analysis_result=res
         )
     except Exception as _pe:
