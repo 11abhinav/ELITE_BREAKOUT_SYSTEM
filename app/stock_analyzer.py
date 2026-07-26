@@ -689,6 +689,25 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         we_status = "NO"
         we_reasons.append(f"Lacks Wealth Engine Setup (ROCE {roce_val:.1f}%, D/E {debt_equity:.2f})")
 
+    # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
+    tech_score = 50.0
+    if is_uptrend:
+        tech_score += 20.0
+    if vol_ratio >= 1.5:
+        tech_score += 15.0
+    if rsi_val >= 50.0 and rsi_val <= 70.0:
+        tech_score += 15.0
+
+    fund_score = 50.0
+    if roce_val >= 20.0:
+        fund_score += 20.0
+    if roe_val >= 15.0:
+        fund_score += 15.0
+    if debt_equity <= 0.5:
+        fund_score += 15.0
+
+    overall_health_score = min(100.0, round((tech_score * 0.5) + (fund_score * 0.3) + (rs_percentile * 0.2), 1))
+
     # ---------------- STAGE 7: MULTIBAGGER ENGINE ----------------
     mb_status = "NO"
     mb_reasons = []
@@ -722,25 +741,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if f_score < 7:
             mb_issues.append(f"Piotroski F-Score {f_score} < 7 min")
         mb_reasons = mb_issues
-
-    # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
-    tech_score = 50.0
-    if is_uptrend:
-        tech_score += 20.0
-    if vol_ratio >= 1.5:
-        tech_score += 15.0
-    if rsi_val >= 50.0 and rsi_val <= 70.0:
-        tech_score += 15.0
-
-    fund_score = 50.0
-    if roce_val >= 20.0:
-        fund_score += 20.0
-    if roe_val >= 15.0:
-        fund_score += 15.0
-    if debt_equity <= 0.5:
-        fund_score += 15.0
-
-    overall_health_score = min(100.0, round((tech_score * 0.5) + (fund_score * 0.3) + (rs_percentile * 0.2), 1))
 
     # Clean duplicates in deficits list (max 4 deficits)
     deficits = list(dict.fromkeys(deficits))[:4]
