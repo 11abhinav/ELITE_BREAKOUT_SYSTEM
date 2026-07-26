@@ -2721,8 +2721,10 @@ The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py
 
 3. **Manual Alert Promotion Engine (`create_manual_alert_from_analysis` / `/api/v1/create_manual_alert`)**:
    - Gated to run ONLY after full Deep Analysis execution (`is_deep_analysis = True`).
-   - Calculates dynamic SL, T1, T2, T3, T4 targets via `compute_sl_and_target()`.
-   - Saves alert to `alerts` table (`category = 'SCANNER (MANUAL)'`) and dispatches Telegram channel broadcasts and VAPID Web Push notifications.
+   - **Scanner Allowlist Validation**: Restricts input `scanner_type` to `{"EOD", "MULTI_TF", "REVERSAL", "PULLBACK", "WEALTH", "MULTIBAGGER"}`. Rejects invalid scanner inputs with HTTP 400.
+   - **Strict Qualification Gate**: Verifies `res["funnel"][scanner_type]["status"]` is `CORE MET` or `QUALIFIED`. Blocks manual alert promotion for unqualified stocks (`status == "NO"` or `"WATCHLIST"`).
+   - **Exact 20-Day ATR Target Engine**: Fetches actual 20-day ATR (`bundle.atr_20.iloc[-1]`) from daily OHLCV price history and passes it to `compute_sl_and_target()` to calculate exact Stop Loss and Target levels ($T_1, T_2, T_3, T_4$).
+   - Saves alert to `alerts` table (`category = '<SCANNER> (MANUAL)'`) and dispatches Telegram channel broadcasts and VAPID Web Push notifications.
 
 ---
 
@@ -2768,6 +2770,7 @@ The platform provides an on-demand stock analysis engine (`app/stock_analyzer.py
 ### 8. Create Manual Alert (`POST /api/v1/create_manual_alert`)
 - **HTTP Method**: `POST` | **Auth**: Required (`@login_required`)
 - **Payload**: `{ "symbol": "THANGAMAYL", "scanner": "MULTIBAGGER" }`.
+- **Validation**: Enforces scanner allowlist validation (`scanner in ALLOWED_SCANNERS`), verifies scanner stage qualification (`CORE MET` / `QUALIFIED`), and computes targets using real 20-day ATR. Rejects unqualified or invalid scanner requests with HTTP 400.
 
 ### 9. Admin Refresh Master Symbols (`POST /api/v1/admin/master_symbols/refresh`)
 - **HTTP Method**: `POST` | **Auth**: Required (`@login_required` admin)

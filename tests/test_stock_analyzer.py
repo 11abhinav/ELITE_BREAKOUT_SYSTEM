@@ -197,7 +197,9 @@ class TestManualAlertPromotion(unittest.TestCase):
             "overall_health_score": 88.5,
             "rs_percentile": 90.0,
             "sector": "AUTO",
-            "funnel": {}
+            "funnel": {
+                "eod_breakout": {"status": "CORE MET", "reasons": ["Clean breakout"]}
+            }
         }
         mock_sl.return_value = {
             "is_rejected": False,
@@ -217,10 +219,41 @@ class TestManualAlertPromotion(unittest.TestCase):
         self.assertEqual(res.get("entry_price"), 500.0)
 
     @patch('stock_analyzer.analyze_symbol')
+    def test_create_manual_alert_unqualified_symbol_rejection(self, mock_analyze):
+        """Verify manual alert creation rejects stocks that failed scanner qualification."""
+        mock_analyze.return_value = {
+            "success": True,
+            "close_price": 500.0,
+            "funnel": {
+                "eod_breakout": {"status": "NO", "reasons": ["Close <= Prior 20D High"]}
+            }
+        }
+
+        from stock_analyzer import create_manual_alert_from_analysis
+        res = create_manual_alert_from_analysis("UNQUALIFIED", scanner_type="EOD")
+
+        self.assertFalse(res.get("success"))
+        self.assertIn("did not qualify", res.get("error"))
+
+    def test_create_manual_alert_invalid_scanner_type_rejection(self):
+        """Verify manual alert creation rejects unsupported scanner types."""
+        from stock_analyzer import create_manual_alert_from_analysis
+        res = create_manual_alert_from_analysis("TATAMOTORS", scanner_type="INVALID_SCANNER")
+
+        self.assertFalse(res.get("success"))
+        self.assertIn("Invalid scanner type", res.get("error"))
+
+    @patch('stock_analyzer.analyze_symbol')
     @patch('stock_analyzer.compute_sl_and_target')
     def test_create_manual_alert_sl_rejection(self, mock_sl, mock_analyze):
         """Verify rejection response when risk manager rejects SL/Target parameters."""
-        mock_analyze.return_value = {"success": True, "close_price": 500.0}
+        mock_analyze.return_value = {
+            "success": True,
+            "close_price": 500.0,
+            "funnel": {
+                "eod_breakout": {"status": "CORE MET", "reasons": ["Clean breakout"]}
+            }
+        }
         mock_sl.return_value = {"is_rejected": True, "rejection_reason": "Stop Loss exceeds 10% maximum risk limit"}
 
         from stock_analyzer import create_manual_alert_from_analysis
