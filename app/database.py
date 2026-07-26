@@ -1229,6 +1229,20 @@ def init_db():
                         UNIQUE(user_id, symbol)
                     )
                 """)
+                # ── Stock Analysis Master (Global Symbol Scan Repository) ─────────────
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS stock_analysis_master (
+                        symbol VARCHAR(30) PRIMARY KEY,
+                        company_name VARCHAR(100) DEFAULT '',
+                        sector VARCHAR(50) DEFAULT 'EQUITY',
+                        last_scanned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        last_deep_analysis_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        health_score NUMERIC(5,2),
+                        status VARCHAR(50) DEFAULT 'MONITORING',
+                        deep_analysis_result TEXT,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT")
 
@@ -5847,17 +5861,24 @@ def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bo
         return False
 
 def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
-    """Fetch all stocks in user's personal watchlist ordered by added_at DESC."""
+    """Fetch all stocks in user's personal watchlist ordered by added_at DESC, with master scan report LEFT JOIN."""
     user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes, last_deep_analysis_at, deep_analysis_result
-                    FROM user_watchlists
-                    WHERE user_id::text = %s
-                    ORDER BY added_at DESC
+                    SELECT w.symbol, w.company_name, w.added_at,
+                           COALESCE(m.last_scanned_at, w.last_scanned_at),
+                           COALESCE(m.health_score, w.last_health_score),
+                           COALESCE(m.status, w.last_status),
+                           w.notes,
+                           COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
+                           COALESCE(m.deep_analysis_result, w.deep_analysis_result)
+                    FROM user_watchlists w
+                    LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
+                    WHERE w.user_id::text = %s
+                    ORDER BY w.added_at DESC
                 """, (user_id_str,))
                 rows = cur.fetchall()
                 results = []
@@ -5890,7 +5911,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
         return []
 
 def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None, deep_analysis_result: dict = None) -> bool:
-    """Update last scan timestamp, score, status, and full deep analysis outcome JSON for a watchlist item."""
+    """Update last scan timestamp, score, status, and full deep analysis outcome JSON in stock_analysis_master repository and user watchlists."""
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     analysis_json_str = None
@@ -5904,6 +5925,31 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # 1. Upsert into Master Global Stock Scan Repository
+                if analysis_json_str is not None:
+                    cur.execute("""
+                        INSERT INTO stock_analysis_master (symbol, health_score, status, deep_analysis_result, last_scanned_at, last_deep_analysis_at, updated_at)
+                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT (symbol) DO UPDATE SET
+                            health_score = COALESCE(EXCLUDED.health_score, stock_analysis_master.health_score),
+                            status = COALESCE(EXCLUDED.status, stock_analysis_master.status),
+                            deep_analysis_result = COALESCE(EXCLUDED.deep_analysis_result, stock_analysis_master.deep_analysis_result),
+                            last_scanned_at = CURRENT_TIMESTAMP,
+                            last_deep_analysis_at = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (sym_clean, health_score, status, analysis_json_str))
+                else:
+                    cur.execute("""
+                        INSERT INTO stock_analysis_master (symbol, health_score, status, last_scanned_at, updated_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT (symbol) DO UPDATE SET
+                            health_score = COALESCE(EXCLUDED.health_score, stock_analysis_master.health_score),
+                            status = COALESCE(EXCLUDED.status, stock_analysis_master.status),
+                            last_scanned_at = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (sym_clean, health_score, status))
+
+                # 2. Update existing user watchlist links
                 if analysis_json_str is not None:
                     cur.execute("""
                         UPDATE user_watchlists
