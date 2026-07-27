@@ -202,6 +202,21 @@ def init_db():
 
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # [VERSION: INIT_DB_STABILITY_FIX_v1.0] Create system_logs table first so error logging handlers always work
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS system_logs (
+                        id SERIAL PRIMARY KEY,
+                        level TEXT NOT NULL,
+                        module TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        traceback TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        is_acknowledged BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
+
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS candidates (
                         id SERIAL PRIMARY KEY,
@@ -237,9 +252,11 @@ def init_db():
                         rsi           REAL,
                         volume_ratio  REAL,
                         current_price REAL,
+                        status        TEXT    DEFAULT 'OPEN',
                         UNIQUE (symbol, breakout_type, alert_date)
                     )
                 """)
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'OPEN'")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS master_symbols (
@@ -403,9 +420,6 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_method TEXT")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS scan_id TEXT")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS partial_exit_pct REAL")
-                
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_3 NUMERIC(10, 2)")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_4 NUMERIC(10, 2)")
                 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS rejected_alerts (
@@ -737,9 +751,6 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_cooldown ON alerts (symbol, scanner, breakout_type, alert_time DESC)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_name ON scanner_health(scanner_name)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_fetch_health_source ON data_fetch_health(source_name)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_cache_metadata_key ON data_cache_metadata(key)")
 
                 # ── Trade analytics view mapping JSONB context to columns ───────────
                 cur.execute("""
@@ -794,6 +805,7 @@ def init_db():
                         updated_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_cache_metadata_key ON data_cache_metadata(key)")
 
                 # ── Data fetch health table for external systems (monitoring) ─────
                 cur.execute("""
@@ -808,21 +820,7 @@ def init_db():
                     )
                 """)
                 cur.execute("ALTER TABLE data_fetch_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
-
-                # ── System Logs Table (for Unhandled Errors / App Crashes) ─────────
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS system_logs (
-                        id SERIAL PRIMARY KEY,
-                        level TEXT NOT NULL,
-                        module TEXT NOT NULL,
-                        message TEXT NOT NULL,
-                        traceback TEXT,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        is_acknowledged BOOLEAN DEFAULT FALSE
-                    )
-                """)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_data_fetch_health_source ON data_fetch_health(source_name)")
 
 
                 # ── Manual Portfolio Tracker ──────────────────────────────────────
@@ -968,6 +966,8 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_3 NUMERIC(10, 2)")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_4 NUMERIC(10, 2)")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_date DATE")
