@@ -298,7 +298,8 @@ def init_db():
                         cooldown_until TIMESTAMPTZ,
                         session_date TEXT,
                         last_updated TIMESTAMPTZ DEFAULT NOW(),
-                        context_json TEXT
+                        context_json TEXT,
+                        is_active BOOLEAN DEFAULT TRUE
                     )
                 """)
                 # [VERSION: INIT_DB_STABILITY_FIX_v1.0] wealth_buy_alert columns are migrated safely below
@@ -467,6 +468,7 @@ def init_db():
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS signal_timestamp TIMESTAMPTZ")
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
                 cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS timeframe TEXT")
+                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
 
 
                 # ── Score Weight Log (Bayesian Versioning) ─────────────────────────

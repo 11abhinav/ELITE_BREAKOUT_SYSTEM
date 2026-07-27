@@ -493,7 +493,7 @@ def compute_sector_regime_rankings() -> dict:
         today_str = datetime.now(IST).strftime('%Y-%m-%d')
         sector_symbols = list(SECTOR_MAP.keys())
 
-        fetched = fetch_unified_historical(sector_symbols, period="6m", interval="1d", requester="sector_regime")
+        fetched = fetch_unified_historical(sector_symbols, period="6mo", interval="1d", requester="sector_regime")
         blended_returns = {}
 
         for sym, name in SECTOR_MAP.items():
