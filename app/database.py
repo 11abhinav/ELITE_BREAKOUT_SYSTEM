@@ -5913,21 +5913,20 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # First check user is active in users table
-                cur.execute("SELECT is_active FROM users WHERE user_id = %s", (user_id_int,))
-                user_row = cur.fetchone()
-                if not user_row or not user_row[0]:
-                    return False  # Account deactivated or deleted
+                cur.execute("""
+                    SELECT u.is_active, s.is_revoked
+                    FROM users u
+                    LEFT JOIN user_sessions s ON u.user_id = s.user_id AND s.session_token = %s
+                    WHERE u.user_id = %s
+                """, (str(session_token) if session_token else '', user_id_int))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    return False  # Account deactivated or missing
 
-                # Check if session_token was explicitly revoked by /logout
-                if session_token:
-                    cur.execute("""
-                        SELECT is_revoked FROM user_sessions
-                        WHERE user_id = %s AND session_token = %s
-                    """, (user_id_int, str(session_token)))
-                    sess_row = cur.fetchone()
-                    if sess_row and sess_row[0] is True:
-                        return False  # Explicitly logged out / revoked
+                # row[1] is is_revoked (or token from legacy mock)
+                is_revoked = row[1]
+                if is_revoked is True or is_revoked == 1:
+                    return False  # Explicitly logged out / revoked
 
                 return True  # Valid active session
     except Exception as e:
