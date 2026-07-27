@@ -1146,6 +1146,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             f"5m : {stale_5m}"
         )
     # [VERSION: MULTI_TF_DB_PERSISTENCE_v1.0] Export parquet artifact and upload to DB for instant restart recovery
+    import database
     if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
         try:
             from database import upload_parquet_to_db, get_connection
