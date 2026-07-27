@@ -1184,14 +1184,22 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS user_sessions (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+                        session_token TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
                         ip_address TEXT,
-                        login_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        logoff_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        user_agent TEXT,
+                        login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        logoff_time TIMESTAMPTZ,
                         is_online BOOLEAN DEFAULT TRUE
                     )
                 """)
+                # [MULTI-DEVICE] Idempotent migration: add session_token + user_agent to existing user_sessions
+                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS session_token TEXT UNIQUE DEFAULT gen_random_uuid()::text")
+                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT")
+                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS login_time TIMESTAMPTZ")
+                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS logoff_time TIMESTAMPTZ")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token)")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_messages (
@@ -5645,30 +5653,63 @@ import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
 def bootstrap_admin():
+    """
+    [FRESH DEPLOY GUARD] Called at every startup.
+
+    Behaviour:
+    - If users table is EMPTY -> always auto-create admin + print credentials loudly to logs.
+    - If BOOTSTRAP_AUTH=true env var is set -> also create admin even if other users exist.
+    - If admin already exists and table has users -> do nothing silently.
+
+    No env var is needed for fresh deployments -- empty table detection is automatic.
+    """
     import os
-    env_val = os.getenv('BOOTSTRAP_AUTH', '')
-    logger.info(f"BOOTSTRAP_AUTH is currently set to: '{env_val}'")
-    if env_val.strip().strip("'").strip('"').lower() != 'true':
-        return
-        
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM users")
+                user_count = cur.fetchone()[0]
+
                 cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
-                if cur.fetchone():
-                    return  # Already exists
-                
+                admin_exists = cur.fetchone() is not None
+
+                force_bootstrap = os.getenv('BOOTSTRAP_AUTH', '').strip().strip("'").strip('"').lower() == 'true'
+
+                if user_count == 0:
+                    reason = "users table is empty (fresh deployment)"
+                elif force_bootstrap and not admin_exists:
+                    reason = "BOOTSTRAP_AUTH=true and no admin found"
+                else:
+                    logger.info(f"✅ [BOOTSTRAP] {user_count} user(s) found — no admin seed needed.")
+                    return
+
                 password = secrets.token_urlsafe(16)
                 p_hash = generate_password_hash(password, method='scrypt')
-                
+
                 cur.execute("""
                     INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password)
                     VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
+                    ON CONFLICT (username) DO NOTHING
                 """, (p_hash,))
+                rows_inserted = cur.rowcount
             conn.commit()
-            logger.info(f"🔐 [SECURITY] Admin setup required. Login as 'admin' with password: {password}")
+
+            if rows_inserted > 0:
+                border = "=" * 68
+                logger.warning(border)
+                logger.warning("🚨  FRESH DEPLOYMENT DETECTED — ADMIN ACCOUNT AUTO-CREATED  🚨")
+                logger.warning(f"   Reason   : {reason}")
+                logger.warning(border)
+                logger.warning(f"   USERNAME : admin")
+                logger.warning(f"   PASSWORD : {password}")
+                logger.warning("   ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN")
+                logger.warning("   ℹ️  You will be forced to set a new password on first login.")
+                logger.warning(border)
+            else:
+                logger.info("ℹ️  [BOOTSTRAP] Admin already existed — no changes made.")
+
     except Exception as e:
-        logger.exception(f"Failed to bootstrap admin")
+        logger.exception(f"❌ bootstrap_admin failed")
 
 def create_user(username, email, mobile, password, first_name='', last_name='', role='user'):
     try:
@@ -5709,27 +5750,43 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
         logger.exception(f"Failed to create user")
         return None
 
-def verify_user(identifier, password):
+def verify_user(identifier, password, ip_address: str = None, user_agent: str = None):
+    """Authenticate a user and create a new device session row (multi-device support).
+    Each login generates a unique session token stored in user_sessions — the users table
+    session_token column is kept for legacy reads but is NOT used for validity checks.
+    """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 identifier_lower = identifier.lower() if identifier else identifier
                 cur.execute("""
-                    SELECT user_id, username, password_hash, role, is_active, must_change_password, session_token 
-                    FROM users 
+                    SELECT user_id, username, password_hash, role, is_active, must_change_password
+                    FROM users
                     WHERE LOWER(username) = %s OR LOWER(email) = %s
                 """, (identifier_lower, identifier_lower))
                 row = cur.fetchone()
-                
+
                 if row and (check_password_hash(row[2], password) or (row[2] == 'PLACEHOLDER' and password == '123456')):
-                    if row[4]: # is_active
+                    if row[4]:  # is_active
                         import uuid
                         new_token = str(uuid.uuid4())
-                        # reset failed attempts and update last_login and session_token
-                        cur.execute("UPDATE users SET failed_login_attempts = 0, last_login = NOW(), session_token = %s WHERE user_id = %s", (new_token, row[0]))
+                        user_id = row[0]
+
+                        # [MULTI-DEVICE] Insert a new session row — does NOT invalidate other devices
+                        cur.execute("""
+                            INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent, login_time, is_online)
+                            VALUES (%s, %s, %s, %s, NOW(), TRUE)
+                        """, (user_id, new_token, ip_address, user_agent))
+
+                        # Keep last_login updated on users; clear old failed attempts
+                        cur.execute("""
+                            UPDATE users
+                            SET failed_login_attempts = 0, last_login = NOW()
+                            WHERE user_id = %s
+                        """, (user_id,))
                         conn.commit()
                         return {
-                            'user_id': row[0],
+                            'user_id': user_id,
                             'username': row[1],
                             'role': row[3],
                             'must_change_password': row[5],
@@ -5738,16 +5795,13 @@ def verify_user(identifier, password):
                     else:
                         return {'error': 'pending_approval'}
                 elif row:
-                    # Increment failed login attempts on incorrect password
                     cur.execute("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE user_id = %s", (row[0],))
                     conn.commit()
-                    
-                    # Check if locked out now
                     cur.execute("SELECT failed_login_attempts FROM users WHERE user_id = %s", (row[0],))
                     attempts = cur.fetchone()[0]
                     if attempts >= 10:
                         logger.warning(f"User {identifier} locked out due to {attempts} failed login attempts.")
-                
+
         return None
     except Exception as e:
         logger.exception(f"Failed to verify user")
@@ -5809,38 +5863,68 @@ def admin_reset_password(user_id: int, new_password: str, force_change: bool = F
         return False
 
 def check_session_validity(user_id, session_token: str) -> bool:
-    """Check if the user is active and their session token matches the DB."""
+    """[MULTI-DEVICE] Check session validity against user_sessions table.
+    Each device has its own token row — validating one does NOT affect other devices.
+    Falls back gracefully on DB errors to avoid unexpected logouts.
+    """
     if not user_id or not session_token:
         return False
-    
-    # Safely convert user_id to int or preserve session for string user_ids (e.g. DEFAULT_USER, admin)
+
     try:
         user_id_int = int(user_id)
     except (ValueError, TypeError):
+        # Non-integer user_ids (e.g. DEFAULT_USER) are always allowed
         return True
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # First check user is still active
+                cur.execute("SELECT is_active FROM users WHERE user_id = %s", (user_id_int,))
+                user_row = cur.fetchone()
+                if not user_row or not user_row[0]:
+                    return False  # Account deactivated
+
+                # [MULTI-DEVICE] Check this specific device's session token
                 cur.execute("""
-                    SELECT is_active, session_token 
-                    FROM users 
+                    SELECT id FROM user_sessions
                     WHERE user_id = %s
-                """, (user_id_int,))
-                row = cur.fetchone()
-                if row:
-                    is_active, db_token = row
-                    return bool(is_active) and str(db_token) == str(session_token)
-        return True
+                      AND session_token = %s
+                      AND is_online = TRUE
+                """, (user_id_int, str(session_token)))
+                return cur.fetchone() is not None
     except Exception as e:
         import psycopg2
-        if isinstance(e, (psycopg2.OperationalError, Exception)) and "Connection pool exhausted" in str(e):
-            logger.warning(f"Session validation skipped due to DB pool timeout, preserving session: {e}")
-            return True  # Preserve session gracefully instead of throwing a 500 error
-        logger.exception(f"Session validation failed: {e}")
-        return True
+        if "Connection pool exhausted" in str(e) or isinstance(e, psycopg2.OperationalError):
+            logger.warning(f"Session validation skipped due to DB pool timeout — preserving session")
+            return True  # Fail-open: don't log out user on transient DB hiccup
+        logger.exception(f"Session validation failed for user_id={user_id}")
+        return True  # Fail-open
 
 # ── PWA Push Notifications ───────────────────────────────────────────────────
+
+def invalidate_session(user_id, session_token: str) -> bool:
+    """[MULTI-DEVICE] Mark a single device session as offline (logout).
+    Other devices for the same user are NOT affected.
+    """
+    try:
+        user_id_int = int(user_id)
+    except (ValueError, TypeError):
+        return True
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE user_sessions
+                    SET is_online = FALSE, logoff_time = NOW()
+                    WHERE user_id = %s AND session_token = %s
+                """, (user_id_int, str(session_token)))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.exception(f"Failed to invalidate session for user_id={user_id}")
+        return False
+
 
 def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str) -> bool:
     """Save a user's web push subscription."""

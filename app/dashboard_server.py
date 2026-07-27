@@ -278,7 +278,12 @@ def login():
     if not identifier or not password:
         return jsonify({"error": "Missing credentials"}), 400
         
-    user_data = database.verify_user(identifier, password)
+    user_data = database.verify_user(
+        identifier,
+        password,
+        ip_address=request.remote_addr,
+        user_agent=request.user_agent.string[:255] if request.user_agent else None
+    )
     if user_data:
         if isinstance(user_data, dict) and user_data.get('error') == 'pending_approval':
             return jsonify({"error": "Account pending admin approval"}), 403
@@ -380,6 +385,14 @@ def guest_chat():
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
+    # [MULTI-DEVICE] Mark only THIS device's session as offline, not all devices
+    user_id = session.get('user_id')
+    session_token = session.get('session_token')
+    if user_id and session_token:
+        try:
+            database.invalidate_session(user_id, session_token)
+        except Exception as e:
+            logger.warning(f"Could not mark session offline on logout: {e}")
     session.clear()
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({"redirect": "/login"}), 200
