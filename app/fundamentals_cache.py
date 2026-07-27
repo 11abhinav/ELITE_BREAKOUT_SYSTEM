@@ -258,15 +258,22 @@ def fetch_single_piotroski(symbol: str) -> dict:
             # --- LAST RESORT FALLBACK via Yahoo Search API ---
             if not success:
                 import requests
-                logger.info(f"🔍 Both standard NS/BO failed for {symbol}. Trying Yahoo Search API...")
+                clean_base = symbol.strip().replace('.NS','').replace('.BO','')
+                logger.info(f"🔍 Both standard NS/BO failed for {clean_base}. Trying Yahoo Search API...")
                 try:
-                    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol.strip()}&quotesCount=3&country=India"
+                    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_base}&quotesCount=3&country=India"
                     r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
                     if r.status_code == 200:
                         quotes = r.json().get('quotes', [])
                         for q in quotes:
                             s = q.get('symbol', '')
                             if s.endswith('.NS') or s.endswith('.BO') or s.endswith('.BSE'):
+                                # [FIX] -SM.NS / -SM.BO = SME board stock.
+                                # SME stocks structurally have NO financials on Yahoo Finance.
+                                # Skip immediately — retrying wastes 30s+ and always fails.
+                                if '-SM.' in s or s.endswith('-SM'):
+                                    logger.info(f"⏭️ Skipping {s} — SME board stock (no financials available on Yahoo Finance). Marking as no_data.")
+                                    return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True, "no_data": True}
                                 logger.info(f"🔍 Search API found: {s}")
                                 t, info, fin, bs = try_fetch(s)
                                 if not (fin.empty and bs.empty):
@@ -275,6 +282,12 @@ def fetch_single_piotroski(symbol: str) -> dict:
                                     break
                 except Exception as search_err:
                     logger.debug(f"Search API fallback failed: {search_err}")
+
+            # [FIX] If all NS/BO/Search variants failed on this first attempt,
+            # there is no point retrying — mark as no_data and exit immediately.
+            if not success and attempt == 0:
+                logger.warning(f"⏭️ {yf_sym}: All symbol variants exhausted — no financials found anywhere. Fast-failing (no retry).")
+                return {"score": -1, "date": str(datetime.now(IST).date()), "failed": True, "no_data": True}
             
             if success:
                 break
