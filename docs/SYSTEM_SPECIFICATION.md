@@ -295,6 +295,15 @@
                 ├─ 2. Run EOD Breakout Scanner (max 10m hard timeout)
                 ├─ 3. Run Reversal Scanner (max 10m hard timeout)
                 └─ 4. Run Pullback Pipeline Scanner (max 10m hard timeout)
+
+  ## 5.1 Standardized Scanner Execution Banners (`[VERSION: SCANNER_LOCK_BANNERS_v1.0]`)
+  Every quantitative scanner and background exit monitor emits a prominent, standardized log banner at `INFO` level upon lock acquisition and release:
+  - **Start Banner (Lock Acquired)**:
+    `********************* Starting <Scanner Name> Scanner at YYYY-MM-DD HH:MM:SS IST *********************`
+  - **Completion Banner (Lock Released)**:
+    `********************* <Scanner Name> Scanner completed at YYYY-MM-DD HH:MM:SS IST *********************`
+  - **Scope**: Applied universally across all 8 scanner processes (`EOD`, `Reversal`, `Multi-TF`, `Wealth Engine`, `Multibagger`, `Pullback`, `Daily Builder`, `MF Breakout Scanner`) and `Exit Monitors / Performance Tracker`.
+  - **Memory Profiler Sub-Stage Filtering (`[VERSION: MEMORY_PROFILER_SUBSTAGE_SUPPRESS_v1.0]`)**: Intermediate sub-stage memory profiler snapshots (e.g. `"Wealth: Candidate Selection"`, `"Wealth: Entry Timing"`, `"MTF Price Fetch"`) route to `logger.debug` level to keep production logs clean and un-cluttered.
   ## 4.4 "Analyse Your Watchlist" Diagnostic System & Personal Watchlist (`app/stock_analyzer.py`)
   An on-demand stock analysis, diagnostic, and watchlist management suite accessible on both User and Admin dashboards:
   - **Strict NSE/BSE Master Ticker Validation (`validate_nse_bse_ticker`)**: Integrates `_load_master_symbol_dictionary()` (covering active watchlists, excluded datasets, full `temp_universe.parquet` (940+ tickers), historical price caches (~685 tickers), and Postgres symbol mappings). Tickers are validated via strict 5-stage verification (master dictionary, BSE mappings, DB `symbol_mappings`, Yahoo Search API, and historical price fetcher check), cleanly rejecting non-existent tickers (e.g. `NONEXISTENT999`) with HTTP 400.

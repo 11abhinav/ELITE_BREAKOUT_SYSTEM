@@ -2640,6 +2640,16 @@ The Wealth Engine (`app/wealth_engine.py`) operates as a multi-stage pipeline:
 | **Database** | `[DB]` | Operation, table, rows affected | `[DB] Upserted 10 alerts into alerts table` |
 | **Cache** | `[CACHE]` | Cache tier, action, symbol | `[CACHE] Evicted EPHEMERAL OHLCV cache for RELIANCE` |
 
+### 23.14.1 Scanner Execution Banners & Memory Profiler Log Filtering
+- **Standardized Scanner Banners (`[VERSION: SCANNER_LOCK_BANNERS_v1.0]`)**:
+  Every scanner lock acquisition and release emits a prominent, standardized log banner at `INFO` level:
+  - **Start Banner (Lock Acquired)**: `********************* Starting <Scanner Name> Scanner at YYYY-MM-DD HH:MM:SS IST *********************`
+  - **Completion Banner (Lock Released)**: `********************* <Scanner Name> Scanner completed at YYYY-MM-DD HH:MM:SS IST *********************`
+  - **Modules**: `ProcessLock` in `app/lock_utils.py` (for EOD, Reversal, Multi-TF, Wealth, Multibagger, Pullback, Daily Builder), `trigger_performance_rebuild` in `app/performance_tracker.py` (Exit Monitors), and `run()` in `scanners/mf.py`.
+- **Memory Profiler Sub-Stage Suppression (`[VERSION: MEMORY_PROFILER_SUBSTAGE_SUPPRESS_v1.0]`)**:
+  - `MemoryProfiler` in `app/memory_profiler.py` evaluates `is_top_level = False` for sub-stages containing `:` or keywords (`"Process"`, `"Fetch"`, `"Cleanup"`, `"Selection"`, `"Timing"`, `"Mgmt"`, `"Export"`).
+  - Sub-stage profiler logs are routed to `logger.debug`, reserving `INFO` level memory snapshot logs exclusively for top-level scanner entry and exit.
+
 ## 23.15 Resolution of Memory Target Allocation vs. Un-trimmed RSS Peak
 - **Architectural Clarification**:
   - **1.0 GB RAM Minimum Container Budget**: The official system memory requirement configured for production deployment environments.
