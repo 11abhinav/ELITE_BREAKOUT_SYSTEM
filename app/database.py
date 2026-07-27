@@ -183,6 +183,18 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
                     VALUES (%s, %s, %s, %s)
                 ''', (notif_type, title, message, symbol))
             conn.commit()
+
+        # [VERSION: ADMIN_MOBILE_PUSH_DISPATCH_v1.0] Dispatch WebPush to mobile devices whenever an admin notification occurs
+        try:
+            from push_service import send_push_to_all
+            send_push_to_all(
+                title=title,
+                body=message,
+                url="/admin" if notif_type in ("error", "warning") else "/",
+                symbol=symbol or ""
+            )
+        except Exception as push_err:
+            logger.debug(f"WebPush dispatch skipped for admin notification: {push_err}")
     except Exception as e:
         logger.exception(f"Failed to insert notification")
 
