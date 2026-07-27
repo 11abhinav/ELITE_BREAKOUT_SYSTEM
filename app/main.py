@@ -275,28 +275,30 @@ class InstrumentedLock:
         self.max_hold_seconds = 0.0
         self.contention_events_count = 0
         self._stats_lock = threading.Lock()
-        
-    def __enter__(self):
+        self._acquire_time = 0.0
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         wait_start = time.time()
-        self.lock.acquire()
-        wait_time = time.time() - wait_start
-        self._acquire_time = time.time()
-        
-        from config import LOCK_WAIT_WARNING_SECONDS
-        with self._stats_lock:
-            self.acquisitions_count += 1
-            self.total_wait_seconds += wait_time
-            if wait_time > self.max_wait_seconds:
-                self.max_wait_seconds = wait_time
-            if wait_time > LOCK_WAIT_WARNING_SECONDS:
-                self.contention_events_count += 1
-                logger.warning(f"⚠️ [LOCK_CONTENTION] {self.name} wait time exceeded threshold: {wait_time:.2f}s (Thread: {threading.current_thread().name})")
-            else:
-                logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        hold_time = time.time() - self._acquire_time
+        acquired = self.lock.acquire(blocking=blocking, timeout=timeout)
+        if acquired:
+            wait_time = time.time() - wait_start
+            self._acquire_time = time.time()
+            
+            from config import LOCK_WAIT_WARNING_SECONDS
+            with self._stats_lock:
+                self.acquisitions_count += 1
+                self.total_wait_seconds += wait_time
+                if wait_time > self.max_wait_seconds:
+                    self.max_wait_seconds = wait_time
+                if wait_time > LOCK_WAIT_WARNING_SECONDS:
+                    self.contention_events_count += 1
+                    logger.warning(f"⚠️ [LOCK_CONTENTION] {self.name} wait time exceeded threshold: {wait_time:.2f}s (Thread: {threading.current_thread().name})")
+                else:
+                    logger.info(f"[LOCK] {self.name} acquired by {threading.current_thread().name} (Wait: {wait_time:.3f}s)")
+        return acquired
+
+    def release(self):
+        hold_time = time.time() - getattr(self, "_acquire_time", time.time())
         self.lock.release()
         
         from config import LOCK_HOLD_WARNING_SECONDS
@@ -308,6 +310,16 @@ class InstrumentedLock:
                 logger.warning(f"⚠️ [LOCK_LONG_HOLD] {self.name} hold time exceeded threshold: {hold_time:.2f}s (Thread: {threading.current_thread().name})")
             else:
                 logger.info(f"[LOCK] {self.name} released by {threading.current_thread().name} (Hold: {hold_time:.3f}s)")
+
+    def locked(self) -> bool:
+        return self.lock.locked()
+
+    def __enter__(self):
+        self.acquire(blocking=True)
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
     def get_stats(self) -> dict:
         with self._stats_lock:
@@ -958,6 +970,7 @@ def run_system_scheduler():
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
+        start_time = time.time()
         try:
             import os
             import pandas as pd
