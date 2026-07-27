@@ -114,7 +114,7 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
             "High": [p + 1.0 for p in prices],
             "Low": [p - 1.0 for p in prices],
             "Close": prices,
-            "Volume": [100000] * 60
+            "Volume": [300000] * 60
         }, index=dates)
 
         mock_fetch.return_value = {"PENNYSTOCK": df}
