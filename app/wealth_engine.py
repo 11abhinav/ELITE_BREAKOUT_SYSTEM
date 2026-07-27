@@ -1410,20 +1410,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
         
         if not portfolio_df.empty:
-            # Auto-close positions when SELL signal detected
-            sell_signals = portfolio_df[portfolio_df["Exit_Code"] == "SELL"]
-            for _, row in sell_signals.iterrows():
-                symbol = row.get("Stock")
-                cmp = row.get("cmp")
-                exit_reason = row.get("Exit_Reason")
-                if symbol and cmp:
-                    if is_test_mode:
-                        logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason}")
-                    elif not getattr(database, "DONT_SAVE_WEALTH", False):
-                        from database import close_position
-                        close_position(symbol, cmp, exit_reason)
-
-            # Map Portfolio outputs back into wealth_df for Dashboard display
+            # Map Portfolio outputs back into wealth_df for Dashboard display (Actual position closing is handled by dedicated WEALTH_EXIT monitor)
             port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
             def map_port(r):
                 sym = r["Stock"]
