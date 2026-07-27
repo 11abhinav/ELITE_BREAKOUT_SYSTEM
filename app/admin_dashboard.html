@@ -1613,6 +1613,38 @@
     <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
   </div></div><!-- /panel-mb-watchlist -->
 
+      <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION (moved here from Watchlist tab) -->
+      <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
+          <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
+            <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
+            </h3>
+            <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
+              ⚡ Execute Deep Analysis on All Watchlist Stocks
+            </button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th style="text-align:center;">Health Score</th>
+                  <th style="text-align:center;">Scanner Status</th>
+                  <th style="text-align:center;">Added Date (IST)</th>
+                  <th style="text-align:center;">Last Scanned (IST)</th>
+                  <th style="text-align:center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="user-watchlist-tbody"><!-- Injected by JS --></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+
+
     
 
 
@@ -1672,35 +1704,27 @@
           </div>
         </div>
 
-        <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
-        <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
-          <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
-            <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
-              <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
-                <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
-              </h3>
-              <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
-                ⚡ Execute Deep Analysis on All Watchlist Stocks
-              </button>
+        <!-- MANUAL WATCHLIST (Admin) - loads on-demand -->
+        <div class="card" style="margin-bottom:18px; padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3 style="font-size:16px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;"><span>🛠️</span> Manual Watchlist (Admin)</h3>
+            <div style="display:flex; gap:8px;">
+              <button class="refresh-btn" onclick="loadManualWatchlist()" style="font-weight:700;">🔄 Load Manual Watchlist</button>
+              <button class="refresh-btn" onclick="downloadManualWatchlistCSV()" style="font-weight:700;">📥 Download CSV</button>
             </div>
-            <div style="overflow-x:auto;">
+          </div>
+          <div id="manual-watchlist-container" style="background:var(--bg); padding:12px; border-radius:8px;">
+            <div class="table-container">
               <table class="data-table" style="width:100%;">
-                <thead>
-                  <tr>
-                    <th>Symbol</th>
-                    <th style="text-align:center;">Health Score</th>
-                    <th style="text-align:center;">Scanner Status</th>
-                    <th style="text-align:center;">Added Date (IST)</th>
-                    <th style="text-align:center;">Last Scanned (IST)</th>
-                    <th style="text-align:center;">Action</th>
-                  </tr>
-                </thead>
-                <tbody id="user-watchlist-tbody"><!-- Injected by JS --></tbody>
+                <thead><tr><th>Symbol</th><th>Added</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody id="manual-watchlist-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">Click 'Load Manual Watchlist' to fetch manual entries.</td></tr></tbody>
               </table>
             </div>
           </div>
         </div>
+
+        <!-- INLINE STOCK DIAGNOSTIC CONTAINER -->
+        <div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
 
         <!-- INLINE STOCK DIAGNOSTIC CONTAINER -->
         <div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
@@ -1722,7 +1746,11 @@
         </div>
 
         <!-- USER MANAGEMENT DIRECTORY -->
-        <div class="card" style="margin-bottom:28px; padding:20px; background:var(--card);">
+        <div class="section-label" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+          <span>👥 User Management & Approved Directory</span>
+          <button class="refresh-btn" id="user-management-toggle-btn" onclick="toggleUserManagement()" style="font-size:12px; font-weight:700;">▶️ Expand</button>
+        </div>
+        <div id="user-management-body" class="card" style="margin-bottom:28px; padding:20px; background:var(--card); display:none;">
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:18px;">
             <h2 style="font-size:18px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
               <span>👥</span> User Management &amp; Approved Directory
@@ -2057,10 +2085,13 @@
           renderTradeTable();
         }
         if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
+        // Load user watchlist and multibagger watchlist only on the primary (signals) tab
+        if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
+        if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
       } else if (tabId === 'watchlist-users') {
-        if (typeof renderUserWatchlistTable === 'function') renderUserWatchlistTable();
-        if (typeof loadPendingUsers === 'function') loadPendingUsers(true);
-        if (typeof searchUsers === 'function') searchUsers();
+        // Load Manual Watchlist first on this tab (admin-level manual view)
+        if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
+        // Keep user management collapsed by default; search/load will occur when expanded
       } else if (tabId === 'health-errors') {
         if (typeof loadScannerStatus === 'function') loadScannerStatus();
         if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
@@ -6802,6 +6833,86 @@ function formatISTDate(isoStr) {
 
 function loadUserWatchlist() {
   fetch('/api/v1/user_watchlist')
+    .then(res => res.json())
+    .then(items => {
+      const watchlistItems = Array.isArray(items) ? items : [];
+      document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {
+        el.textContent = watchlistItems.length;
+      });
+
+      const tbody = document.getElementById('user-watchlist-tbody');
+      if (!tbody) return;
+
+      if (watchlistItems.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        return;
+      }
+
+      WATCHLIST_ITEMS_CACHE = watchlistItems;
+      tbody.innerHTML = watchlistItems.map((item, idx) => {
+        let statusBadge = '';
+        const st = (item.last_status || 'MONITORING').toUpperCase();
+        if (st.includes('IN PROGRESS') || st.includes('PROCESSING')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(99,102,241,0.25);" title="Scanner Analysis In Progress..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> IN PROGRESS</span>`;
+        } else if (st.includes('PROCESSED')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Analysis Processed cleanly. Click to view breakdown.">✓ PROCESSED</span>`;
+        } else if (st.includes('CORE MET')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px;">🔍 MONITORING</span>`;
+        }
+
+        return `<tr>
+          <td>${item.symbol}</td>
+          <td style="text-align:center;">${item.health_score || '—'}</td>
+          <td style="text-align:center;">${statusBadge}</td>
+          <td style="text-align:center;">${formatISTDate(item.added_at)}</td>
+          <td style="text-align:center;">${formatISTDate(item.last_scanned)}</td>
+          <td style="text-align:center;"><button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${item.symbol}')">🔍 Diagnose</button></td>
+        </tr>`;
+      }).join('');
+    })
+    .catch(err => console.warn('Failed to load user watchlist:', err));
+}
+
+
+// Load manual watchlist into the Admin Manual Watchlist panel
+function loadManualWatchlist() {
+  const tbody = document.getElementById('manual-watchlist-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  fetch('/api/v1/user_watchlist')
+    .then(res => res.json())
+    .then(items => {
+      const list = Array.isArray(items) ? items : [];
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = list.map(it => `<tr><td>${it.symbol}</td><td>${formatISTDate(it.added_at)}</td><td>${it.last_status || '—'}</td><td><button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${it.symbol}')">🔍</button></td></tr>`).join('');
+    })
+    .catch(err => {
+      console.error('Failed to load manual watchlist:', err);
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);padding:18px;">Failed to load.</td></tr>`;
+    });
+}
+
+function downloadManualWatchlistCSV() {
+  window.open('/admin/export/watchlist/manual', '_blank');
+}
+
+function toggleUserManagement() {
+  const body = document.getElementById('user-management-body');
+  const btn = document.getElementById('user-management-toggle-btn');
+  if (!body) return;
+  if (body.style.display === 'none' || body.style.display === '') {
+    body.style.display = 'block';
+    if (btn) btn.textContent = '🔽 Collapse';
+  } else {
+    body.style.display = 'none';
+    if (btn) btn.textContent = '▶️ Expand';
+  }
+}
+
+
     .then(res => res.json())
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
