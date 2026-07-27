@@ -6908,7 +6908,7 @@ function loadUserWatchlist() {
       if (!tbody) return;
 
       if (watchlistItems.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
         return;
       }
 
@@ -6938,18 +6938,24 @@ function loadUserWatchlist() {
 }
 
 
+// [VERSION: CMP_MASTER_v1.0] Open symbol on TradingView in new tab
+function openInTradingView(symbol) {
+  const tv_sym = encodeURIComponent('NSE:' + symbol.replace('.NS','').replace('.BO',''));
+  window.open('https://www.tradingview.com/chart/?symbol=' + tv_sym, '_blank');
+}
+
 // Load manual watchlist into the Admin Manual Watchlist panel
 function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
   // [VERSION: WATCHLIST_PERF_v1.0] Uses shared _fetchWatchlist() so this doesn't make a separate HTTP call
   // when loadUserWatchlist() already fired on the same tab open
   _fetchWatchlist()
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
         return;
       }
 
@@ -6974,13 +6980,22 @@ function loadManualWatchlist() {
           statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode. Click to view saved breakdown.">🔍 ${it.last_status}</span>`;
         }
 
-        const ltpVal = it.close_price || (it.deep_analysis_result ? (it.deep_analysis_result.close_price || it.deep_analysis_result.close) : null);
-        const ltpText = ltpVal !== null && ltpVal !== undefined ? `₹${parseFloat(ltpVal).toFixed(2)}` : '—';
+        // [VERSION: CMP_MASTER_v1.0] Use live CMP from stock_analysis_master (updated by performance_tracker every 5min)
+        const cmp = it.cmp;
+        const cmpAge = it.cmp_updated_at ? Math.round((Date.now() - new Date(it.cmp_updated_at).getTime()) / 60000) : null;
+        const cmpStale = cmpAge !== null && cmpAge > 30;
+        const cmpText = cmp != null
+          ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
+          : (it.close_price ? `<span style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">₹${parseFloat(it.close_price).toFixed(2)}</span>` : `<span style="color:var(--muted); font-size:12px;">—</span>`);
 
         return `
           <tr>
-            <td><strong style="color:var(--text); font-family:var(--font-mono); font-size:13px;">${it.symbol}</strong></td>
-            <td style="text-align:right; font-family:var(--font-mono); font-weight:700; color:var(--accent); font-size:13px;">${ltpText}</td>
+            <td>
+              <a href="#" onclick="openInTradingView('${it.symbol}'); return false;"
+                 style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
+                 title="Open on TradingView">${it.symbol} 📈</a>
+            </td>
+            <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
             <td style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">${formatISTDate(it.added_at)}</td>
             <td>${statusBadge}</td>
             <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono);">
@@ -7001,7 +7016,7 @@ function loadManualWatchlist() {
     })
     .catch(err => {
       console.error('Failed to load manual watchlist:', err);
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
     });
 }
 
@@ -7048,7 +7063,7 @@ function loadUserWatchlist() {
       if (!tbody) return;
 
       if (watchlistItems.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
         return;
       }
 
@@ -7070,12 +7085,23 @@ function loadUserWatchlist() {
           statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🔍 ${item.last_status}</span>`;
         }
 
+        // [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master
+        const cmp = item.cmp;
+        const cmpAge = item.cmp_updated_at ? Math.round((Date.now() - new Date(item.cmp_updated_at).getTime()) / 60000) : null;
+        const cmpStale = cmpAge !== null && cmpAge > 30;
+        const cmpText = cmp != null
+          ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
+          : `<span style="color:var(--muted); font-size:12px;">—</span>`;
+
         return `
           <tr>
             <td class="font-bold">
-              <a href="https://chartink.com/stocks/${item.symbol}.html" target="_blank" class="symbol-link">${item.symbol}</a>
+              <a href="#" onclick="openInTradingView('${item.symbol}'); return false;"
+                 style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
+                 title="Open on TradingView">${item.symbol} 📈</a>
               <div style="font-size:10px; color:var(--muted);">${item.company_name || item.symbol}</div>
             </td>
+            <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
             <td class="mono font-bold" style="color:var(--text); text-align:center;">
               ${item.last_health_score !== null && item.last_health_score !== undefined ? item.last_health_score.toFixed(1) : '—'}
             </td>

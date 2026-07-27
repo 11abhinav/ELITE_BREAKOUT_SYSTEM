@@ -589,6 +589,30 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         logger.info(f"⏸️ Market is closed. Skipping live quote fetch for {len(unique_symbols)} symbols.")
         current_prices = {}
 
+    # [VERSION: CMP_MASTER_v1.0] Fetch CMP for ALL watchlist symbols and persist to stock_analysis_master.
+    # This makes the master table the single source of truth for live prices across admin + user dashboards.
+    if is_open:
+        try:
+            from database import get_connection, bulk_update_cmp
+            watchlist_symbols = set()
+            with get_connection() as _wconn:
+                with _wconn.cursor() as _wcur:
+                    _wcur.execute("SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != ''")
+                    watchlist_symbols = {r[0] for r in _wcur.fetchall()}
+            # Symbols already in current_prices → reuse; new ones → fetch live
+            extra_syms = list(watchlist_symbols - set(unique_symbols))
+            if extra_syms:
+                extra_prices = _fetch_current_prices(extra_syms)
+                all_cmp = {**current_prices, **extra_prices}
+            else:
+                all_cmp = {sym: current_prices[sym] for sym in watchlist_symbols if sym in current_prices}
+            if all_cmp:
+                bulk_update_cmp(all_cmp)
+                logger.info(f"💰 [CMP_MASTER] Updated CMP for {len(all_cmp)} watchlist symbols in stock_analysis_master")
+        except Exception as _cmp_err:
+            logger.warning(f"⚠️ [CMP_MASTER] Could not update watchlist CMP: {_cmp_err}")
+
+
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
     if is_open and not fast_mode:
         logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")

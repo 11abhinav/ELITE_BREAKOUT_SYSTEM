@@ -1270,6 +1270,9 @@ def init_db():
                 """)
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT")
+                # [VERSION: CMP_MASTER_v1.0] Live price columns for watchlist CMP display
+                cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp NUMERIC(12,2)")
+                cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ")
 
                 # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
                 # Commit the above table creations before doing heavy DDL
@@ -6176,7 +6179,9 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                            COALESCE(m.status, w.last_status),
                            w.notes,
                            COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
-                           COALESCE(m.deep_analysis_result, w.deep_analysis_result)
+                           COALESCE(m.deep_analysis_result, w.deep_analysis_result),
+                           m.cmp,
+                           m.cmp_updated_at
                     FROM user_watchlists w
                     LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
                     WHERE w.user_id::text = %s
@@ -6211,7 +6216,10 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "notes": r[6] or "",
                         "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and r[7] else None,
                         "deep_analysis_result": deep_res,
-                        "close_price": float(close_price) if close_price is not None else None
+                        "close_price": float(close_price) if close_price is not None else None,
+                        # [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master
+                        "cmp": float(r[9]) if len(r) > 9 and r[9] is not None else None,
+                        "cmp_updated_at": r[10].isoformat() if len(r) > 10 and r[10] else None,
                     })
                 return results
     except Exception as e:
@@ -6280,6 +6288,43 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
             return True
     except Exception as e:
         logger.error(f"Failed to update user watchlist scan result for {sym_clean}: {e}")
+        return False
+
+
+def bulk_update_cmp(prices: dict) -> bool:
+    """[VERSION: CMP_MASTER_v1.0] Batch-write live CMP into stock_analysis_master in one transaction.
+
+    Called by performance_tracker every cycle to keep CMP fresh for all watchlist symbols.
+    Uses INSERT … ON CONFLICT so symbols not yet in the master table are auto-created.
+
+    Args:
+        prices: dict of {symbol: float} e.g. {"RELIANCE": 2983.45, "TCS": 4012.10}
+    Returns:
+        True on success, False on failure.
+    """
+    if not prices:
+        return True
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    rows = [(sym.strip().upper(), float(price), now_ist) for sym, price in prices.items() if price and price > 0]
+    if not rows:
+        return True
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany("""
+                    INSERT INTO stock_analysis_master (symbol, cmp, cmp_updated_at, updated_at)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        cmp = EXCLUDED.cmp,
+                        cmp_updated_at = EXCLUDED.cmp_updated_at,
+                        updated_at = EXCLUDED.updated_at
+                """, [(sym, price, ts, ts) for sym, price, ts in rows])
+            conn.commit()
+        logger.debug(f"[CMP] Bulk-updated CMP for {len(rows)} symbols in stock_analysis_master")
+        return True
+    except Exception as e:
+        logger.error(f"❌ bulk_update_cmp failed: {e}")
         return False
 
 
