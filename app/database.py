@@ -2551,8 +2551,27 @@ def upsert_scanner_health(
                         SET {set_sql}
                 """, final_params)
                 conn.commit()
-            except Exception:
+            except Exception as exc:
                 conn.rollback()
+                # [VERSION: SCANNER_HEALTH_STATUS_PAUSED_FIX_v1.0] Self-healing for constraint violation on status
+                if "chk_scanner_status" in str(exc) or "violates check constraint" in str(exc):
+                    try:
+                        with conn.cursor() as fix_cur:
+                            fix_cur.execute("ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;")
+                            fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
+                            fix_cur.execute(f"""
+                                INSERT INTO scanner_health
+                                    ({insert_cols_str})
+                                VALUES ({insert_placeholders})
+                                ON CONFLICT (scanner_name) DO UPDATE
+                                    SET {set_sql}
+                            """, final_params)
+                        conn.commit()
+                        return
+                    except Exception as retry_exc:
+                        conn.rollback()
+                        logger.exception(f"❌ Retry upsert_scanner_health failed for {scanner_name}: {retry_exc}")
+                        return
                 logger.exception(f"❌ upsert_scanner_health failed for {scanner_name}")
 
 
