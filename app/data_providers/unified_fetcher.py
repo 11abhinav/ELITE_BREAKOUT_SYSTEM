@@ -186,9 +186,16 @@ class UnifiedFetcher:
                     import yfinance as yf
                     pending_list = list(pending)
                     chunk_size = 100
+                    
+                    INDEX_YF_MAP = {
+                        "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
+                        "BANKNIFTY": "^NSEBANK", "^NSEBANK": "^NSEBANK",
+                        "SENSEX": "^BSESN", "^BSESN": "^BSESN"
+                    }
+                    
                     for i in range(0, len(pending_list), chunk_size):
                         chunk = pending_list[i:i+chunk_size]
-                        yf_symbols = [s + ".NS" for s in chunk]
+                        yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:
@@ -212,7 +219,6 @@ class UnifiedFetcher:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for live quotes
                                                 logger.info(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception:
@@ -225,9 +231,16 @@ class UnifiedFetcher:
                     import yfinance as yf
                     pending_list = list(pending)
                     chunk_size = 100
+                    
+                    INDEX_BSE_MAP = {
+                        "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
+                        "BANKNIFTY": "^NSEBANK", "^NSEBANK": "^NSEBANK",
+                        "SENSEX": "^BSESN", "^BSESN": "^BSESN"
+                    }
+                    
                     for i in range(0, len(pending_list), chunk_size):
                         chunk = pending_list[i:i+chunk_size]
-                        yf_symbols = [s + ".BO" for s in chunk]
+                        yf_symbols = [INDEX_BSE_MAP.get(s, s + ".BO") for s in chunk]
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | BSE")
                             try:
@@ -251,7 +264,6 @@ class UnifiedFetcher:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for fallback resolution
                                                 logger.info(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception:
