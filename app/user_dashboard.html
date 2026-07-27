@@ -240,7 +240,7 @@
 </style>
 <script>
   // ── [VERSION: MULTI_TAB_UI_v1.0] USER DASHBOARD TAB NAVIGATION ──
-  let activeUserTab = 'live-signals';
+  let activeUserTab = 'trades-portfolio';
 
   function switchUserTab(tabId) {
     activeUserTab = tabId;
@@ -463,20 +463,183 @@ function playDing() {
 
     <!-- 3-TAB NAVIGATION HEADER BAR -->
     <div class="user-tabs-bar">
-      <button class="user-tab-btn active" data-utab="live-signals" onclick="switchUserTab('live-signals')">
-        <span>🚀</span> Live Signals & Multibagger
+      <button class="user-tab-btn active" data-utab="trades-portfolio" onclick="switchUserTab('trades-portfolio')">
+        <span>📈</span> KPI &amp; All Trades
       </button>
       <button class="user-tab-btn" data-utab="watchlist-analyzer" onclick="switchUserTab('watchlist-analyzer')">
-        <span>⭐</span> Manual Watchlist & Stock Analyzer
+        <span>⭐</span> Add Watchlist &amp; Manual List
       </button>
-      <button class="user-tab-btn" data-utab="trades-portfolio" onclick="switchUserTab('trades-portfolio')">
-        <span>📈</span> Trades & Portfolio
+      <button class="user-tab-btn" data-utab="live-signals" onclick="switchUserTab('live-signals')">
+        <span>🚀</span> Live Signals &amp; Multibagger
       </button>
     </div>
 
+    <!-- TAB 1: KPI & ALL TRADES -->
+    <div id="utab-trades-portfolio" class="utab-panel active">
 
-    <!-- TAB 1: LIVE SIGNALS & MULTIBAGGER -->
-    <div id="utab-live-signals" class="utab-panel active">
+    <!-- P&L AND PORTFOLIO BAR -->
+    <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+      <!-- PORTFOLIO METRICS -->
+      <div style="display:flex; flex-wrap:wrap; gap:12px;">
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
+          <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+        </div>
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
+          <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+        </div>
+        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Available Cash:</span>
+          <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI ROW -->
+    <div class="kpi-row" id="kpis"></div>
+
+    <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
+      <span class="alert-toast-icon">🚨</span>
+      <div>
+        <div style="font-size:16px;">NEW ALERT DETECTED</div>
+        <div style="font-size:12px; font-weight:normal; opacity:0.9;">Click anywhere to dismiss</div>
+      </div>
+    </div>
+
+    <!-- TRADES TABLE -->
+    <div class="card" style="margin-bottom:28px; overflow: hidden; padding: 0;">
+      <div id="trades-header"
+        style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
+        onclick="toggleTradesSection()">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-weight: 600; color: var(--text); font-size:16px;">📈 All Trades</span>
+        </div>
+        <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+          <span id="trades-status">Click to collapse</span>
+          <svg id="trades-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      </div>
+      <div id="trades-body" style="padding: 20px; background: var(--bg);">
+      <div class="filter-bar">
+        <select id="filterDate">
+          <option value="ALL">All Time</option>
+          <option value="TODAY">Today</option>
+          <option value="WEEK">This Week</option>
+          <option value="30D">Last 30 Days</option>
+          <option value="90D">Last 90 Days</option>
+          <option value="YTD">YTD</option>
+        </select>
+        <select id="filterScanner"><option value="">All scanners</option></select>
+        <select id="filterStatus">
+          <option value="">All status</option>
+        </select>
+        <select id="filterCategory"><option value="">All categories</option></select>
+        <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
+        <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
+        <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
+        <button class="refresh-btn" onclick="expandAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">↔️ Expand All</button>
+        <button class="refresh-btn" onclick="collapseAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn);">↕️ Collapse All</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:20px"></th>
+              <th data-col="symbol">Symbol</th>
+              <th data-col="entry_date">Date &amp; Time</th>
+              <th data-col="scanner">Scanner</th>
+              <th data-col="category">Category</th>
+              <th>Chart</th>
+              <th data-col="entry_price" style="cursor:pointer">Entry ₹</th>
+              <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
+              <th data-col="capital_allocated" style="cursor:pointer">Capital ₹</th>
+              <th data-col="shares_bought" style="cursor:pointer">Shares</th>
+              <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L %</th>
+              <th data-col="pnl_rs" style="cursor:pointer">P&amp;L ₹</th>
+              <th data-col="score" style="cursor:pointer">Score</th>
+              <th data-col="days_held">Days</th>
+              <th data-col="status" class="sort-asc">Status</th>
+            </tr>
+          </thead>
+          <tbody id="tradeBody"></tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+    </div>
+    <!-- END TAB 1: KPI & ALL TRADES -->
+
+    <!-- TAB 2: ADD WATCHLIST & MANUAL LIST -->
+    <div id="utab-watchlist-analyzer" class="utab-panel">
+
+      <!-- ANALYSE YOUR WATCHLIST WIDGET -->
+      <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
+          <div>
+            <h2 style="font-size:16px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:18px;">🔍</span> Search Ticker &amp; Add to Watchlist
+            </h2>
+            <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol to add it to your manual monitored watchlist and view real-time 7-stage scanner diagnostics.</p>
+          </div>
+          <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
+            <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
+          </button>
+        </div>
+
+        <div style="position:relative; max-width:640px; z-index:101; width:100%;">
+          <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE)... and select from dropdown" 
+                 style="width:100%; box-sizing:border-box; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
+                 oninput="handleStockSearchInput(this.value)" autocomplete="off" />
+
+          <!-- Autocomplete Suggestions Dropdown -->
+          <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; max-height:280px; overflow-y:auto; z-index:99999; box-shadow:0 12px 35px rgba(0,0,0,0.25);">
+          </div>
+        </div>
+      </div>
+
+      <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
+      <div id="my-watchlist-section" style="display:block; margin-bottom:24px;">
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:12px;">
+            <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
+            </h3>
+            <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
+              ⚡ Execute Deep Analysis on All Watchlist Stocks
+            </button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="width:100%;">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th style="text-align:center;">Health Score</th>
+                  <th style="text-align:center;">Scanner Status</th>
+                  <th style="text-align:center;">Added Date (IST)</th>
+                  <th style="text-align:center;">Last Scanned (IST)</th>
+                  <th style="text-align:center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="user-watchlist-tbody">
+                <!-- Injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
+      <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
+
+    </div>
+    <!-- END TAB 2: ADD WATCHLIST & MANUAL LIST -->
+
+    <!-- TAB 3: LIVE SIGNALS & MULTIBAGGER -->
+    <div id="utab-live-signals" class="utab-panel">
     <!-- ═══ LIVE SIGNAL LADDER ═══ -->
     <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
       <span>Live Breakout Signal Ladder (MULTI_TF)</span>
@@ -524,8 +687,6 @@ function playDing() {
         </div>
         <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
     
-
-
     <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
       <div style="flex: 1; min-width: 200px;">
         <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
@@ -584,177 +745,7 @@ function playDing() {
     <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
   </div></div><!-- /panel-mb-watchlist -->
     </div>
-    <!-- END TAB 1: LIVE SIGNALS & MULTIBAGGER -->
-
-    <!-- TAB 2: MANUAL WATCHLIST & STOCK ANALYZER -->
-    <div id="utab-watchlist-analyzer" class="utab-panel">
-
-      <!-- ANALYSE YOUR WATCHLIST WIDGET -->
-      <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
-          <div>
-            <h2 style="font-size:16px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:18px;">🔍</span> Analyse Your Watchlist
-            </h2>
-            <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol for real-time 7-stage scanner diagnostics, health scores, and parameter deficits.</p>
-          </div>
-          <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
-            <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
-          </button>
-        </div>
-
-        <div style="position:relative; max-width:640px; z-index:101; width:100%;">
-          <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE)... and select from dropdown" 
-                 style="width:100%; box-sizing:border-box; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
-                 oninput="handleStockSearchInput(this.value)" autocomplete="off" />
-
-          <!-- Autocomplete Suggestions Dropdown -->
-          <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; max-height:280px; overflow-y:auto; z-index:99999; box-shadow:0 12px 35px rgba(0,0,0,0.25);">
-          </div>
-        </div>
-      </div>
-
-      <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
-      <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
-        <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
-          <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
-
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
-            <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
-              <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
-            </h3>
-            <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
-              ⚡ Execute Deep Analysis on All Watchlist Stocks
-            </button>
-          </div>
-          <div style="overflow-x:auto;">
-            <table class="data-table" style="width:100%;">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th style="text-align:center;">Health Score</th>
-                  <th style="text-align:center;">Scanner Status</th>
-                  <th style="text-align:center;">Added Date (IST)</th>
-                  <th style="text-align:center;">Last Scanned (IST)</th>
-                  <th style="text-align:center;">Action</th>
-                </tr>
-              </thead>
-              <tbody id="user-watchlist-tbody">
-                <!-- Injected by JS -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
-      <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
-
-    </div>
-    <!-- END TAB 2: MANUAL WATCHLIST & STOCK ANALYZER -->
-
-    <div id="utab-trades-portfolio" class="utab-panel">
-
-    <!-- P&L AND PORTFOLIO BAR -->
-    <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-      
-      <!-- PORTFOLIO METRICS -->
-      <div style="display:flex; flex-wrap:wrap; gap:12px;">
-        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
-          <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-        </div>
-        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
-          <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-        </div>
-        <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Available Cash:</span>
-          <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- KPI ROW -->
-    <div class="kpi-row" id="kpis"></div>
-
-
-  
-  <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
-    <span class="alert-toast-icon">🚨</span>
-    <div>
-      <div style="font-size:16px;">NEW ALERT DETECTED</div>
-      <div style="font-size:12px; font-weight:normal; opacity:0.9;">Click anywhere to dismiss</div>
-    </div>
-  </div>
-
-    <!-- TRADES TABLE -->
-    <div class="card" style="margin-bottom:28px; overflow: hidden; padding: 0;">
-      <div id="trades-header"
-        style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
-        onclick="toggleTradesSection()">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <span style="font-weight: 600; color: var(--text); font-size:16px;">📈 All Trades</span>
-        </div>
-        <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
-          <span id="trades-status">Click to collapse</span>
-          <svg id="trades-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
-      </div>
-      <div id="trades-body" style="padding: 20px; background: var(--bg);">
-      <div class="filter-bar">
-        <select id="filterDate">
-          <option value="ALL">All Time</option>
-          <option value="TODAY">Today</option>
-          <option value="WEEK">This Week</option>
-          <option value="30D">Last 30 Days</option>
-          <option value="90D">Last 90 Days</option>
-          <option value="YTD">YTD</option>
-        </select>
-        <select id="filterScanner"><option value="">All scanners</option></select>
-        <select id="filterStatus">
-          <option value="">All status</option>
-        </select>
-        <select id="filterCategory"><option value="">All categories</option></select>
-        <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
-        <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
-        <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
-        <!-- [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.0] Add Expand/Collapse All buttons to trade table -->
-        <button class="refresh-btn" onclick="expandAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">↔️ Expand All</button>
-        <button class="refresh-btn" onclick="collapseAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn);">↕️ Collapse All</button>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-                    <th style="width:20px"></th>
-      <th data-col="symbol">Symbol</th>
-      <th data-col="entry_date">Date &amp; Time</th>
-      <th data-col="scanner">Scanner</th>
-      <th data-col="category">Category</th>
-      <th>Chart</th>
-              <th data-col="entry_price" style="cursor:pointer">Entry ₹</th>
-              <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
-              <th data-col="capital_allocated" style="cursor:pointer">Capital ₹</th>
-              <th data-col="shares_bought" style="cursor:pointer">Shares</th>
-              <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L %</th>
-              <th data-col="pnl_rs" style="cursor:pointer">P&amp;L ₹</th>
-              <th data-col="score" style="cursor:pointer">Score</th>
-              <th data-col="days_held">Days</th>
-              <th data-col="status" class="sort-asc">Status</th>
-            </tr>
-          </thead>
-          <tbody id="tradeBody"></tbody>
-        </table>
-      </div>
-      </div>
-    </div>
-
-    </div>
-    <!-- END TAB 3: TRADES & PORTFOLIO -->
+    <!-- END TAB 3: LIVE SIGNALS & MULTIBAGGER -->
 
 
     
