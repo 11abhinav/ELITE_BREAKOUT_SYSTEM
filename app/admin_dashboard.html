@@ -1409,139 +1409,6 @@
 
       <!-- KPI ROW (SCANNER HEALTH GRID) -->
       <div class="kpi-row" id="kpis"></div>
-
-
-      </div>
-      <!-- END TAB 1: SIGNALS & ALL TRADES -->
-
-      <!-- TAB 2: WATCHLIST & USER MANAGEMENT -->
-      <div id="tab-watchlist-users" class="tab-panel">
-
-        <!-- ANALYSE YOUR WATCHLIST WIDGET -->
-        <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
-            <div>
-              <h2 style="font-size:16px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
-                <span style="font-size:18px;">🔍</span> Analyse Your Watchlist
-              </h2>
-              <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol for real-time 7-stage scanner diagnostics, health scores, and parameter deficits.</p>
-            </div>
-            <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
-              <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
-            </button>
-          </div>
-
-          <div style="position:relative; max-width:640px; z-index:101; width:100%;">
-            <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE)... and select from dropdown" 
-                   style="width:100%; box-sizing:border-box; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
-                   oninput="handleStockSearchInput(this.value)" autocomplete="off" />
-
-            <!-- Autocomplete Suggestions Dropdown -->
-            <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; max-height:280px; overflow-y:auto; z-index:99999; box-shadow:0 12px 35px rgba(0,0,0,0.25);">
-            </div>
-          </div>
-        </div>
-
-        <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
-        <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
-          <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
-            <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
-              <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
-                <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
-              </h3>
-              <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
-                ⚡ Execute Deep Analysis on All Watchlist Stocks
-              </button>
-            </div>
-            <div style="overflow-x:auto;">
-              <table class="data-table" style="width:100%;">
-                <thead>
-                  <tr>
-                    <th>Symbol</th>
-                    <th style="text-align:center;">Health Score</th>
-                    <th style="text-align:center;">Scanner Status</th>
-                    <th style="text-align:center;">Added Date (IST)</th>
-                    <th style="text-align:center;">Last Scanned (IST)</th>
-                    <th style="text-align:center;">Action</th>
-                  </tr>
-                </thead>
-                <tbody id="user-watchlist-tbody">
-                  <!-- Injected by JS -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- INLINE STOCK DIAGNOSTIC CONTAINER (Main Screen display) -->
-        <div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
-
-        <!-- PENDING USERS -->
-        <div id="pendingUsersContainer" style="display:none; margin-bottom: 28px;">
-          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>Pending Approvals</span>
-            <button class="refresh-btn" onclick="forceRefreshPendingUsers()" style="font-size:11px; padding:2px 8px;">Refresh</button>
-          </div>
-          <div class="card" style="padding: 0;">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Mobile</th>
-                  <th style="text-align:right">Action</th>
-                </tr>
-              </thead>
-              <tbody id="pendingUsersTableBody">
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- USER MANAGEMENT DIRECTORY -->
-        <div class="card" style="margin-bottom:28px; padding:20px; background:var(--card);">
-          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:18px;">
-            <h2 style="font-size:18px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
-              <span>👥</span> User Management & Approved Directory
-            </h2>
-            <button class="refresh-btn" onclick="searchUsers()" style="font-size:12px; font-weight:700;">🔄 Refresh Users</button>
-          </div>
-
-          <div class="filter-bar" style="margin-top:0;">
-            <select id="userStatusFilter" onchange="searchUsers()" style="padding:8px 14px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
-              <option value="all">All Users</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-            <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:280px; padding:8px 14px;" oninput="debounceSearchUsers()">
-            <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px; padding:8px 16px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:700;">🔍 Search</button>
-          </div>
-          <div class="tbl-wrap" style="margin-top: 16px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Username</th>
-                  <th>Email</th>
-                  <th>Mobile</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="userSearchResults">
-                <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading user directory...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div>
-      <!-- END TAB 2: USER MANAGEMENT & APPROVALS -->
-
       <!-- TRADES TABLE -->
       <div class="card" style="margin-bottom:28px; overflow: hidden; padding: 0;">
         <div id="trades-header"
@@ -1778,9 +1645,113 @@
           </div>
         </div>
       </div>
-      <!-- END TAB 1: SIGNALS, TRADES & WATCHLIST -->
+      <!-- END TAB 1: SIGNALS & ALL TRADES -->
 
-      <!-- TAB 2: SCANNER HEALTH & SYSTEM ERRORS -->
+      <!-- TAB 2: WATCHLIST & USER MANAGEMENT -->
+      <div id="tab-watchlist-users" class="tab-panel">
+
+        <!-- ANALYSE YOUR WATCHLIST WIDGET -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
+            <div>
+              <h2 style="font-size:16px; font-weight:700; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">🔍</span> Analyse Your Watchlist
+              </h2>
+              <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol for real-time 7-stage scanner diagnostics, health scores, and parameter deficits.</p>
+            </div>
+            <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
+              <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
+            </button>
+          </div>
+          <div style="position:relative; max-width:640px; z-index:101; width:100%;">
+            <input type="text" id="stock-search-input" placeholder="Type ticker (e.g. TATAMOTORS, RELIANCE)..." 
+                   style="width:100%; box-sizing:border-box; padding:11px 16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; outline:none;"
+                   oninput="handleStockSearchInput(this.value)" autocomplete="off" />
+            <div id="stock-autocomplete-dropdown" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; max-height:280px; overflow-y:auto; z-index:99999; box-shadow:0 12px 35px rgba(0,0,0,0.25);">
+            </div>
+          </div>
+        </div>
+
+        <!-- MY WATCHLIST INLINE MAIN SCREEN SECTION -->
+        <div id="my-watchlist-section" style="display:none; margin-bottom:24px;">
+          <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,0.12); position:relative;">
+            <button onclick="closeMyWatchlistModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Close Watchlist View">✕</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-right:40px; flex-wrap:wrap; gap:12px;">
+              <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+                <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
+              </h3>
+              <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
+                ⚡ Execute Deep Analysis on All Watchlist Stocks
+              </button>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="data-table" style="width:100%;">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th style="text-align:center;">Health Score</th>
+                    <th style="text-align:center;">Scanner Status</th>
+                    <th style="text-align:center;">Added Date (IST)</th>
+                    <th style="text-align:center;">Last Scanned (IST)</th>
+                    <th style="text-align:center;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="user-watchlist-tbody"><!-- Injected by JS --></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- INLINE STOCK DIAGNOSTIC CONTAINER -->
+        <div id="stock-diagnostic-main-container" style="display:none; margin-bottom:24px;"></div>
+
+        <!-- PENDING USERS -->
+        <div id="pendingUsersContainer" style="display:none; margin-bottom: 28px;">
+          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Pending Approvals</span>
+            <button class="refresh-btn" onclick="forceRefreshPendingUsers()" style="font-size:11px; padding:2px 8px;">Refresh</button>
+          </div>
+          <div class="card" style="padding: 0;">
+            <table class="table">
+              <thead><tr>
+                <th>Username</th><th>Name</th><th>Email</th><th>Mobile</th><th style="text-align:right">Action</th>
+              </tr></thead>
+              <tbody id="pendingUsersTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- USER MANAGEMENT DIRECTORY -->
+        <div class="card" style="margin-bottom:28px; padding:20px; background:var(--card);">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:18px;">
+            <h2 style="font-size:18px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>👥</span> User Management &amp; Approved Directory
+            </h2>
+            <button class="refresh-btn" onclick="searchUsers()" style="font-size:12px; font-weight:700;">🔄 Refresh Users</button>
+          </div>
+          <div class="filter-bar" style="margin-top:0;">
+            <select id="userStatusFilter" onchange="searchUsers()" style="padding:8px 14px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
+              <option value="all">All Users</option><option value="active">Active</option><option value="inactive">Inactive</option>
+            </select>
+            <input id="userSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:280px; padding:8px 14px;" oninput="debounceSearchUsers()">
+            <button class="refresh-btn" onclick="searchUsers()" style="margin-left:8px; padding:8px 16px; background:var(--accent); color:#000; border:1px solid var(--accent); font-weight:700;">🔍 Search</button>
+          </div>
+          <div class="tbl-wrap" style="margin-top: 16px;">
+            <table>
+              <thead><tr>
+                <th>ID</th><th>Username</th><th>Email</th><th>Mobile</th><th>Role</th><th>Status</th><th>Action</th>
+              </tr></thead>
+              <tbody id="userSearchResults">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading user directory...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+      <!-- END TAB 2: WATCHLIST & USER MANAGEMENT -->
+
+      <!-- TAB 3: SCANNER HEALTH & SYSTEM ERRORS -->
       <div id="tab-health-errors" class="tab-panel">
 
       <!-- SYSTEM HEALTH & DIAGNOSTICS -->
@@ -1854,9 +1825,9 @@
 
         </div>
       </div>
-      <!-- END TAB 2: SCANNER HEALTH & SYSTEM ERRORS -->
+      <!-- END TAB 3: SCANNER HEALTH & SYSTEM ERRORS -->
 
-      <!-- TAB 3: DATA & DATABASE EXPLORER -->
+      <!-- TAB 4: DATA & DATABASE EXPLORER -->
       <div id="tab-db-explorer" class="tab-panel">
 
       <!-- FEATURE F-13: PREVIEW ANALYTICS CARD (MOVED ABOVE DATABASE EXPORTS) -->
@@ -2021,9 +1992,9 @@
           <!-- Dynamically populated table cards -->
         </div>
       </div>
-      <!-- END TAB 3: DATA & DATABASE EXPLORER -->
+      <!-- END TAB 4: DATA & DATABASE EXPLORER -->
 
-      <!-- TAB 4: SYSTEM SETTINGS & CONTROLS -->
+      <!-- TAB 5: SYSTEM SETTINGS & CONTROLS -->
       <div id="tab-settings" class="tab-panel">
         <div class="card" style="padding:24px; margin-bottom:28px;">
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:20px;">
@@ -2052,7 +2023,7 @@
           </div>
         </div>
       </div>
-      <!-- END TAB 4: SYSTEM SETTINGS & CONTROLS -->
+      <!-- END TAB 5: SYSTEM SETTINGS & CONTROLS -->
 
     </div>
   </div>
