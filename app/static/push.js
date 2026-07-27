@@ -1,4 +1,15 @@
 // ── SERVICE WORKER & PUSH REGISTRATION ──────────────────────────────
+if ('caches' in window) {
+  caches.keys().then(keys => {
+    keys.forEach(key => {
+      if (key !== 'elite-breakout-v5-no-html-cache') {
+        console.log('[PWA] Purging legacy cache bucket:', key);
+        caches.delete(key);
+      }
+    });
+  });
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js', { scope: '/' })

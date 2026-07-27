@@ -3,10 +3,8 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v3'; // bumped: push notification iOS + VAPID key fix
+const CACHE_NAME = 'elite-breakout-v5-no-html-cache'; // bumped: purge stale HTML caches completely
 const STATIC_ASSETS = [
-  '/',
-  '/login',
   '/static/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
@@ -14,47 +12,68 @@ const STATIC_ASSETS = [
   'https://cdn.jsdelivr.net/npm/chart.js',
 ];
 
-// ── INSTALL: Cache static assets ────────────────────────────
+// ── INSTALL: Cache ONLY static assets (manifest, icons, fonts) ──
 self.addEventListener('install', event => {
-  console.log('[SW] Installing service worker...');
+  console.log('[SW] Installing service worker v5...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
-        // Non-fatal — some external assets may fail, that's OK
-        console.warn('[SW] Some assets failed to cache:', err);
+        console.warn('[SW] Some static assets failed to cache:', err);
       });
     }).then(() => self.skipWaiting())
   );
 });
 
-// ── ACTIVATE: Clean old caches ───────────────────────────────
+// ── ACTIVATE: Clean ALL old caches & evict stale HTML entries ──
 self.addEventListener('activate', event => {
-  console.log('[SW] Activating service worker...');
+  console.log('[SW] Activating service worker v5 & purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        keys.map(k => {
+          if (k !== CACHE_NAME) {
+            console.log('[SW] Deleting legacy cache:', k);
+            return caches.delete(k);
+          }
+        })
       )
-    ).then(() => self.clients.claim())
+    ).then(() => {
+      // Clean out any stale HTML page entries from current cache
+      return caches.open(CACHE_NAME).then(cache => {
+        return cache.keys().then(requests => {
+          return Promise.all(
+            requests.map(req => {
+              const u = req.url.toLowerCase();
+              if (u.includes('/admin') || u.includes('/wealth') || u.endsWith('/') || u.includes('/login')) {
+                console.log('[SW] Evicting stale HTML document:', req.url);
+                return cache.delete(req);
+              }
+            })
+          );
+        });
+      });
+    }).then(() => self.clients.claim())
   );
 });
 
-// ── FETCH: Network-first for API, Cache-first for static ─────
+// ── FETCH: Network-first for dynamic content, cache for static ──
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Always go network-first for API calls and authenticated pages
-  // Never serve stale trading data — freshness is critical
+  // ALWAYS go network-first for API calls and authenticated pages
+  // Never serve stale HTML trading pages — freshness is critical
   if (url.pathname.startsWith('/api/') ||
       url.pathname.startsWith('/data/') ||
       url.pathname === '/' ||
       url.pathname === '/admin' ||
-      url.pathname === '/wealth') {
-    event.respondWith(networkFirstWithOfflineFallback(event.request));
+      url.pathname === '/wealth' ||
+      url.pathname === '/login' ||
+      event.request.mode === 'navigate') {
+    event.respondWith(networkFirstNoHtmlCache(event.request));
     return;
   }
 
-  // Cache-first for static assets (fonts, icons, scripts)
+  // Cache-first ONLY for static assets (fonts, icons, scripts)
   if (url.pathname.startsWith('/static/') ||
       url.hostname.includes('fonts.googleapis.com') ||
       url.hostname.includes('cdn.jsdelivr.net')) {
@@ -62,27 +81,39 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Default: network with cache fallback
-  event.respondWith(networkFirstWithOfflineFallback(event.request));
+  // Default: network first without HTML caching
+  event.respondWith(networkFirstNoHtmlCache(event.request));
 });
 
-async function networkFirstWithOfflineFallback(request) {
+async function networkFirstNoHtmlCache(request) {
+  const isHtmlRequest = request.mode === 'navigate' ||
+                        request.headers.get('accept')?.includes('text/html') ||
+                        request.url.includes('/admin') ||
+                        request.url.includes('/wealth') ||
+                        request.url.endsWith('/') ||
+                        request.url.includes('/login');
+
   try {
     const networkResponse = await fetch(request);
-    // Only cache successful GET responses with http/https schemes (prevents chrome-extension:// errors)
-    if (request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
+    // NEVER cache HTML pages or API responses in CacheStorage
+    if (!isHtmlRequest && request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
     return networkResponse;
   } catch (err) {
-    // Network failed — try cache
+    console.warn('[SW] Network request failed:', request.url, err);
+    // If offline and it's an HTML page request, return offlineHTML, NEVER a stale cached HTML page
+    if (isHtmlRequest) {
+      return new Response(offlineHTML(), {
+        headers: { 'Content-Type': 'text/html' }
+      });
+    }
+    // For non-HTML static requests, try cache
     const cached = await caches.match(request);
     if (cached) {
-      console.log('[SW] Offline: serving from cache:', request.url);
       return cached;
     }
-    // If login page is offline, return a simple offline page
     return new Response(offlineHTML(), {
       headers: { 'Content-Type': 'text/html' }
     });

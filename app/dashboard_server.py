@@ -212,7 +212,9 @@ def service_worker():
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     response = send_from_directory(static_dir, "service-worker.js")
     # Must be no-cache so browsers always get the latest version
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     response.headers["Service-Worker-Allowed"] = "/"
     return response
 
