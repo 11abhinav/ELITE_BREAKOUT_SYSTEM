@@ -476,6 +476,7 @@ function playDing() {
 
     <!-- TAB 1: LIVE SIGNALS & MULTIBAGGER -->
     <div id="utab-live-signals" class="utab-panel active">
+    </div>
     <!-- END TAB 1: LIVE SIGNALS & MULTIBAGGER -->
 
     <!-- TAB 2: MANUAL WATCHLIST & STOCK ANALYZER -->
@@ -3009,6 +3010,11 @@ document.addEventListener('click', function(e) {
     dropdown.style.display = 'none';
   }
 });
+
+function triggerStockDiagnosticBySymbol(sym) {
+  if (!sym) return;
+  triggerStockDiagnostic(sym, true);
+}
 
 function triggerStockDiagnostic(overrideSym, isDeep = false) {
   const input = document.getElementById('stock-search-input');
