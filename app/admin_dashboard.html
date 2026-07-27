@@ -1718,8 +1718,8 @@
           <div id="manual-watchlist-container" style="background:var(--bg); padding:12px; border-radius:8px;">
             <div class="table-container">
               <table class="data-table" style="width:100%;">
-                <thead><tr><th>Symbol</th><th>Added</th><th>Status</th><th>Action</th></tr></thead>
-                <tbody id="manual-watchlist-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">Click 'Load Manual Watchlist' to fetch manual entries.</td></tr></tbody>
+                <thead><tr><th>Symbol</th><th>Added Date (IST)</th><th>Status</th><th>Last Scanned (IST)</th><th style="text-align:center;">Action</th></tr></thead>
+                <tbody id="manual-watchlist-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">Click 'Load Manual Watchlist' to fetch manual entries.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -6905,31 +6905,61 @@ function loadUserWatchlist() {
 function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
   fetch('/api/v1/user_watchlist')
     .then(res => res.json())
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
         return;
       }
-      tbody.innerHTML = list.map(it => `
-        <tr>
-          <td><strong style="color:var(--text); font-family:var(--font-mono); font-size:13px;">${it.symbol}</strong></td>
-          <td style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">${formatISTDate(it.added_at)}</td>
-          <td><span class="badge badge-scanner" style="font-size:11px;">${it.last_status || 'MONITORING'}</span></td>
-          <td style="text-align:right;">
-            <button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${it.symbol}')" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.35); font-weight:700; padding:6px 14px; border-radius:6px;" title="Rescan & View Detailed Diagnostic Analysis">
-              ⚡ Rescan & Detailed Analysis 🔍
-            </button>
-          </td>
-        </tr>
-      `).join('');
+
+      // Merge manual items into WATCHLIST_ITEMS_CACHE so openSavedWatchlistAnalysis can resolve them immediately
+      list.forEach(it => {
+        const idx = WATCHLIST_ITEMS_CACHE.findIndex(x => x && x.symbol && x.symbol.toUpperCase() === (it.symbol || '').toUpperCase());
+        if (idx !== -1) {
+          WATCHLIST_ITEMS_CACHE[idx] = it;
+        } else {
+          WATCHLIST_ITEMS_CACHE.push(it);
+        }
+      });
+
+      tbody.innerHTML = list.map(it => {
+        let statusBadge = '';
+        const st = (it.last_status || 'MONITORING').toUpperCase();
+        if (st.includes('CORE MET')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Core Condition Met. Click to view saved breakdown.">⚡ CORE MET</span>`;
+        } else if (st.includes('QUALIFIED')) {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Qualified Signal. Click to view saved breakdown.">✓ ${it.last_status}</span>`;
+        } else {
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode. Click to view saved breakdown.">🔍 ${it.last_status}</span>`;
+        }
+
+        return `
+          <tr>
+            <td><strong style="color:var(--text); font-family:var(--font-mono); font-size:13px;">${it.symbol}</strong></td>
+            <td style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">${formatISTDate(it.added_at)}</td>
+            <td>${statusBadge}</td>
+            <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono);">
+              ${formatISTDateTime(it.last_deep_analysis_at || it.last_scanned_at)}
+              ${it.last_deep_analysis_at ? '<div style="font-size:9px; color:#10b981; font-weight:700;">💾 Saved Analysis</div>' : ''}
+            </td>
+            <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
+              <button onclick="openSavedWatchlistAnalysis('${it.symbol}')" style="padding:5px 10px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="View Last Saved 7-Stage Diagnostic Breakdown (Instant)">
+                🔍 View Analysis
+              </button>
+              <button onclick="triggerStockDiagnosticBySymbol('${it.symbol}')" style="padding:5px 10px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Execute Fresh Live Re-Scan">
+                ⚡ Re-Scan
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
     })
     .catch(err => {
       console.error('Failed to load manual watchlist:', err);
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
     });
 }
 
