@@ -257,8 +257,12 @@
 
     if (tabId === 'live-signals') {
       if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
+      if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
     } else if (tabId === 'trades-portfolio') {
-      if (typeof renderUserWatchlistTable === 'function') renderUserWatchlistTable();
+      if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
+        renderTradeTable();
+      }
+      if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
     }
   }
 
