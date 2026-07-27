@@ -2656,7 +2656,8 @@ def resume_scanner(scanner_name: str) -> bool:
 ALL_KNOWN_SCANNERS = [
     'DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL',
     'PULLBACK', 'Wealth Engine', 'MULTIBAGGER',
-    'PERFORMANCE_TRACKER', 'Pledge Worker', 'AI Worker'
+    'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
+    'Pledge Worker', 'AI Worker'
 ]
 
 

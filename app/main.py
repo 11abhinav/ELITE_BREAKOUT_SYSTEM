@@ -349,7 +349,10 @@ def format_duration(seconds: Optional[float]) -> str:
 def _run_performance_tracker_single():
     """Runs a single pass of the performance tracker dashboard refresh."""
     from performance_tracker import build_performance_data
-    from database import upsert_scanner_health
+    from database import upsert_scanner_health, is_scanner_stopped
+    if is_scanner_stopped("PERFORMANCE_TRACKER"):
+        logger.info("⏭️ PERFORMANCE_TRACKER is PAUSED by Admin. Skipping Alerts Exit Monitor pass.")
+        return
     start_time = time.time()
     try:
         from telemetry_manager import telemetry
@@ -380,8 +383,10 @@ def _run_performance_tracker_single():
 
 def _run_multibagger_exit_single():
     """Runs a single pass of the Multibagger Exit Monitor."""
-    from database import upsert_scanner_health
-    from multibagger import run_standalone_exit_monitor
+    from database import upsert_scanner_health, is_scanner_stopped
+    if is_scanner_stopped("MULTIBAGGER_EXIT"):
+        logger.info("⏭️ MULTIBAGGER_EXIT is PAUSED by Admin. Skipping Multibagger Exit Monitor pass.")
+        return
     start_time = time.time()
     try:
         logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
@@ -1125,15 +1130,24 @@ def run_system_scheduler():
                     logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 15-min BUY scan.")
                 last_wealth_full_scan_run = now
 
-            # [VERSION: EXIT_MONITORS_UNCONDITIONAL_v1.0] 5-min Intraday Exit Update ALWAYS runs during market hours to protect open positions irrespective of scanner pause/start
-            logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
-            with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
-                from wealth_engine import run_wealth_intraday_update
-                run_wealth_intraday_update()
-            duration_sec = round(time.time() - start_time, 1)
-            logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
+            if not is_scanner_stopped("WEALTH_EXIT"):
+                logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
+                with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
+                    from wealth_engine import run_wealth_intraday_update
+                    run_wealth_intraday_update()
+                duration_sec = round(time.time() - start_time, 1)
+                logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
+                upsert_scanner_health(
+                    "WEALTH_EXIT",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                    duration_seconds=duration_sec
+                )
+            else:
+                logger.info("⏭️ WEALTH_EXIT is PAUSED by Admin. Skipping 5-min Wealth exit update.")
             
             last_wealth_market_run = now
             return True
@@ -1353,12 +1367,12 @@ def run_system_scheduler():
                     if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 900:
                         _run_multibagger_exit_single()
                         last_mb_exit = datetime.now(IST)
-                        
+
                     # 2. Performance Tracker / Alert Exit Monitor (every 5 mins)
                     if not last_perf or (now - last_perf).total_seconds() >= 300:
                         _run_performance_tracker_single()
                         last_perf = datetime.now(IST)
-                        
+
                     # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor runs always; 15-min BUY scan is gated internally)
                     safe_run_wealth_market_hours()
                 
@@ -1779,6 +1793,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
+        "MULTIBAGGER_EXIT": _trigger_multibagger_exit,
+        "WEALTH_EXIT": _trigger_wealth_exit,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -1796,6 +1812,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
+        "MULTIBAGGER_EXIT": lambda: scanner_execution_lock,
+        "WEALTH_EXIT": lambda: scanner_execution_lock,
     }
     
     lock_fn = LOCK_MAP.get(scanner_key)
@@ -1932,6 +1950,15 @@ def _trigger_ai_worker():
 def _trigger_performance_tracker():
     from performance_tracker import build_performance_data
     build_performance_data(force_live_fetch=True)
+    return {"total_count": 1, "processed_count": 1}
+
+def _trigger_multibagger_exit():
+    _run_multibagger_exit_single()
+    return {"total_count": 1, "processed_count": 1}
+
+def _trigger_wealth_exit():
+    from wealth_engine import run_wealth_intraday_update
+    run_wealth_intraday_update()
     return {"total_count": 1, "processed_count": 1}
 
 
