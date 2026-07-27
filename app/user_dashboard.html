@@ -263,6 +263,8 @@
         renderTradeTable();
       }
       if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
+    } else if (tabId === 'watchlist-analyzer') {
+      if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
     }
   }
 
