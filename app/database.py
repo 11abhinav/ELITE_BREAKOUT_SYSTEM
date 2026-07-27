@@ -410,8 +410,28 @@ def init_db():
                     )
                 """)
 
-                # ── DROP LEGACY TABLES ──
-                cur.execute("DROP TABLE IF EXISTS multibagger_alerts CASCADE;")
+                # ── DROP LEGACY TABLES (SAFE GUARD) ──────────────────────────────────
+                # [SAFETY] Only drop multibagger_alerts if it exists AND has ZERO rows.
+                # If the table has data, log a warning and leave it untouched.
+                # This prevents accidental data wipe on existing deployments.
+                cur.execute("""
+                DO $$
+                DECLARE
+                    row_count BIGINT := 0;
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'multibagger_alerts'
+                    ) THEN
+                        SELECT COUNT(*) INTO row_count FROM multibagger_alerts;
+                        IF row_count = 0 THEN
+                            DROP TABLE multibagger_alerts CASCADE;
+                        ELSE
+                            RAISE WARNING '[SAFETY] multibagger_alerts has % rows — skipping DROP to protect data', row_count;
+                        END IF;
+                    END IF;
+                END $$;
+                """)
 
                 # ── Trade Audit Log (Immutable History) ────────────────────────────
                 cur.execute("""
@@ -1244,11 +1264,11 @@ def init_db():
                     try:
                         with conn.cursor() as mcur:
                             mcur.execute("""
--- 0. Drop dependent views before altering columns
-DROP VIEW IF EXISTS v_trade_analytics CASCADE;
+-- [VERSION: V5_MIGRATION_GUARDS_v1.0] All conversions are wrapped in DO $$ guards.
+-- Each block checks if the column is still TEXT before doing any work.
+-- Existing DBs with correct TIMESTAMPTZ columns are fully unaffected (no-op).
 
--- 1. Clean invalid timestamps and convert to TIMESTAMPTZ
--- Create robust safe_cast_timestamptz overloads for text, timestamp, and timestamptz
+-- Helper: check if a column is TEXT type
 CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
 BEGIN
     RETURN p_val::timestamptz;
@@ -1257,51 +1277,142 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $func$ LANGUAGE plpgsql IMMUTABLE;
 
-CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamp) RETURNS timestamptz AS $func2$
-BEGIN
-    -- Treat timestamp (without timezone) as UTC to avoid ambiguous conversions; adjust if needed.
-    RETURN p_val AT TIME ZONE 'UTC';
-EXCEPTION WHEN OTHERS THEN
-    RETURN NULL;
-END;
-$func2$ LANGUAGE plpgsql IMMUTABLE;
+-- alerts.closed_at
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='closed_at' AND data_type='text') THEN
+        ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at::text);
+    END IF;
+END $$;
 
-CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val timestamptz) RETURNS timestamptz AS $func3$
-BEGIN
-    RETURN p_val;
-EXCEPTION WHEN OTHERS THEN
-    RETURN NULL;
-END;
-$func3$ LANGUAGE plpgsql IMMUTABLE;
+-- alerts.created_at
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='created_at' AND data_type='text') THEN
+        ALTER TABLE alerts ALTER COLUMN created_at DROP DEFAULT;
+        ALTER TABLE alerts ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+        ALTER TABLE alerts ALTER COLUMN created_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
--- Perform conversions using explicit ::text casts to ensure the text overload is used where values were stored as text
-ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at::text);
-ALTER TABLE alerts ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-ALTER TABLE alerts ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+-- alerts.updated_at
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='updated_at' AND data_type='text') THEN
+        ALTER TABLE alerts ALTER COLUMN updated_at DROP DEFAULT;
+        ALTER TABLE alerts ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+        ALTER TABLE alerts ALTER COLUMN updated_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
-ALTER TABLE score_weight_log ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+-- score_weight_log.created_at
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='score_weight_log' AND column_name='created_at' AND data_type='text') THEN
+        ALTER TABLE score_weight_log ALTER COLUMN created_at DROP DEFAULT;
+        ALTER TABLE score_weight_log ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+        ALTER TABLE score_weight_log ALTER COLUMN created_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
-ALTER TABLE bayesian_model_updates ALTER COLUMN approved_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(approved_at::text);
-ALTER TABLE bayesian_model_updates ALTER COLUMN rejected_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(rejected_at::text);
-ALTER TABLE bayesian_model_updates ALTER COLUMN applied_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(applied_at::text);
-ALTER TABLE bayesian_model_updates ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-ALTER TABLE bayesian_model_updates ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(expires_at::text);
+-- bayesian_model_updates nullable columns
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='approved_at' AND data_type='text') THEN
+        ALTER TABLE bayesian_model_updates ALTER COLUMN approved_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(approved_at::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='rejected_at' AND data_type='text') THEN
+        ALTER TABLE bayesian_model_updates ALTER COLUMN rejected_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(rejected_at::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='applied_at' AND data_type='text') THEN
+        ALTER TABLE bayesian_model_updates ALTER COLUMN applied_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(applied_at::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='expires_at' AND data_type='text') THEN
+        ALTER TABLE bayesian_model_updates ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(expires_at::text);
+    END IF;
+END $$;
 
-ALTER TABLE scanner_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
-ALTER TABLE scanner_health ALTER COLUMN first_error_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_error_at::text);
-ALTER TABLE scanner_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+-- bayesian_model_updates.created_at (has default)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='created_at' AND data_type='text') THEN
+        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at DROP DEFAULT;
+        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
-ALTER TABLE telegram_queue ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-ALTER TABLE telegram_queue ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(sent_at::text);
+-- scanner_health nullable columns
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='last_success' AND data_type='text') THEN
+        ALTER TABLE scanner_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='first_error_at' AND data_type='text') THEN
+        ALTER TABLE scanner_health ALTER COLUMN first_error_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_error_at::text);
+    END IF;
+END $$;
 
-ALTER TABLE data_fetch_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
-ALTER TABLE data_fetch_health ALTER COLUMN last_failure TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_failure::text);
-ALTER TABLE data_fetch_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+-- scanner_health.updated_at (has default)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='updated_at' AND data_type='text') THEN
+        ALTER TABLE scanner_health ALTER COLUMN updated_at DROP DEFAULT;
+        ALTER TABLE scanner_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+        ALTER TABLE scanner_health ALTER COLUMN updated_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
-ALTER TABLE fetch_errors ALTER COLUMN first_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_seen::text);
-ALTER TABLE fetch_errors ALTER COLUMN last_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_seen::text);
+-- telegram_queue.created_at (has default)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telegram_queue' AND column_name='created_at' AND data_type='text') THEN
+        ALTER TABLE telegram_queue ALTER COLUMN created_at DROP DEFAULT;
+        ALTER TABLE telegram_queue ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
+        ALTER TABLE telegram_queue ALTER COLUMN created_at SET DEFAULT NOW();
+    END IF;
+END $$;
 
--- 2. Convert alert_date to DATE with safe overloads
+-- telegram_queue.sent_at (nullable)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telegram_queue' AND column_name='sent_at' AND data_type='text') THEN
+        ALTER TABLE telegram_queue ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(sent_at::text);
+    END IF;
+END $$;
+
+-- data_fetch_health nullable columns
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='last_success' AND data_type='text') THEN
+        ALTER TABLE data_fetch_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='last_failure' AND data_type='text') THEN
+        ALTER TABLE data_fetch_health ALTER COLUMN last_failure TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_failure::text);
+    END IF;
+END $$;
+
+-- data_fetch_health.updated_at (has default)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='updated_at' AND data_type='text') THEN
+        ALTER TABLE data_fetch_health ALTER COLUMN updated_at DROP DEFAULT;
+        ALTER TABLE data_fetch_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
+        ALTER TABLE data_fetch_health ALTER COLUMN updated_at SET DEFAULT NOW();
+    END IF;
+END $$;
+
+-- fetch_errors
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='fetch_errors' AND column_name='first_seen' AND data_type='text') THEN
+        ALTER TABLE fetch_errors ALTER COLUMN first_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_seen::text);
+    END IF;
+END $$;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='fetch_errors' AND column_name='last_seen' AND data_type='text') THEN
+        ALTER TABLE fetch_errors ALTER COLUMN last_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_seen::text);
+    END IF;
+END $$;
+
+-- 2. Convert alert_date to DATE (only if still TEXT)
 CREATE OR REPLACE FUNCTION safe_cast_date(p_val text) RETURNS date AS $fd$
 BEGIN
     RETURN p_val::date;
@@ -1318,16 +1429,20 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $fd2$ LANGUAGE plpgsql IMMUTABLE;
 
-ALTER TABLE alerts ALTER COLUMN alert_date DROP DEFAULT;
-ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
-ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='alert_date' AND data_type='text') THEN
+        ALTER TABLE alerts ALTER COLUMN alert_date DROP DEFAULT;
+        ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
+        ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
+    END IF;
+END $$;
 
--- 3. Add deduplication constraint including scanner
+-- 3. Add deduplication constraint including scanner (idempotent)
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_symbol_breakout_type_alert_date_key;
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_dedup_idx;
 ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date);
 
--- 4. Add status CHECK constraints (NOT VALID to avoid full-table validation during deploy)
+-- 4. Add status CHECK constraints (NOT VALID = no full-table scan during deploy, idempotent)
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
 ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')) NOT VALID;
 ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
