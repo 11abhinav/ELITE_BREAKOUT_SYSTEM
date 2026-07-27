@@ -1145,6 +1145,25 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             f"15m: {stale_15m}\n"
             f"5m : {stale_5m}"
         )
+    # [VERSION: MULTI_TF_DB_PERSISTENCE_v1.0] Export parquet artifact and upload to DB for instant restart recovery
+    if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
+        try:
+            from database import upload_parquet_to_db, get_connection
+            from psycopg2.extras import RealDictCursor
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM breakout_watchlist WHERE is_active = TRUE;")
+                    bw_rows = cur.fetchall()
+            if bw_rows:
+                bw_df = pd.DataFrame(bw_rows)
+                MULTI_TF_PATH = os.path.join(DATA_DIR, "multi_tf_system.parquet")
+                os.makedirs(os.path.dirname(MULTI_TF_PATH), exist_ok=True)
+                bw_df.to_parquet(MULTI_TF_PATH)
+                upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
+                logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+        except Exception as _mtf_pe:
+            logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
+
     return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures}
 
 
