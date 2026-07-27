@@ -3,7 +3,7 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v2';
+const CACHE_NAME = 'elite-breakout-v3'; // bumped: push notification iOS + VAPID key fix
 const STATIC_ASSETS = [
   '/',
   '/login',
@@ -143,12 +143,16 @@ self.addEventListener('notificationclick', event => {
   if (event.action === 'dismiss') return;
 
   const targetUrl = event.notification.data?.url || '/';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // [BUG FIX] Don't use client.url.includes(self.location.origin) — it's unreliable on iOS PWA.
+      // Instead: try to focus any existing visible window, then navigate it, else open new window.
       for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.navigate(targetUrl);
-          return client.focus();
+        if ('focus' in client) {
+          return client.focus().then(c => c.navigate(targetUrl)).catch(() => {
+            if (clients.openWindow) return clients.openWindow(targetUrl);
+          });
         }
       }
       if (clients.openWindow) return clients.openWindow(targetUrl);

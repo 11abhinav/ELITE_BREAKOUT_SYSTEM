@@ -34,7 +34,6 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         
     # Throttle identical titles (to prevent MULTI_TF from spamming every 5 minutes during outages)
     if not bypass_throttle and title in cache:
-        # We already removed expired keys above, so if it's still here, it is within throttle window
         logger.info(f"🔕 Throttling duplicate push notification: '{title}' | Details: {body}")
         return
     
@@ -50,18 +49,23 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from push_throttle cache.")
 
     if webpush is None:
-        logger.warning("pywebpush package not installed. Cannot send push notifications.")
+        logger.warning("⚠️ pywebpush package not installed. Cannot send push notifications.")
         return
 
     vapid_private_key = os.getenv("VAPID_PRIVATE_KEY")
-    vapid_public_key = os.getenv("VAPID_PUBLIC_KEY")
+    vapid_public_key  = os.getenv("VAPID_PUBLIC_KEY")
 
     if not vapid_private_key or not vapid_public_key:
-        logger.warning("VAPID keys not configured. Cannot send push notifications.")
+        logger.warning("⚠️ VAPID_PRIVATE_KEY or VAPID_PUBLIC_KEY env var not set. Push notifications disabled.")
         return
+
+    # [NO HARDCODE] VAPID subject read from env — fallback to a safe placeholder.
+    # Set VAPID_CLAIMS_SUBJECT=mailto:you@yourdomain.com in Railway env vars.
+    vapid_subject = os.getenv("VAPID_CLAIMS_SUBJECT", "mailto:noreply@elitebreakout.app")
 
     subscriptions = database.get_all_push_subscriptions()
     if not subscriptions:
+        logger.debug("📭 No push subscriptions found. Skipping push.")
         return
 
     payload = json.dumps({
@@ -71,6 +75,10 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         "symbol": symbol
     })
 
+    sent_count = 0
+    removed_count = 0
+    error_count = 0
+
     for sub in subscriptions:
         try:
             webpush(
@@ -78,21 +86,34 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
                     "endpoint": sub["endpoint"],
                     "keys": {
                         "p256dh": sub["p256dh"],
-                        "auth": sub["auth"]
+                        "auth":   sub["auth"]
                     }
                 },
                 data=payload,
                 vapid_private_key=vapid_private_key,
-                vapid_claims={"sub": "mailto:admin@elitebreakout.com"}
+                vapid_claims={"sub": vapid_subject}
             )
+            sent_count += 1
         except WebPushException as ex:
-            # If the subscription expired, user revoked permission, or VAPID keys changed (400/403)
-            status_code = getattr(ex.response, "status_code", None) if hasattr(ex, "response") and ex.response else None
-            is_invalid = (status_code in (400, 403, 404, 410)) or any(code in str(ex) for code in ["400", "403", "404", "410"])
+            # 400/401/403/404/410 → subscription is invalid/expired/revoked
+            status_code = None
+            if hasattr(ex, "response") and ex.response is not None:
+                status_code = getattr(ex.response, "status_code", None)
+            ex_str = str(ex)
+            is_invalid = status_code in (400, 401, 403, 404, 410) or \
+                         any(code in ex_str for code in ["400", "401", "403", "404", "410"])
             if is_invalid:
-                logger.info(f"🧹 Removing invalid/expired subscription: {sub['endpoint']} (Status: {status_code or 'from string'})")
-                database.remove_push_subscription(sub['endpoint'])
+                logger.info(f"🧹 Removing stale/revoked subscription endpoint (HTTP {status_code}): {sub['endpoint'][:60]}...")
+                database.remove_push_subscription(sub["endpoint"])
+                removed_count += 1
             else:
-                logger.error(f"WebPush error: {repr(ex)}")
+                logger.error(f"❌ WebPush delivery failed (non-fatal): status={status_code} | error={ex_str[:200]}")
+                error_count += 1
         except Exception as e:
-            logger.exception(f"Failed to send push")
+            logger.exception(f"❌ Unexpected push error for endpoint {sub['endpoint'][:60]}: {e}")
+            error_count += 1
+
+    logger.info(
+        f"📤 Push '{title}' → sent={sent_count} | removed_stale={removed_count} | errors={error_count} "
+        f"(total_subs={len(subscriptions)})"
+    )

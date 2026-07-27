@@ -224,11 +224,15 @@ def manifest():
 
 @app.route("/api/push/vapid_public_key", methods=["GET"])
 def vapid_public_key():
-    """Returns the VAPID public key so the frontend can subscribe."""
+    """Returns the VAPID public key so the frontend can subscribe.
+    Returns both 'public_key' and 'vapid_public_key' fields for compatibility.
+    """
     pub_key = os.getenv("VAPID_PUBLIC_KEY")
     if not pub_key:
         return jsonify({"error": "VAPID key not configured on server"}), 500
-    return jsonify({"vapid_public_key": pub_key})
+    # [BUG FIX] push.js destructures { public_key } but old API sent { vapid_public_key }.
+    # Return both so all existing clients and future clients work.
+    return jsonify({"public_key": pub_key, "vapid_public_key": pub_key})
 
 @app.route("/api/push/subscribe", methods=["POST"])
 @login_required

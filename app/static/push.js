@@ -4,7 +4,6 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
       .then(reg => {
         console.log('[PWA] Service worker registered:', reg.scope);
-        // Check for updates every time page loads
         reg.update();
       })
       .catch(err => {
@@ -27,25 +26,61 @@ function urlB64ToUint8Array(base64String) {
 async function subscribeToPush() {
   try {
     const reg = await navigator.serviceWorker.ready;
+
+    // [BUG FIX] Don't silently skip if a subscription exists — verify it matches
+    // the current VAPID key. If VAPID keys were rotated, the existing subscription
+    // is dead. Unsubscribe first, then re-subscribe.
     let sub = await reg.pushManager.getSubscription();
-    if (sub) return; // already subscribed
 
+    // Fetch the current server VAPID public key
     const vapidRes = await fetch('/api/push/vapid_public_key');
-    if (!vapidRes.ok) throw new Error("Could not fetch VAPID key");
-    const { public_key } = await vapidRes.json();
-    if (!public_key) return;
+    if (!vapidRes.ok) {
+      console.warn('[PWA] Could not fetch VAPID key from server.');
+      return;
+    }
+    // [BUG FIX] API returns both { public_key, vapid_public_key } — use public_key
+    const resp = await vapidRes.json();
+    const serverPublicKey = resp.public_key || resp.vapid_public_key;
+    if (!serverPublicKey) {
+      console.warn('[PWA] VAPID key not configured on server. Push disabled.');
+      return;
+    }
 
+    // If there's an existing subscription, validate it matches the server's current key
+    if (sub) {
+      // Convert the server key to Uint8Array for comparison
+      const serverKeyBytes = urlB64ToUint8Array(serverPublicKey);
+      const existingKeyBytes = new Uint8Array(sub.options.applicationServerKey);
+      const keysMatch = serverKeyBytes.length === existingKeyBytes.length &&
+        serverKeyBytes.every((b, i) => b === existingKeyBytes[i]);
+      if (keysMatch) {
+        console.log('[PWA] Existing push subscription is valid. No action needed.');
+        return;
+      }
+      // Keys don't match (VAPID rotation) — unsubscribe old and re-subscribe
+      console.warn('[PWA] VAPID key changed. Unsubscribing old subscription and re-subscribing...');
+      await sub.unsubscribe();
+      sub = null;
+    }
+
+    // Create a fresh subscription
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlB64ToUint8Array(public_key)
+      applicationServerKey: urlB64ToUint8Array(serverPublicKey)
     });
 
-    await fetch('/api/push/subscribe', {
+    // Save to server
+    const saveRes = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sub)
     });
-    console.log('[PWA] Push subscription saved on server.');
+
+    if (saveRes.ok) {
+      console.log('[PWA] ✅ Push subscription saved on server.');
+    } else {
+      console.error('[PWA] Server rejected subscription:', saveRes.status);
+    }
   } catch (err) {
     console.error('[PWA] Failed to subscribe to push:', err);
   }
@@ -67,9 +102,7 @@ async function requestPushPermission() {
   }
 }
 
-// FIX: Desktop browsers aggressively block Notification.requestPermission() if triggered via setTimeout.
-// It MUST be triggered by a user gesture. We attach a one-time click listener to the document
-// so that the first time the user clicks anywhere on the dashboard, it prompts for permissions.
+// Push permission is requested on first user click (browsers block auto-permission prompts)
 document.addEventListener('click', () => {
     requestPushPermission();
 }, { once: true });
