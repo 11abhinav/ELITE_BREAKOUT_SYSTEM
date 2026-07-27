@@ -1705,21 +1705,21 @@
           </div>
         </div>
 
-        <!-- MANUAL WATCHLIST (Admin) - loads on-demand -->
+        <!-- MANUAL WATCHLIST (Admin) - loads on-demand & collapsible -->
         <div class="card" style="margin-bottom:18px; padding:16px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleManualWatchlist()">
             <h3 style="font-size:16px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;"><span>🛠️</span> Manual Watchlist (Admin)</h3>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button id="run-manual-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" class="refresh-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; font-weight:700; padding:8px 16px; border-radius:8px; box-shadow:0 4px 14px rgba(59,130,246,0.35);">⚡ Execute Deep Scan on All Watchlist Stocks</button>
-              <button class="refresh-btn" onclick="loadManualWatchlist()" style="font-weight:700;">🔄 Load Manual Watchlist</button>
-              <button class="refresh-btn" onclick="downloadManualWatchlistCSV()" style="font-weight:700;">📥 Download CSV</button>
+            <div style="display:flex; gap:8px; align-items:center;" onclick="event.stopPropagation()">
+              <button id="run-manual-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" class="refresh-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; font-weight:700; padding:6px 14px; border-radius:8px; box-shadow:0 4px 14px rgba(59,130,246,0.35); font-size:12px;">⚡ Execute Deep Scan on All Watchlist Stocks</button>
+              <button class="refresh-btn" onclick="downloadManualWatchlistCSV()" style="font-weight:700; font-size:12px; padding:6px 12px;">📥 Download CSV</button>
+              <button class="refresh-btn" id="manual-watchlist-toggle-btn" onclick="toggleManualWatchlist()" style="font-size:12px; font-weight:700; padding:6px 12px;">▶️ Expand</button>
             </div>
           </div>
-          <div id="manual-watchlist-container" style="background:var(--bg); padding:12px; border-radius:8px;">
+          <div id="manual-watchlist-container" style="display:none; background:var(--bg); padding:12px; border-radius:8px; margin-top:12px;">
             <div class="table-container">
               <table class="data-table" style="width:100%;">
-                <thead><tr><th>Symbol</th><th>Added Date (IST)</th><th>Status</th><th>Last Scanned (IST)</th><th style="text-align:center;">Action</th></tr></thead>
-                <tbody id="manual-watchlist-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">Click 'Load Manual Watchlist' to fetch manual entries.</td></tr></tbody>
+                <thead><tr><th>Symbol</th><th style="text-align:right;">LTP (₹)</th><th>Added Date (IST)</th><th>Status</th><th>Last Scanned (IST)</th><th style="text-align:center;">Action</th></tr></thead>
+                <tbody id="manual-watchlist-tbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Loading manual entries...</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -6905,13 +6905,13 @@ function loadUserWatchlist() {
 function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
   fetch('/api/v1/user_watchlist')
     .then(res => res.json())
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
         return;
       }
 
@@ -6936,9 +6936,13 @@ function loadManualWatchlist() {
           statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode. Click to view saved breakdown.">🔍 ${it.last_status}</span>`;
         }
 
+        const ltpVal = it.close_price || (it.deep_analysis_result ? (it.deep_analysis_result.close_price || it.deep_analysis_result.close) : null);
+        const ltpText = ltpVal !== null && ltpVal !== undefined ? `₹${parseFloat(ltpVal).toFixed(2)}` : '—';
+
         return `
           <tr>
             <td><strong style="color:var(--text); font-family:var(--font-mono); font-size:13px;">${it.symbol}</strong></td>
+            <td style="text-align:right; font-family:var(--font-mono); font-weight:700; color:var(--accent); font-size:13px;">${ltpText}</td>
             <td style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">${formatISTDate(it.added_at)}</td>
             <td>${statusBadge}</td>
             <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono);">
@@ -6959,8 +6963,21 @@ function loadManualWatchlist() {
     })
     .catch(err => {
       console.error('Failed to load manual watchlist:', err);
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
     });
+}
+
+function toggleManualWatchlist() {
+  const container = document.getElementById('manual-watchlist-container');
+  const btn = document.getElementById('manual-watchlist-toggle-btn');
+  if (!container) return;
+  if (container.style.display === 'none' || container.style.display === '') {
+    container.style.display = 'block';
+    if (btn) btn.textContent = '🔽 Collapse';
+  } else {
+    container.style.display = 'none';
+    if (btn) btn.textContent = '▶️ Expand';
+  }
 }
 
 function downloadManualWatchlistCSV() {
