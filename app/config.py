@@ -191,7 +191,7 @@ REVERSAL_RSI_LOOKBACK = 15
 BB_WIDTH_PCTILE_LOOKBACK = 60
 
 # Multi-TF batch size (number of symbols fetched per provider call)
-MULTI_TF_FETCH_BATCH_SIZE = 50
+MULTI_TF_FETCH_BATCH_SIZE = 100
 
 # =====================================================================================
 # POSITION SIZING & RISK BUDGETING CONFIGURATION
@@ -268,7 +268,7 @@ DELIVERY_CONVICTION_THRESHOLDS = {
     "intraday_churn": 0,
 }
 
-BATCH_DOWNLOAD_SIZE = 30
+BATCH_DOWNLOAD_SIZE = 100
 YAHOO_TIMEOUT = 30
 PRICE_CACHE_TTL_SECONDS = 60  # Changed from 180s: Intraday runs every 5min (need fresh cache hit)
 

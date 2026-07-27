@@ -587,6 +587,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             
             if batch_results:
                 batch_validation_items = []
+                batch_indicator_jobs = []
+                batch_symbol_meta = {}
+
                 for sym in batch:
                     # Ingestion Boundary Canonical Symbol Lookup: Try sym, sym.NS, sym.BO, and base symbol
                     md = batch_results.get(sym)
@@ -763,18 +766,39 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                     all_data[sym] = None
                                 continue
 
-                            from indicator_executor import indicator_executor
-                            job = {"symbol": sym, "timeframe": interval, "dataframe": all_data[sym]}
-                            exec_res = indicator_executor.execute([job])
-                            if sym in exec_res:
-                                all_data[sym] = exec_res[sym]
-                            
-                        # If this was a FULL fetch for a long historical period, record the earliest available date
-                        # [VERSION: CACHE_POISON_FIX] Require at least 10 bars to prevent a failed 1-bar fallback from poisoning the IPO date
-                        if group_key == "FULL" and not new_df.empty and len(new_df) >= 10 and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
+                            batch_indicator_jobs.append({
+                                "symbol": sym,
+                                "timeframe": interval,
+                                "dataframe": all_data[sym]
+                            })
+                            batch_symbol_meta[sym] = {
+                                "new_df": new_df,
+                                "new_report": new_report
+                            }
+                    else:
+                        # Fallback to stale cached data if fresh fetch returned empty
+                        if cached_df is not None and not cached_df.empty:
+                            cached_df.attrs['is_stale'] = True
+                            all_data[sym] = cached_df
+
+                # Run indicator calculations concurrently for all symbols in this batch
+                if batch_indicator_jobs:
+                    from indicator_executor import indicator_executor
+                    exec_res = indicator_executor.execute(batch_indicator_jobs)
+                    for job in batch_indicator_jobs:
+                        sym = job["symbol"]
+                        if sym in exec_res and exec_res[sym] is not None:
+                            all_data[sym] = exec_res[sym]
+
+                        meta_info = batch_symbol_meta.get(sym, {})
+                        n_df = meta_info.get("new_df")
+                        n_rep = meta_info.get("new_report")
+
+                        # Record earliest date
+                        if group_key == "FULL" and n_df is not None and not n_df.empty and len(n_df) >= 10 and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
                             try:
-                                t_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
-                                earliest_ts = pd.to_datetime(new_df[t_col].iloc[0]) if t_col else pd.to_datetime(new_df.index[0])
+                                t_col = 'Date' if 'Date' in n_df.columns else ('Datetime' if 'Datetime' in n_df.columns else None)
+                                earliest_ts = pd.to_datetime(n_df[t_col].iloc[0]) if t_col else pd.to_datetime(n_df.index[0])
                                 earliest_dt_str = earliest_ts.date().isoformat() if hasattr(earliest_ts, 'date') else None
                                 if earliest_dt_str:
                                     earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
@@ -787,18 +811,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                         json.dump(earliest_dates, f)
                             except Exception as e:
                                 logger.debug(f"Failed to record earliest date for {sym}: {e}")
-                            
+
                         # Save back to disk
                         try:
                             file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
-                            
-                            # [VERSION: CACHE_PARQUET_FIX] Ensure all column names are strings to prevent PyArrow conversion failures
-                            # If columns are a MultiIndex (sometimes returned by newer yfinance), flatten them or cast to str.
                             if isinstance(all_data[sym].columns, pd.MultiIndex):
                                 all_data[sym].columns = ['_'.join(map(str, col)).strip() for col in all_data[sym].columns.values]
                             all_data[sym].columns = all_data[sym].columns.astype(str)
                             
-                            # Force strict types to prevent PyArrow ArrowInvalid crashes on mixed object types
                             time_cols = ['Date', 'Datetime']
                             for col in all_data[sym].columns:
                                 if col not in time_cols and all_data[sym][col].dtype == 'object':
@@ -807,12 +827,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             if all_data[sym].index.name in time_cols or isinstance(all_data[sym].index, pd.DatetimeIndex):
                                 all_data[sym].index = pd.to_datetime(all_data[sym].index, errors='coerce')
                             elif not isinstance(all_data[sym].index, pd.RangeIndex):
-                                # If it's an object index but not time, convert to string to be safe
                                 all_data[sym].index = all_data[sym].index.astype(str)
                             
                             all_data[sym].to_parquet(file_path)
                             
-                            # Save sidecar metadata
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             meta = {
                                 "schema_version": CACHE_SCHEMA_VERSION,
@@ -820,20 +838,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 "ohlcv_hash": compute_ohlcv_hash(all_data[sym]),
                                 "generated_at": time.time(),
                                 "row_count": len(all_data[sym]),
-                                "validation_score": new_report.quality_score if new_report else 100,
-                                "validation_status": str(new_report.status) if new_report else "ValidationStatus.VALID",
-                                "validator_name": new_report.validator_name if new_report else "Unknown"
+                                "validation_score": n_rep.quality_score if n_rep else 100,
+                                "validation_status": str(n_rep.status) if n_rep else "ValidationStatus.VALID",
+                                "validator_name": n_rep.validator_name if n_rep else "Unknown"
                             }
                             with open(meta_path, "w") as f:
                                 json.dump(meta, f)
-                                
                         except Exception as e:
                             logger.exception(f"Failed to write disk cache for {sym}")
-                    else:
-                        # Fallback to stale cached data if fresh fetch returned empty
-                        if cached_df is not None and not cached_df.empty:
-                            cached_df.attrs['is_stale'] = True
-                            all_data[sym] = cached_df
                 
                 # Record batch validation history
                 history_recorder.record_batch(DatasetType.PRICE, batch_validation_items)
