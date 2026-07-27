@@ -289,32 +289,8 @@ def init_db():
                         context_json TEXT
                     )
                 """)
-                # [VERSION: WEALTH_BUY_ALERT_INIT_FIX_v1.0] Check table existence before querying columns to prevent UndefinedTable error on fresh deployments
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.tables
-                        WHERE table_name = 'wealth_buy_alert'
-                    ) THEN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'wealth_buy_alert'
-                            AND column_name = 'engine_version'
-                        ) THEN
-                            ALTER TABLE wealth_buy_alert ADD COLUMN engine_version TEXT;
-                        END IF;
-                        
-                        IF NOT EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'wealth_buy_alert'
-                            AND column_name = 'config_version'
-                        ) THEN
-                            ALTER TABLE wealth_buy_alert ADD COLUMN config_version TEXT;
-                        END IF;
-                    END IF;
-                END $$;
-                """)
+                # [VERSION: INIT_DB_STABILITY_FIX_v1.0] wealth_buy_alert columns are migrated safely below
+                # after CREATE TABLE IF NOT EXISTS using ADD COLUMN IF NOT EXISTS — no pre-check needed.
                 
                 
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
