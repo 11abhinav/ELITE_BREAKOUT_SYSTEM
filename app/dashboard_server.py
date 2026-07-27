@@ -930,43 +930,146 @@ def fyers_callback():
         return f"Error exchanging Fyers token: {e}", 500
 
 
+# =====================================================================================
+# [VERSION: ADMIN_DB_EXPORT_APIS_v1.0] EXHAUSTIVE ADMIN DATABASE EXPORT & INSPECTION APIS
+# =====================================================================================
+
+@app.route("/api/admin/db/tables_summary")
+@admin_required
+def api_admin_db_tables_summary():
+    """Returns JSON summary of all PostgreSQL database tables, row counts, and metadata."""
+    try:
+        from database import get_all_database_tables_summary
+        summary = get_all_database_tables_summary()
+        return jsonify({
+            "status": "ok",
+            "total_tables": len(summary),
+            "total_rows": sum(t["row_count"] for t in summary),
+            "tables": summary,
+            "timestamp": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception("Failed to fetch database tables summary")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/export/table/<table_name>")
 @app.route("/admin/export/<table>")
 @admin_required
+def export_csv_data(table_name=None, table=None):
+    """Universal database exporter supporting both CSV and JSON download formats for all tables."""
+    target_table = table_name or table
+    if not target_table:
+        return jsonify({"error": "No table specified."}), 400
 
-def export_csv_data(table):
-    """Exports the requested database table as a CSV file."""
-    # Prevent SQL injection by strictly whitelisting allowed tables
-    valid_tables = ["alerts", "scanner_health", "system_state", "ai_concall_cache_v3"]
-    if table not in valid_tables:
-        return jsonify({"error": "Invalid table requested."}), 400
-        
+    fmt = request.args.get("format", "csv").lower().strip()
     try:
-        from database import get_connection
+        from database import export_table_records
         import io
         import csv
+        import json
         from flask import Response
-        
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"SELECT * FROM {table}")
-                rows = cur.fetchall()
-                col_names = [desc[0] for desc in cur.description]
-                
-                output = io.StringIO()
-                writer = csv.writer(output)
-                writer.writerow(col_names)
-                for row in rows:
-                    writer.writerow(row)
-                    
-                csv_data = output.getvalue()
-                
+
+        col_names, rows = export_table_records(target_table)
+
+        if fmt == "json":
+            json_rows = []
+            for r in rows:
+                row_dict = {}
+                for col, val in zip(col_names, r):
+                    if isinstance(val, (datetime, date)):
+                        row_dict[col] = val.isoformat()
+                    elif isinstance(val, memoryview):
+                        row_dict[col] = "<BINARY_BYTEA>"
+                    else:
+                        row_dict[col] = val
+                json_rows.append(row_dict)
+
+            json_str = json.dumps(json_rows, indent=2, default=str)
+            return Response(
+                json_str,
+                mimetype="application/json",
+                headers={"Content-disposition": f"attachment; filename={target_table}_export.json"}
+            )
+        else:
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(col_names)
+            for row in rows:
+                formatted_row = []
+                for val in row:
+                    if isinstance(val, (dict, list)):
+                        formatted_row.append(json.dumps(val, default=str))
+                    elif isinstance(val, (datetime, date)):
+                        formatted_row.append(val.isoformat())
+                    elif isinstance(val, memoryview):
+                        formatted_row.append("<BINARY_BYTEA>")
+                    else:
+                        formatted_row.append(val)
+                writer.writerow(formatted_row)
+
+            csv_data = output.getvalue()
+            return Response(
+                csv_data,
+                mimetype="text/csv",
+                headers={"Content-disposition": f"attachment; filename={target_table}_export.csv"}
+            )
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        logger.exception(f"Error exporting table {target_table}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/export/all_tables_zip")
+@admin_required
+def export_all_tables_zip():
+    """Generates and streams a ZIP file containing CSV exports for ALL database tables."""
+    try:
+        from database import get_all_database_tables_summary, export_table_records
+        import io
+        import zipfile
+        import csv
+        import json
+        from flask import Response
+
+        summary = get_all_database_tables_summary()
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for t_info in summary:
+                t_name = t_info["table_name"]
+                try:
+                    col_names, rows = export_table_records(t_name)
+                    csv_io = io.StringIO()
+                    writer = csv.writer(csv_io)
+                    writer.writerow(col_names)
+                    for r in rows:
+                        formatted_row = []
+                        for val in r:
+                            if isinstance(val, (dict, list)):
+                                formatted_row.append(json.dumps(val, default=str))
+                            elif isinstance(val, (datetime, date)):
+                                formatted_row.append(val.isoformat())
+                            elif isinstance(val, memoryview):
+                                formatted_row.append("<BINARY_BYTEA>")
+                            else:
+                                formatted_row.append(val)
+                        writer.writerow(formatted_row)
+
+                    zf.writestr(f"{t_name}.csv", csv_io.getvalue())
+                except Exception as _t_err:
+                    logger.warning(f"Could not add {t_name} to ZIP: {_t_err}")
+
+        zip_buffer.seek(0)
+        today_stamp = datetime.now(IST).strftime("%Y%m%d_%H%M")
         return Response(
-            csv_data,
-            mimetype="text/csv",
-            headers={"Content-disposition": f"attachment; filename={table}_export.csv"}
+            zip_buffer.getvalue(),
+            mimetype="application/zip",
+            headers={"Content-disposition": f"attachment; filename=elite_database_full_export_{today_stamp}.zip"}
         )
     except Exception as e:
-        logger.exception(f"Error exporting CSV for table {table}")
+        logger.exception("Failed to generate ZIP for all database tables")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/admin/export/watchlist/<list_type>")

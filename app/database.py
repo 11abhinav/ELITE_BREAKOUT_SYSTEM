@@ -6154,3 +6154,152 @@ def get_all_master_symbols() -> dict:
         logger.warning(f"Failed to fetch master symbols from DB: {e}")
         return {}
 
+
+# =====================================================================================
+# [VERSION: DB_EXPORT_SUITE_v1.0] EXHAUSTIVE DATABASE TABLE INSPECTION & EXPORT API HELPERS
+# =====================================================================================
+
+KNOWN_TABLE_DESCRIPTIONS = {
+    "alerts": "Core Buy Alerts & Trade Signal Execution Ledger",
+    "wealth_buy_alert": "Wealth Engine Investment Portfolio Holdings & Alerts",
+    "candidates": "Discovered Breakout & Momentum Candidates",
+    "alert_outcomes": "Trade Outcome Excursion Matrix & Performance Metrics",
+    "breakout_watchlist": "Multi-TF Funnel Watchlist & Active Monitoring",
+    "manual_portfolio": "Manual Portfolio Holdings & Holdings Scores",
+    "rejected_alerts": "Audit Log of Scanner Filter Rejections",
+    "trade_audit_log": "Immutable Audit Trail of Trade State Modifications",
+    "scanner_health": "Scanner Health Heartbeats & Pause/Start Status",
+    "build_manifest": "Authoritative Daily Watchlist Build Certifications",
+    "system_state": "Cached Key-Value Dashboard Metrics & System State",
+    "system_logs": "Application Exceptions & Crash Event Ledger",
+    "scan_failures": "Batch Scanner Error Log & Failure Diagnostics",
+    "funnel_telemetry": "Scanner Gate & Stage Funnel Analytics",
+    "fetch_errors": "External API Data Fetch Failure Ledger",
+    "data_fetch_health": "Data Provider Operational Health Metrics",
+    "validation_history": "Dataset Quality & Integrity History Log",
+    "ai_concall_cache_v3": "AI Concall Transcript Analysis & Financial Summaries",
+    "score_weight_log": "Bayesian Scoring Engine Model Weights Audit",
+    "bayesian_model_updates": "Proposed & Approved Bayesian Model Re-calibrations",
+    "promoter_pledge_cache": "Promoter Pledge Percentages Scrape Cache",
+    "bhavcopy_cache": "NSE Bhavcopy Delivery Data Cache",
+    "earnings_calendar": "Corporate Quarterly Earnings Calendar Dates",
+    "sector_rankings": "Blended Sector Relative Strength Rankings",
+    "master_symbols": "Master Equities Symbol & Sector Directory",
+    "global_notifications": "Unified System Alerts & Push Notifications",
+    "telegram_queue": "Outbound Telegram Alert Queue Ledger",
+    "push_subscriptions": "PWA Web Push Notification Subscriptions",
+    "symbol_mappings": "Persistent Provider Symbol Cross-Reference Map",
+    "system_checkpoints": "System State Checkpoints & Audit History",
+    "data_cache_metadata": "Data Cache Cadence & Freshness Metrics",
+    "parquet_cache": "Binary Parquet Sidecar Files Storage"
+}
+
+KNOWN_TABLE_CATEGORIES = {
+    "alerts": "Trading & Portfolio",
+    "wealth_buy_alert": "Trading & Portfolio",
+    "candidates": "Trading & Portfolio",
+    "alert_outcomes": "Trading & Portfolio",
+    "breakout_watchlist": "Trading & Portfolio",
+    "manual_portfolio": "Trading & Portfolio",
+    "rejected_alerts": "Trading & Portfolio",
+    "trade_audit_log": "Trading & Portfolio",
+    "scanner_health": "System & Operations",
+    "build_manifest": "System & Operations",
+    "system_state": "System & Operations",
+    "system_logs": "System & Operations",
+    "scan_failures": "System & Operations",
+    "funnel_telemetry": "System & Operations",
+    "fetch_errors": "System & Operations",
+    "data_fetch_health": "System & Operations",
+    "validation_history": "System & Operations",
+    "ai_concall_cache_v3": "AI & Analytics Caches",
+    "score_weight_log": "AI & Analytics Caches",
+    "bayesian_model_updates": "AI & Analytics Caches",
+    "promoter_pledge_cache": "AI & Analytics Caches",
+    "bhavcopy_cache": "AI & Analytics Caches",
+    "earnings_calendar": "AI & Analytics Caches",
+    "sector_rankings": "AI & Analytics Caches",
+    "master_symbols": "AI & Analytics Caches",
+    "global_notifications": "Communications & Infrastructure",
+    "telegram_queue": "Communications & Infrastructure",
+    "push_subscriptions": "Communications & Infrastructure",
+    "symbol_mappings": "Communications & Infrastructure",
+    "system_checkpoints": "Communications & Infrastructure",
+    "data_cache_metadata": "Communications & Infrastructure",
+    "parquet_cache": "Communications & Infrastructure"
+}
+
+def get_all_database_tables_summary() -> list:
+    """
+    Returns a comprehensive list of all PostgreSQL database tables, 
+    their row counts, column counts, categories, and human descriptions.
+    """
+    init_db()
+    tables_summary = []
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                      AND table_type = 'BASE TABLE'
+                    ORDER BY table_name;
+                """)
+                tables = [r[0] for r in cur.fetchall()]
+                
+                for t in tables:
+                    try:
+                        cur.execute(f"SELECT COUNT(*) FROM {t}")
+                        row_cnt = cur.fetchone()[0]
+                    except Exception:
+                        row_cnt = 0
+                        
+                    try:
+                        cur.execute("""
+                            SELECT COUNT(*) 
+                            FROM information_schema.columns 
+                            WHERE table_name = %s
+                        """, (t,))
+                        col_cnt = cur.fetchone()[0]
+                    except Exception:
+                        col_cnt = 0
+                        
+                    desc = KNOWN_TABLE_DESCRIPTIONS.get(t, f"PostgreSQL Table ({t})")
+                    cat = KNOWN_TABLE_CATEGORIES.get(t, "General Tables")
+                    
+                    tables_summary.append({
+                        "table_name": t,
+                        "row_count": row_cnt,
+                        "column_count": col_cnt,
+                        "category": cat,
+                        "description": desc
+                    })
+    except Exception as e:
+        logger.exception("Failed to build database tables summary")
+    return tables_summary
+
+def export_table_records(table_name: str) -> tuple:
+    """
+    Safely retrieves column headers and all rows for a given table in public schema.
+    Returns (col_names, rows) or raises ValueError if invalid table.
+    """
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                  AND table_type = 'BASE TABLE' 
+                  AND table_name = %s
+            """, (table_name,))
+            if not cur.fetchone():
+                raise ValueError(f"Table '{table_name}' does not exist in database.")
+                
+            cur.execute(f"SELECT * FROM {table_name}")
+            rows = cur.fetchall()
+            col_names = [desc[0] for desc in cur.description]
+            return col_names, rows
+
+

@@ -1892,6 +1892,57 @@
           Stocks</button>
       </div>
 
+      <!-- [VERSION: ADMIN_DB_EXPLORER_UI_v1.0] DATABASE DATA EXPLORER & MULTI-TABLE EXPORT CENTER -->
+      <div class="card" style="margin-top: 36px; margin-bottom: 40px; padding: 24px; background: var(--card);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:16px;">
+          <div>
+            <h2 style="font-size:18px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>🗄️</span> Database Data Explorer & Export Center
+            </h2>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">
+              Export full PostgreSQL relational tables in CSV / JSON formats or download all 32+ database tables in a single ZIP bundle.
+            </div>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button onclick="fetchDatabaseTablesSummary()" class="btn btn-outline" style="font-size:12px; font-weight:700;">
+              🔄 Refresh Tables
+            </button>
+            <button onclick="window.open('/admin/export/all_tables_zip', '_blank')" class="btn" style="font-size:12px; font-weight:800; background:linear-gradient(135deg,#00d4a1,#059669); color:#000; border:none; box-shadow:0 4px 14px rgba(0,212,161,0.3);">
+              📦 Download All Tables (ZIP)
+            </button>
+          </div>
+        </div>
+
+        <!-- Metric Summary Cards -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px;">
+          <div style="background:var(--card2); border:1px solid var(--border); padding:16px; border-radius:12px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Database Tables</div>
+            <div id="db-total-tables-val" style="font-size:24px; font-weight:800; color:var(--accent); margin-top:6px;">--</div>
+          </div>
+          <div style="background:var(--card2); border:1px solid var(--border); padding:16px; border-radius:12px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Database Records</div>
+            <div id="db-total-records-val" style="font-size:24px; font-weight:800; color:var(--text); margin-top:6px;">--</div>
+          </div>
+          <div style="background:var(--card2); border:1px solid var(--border); padding:16px; border-radius:12px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Database Provider</div>
+            <div style="font-size:18px; font-weight:800; color:#3b82f6; margin-top:6px;">PostgreSQL 15+</div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; gap:12px; flex-wrap:wrap;">
+          <input type="text" id="db-table-search-input" onkeyup="filterDatabaseExplorerGrid()" placeholder="🔍 Search table name or description..." style="padding:10px 16px; background:var(--card2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:13px; min-width:280px; flex:1;" />
+          <div style="display:flex; gap:8px;" id="db-category-filter-btns">
+            <!-- Filter category buttons injected by JS -->
+          </div>
+        </div>
+
+        <!-- Grid of Tables -->
+        <div id="db-tables-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px;">
+          <!-- Dynamically populated table cards -->
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -6916,8 +6967,116 @@ function closeMyWatchlistModal() {
   }
 }
 
-// Initial watchlist count load
-document.addEventListener('DOMContentLoaded', loadUserWatchlist);
+// [VERSION: ADMIN_DB_EXPLORER_JS_v1.0] Database Explorer Frontend Logic
+let ALL_DB_TABLES = [];
+let ACTIVE_DB_CATEGORY = 'ALL';
+
+async function fetchDatabaseTablesSummary() {
+  const grid = document.getElementById('db-tables-grid');
+  if (grid) grid.innerHTML = '<div style="color:var(--muted); padding:20px; grid-column:1/-1;">Loading database schema summary...</div>';
+
+  try {
+    const res = await fetch('/api/admin/db/tables_summary');
+    const data = await res.json();
+    if (data && data.status === 'ok') {
+      ALL_DB_TABLES = data.tables || [];
+      document.getElementById('db-total-tables-val').innerText = data.total_tables || ALL_DB_TABLES.length;
+      document.getElementById('db-total-records-val').innerText = Number(data.total_rows || 0).toLocaleString('en-IN');
+      renderDatabaseExplorerGrid();
+      renderDatabaseCategoryFilters();
+    } else {
+      if (grid) grid.innerHTML = '<div style="color:var(--warn); padding:20px; grid-column:1/-1;">Failed to load database table summary.</div>';
+    }
+  } catch (err) {
+    console.error('Failed to load database summary', err);
+    if (grid) grid.innerHTML = '<div style="color:var(--warn); padding:20px; grid-column:1/-1;">Error connecting to database summary API.</div>';
+  }
+}
+
+function renderDatabaseCategoryFilters() {
+  const btnContainer = document.getElementById('db-category-filter-btns');
+  if (!btnContainer) return;
+  const categories = ['ALL', ...new Set(ALL_DB_TABLES.map(t => t.category))];
+  let html = '';
+  categories.forEach(cat => {
+    const isActive = cat === ACTIVE_DB_CATEGORY;
+    const style = isActive ? 'background:var(--accent); color:#000; font-weight:700; border:none;' : 'background:var(--card2); color:var(--muted); border:1px solid var(--border);';
+    html += `<button onclick="filterDatabaseCategory('${cat}')" style="padding:6px 12px; border-radius:8px; font-size:11px; cursor:pointer; ${style}">${cat}</button>`;
+  });
+  btnContainer.innerHTML = html;
+}
+
+function filterDatabaseCategory(cat) {
+  ACTIVE_DB_CATEGORY = cat;
+  renderDatabaseCategoryFilters();
+  renderDatabaseExplorerGrid();
+}
+
+function filterDatabaseExplorerGrid() {
+  renderDatabaseExplorerGrid();
+}
+
+function renderDatabaseExplorerGrid() {
+  const grid = document.getElementById('db-tables-grid');
+  if (!grid) return;
+  const searchInput = document.getElementById('db-table-search-input');
+  const search = searchInput && searchInput.value ? searchInput.value.toLowerCase().trim() : '';
+
+  const filtered = ALL_DB_TABLES.filter(t => {
+    const matchCat = ACTIVE_DB_CATEGORY === 'ALL' || t.category === ACTIVE_DB_CATEGORY;
+    const matchSearch = !search || t.table_name.toLowerCase().includes(search) || t.description.toLowerCase().includes(search);
+    return matchCat && matchSearch;
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1; color:var(--muted); padding:30px; text-align:center;">No matching database tables found.</div>';
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(t => {
+    const rowStr = Number(t.row_count || 0).toLocaleString('en-IN');
+    html += `
+      <div style="background:var(--card2); border:1px solid var(--border); border-radius:14px; padding:18px; display:flex; flex-direction:column; justify-content:space-between; transition:transform 0.2s, border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)';" onmouseout="this.style.borderColor='var(--border)';">
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px;">
+            <div style="font-family:var(--font-mono); font-size:14px; font-weight:800; color:var(--accent); word-break:break-all;">
+              📁 ${t.table_name}
+            </div>
+            <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border); white-space:nowrap;">
+              ${t.category}
+            </span>
+          </div>
+          <div style="font-size:12px; color:var(--text); opacity:0.85; margin-bottom:14px; line-height:1.4;">
+            ${t.description}
+          </div>
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:14px; font-size:12px;">
+            <div><span style="color:var(--muted);">Rows:</span> <strong style="color:var(--text); font-family:var(--font-mono);">${rowStr}</strong></div>
+            <div><span style="color:var(--muted);">Cols:</span> <strong style="color:var(--text); font-family:var(--font-mono);">${t.column_count}</strong></div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="window.open('/admin/export/table/${t.table_name}?format=csv', '_blank')" style="flex:1; padding:7px 10px; background:rgba(0,212,161,0.12); color:var(--accent); border:1px solid var(--accent); border-radius:8px; font-size:11px; font-weight:700; cursor:pointer;" title="Download CSV">
+              📥 Export CSV
+            </button>
+            <button onclick="window.open('/admin/export/table/${t.table_name}?format=json', '_blank')" style="flex:1; padding:7px 10px; background:rgba(59,130,246,0.12); color:#3b82f6; border:1px solid #3b82f6; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer;" title="Download JSON">
+              📄 Export JSON
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  grid.innerHTML = html;
+}
+
+// Initial watchlist & database summary load
+document.addEventListener('DOMContentLoaded', () => {
+  loadUserWatchlist();
+  fetchDatabaseTablesSummary();
+});
   </script>
 
 <script>
