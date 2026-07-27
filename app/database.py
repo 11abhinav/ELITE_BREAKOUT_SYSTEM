@@ -5906,12 +5906,12 @@ def check_session_validity(user_id, session_token: str) -> bool:
                 if not user_row or not user_row[0]:
                     return False  # Account deactivated
 
-                # [MULTI-DEVICE] Check this specific device's session token
+                # [MULTI-DEVICE] Session is valid if token exists and user has not explicitly logged off
                 cur.execute("""
                     SELECT id FROM user_sessions
                     WHERE user_id = %s
                       AND session_token = %s
-                      AND is_online = TRUE
+                      AND (logoff_time IS NULL OR is_online = TRUE)
                 """, (user_id_int, str(session_token)))
                 return cur.fetchone() is not None
     except Exception as e:

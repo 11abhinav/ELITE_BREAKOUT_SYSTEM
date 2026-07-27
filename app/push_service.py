@@ -32,12 +32,13 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
     for k in expired_keys:
         del cache[k]
         
-    # Throttle identical titles (to prevent MULTI_TF from spamming every 5 minutes during outages)
-    if not bypass_throttle and title in cache:
-        logger.info(f"🔕 Throttling duplicate push notification: '{title}' | Details: {body}")
+    # Throttle key includes title, symbol, and body snippet so DIFFERENT stock alerts are never blocked!
+    throttle_key = f"{title}:{symbol}:{body[:50]}" if symbol else f"{title}:{body[:50]}"
+    if not bypass_throttle and throttle_key in cache:
+        logger.info(f"🔕 Throttling duplicate push notification: '{throttle_key}'")
         return
     
-    cache[title] = now
+    cache[throttle_key] = now
     
     # 2. Limit maximum cache size
     MAX_PUSH_CACHE_SIZE = 1000
