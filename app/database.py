@@ -1209,6 +1209,7 @@ def init_db():
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS login_time TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS logoff_time TIMESTAMPTZ")
+                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT FALSE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token)")
@@ -5807,8 +5808,8 @@ def verify_user(identifier, password, ip_address: str = None, user_agent: str = 
 
                         # [MULTI-DEVICE] Insert a new session row — does NOT invalidate other devices
                         cur.execute("""
-                            INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent, login_time, is_online)
-                            VALUES (%s, %s, %s, %s, NOW(), TRUE)
+                            INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent, login_time, is_online, is_revoked)
+                            VALUES (%s, %s, %s, %s, NOW(), TRUE, FALSE)
                         """, (user_id, new_token, ip_address, user_agent))
 
                         # Keep last_login updated on users; clear old failed attempts
@@ -5895,12 +5896,12 @@ def admin_reset_password(user_id: int, new_password: str, force_change: bool = F
         logger.exception(f"Failed to reset password for user {user_id}")
         return False
 
-def check_session_validity(user_id, session_token: str) -> bool:
-    """[MULTI-DEVICE] Check session validity against user_sessions table.
-    Each device has its own token row — validating one does NOT affect other devices.
-    Falls back gracefully on DB errors to avoid unexpected logouts.
+def check_session_validity(user_id, session_token: str = None) -> bool:
+    """[MULTI-DEVICE] Check session validity against users & user_sessions tables.
+    Preserves sessions across redeploys, server restarts, and legacy session cookies.
+    Only invalidates if user account is deactivated or session was explicitly revoked by /logout.
     """
-    if not user_id or not session_token:
+    if not user_id:
         return False
 
     try:
@@ -5912,32 +5913,31 @@ def check_session_validity(user_id, session_token: str) -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # First check user is still active
+                # First check user is active in users table
                 cur.execute("SELECT is_active FROM users WHERE user_id = %s", (user_id_int,))
                 user_row = cur.fetchone()
                 if not user_row or not user_row[0]:
-                    return False  # Account deactivated
+                    return False  # Account deactivated or deleted
 
-                # [MULTI-DEVICE] Session is valid if token exists and user has not explicitly logged off
-                cur.execute("""
-                    SELECT id FROM user_sessions
-                    WHERE user_id = %s
-                      AND session_token = %s
-                      AND (logoff_time IS NULL OR is_online = TRUE)
-                """, (user_id_int, str(session_token)))
-                return cur.fetchone() is not None
+                # Check if session_token was explicitly revoked by /logout
+                if session_token:
+                    cur.execute("""
+                        SELECT is_revoked FROM user_sessions
+                        WHERE user_id = %s AND session_token = %s
+                    """, (user_id_int, str(session_token)))
+                    sess_row = cur.fetchone()
+                    if sess_row and sess_row[0] is True:
+                        return False  # Explicitly logged out / revoked
+
+                return True  # Valid active session
     except Exception as e:
-        import psycopg2
-        if "Connection pool exhausted" in str(e) or isinstance(e, psycopg2.OperationalError):
-            logger.warning(f"Session validation skipped due to DB pool timeout — preserving session")
-            return True  # Fail-open: don't log out user on transient DB hiccup
-        logger.exception(f"Session validation failed for user_id={user_id}")
-        return True  # Fail-open
+        logger.warning(f"Session validation skipped due to DB error — preserving session for user_id={user_id}: {e}")
+        return True  # Fail-open: don't log out user on DB hiccup or restart
 
 # ── PWA Push Notifications ───────────────────────────────────────────────────
 
 def invalidate_session(user_id, session_token: str) -> bool:
-    """[MULTI-DEVICE] Mark a single device session as offline (logout).
+    """[MULTI-DEVICE] Mark a single device session as revoked (logout).
     Other devices for the same user are NOT affected.
     """
     try:
@@ -5949,7 +5949,7 @@ def invalidate_session(user_id, session_token: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("""
                     UPDATE user_sessions
-                    SET is_online = FALSE, logoff_time = NOW()
+                    SET is_online = FALSE, is_revoked = TRUE, logoff_time = NOW()
                     WHERE user_id = %s AND session_token = %s
                 """, (user_id_int, str(session_token)))
             conn.commit()

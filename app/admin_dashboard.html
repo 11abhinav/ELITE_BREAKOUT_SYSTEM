@@ -6912,7 +6912,8 @@ function toggleUserManagement() {
   }
 }
 
-
+function loadUserWatchlist() {
+  fetch('/api/v1/user_watchlist')
     .then(res => res.json())
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];

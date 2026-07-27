@@ -23,14 +23,32 @@ function urlB64ToUint8Array(base64String) {
   return outputArray;
 }
 
+async function sendSubscriptionToServer(sub) {
+  if (!sub) return;
+  try {
+    const saveRes = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub)
+    });
+    if (saveRes.ok) {
+      console.log('[PWA] ✅ Push subscription saved on server.');
+    } else {
+      console.warn('[PWA] Server returned status for push subscription:', saveRes.status);
+    }
+  } catch (err) {
+    console.error('[PWA] Failed to send subscription to server:', err);
+  }
+}
+
 async function subscribeToPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn('[PWA] Push messaging is not supported in this browser environment.');
+    return;
+  }
+
   try {
     const reg = await navigator.serviceWorker.ready;
-
-    // [BUG FIX] Don't silently skip if a subscription exists — verify it matches
-    // the current VAPID key. If VAPID keys were rotated, the existing subscription
-    // is dead. Unsubscribe first, then re-subscribe.
-    let sub = await reg.pushManager.getSubscription();
 
     // Fetch the current server VAPID public key
     const vapidRes = await fetch('/api/push/vapid_public_key');
@@ -38,7 +56,6 @@ async function subscribeToPush() {
       console.warn('[PWA] Could not fetch VAPID key from server.');
       return;
     }
-    // [BUG FIX] API returns both { public_key, vapid_public_key } — use public_key
     const resp = await vapidRes.json();
     const serverPublicKey = resp.public_key || resp.vapid_public_key;
     if (!serverPublicKey) {
@@ -46,63 +63,65 @@ async function subscribeToPush() {
       return;
     }
 
-    // If there's an existing subscription, validate it matches the server's current key
+    let sub = await reg.pushManager.getSubscription();
+
     if (sub) {
-      // Convert the server key to Uint8Array for comparison
-      const serverKeyBytes = urlB64ToUint8Array(serverPublicKey);
-      const existingKeyBytes = new Uint8Array(sub.options.applicationServerKey);
-      const keysMatch = serverKeyBytes.length === existingKeyBytes.length &&
-        serverKeyBytes.every((b, i) => b === existingKeyBytes[i]);
-      if (keysMatch) {
-        console.log('[PWA] Existing push subscription is valid. No action needed.');
-        return;
+      try {
+        if (sub.options && sub.options.applicationServerKey) {
+          const serverKeyBytes = urlB64ToUint8Array(serverPublicKey);
+          const existingKeyBytes = new Uint8Array(sub.options.applicationServerKey);
+          const keysMatch = serverKeyBytes.length === existingKeyBytes.length &&
+            serverKeyBytes.every((b, i) => b === existingKeyBytes[i]);
+          if (!keysMatch) {
+            console.warn('[PWA] VAPID key changed. Unsubscribing old subscription...');
+            await sub.unsubscribe();
+            sub = null;
+          }
+        }
+      } catch (keyErr) {
+        console.warn('[PWA] Key validation check skipped (Safari/mobile compatibility):', keyErr);
       }
-      // Keys don't match (VAPID rotation) — unsubscribe old and re-subscribe
-      console.warn('[PWA] VAPID key changed. Unsubscribing old subscription and re-subscribing...');
-      await sub.unsubscribe();
-      sub = null;
     }
 
-    // Create a fresh subscription
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlB64ToUint8Array(serverPublicKey)
-    });
-
-    // Save to server
-    const saveRes = await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sub)
-    });
-
-    if (saveRes.ok) {
-      console.log('[PWA] ✅ Push subscription saved on server.');
-    } else {
-      console.error('[PWA] Server rejected subscription:', saveRes.status);
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(serverPublicKey)
+      });
     }
+
+    // Always ensure the subscription is saved/refreshed in PostgreSQL DB
+    await sendSubscriptionToServer(sub);
+
   } catch (err) {
     console.error('[PWA] Failed to subscribe to push:', err);
   }
 }
 
 async function requestPushPermission() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-  
-  if (Notification.permission === 'granted') {
-    subscribeToPush();
+  if (!('serviceWorker' in navigator)) return;
+  if (!('Notification' in window)) {
+    console.warn('[PWA] Notification API not available in window.');
     return;
   }
-  
+
+  if (Notification.permission === 'granted') {
+    await subscribeToPush();
+    return;
+  }
+
   if (Notification.permission !== 'denied') {
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      subscribeToPush();
+      await subscribeToPush();
     }
   }
 }
 
-// Push permission is requested on first user click (browsers block auto-permission prompts)
+// Global window handle for UI buttons / manual trigger
+window.enablePushNotifications = requestPushPermission;
+
+// Request push permission on user click interaction
 document.addEventListener('click', () => {
-    requestPushPermission();
-}, { once: true });
+  requestPushPermission();
+});
