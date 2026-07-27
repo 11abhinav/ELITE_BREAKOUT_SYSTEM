@@ -277,12 +277,15 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"BSE:{base}-B")
             candidates.append(f"BSE:{base}-T")
 
-            # Check if BSE mapping lookup contains numeric scrip code
+            # [VERSION: FYERS_NUMERIC_BSE_FIX_v1.0] Strip .BO / BSE: prefixes so mapped scrip codes pass isdigit()
             try:
                 from bse_mapping_utils import load_bse_mappings
                 bse_map = load_bse_mappings()
-                if base in bse_map and str(bse_map[base]).isdigit():
-                    candidates.append(f"BSE:{bse_map[base]}-EQ")
+                if base in bse_map:
+                    clean_code = str(bse_map[base]).upper().replace(".BO", "").replace("BSE:", "").strip()
+                    if clean_code.isdigit():
+                        candidates.append(f"BSE:{clean_code}-EQ")
+                        candidates.append(f"BSE:{clean_code}")
             except Exception:
                 pass
 
