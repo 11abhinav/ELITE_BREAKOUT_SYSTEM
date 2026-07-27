@@ -2606,7 +2606,31 @@
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit signals for Wealth positions · 5m' },
     };
 
+    // [VERSION: SCANNER_PERF_v1.0] In-memory grouped errors map – populated once per render cycle
+    // so renderScannerGrid never needs to await per-scanner HTTP calls.
+    let _errorsByScanner = {};
+    let _errorsByScanner_ts = 0;
+
+    async function prefetchAllScannerErrors() {
+      // Cached for 5s to match backend TTL
+      if (Date.now() - _errorsByScanner_ts < 5000) return;
+      try {
+        const r = await fetch('/api/fetch_errors/grouped_by_scanner');
+        if (r.ok) {
+          _errorsByScanner = await r.json();
+          _errorsByScanner_ts = Date.now();
+        }
+      } catch (e) {
+        console.warn('prefetchAllScannerErrors failed:', e);
+      }
+    }
+
     async function fetchScannerErrors(scannerName) {
+      // Fast path: use in-memory batch data if fresh
+      if (Date.now() - _errorsByScanner_ts < 5000) {
+        return _errorsByScanner[scannerName] || [];
+      }
+      // Cold-start fallback: per-scanner fetch
       try {
         const response = await fetch(`/api/fetch_errors/by_scanner?name=${encodeURIComponent(scannerName)}`);
         if (!response.ok) return [];
@@ -2695,8 +2719,11 @@
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
-      // Async function to render scanner cards with error loading
+      // [VERSION: SCANNER_PERF_v1.0] Prefetch all scanner errors in ONE request BEFORE the render loop.
+      // This converts the old N serial HTTP awaits into 0 awaits during card rendering.
       (async function renderAll() {
+        await prefetchAllScannerErrors();
+
         let html_buffer = '';
         for (const sc of allScanners) {
           const data = scanner_stats[sc] || { today_alerts: 0, last_success: null, status: 'IDLE', today_trades: [], error_severity: null };
@@ -2731,7 +2758,6 @@
           } else if (isQueued) {
              statusClass = 'status-queued';
              badgeClass = 'badge-queued';
-             // If it's literally "QUEUED", say IN QUEUE. Else if it's "QUEUED-1", say IN QUEUE (1), etc.
              if (data.status === 'QUEUED') {
                  badgeText = '● IN QUEUE';
              } else {
@@ -2749,41 +2775,31 @@
           }
           const alertColor = data.today_alerts > 0 ? 'green' : 'amber';
 
-          // For RED scanners, fetch error details from fetch_errors table
+          // [VERSION: SCANNER_PERF_v1.0] SYNC lookup from prefetched map — zero HTTP calls in this loop
           let tooltipHtml = '';
-
           if (isDown && !isAck) {
-            try {
-              const errorDetails = await fetchScannerErrors(sc);
-              if (errorDetails.length > 0) {
-                // Group errors by source + category
-                const groupedBySource = {};
-                errorDetails.forEach(e => {
-                  const key = `${e.source_name}::${e.category}`;
-                  if (!groupedBySource[key]) {
-                    groupedBySource[key] = { source: e.source_name, category: e.category, symbols: new Set(), count: 0, lastError: e.last_error_msg };
-                  }
-                  groupedBySource[key].count += (e.occurrences || 1);
-                  if (e.symbol) groupedBySource[key].symbols.add(e.symbol);
-                });
-
-                const errorRows = Object.values(groupedBySource).map(g => `
-              <div class="sat-row" style="border-bottom:1px solid var(--border); padding:8px;">
-                <div><div class="sat-symbol">${g.source}</div><div class="sat-cat">${g.category}</div></div>
-                <div style="font-size:12px;">${g.symbols.size} stock${g.symbols.size > 1 ? 's' : ''}</div>
-                <div style="text-align:right; font-weight:700; color:#ff4d6d;">${g.count}×</div>
-              </div>`).join('');
-
-                tooltipHtml = `
-              <div class="scanner-alert-tooltip">
-                <div class="sat-header" style="color:#ff4d6d">⚠ API Errors (${errorDetails.length})</div>
-                <div style="max-height:200px; overflow-y:auto;">
-                  ${errorRows}
-                </div>
-              </div>`;
-              }
-            } catch (e) {
-              console.error(`Error loading errors for ${sc}:`, e);
+            const errorDetails = _errorsByScanner[sc] || [];
+            if (errorDetails.length > 0) {
+              const groupedBySource = {};
+              errorDetails.forEach(e => {
+                const key = `${e.source_name}::${e.category}`;
+                if (!groupedBySource[key]) {
+                  groupedBySource[key] = { source: e.source_name, category: e.category, symbols: new Set(), count: 0 };
+                }
+                groupedBySource[key].count += (e.occurrences || 1);
+                if (e.symbol) groupedBySource[key].symbols.add(e.symbol);
+              });
+              const errorRows = Object.values(groupedBySource).map(g => `
+            <div class="sat-row" style="border-bottom:1px solid var(--border); padding:8px;">
+              <div><div class="sat-symbol">${g.source}</div><div class="sat-cat">${g.category}</div></div>
+              <div style="font-size:12px;">${g.symbols.size} stock${g.symbols.size > 1 ? 's' : ''}</div>
+              <div style="text-align:right; font-weight:700; color:#ff4d6d;">${g.count}×</div>
+            </div>`).join('');
+              tooltipHtml = `
+            <div class="scanner-alert-tooltip">
+              <div class="sat-header" style="color:#ff4d6d">⚠ API Errors (${errorDetails.length})</div>
+              <div style="max-height:200px; overflow-y:auto;">${errorRows}</div>
+            </div>`;
             }
           }
 
@@ -2947,12 +2963,14 @@
       activeKpi = null;
       window.activeScannerDrill = sc;
 
-      // If RED scanner, fetch and show error table
+      // If RED scanner, show error table — use prefetched in-memory data first
       if ((data.status === 'DOWN' || data.status === 'DEGRADED') && !data.is_acknowledged) {
         document.getElementById('drill-title').textContent = `${meta.label} — API Errors`;
 
         try {
-          const errors = await fetchScannerErrors(sc);
+          // Fast path: use prefetched grouped data; fallback triggers a fresh per-scanner fetch
+          if (Date.now() - _errorsByScanner_ts >= 5000) await prefetchAllScannerErrors();
+          const errors = _errorsByScanner[sc] || await fetchScannerErrors(sc);
           if (errors && errors.length > 0) {
             // Build error table
             let htmlContent = `
@@ -6782,6 +6800,7 @@ function saveToUserWatchlist(sym, company, score) {
       if (currentDiagnosticData && currentDiagnosticData.symbol === sym) {
         currentDiagnosticData.is_in_watchlist = true;
       }
+      _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
       loadUserWatchlist();
     } else {
       if (btn) {
@@ -6816,6 +6835,7 @@ function removeFromWatchlist(sym) {
       .then(res => {
         if (res.success) {
           showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
+          _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
           loadUserWatchlist();
         }
       });
@@ -6858,9 +6878,26 @@ function formatISTDate(isoStr) {
   }
 }
 
+// [VERSION: WATCHLIST_PERF_v1.0] Shared promise cache — loadUserWatchlist and loadManualWatchlist
+// both fire on tab open simultaneously. This ensures they share ONE HTTP request and ONE DB query.
+let _watchlistFetchCache = null;
+let _watchlistFetchCache_ts = 0;
+
+function _fetchWatchlist() {
+  const now = Date.now();
+  // Reuse the in-flight or cached promise for 30s
+  if (_watchlistFetchCache && (now - _watchlistFetchCache_ts) < 30000) {
+    return _watchlistFetchCache;
+  }
+  _watchlistFetchCache_ts = now;
+  _watchlistFetchCache = fetch('/api/v1/user_watchlist')
+    .then(r => r.json())
+    .catch(() => []);
+  return _watchlistFetchCache;
+}
+
 function loadUserWatchlist() {
-  fetch('/api/v1/user_watchlist')
-    .then(res => res.json())
+  _fetchWatchlist()
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
       document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {
@@ -6906,8 +6943,9 @@ function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
   tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
-  fetch('/api/v1/user_watchlist')
-    .then(res => res.json())
+  // [VERSION: WATCHLIST_PERF_v1.0] Uses shared _fetchWatchlist() so this doesn't make a separate HTTP call
+  // when loadUserWatchlist() already fired on the same tab open
+  _fetchWatchlist()
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       if (list.length === 0) {
@@ -6998,8 +7036,8 @@ function toggleUserManagement() {
 }
 
 function loadUserWatchlist() {
-  fetch('/api/v1/user_watchlist')
-    .then(res => res.json())
+  // [VERSION: WATCHLIST_PERF_v1.0] Uses shared cache from _fetchWatchlist()
+  _fetchWatchlist()
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
       document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {

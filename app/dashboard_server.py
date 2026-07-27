@@ -1420,6 +1420,47 @@ def api_fetch_errors_by_scanner():
         return jsonify([]), 200
 
 
+# [VERSION: SCANNER_PERF_v1.0] Batch endpoint: replaces N+1 per-scanner fetch_errors calls with a single query
+_fetch_errors_grouped_cache: dict = {"ts": 0, "payload": None}
+
+@app.route("/api/fetch_errors/grouped_by_scanner", methods=["GET"])
+@login_required
+def api_fetch_errors_grouped_by_scanner():
+    """Return all unacknowledged fetch_errors keyed by scanner_name in ONE query.
+    
+    Previously the frontend called /api/fetch_errors/by_scanner once per DOWN scanner
+    (N round-trips). This single endpoint replaces all of those with 1 DB query.
+    Result is cached for 5 seconds to absorb burst page loads.
+    """
+    global _fetch_errors_grouped_cache
+    now_ts = time.time()
+    if _fetch_errors_grouped_cache["payload"] is not None and (now_ts - _fetch_errors_grouped_cache["ts"]) < 5.0:
+        return Response(_fetch_errors_grouped_cache["payload"], mimetype="application/json")
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+        grouped: dict = {}
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, source_name, scanner_name, symbol, interval, category,
+                           occurrences, last_error_msg, is_acknowledged
+                    FROM fetch_errors
+                    WHERE is_acknowledged = FALSE
+                    ORDER BY scanner_name, occurrences DESC
+                """)
+                for row in cur.fetchall():
+                    sc = row["scanner_name"] or "UNKNOWN"
+                    grouped.setdefault(sc, []).append(dict(row))
+        payload = json.dumps(grouped)
+        _fetch_errors_grouped_cache["payload"] = payload
+        _fetch_errors_grouped_cache["ts"] = now_ts
+        return Response(payload, mimetype="application/json")
+    except Exception:
+        logger.exception("❌ /api/fetch_errors/grouped_by_scanner failed")
+        return jsonify({}), 200
+
+
 @app.route("/api/fetch_errors/ack/<int:error_id>", methods=["POST"])
 @login_required
 def api_ack_fetch_error(error_id):
@@ -3251,15 +3292,26 @@ def api_create_manual_alert():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# [VERSION: WATCHLIST_PERF_v1.0] Short TTL cache — both loadUserWatchlist() and loadManualWatchlist()
+# fire on tab open simultaneously; this prevents 2 DB round-trips for the same data.
+_user_watchlist_cache: dict = {}  # keyed by user_id → {"ts": float, "payload": str}
+
 @app.route("/api/v1/user_watchlist", methods=["GET"])
 @login_required
 def api_get_user_watchlist():
-    """Fetch user's personal watchlist."""
+    """Fetch user's personal watchlist (TTL-cached 10s to absorb parallel tab-open requests)."""
+    global _user_watchlist_cache
     try:
         from database import get_user_watchlist
         user_id = str(session.get("user_id", "DEFAULT_USER"))
+        now_ts = time.time()
+        cached = _user_watchlist_cache.get(user_id)
+        if cached and (now_ts - cached["ts"]) < 10.0:
+            return Response(cached["payload"], mimetype="application/json")
         items = get_user_watchlist(user_id=user_id)
-        return jsonify(items)
+        payload = json.dumps(items, default=str)
+        _user_watchlist_cache[user_id] = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Fetch user watchlist error")
         return jsonify([])
@@ -3293,6 +3345,7 @@ def api_add_user_watchlist():
             }), 400
 
         ok = add_to_user_watchlist(symbol, company_name=company_name, user_id=user_id, notes=notes, health_score=health_score, status=status)
+        _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
         return jsonify({"success": ok})
     except Exception as e:
         logger.exception("❌ Add to user watchlist error")
@@ -3313,6 +3366,7 @@ def api_remove_user_watchlist():
             return jsonify({"success": False, "error": "Symbol is required."}), 400
 
         ok = remove_from_user_watchlist(symbol, user_id=user_id)
+        _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
         return jsonify({"success": ok})
     except Exception as e:
         logger.exception("❌ Remove from user watchlist error")
