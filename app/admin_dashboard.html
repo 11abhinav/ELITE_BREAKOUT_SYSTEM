@@ -197,7 +197,65 @@
 
     .refresh-btn.spinning svg { animation: spin .65s linear infinite; }
 
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* ─────────────────────────────────────────
+       MULTI-TAB NAVIGATION SYSTEM
+    ───────────────────────────────────────── */
+    .admin-tabs-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      border-radius: var(--radius-lg);
+      margin-bottom: 24px;
+      box-shadow: var(--shadow);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .admin-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .admin-tab-btn:hover {
+      color: var(--text);
+      background: var(--card2);
+      border-color: var(--border);
+    }
+
+    .admin-tab-btn.active {
+      color: #ffffff;
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+      animation: fadeInTab 0.2s ease-out;
+    }
+
+    @keyframes fadeInTab {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
     /* ── LAYOUT ── */
     .container { max-width: 1520px; margin: 0 auto; padding: 24px 24px; }
@@ -1276,6 +1334,25 @@
 
     <div class="container">
 
+      <!-- 4-TAB NAVIGATION HEADER BAR -->
+      <div class="admin-tabs-bar">
+        <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
+          <span>🚀</span> Signals, Trades & Watchlist
+        </button>
+        <button class="admin-tab-btn" data-tab="health-errors" onclick="switchAdminTab('health-errors')">
+          <span>🛡️</span> Scanner Health & Errors
+        </button>
+        <button class="admin-tab-btn" data-tab="db-explorer" onclick="switchAdminTab('db-explorer')">
+          <span>📊</span> Data & DB Explorer
+        </button>
+        <button class="admin-tab-btn" data-tab="settings" onclick="switchAdminTab('settings')">
+          <span>⚙️</span> System Settings & Controls
+        </button>
+      </div>
+
+      <!-- TAB 1: SIGNALS, TRADES & WATCHLIST -->
+      <div id="tab-signals-trades" class="tab-panel active">
+
       <!-- ANALYSE YOUR WATCHLIST WIDGET -->
       <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 22px; margin-bottom:20px; position:relative; z-index:100; box-shadow: 0 4px 20px rgba(0,0,0,0.06);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
@@ -1699,17 +1776,13 @@
           </div>
         </div>
       </div>
+      <!-- END TAB 1: SIGNALS, TRADES & WATCHLIST -->
 
-      <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
-        <span class="alert-toast-icon">🚨</span>
-        <div>
-          <div style="font-size:16px;">NEW ALERT DETECTED</div>
-          <div style="font-size:12px; font-weight:normal; opacity:0.9;">Click anywhere to dismiss</div>
-        </div>
-      </div>
+      <!-- TAB 2: SCANNER HEALTH & SYSTEM ERRORS -->
+      <div id="tab-health-errors" class="tab-panel">
 
-      <!-- SYSTEM HEALTH & DIAGNOSTICS (COLLAPSIBLE) -->
-      <div class="card" style="margin-top: 40px; margin-bottom: 40px; overflow: hidden;">
+      <!-- SYSTEM HEALTH & DIAGNOSTICS -->
+      <div class="card" style="margin-top: 20px; margin-bottom: 40px; overflow: hidden;">
         <div id="diagnostics-header"
           style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
           onclick="toggleDiagnostics()">
@@ -1724,7 +1797,7 @@
             </svg>
           </div>
         </div>
-        <div id="diagnostics-body" style="display: none; padding: 20px; background: var(--bg);">
+        <div id="diagnostics-body" style="display: block; padding: 20px; background: var(--bg);">
 
           <!-- SCANNER STATUS -->
           <div class="section-label" style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
@@ -1779,6 +1852,10 @@
 
         </div>
       </div>
+      <!-- END TAB 2: SCANNER HEALTH & SYSTEM ERRORS -->
+
+      <!-- TAB 3: DATA & DATABASE EXPLORER -->
+      <div id="tab-db-explorer" class="tab-panel">
 
       <!-- FEATURE F-13: PREVIEW ANALYTICS CARD (MOVED ABOVE DATABASE EXPORTS) -->
       <div class="card" style="margin-bottom:28px; padding:0; overflow:hidden;">
@@ -1942,11 +2019,76 @@
           <!-- Dynamically populated table cards -->
         </div>
       </div>
+      <!-- END TAB 3: DATA & DATABASE EXPLORER -->
+
+      <!-- TAB 4: SYSTEM SETTINGS & CONTROLS -->
+      <div id="tab-settings" class="tab-panel">
+        <div class="card" style="padding:24px; margin-bottom:28px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:20px;">
+            <h2 style="font-size:18px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
+              <span>⚙️</span> System Settings & Controls
+            </h2>
+            <button class="btn btn-outline" onclick="location.reload()" style="font-size:12px; font-weight:700;">🔄 Reload Config</button>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:20px;">
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">⚡ Rate Limiting & Provider Priority</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Primary Provider: <strong>Fyers (6 workers, 3.0 req/sec)</strong><br>Fallback 1: <strong>YFinance</strong><br>Fallback 2: <strong>BSE Direct API</strong></p>
+              <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Active & Verified</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">📱 WebPush Mobile Delivery</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Status: <strong>Active WebPush Service</strong><br>Auto Admin Alert Dispatch: <strong>ENABLED</strong></p>
+              <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Connected</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">🔐 Multi-Device Sessions</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Session Lifetime: <strong>30 Days Permanent Cookie</strong><br>Restart Policy: <strong>Persist Across Container Reboots</strong></p>
+              <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Fail-Open Active</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- END TAB 4: SYSTEM SETTINGS & CONTROLS -->
 
     </div>
   </div>
 
   <script>
+    // ── [VERSION: MULTI_TAB_UI_v1.0] ACTIVE SCREEN TAB NAVIGATION & LAZY FETCHING ──
+    let activeAdminTab = 'signals-trades';
+
+    function switchAdminTab(tabId) {
+      activeAdminTab = tabId;
+
+      // Update Tab Button styles
+      document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-tab') === tabId;
+        btn.classList.toggle('active', isActive);
+      });
+
+      // Update Tab Panel visibility
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        const isActive = panel.id === `tab-${tabId}`;
+        panel.classList.toggle('active', isActive);
+      });
+
+      // Fetch APIs for current active screen
+      triggerActiveTabFetch(tabId);
+    }
+
+    function triggerActiveTabFetch(tabId) {
+      if (tabId === 'signals-trades') {
+        if (typeof renderUserWatchlistTable === 'function') renderUserWatchlistTable();
+      } else if (tabId === 'health-errors') {
+        if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
+        if (typeof refreshNonCriticalErrors === 'function') refreshNonCriticalErrors();
+      } else if (tabId === 'db-explorer') {
+        if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
+      }
+    }
+
     // ── CONSTANTS
     const C = {
       accent: '#00d4a1', accent2: '#4d7cfe', warn: '#ff4d6d', amber: '#f59e0b',
