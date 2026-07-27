@@ -321,10 +321,11 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         
         # 2. Process chunk
             batch_upserts = []
-            for row in chunk_df.itertuples(index=False):
+            for row_tuple in chunk_df.itertuples(index=False):
                 try:
-                    symbol = getattr(row, "Stock")
-                    category = getattr(row, "Category")
+                    row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
+                    symbol = row.get("Stock", "UNKNOWN")
+                    category = row.get("Category", "MIDCAP")
                     funnel["total"] += 1
             
                     df = ticker_data.get(symbol)

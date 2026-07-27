@@ -323,5 +323,15 @@ class TestAuditFixes(unittest.TestCase):
         for p in params:
             self.assertNotIsInstance(p, dict, "upsert_scanner_health MUST serialize dict parameters to JSON string")
 
+    def test_itertuples_row_asdict_conversion(self):
+        """Verify Pandas itertuples namedtuple converts to dict using _asdict() so .get() calls do not raise AttributeError."""
+        import pandas as pd
+        df = pd.DataFrame([{"Stock": "LAURUSLABS", "Category": "MIDCAP", "Sector": "PHARMA", "Forensic_Risk_Tier": "LOW"}])
+        for row_tuple in df.itertuples(index=False):
+            row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
+            self.assertEqual(row.get("Stock"), "LAURUSLABS")
+            self.assertEqual(row.get("Forensic_Risk_Tier"), "LOW")
+            self.assertIsNone(row.get("NONEXISTENT"))
+
 if __name__ == '__main__':
     unittest.main()

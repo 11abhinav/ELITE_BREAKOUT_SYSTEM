@@ -446,12 +446,13 @@ def _start_wrapper(force: bool = False):
                     rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                     tracker.mark_fetch_complete(row_count=rows_fetched)
                 
-                    for idx, row in enumerate(chunk_df.itertuples(index=False), start=1):
+                    for idx, row_tuple in enumerate(chunk_df.itertuples(index=False), start=1):
                         symbol = "UNKNOWN"
                         try:
-                            symbol   = getattr(row, "Stock")
-                            category = getattr(row, "Category")
-                            sector   = getattr(row, "Sector", None)
+                            row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
+                            symbol   = row.get("Stock", "UNKNOWN")
+                            category = row.get("Category", "MIDCAP")
+                            sector   = row.get("Sector", None)
 
                             if symbol in get_live_blacklist():
                                 continue
