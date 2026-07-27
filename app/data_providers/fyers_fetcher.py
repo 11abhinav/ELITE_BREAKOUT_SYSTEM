@@ -504,6 +504,12 @@ class FyersFetcher(DataFetcher):
         try:
             from data_providers.fyers_mapping_utils import mark_fyers_invalid
             mark_fyers_invalid(orig_sym)
+            from database import insert_notification
+            insert_notification(
+                "warning",
+                f"⚠️ FYERS SYMBOL INVALID: {orig_sym}",
+                f"Symbol '{orig_sym}' failed across all Fyers candidate series ({candidates}). Marked INVALID for 24h to skip on subsequent runs."
+            )
         except Exception:
             pass
         return None
