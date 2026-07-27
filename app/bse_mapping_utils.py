@@ -116,13 +116,15 @@ def mark_bse_invalid(original_sym: str) -> None:
                 row = cur.fetchone()
                 failures = (row[0] if row else 0) + 1
                 
-                # Exponential backoff: 7 days, 30 days, 90 days, 365 days
-                if failures == 1: days = 7
-                elif failures == 2: days = 30
-                elif failures == 3: days = 90
+                # Exponential backoff: 1 day (daily retry), 7 days, 30 days, 365 days
+                if failures == 1: days = 1
+                elif failures == 2: days = 7
+                elif failures == 3: days = 30
                 else: days = 365
                 
-                retry_after = (datetime.now(IST) + timedelta(days=days)).isoformat()
+                # Reset invalid flag as soon as date changes (midnight 00:00 IST)
+                next_date_midnight = (datetime.now(IST) + timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+                retry_after = next_date_midnight.isoformat()
                 now_str = datetime.now(IST).isoformat()
                 
                 cur.execute('''
