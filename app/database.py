@@ -272,23 +272,29 @@ def init_db():
                         context_json TEXT
                     )
                 """)
+                # [VERSION: WEALTH_BUY_ALERT_INIT_FIX_v1.0] Check table existence before querying columns to prevent UndefinedTable error on fresh deployments
                 cur.execute("""
                 DO $$
                 BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.tables
                         WHERE table_name = 'wealth_buy_alert'
-                        AND column_name = 'engine_version'
                     ) THEN
-                        ALTER TABLE wealth_buy_alert ADD COLUMN engine_version TEXT;
-                    END IF;
-                    
-                    IF NOT EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'wealth_buy_alert'
-                        AND column_name = 'config_version'
-                    ) THEN
-                        ALTER TABLE wealth_buy_alert ADD COLUMN config_version TEXT;
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'wealth_buy_alert'
+                            AND column_name = 'engine_version'
+                        ) THEN
+                            ALTER TABLE wealth_buy_alert ADD COLUMN engine_version TEXT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'wealth_buy_alert'
+                            AND column_name = 'config_version'
+                        ) THEN
+                            ALTER TABLE wealth_buy_alert ADD COLUMN config_version TEXT;
+                        END IF;
                     END IF;
                 END $$;
                 """)
@@ -1034,6 +1040,8 @@ def init_db():
                 """)
                 
                 # Add migration columns if table already exists (for backward compatibility)
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS engine_version TEXT")
+                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS config_version TEXT")
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS entry_signal TEXT")
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_signal TEXT")
                 cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_price REAL")
