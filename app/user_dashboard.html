@@ -474,8 +474,115 @@ function playDing() {
       </button>
     </div>
 
+
     <!-- TAB 1: LIVE SIGNALS & MULTIBAGGER -->
     <div id="utab-live-signals" class="utab-panel active">
+    <!-- ═══ LIVE SIGNAL LADDER ═══ -->
+    <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+      <span>Live Breakout Signal Ladder (MULTI_TF)</span>
+      <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
+    </div>
+    <div class="card" style="margin-bottom:28px; padding:16px;">
+      <div style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-hourly" checked onchange="renderSignalLadder()"> <span id="label-hourly">Hourly Passed (1H) (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-setup" checked onchange="renderSignalLadder()"> <span id="label-setup">Setup Armed (30m) (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-entry" checked onchange="renderSignalLadder()"> <span id="label-entry">Entry Ready (15m) (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-triggered" checked onchange="renderSignalLadder()"> <span id="label-triggered">Triggered (5m) (0)</span></label>
+      </div>
+      <div style="max-height: 250px; overflow-y: auto;">
+        <table class="data-table" id="signal-ladder-table" style="width:100%; text-align:left; font-size:12px;">
+          <thead>
+            <tr>
+              <th data-lcol="symbol" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
+              <th data-lcol="current_state" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
+              <th data-lcol="cmp" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
+              <th data-lcol="last_updated" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Updated ▼</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border); text-align:right;">Chart</th>
+            </tr>
+          </thead>
+          <tbody id="signal-ladder-body">
+            <tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+      <!-- ═══ MULTIBAGGER WATCHLIST ═══ -->
+      <div class="card" style="margin-top: 28px; margin-bottom: 28px; overflow: hidden; padding: 0;">
+        <div id="mb-watchlist-header"
+          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
+          onclick="toggleMbWatchlist()">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-weight: 600; color: var(--text); font-size:16px;">🚀 Multibagger Watchlist</span>
+          </div>
+          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span id="mb-watchlist-status">Click to expand</span>
+            <svg id="mb-watchlist-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" style="transition: transform 0.2s;">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+        </div>
+        <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
+    
+
+
+    <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
+      <div style="flex: 1; min-width: 200px;">
+        <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
+        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
+          <option value="">All Candidates</option>
+          <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
+          <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
+          <option value="INVALIDATED">🔴 Invalidated</option>
+        </select>
+      </div>
+      <div>
+        <button onclick="loadMultibaggerWatchlist()" style="padding: 10px 24px; background: var(--amber); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.3s;">🔄 Refresh</button>
+      </div>
+    </div>
+
+    <div style="background: var(--card2); padding: 14px; border-radius: 8px; border-left: 4px solid var(--amber); margin-bottom: 20px; font-size: 13px; color: var(--text);">
+      <div style="margin-bottom: 8px;"><strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.</div>
+      <div><strong>Bucket Meanings:</strong> <strong>🚀 Prime Multibagger: Exceptional fundamentals + accelerating momentum | 💎 High Quality: Established compounders with steady growth | 🏆 Good Business: Fundamentally solid but waiting for acceleration | 🟡 Watchlist: Passed basic gates but waiting for technical confirmation</div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-total-count" style="color:var(--text);">-</div>
+        <div class="kpi-label">Total Candidates</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-waiting-count" style="color:var(--amber);">-</div>
+        <div class="kpi-label">Waiting Buy Zone</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-triggered-count" style="color:var(--green);">-</div>
+        <div class="kpi-label">Alert Triggered</div>
+      </div>
+      <div class="kpi-card" style="flex:1;">
+        <div class="kpi-value" id="mb-invalid-count" style="color:var(--red);">-</div>
+        <div class="kpi-label">Invalidated</div>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table id="tbl-mb-watchlist">
+        <thead><tr>
+          <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
+          <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
+          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by Business Quality Score">Quality ↕</th>
+          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by Relative Valuation Score">Valuation ↕</th>
+          <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Price Momentum">Momentum ↕</th>
+          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Wealth Score">Score ↕</th>
+          <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
+          <th>Reason</th>
+          <th>Act</th>
+        </tr></thead>
+        <tbody id="mb-watchlist-body"></tbody>
+      </table>
+    </div>
+    <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
+  </div></div><!-- /panel-mb-watchlist -->
     </div>
     <!-- END TAB 1: LIVE SIGNALS & MULTIBAGGER -->
 
@@ -546,7 +653,6 @@ function playDing() {
     </div>
     <!-- END TAB 2: MANUAL WATCHLIST & STOCK ANALYZER -->
 
-    <!-- TAB 3: TRADES & PORTFOLIO -->
     <div id="utab-trades-portfolio" class="utab-panel">
 
     <!-- P&L AND PORTFOLIO BAR -->
@@ -647,114 +753,9 @@ function playDing() {
       </div>
     </div>
 
-    <!-- ═══ LIVE SIGNAL LADDER ═══ -->
-    <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
-      <span>Live Breakout Signal Ladder (MULTI_TF)</span>
-      <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
     </div>
-    <div class="card" style="margin-bottom:28px; padding:16px;">
-      <div style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-hourly" checked onchange="renderSignalLadder()"> <span id="label-hourly">Hourly Passed (1H) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-setup" checked onchange="renderSignalLadder()"> <span id="label-setup">Setup Armed (30m) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-entry" checked onchange="renderSignalLadder()"> <span id="label-entry">Entry Ready (15m) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-triggered" checked onchange="renderSignalLadder()"> <span id="label-triggered">Triggered (5m) (0)</span></label>
-      </div>
-      <div style="max-height: 250px; overflow-y: auto;">
-        <table class="data-table" id="signal-ladder-table" style="width:100%; text-align:left; font-size:12px;">
-          <thead>
-            <tr>
-              <th data-lcol="symbol" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
-              <th data-lcol="current_state" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
-              <th data-lcol="cmp" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
-              <th data-lcol="last_updated" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Updated ▼</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border); text-align:right;">Chart</th>
-            </tr>
-          </thead>
-          <tbody id="signal-ladder-body">
-            <tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <!-- END TAB 3: TRADES & PORTFOLIO -->
 
-
-      <!-- ═══ MULTIBAGGER WATCHLIST ═══ -->
-      <div class="card" style="margin-top: 28px; margin-bottom: 28px; overflow: hidden; padding: 0;">
-        <div id="mb-watchlist-header"
-          style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
-          onclick="toggleMbWatchlist()">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-weight: 600; color: var(--text); font-size:16px;">🚀 Multibagger Watchlist</span>
-          </div>
-          <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
-            <span id="mb-watchlist-status">Click to expand</span>
-            <svg id="mb-watchlist-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2" style="transition: transform 0.2s;">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </div>
-        </div>
-        <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
-    
-
-
-    <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-      <div style="flex: 1; min-width: 200px;">
-        <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
-        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
-          <option value="">All Candidates</option>
-          <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
-          <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
-          <option value="INVALIDATED">🔴 Invalidated</option>
-        </select>
-      </div>
-      <div>
-        <button onclick="loadMultibaggerWatchlist()" style="padding: 10px 24px; background: var(--amber); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.3s;">🔄 Refresh</button>
-      </div>
-    </div>
-
-    <div style="background: var(--card2); padding: 14px; border-radius: 8px; border-left: 4px solid var(--amber); margin-bottom: 20px; font-size: 13px; color: var(--text);">
-      <div style="margin-bottom: 8px;"><strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.</div>
-      <div><strong>Bucket Meanings:</strong> <strong>🚀 Prime Multibagger: Exceptional fundamentals + accelerating momentum | 💎 High Quality: Established compounders with steady growth | 🏆 Good Business: Fundamentally solid but waiting for acceleration | 🟡 Watchlist: Passed basic gates but waiting for technical confirmation</div>
-    </div>
-
-    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-      <div class="kpi-card" style="flex:1;">
-        <div class="kpi-value" id="mb-total-count" style="color:var(--text);">-</div>
-        <div class="kpi-label">Total Candidates</div>
-      </div>
-      <div class="kpi-card" style="flex:1;">
-        <div class="kpi-value" id="mb-waiting-count" style="color:var(--amber);">-</div>
-        <div class="kpi-label">Waiting Buy Zone</div>
-      </div>
-      <div class="kpi-card" style="flex:1;">
-        <div class="kpi-value" id="mb-triggered-count" style="color:var(--green);">-</div>
-        <div class="kpi-label">Alert Triggered</div>
-      </div>
-      <div class="kpi-card" style="flex:1;">
-        <div class="kpi-value" id="mb-invalid-count" style="color:var(--red);">-</div>
-        <div class="kpi-label">Invalidated</div>
-      </div>
-    </div>
-
-    <div class="table-container">
-      <table id="tbl-mb-watchlist">
-        <thead><tr>
-          <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
-          <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-          <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by Business Quality Score">Quality ↕</th>
-          <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by Relative Valuation Score">Valuation ↕</th>
-          <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Price Momentum">Momentum ↕</th>
-          <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Wealth Score">Score ↕</th>
-          <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
-          <th>Reason</th>
-          <th>Act</th>
-        </tr></thead>
-        <tbody id="mb-watchlist-body"></tbody>
-      </table>
-    </div>
-    <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
-  </div></div><!-- /panel-mb-watchlist -->
 
     
 

@@ -6193,6 +6193,11 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                             deep_res = json.loads(r[8]) if isinstance(r[8], str) else r[8]
                         except Exception:
                             deep_res = None
+
+                    close_price = None
+                    if deep_res and isinstance(deep_res, dict):
+                        close_price = deep_res.get("close_price") or deep_res.get("close") or deep_res.get("ltp")
+
                     results.append({
                         "symbol": sym,
                         "company_name": r[1] or sym,
@@ -6202,7 +6207,8 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "last_status": r[5] or "MONITORING",
                         "notes": r[6] or "",
                         "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and r[7] else None,
-                        "deep_analysis_result": deep_res
+                        "deep_analysis_result": deep_res,
+                        "close_price": float(close_price) if close_price is not None else None
                     })
                 return results
     except Exception as e:
