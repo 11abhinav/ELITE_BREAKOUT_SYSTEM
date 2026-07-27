@@ -107,12 +107,18 @@ class MemoryProfiler:
             
         current_mb = self.start_rss / (1024 * 1024)
         
-        # Check if this is a top-level scanner for log filtering
+        # [VERSION: MEMORY_PROFILER_SUBSTAGE_SUPPRESS_v1.0] Strictly restrict INFO level memory logging to top-level scanner entry/exit.
+        # Sub-stages (containing ':', 'Process', 'Fetch', 'Cleanup', 'Selection', 'Timing', 'Mgmt', 'Export', etc.) route to logger.debug.
         name_upper = self.stage_name.upper()
-        self.is_top_level = any(kw in name_upper for kw in [
-            "EOD", "REVERSAL", "WEALTH", "PULLBACK", 
-            "MULTI_TF", "MULTIBAGGER", "PERFORMANCE", "STARTUP"
-        ])
+        has_substage_marker = any(sub in self.stage_name for sub in [":", " - ", "Process", "Fetch", "Cleanup", "Selection", "Timing", "Mgmt", "Export", "Pipeline"])
+        
+        top_level_keywords = [
+            "EOD_SCANNER", "REVERSAL", "WEALTH_ENGINE_INIT", "WEALTH_ENGINE_15M", 
+            "WEALTH_ENGINE_5M", "MULTI_TF_SCANNER", "MULTIBAGGER", "PULLBACK_SCANNER",
+            "PERFORMANCE_TRACKER", "STARTUP - WATCHLIST"
+        ]
+        
+        self.is_top_level = (not has_substage_marker) and any(kw in name_upper for kw in top_level_keywords)
         
         log_func = logger.info if self.is_top_level else logger.debug
         log_func(f"[MEMORY] 🟢 STARTING: {self.stage_name:<15} | Current RSS: {current_mb:>6.1f} MB")

@@ -8,6 +8,10 @@ import threading
 import psycopg2
 import zlib
 
+from zoneinfo import ZoneInfo
+from datetime import datetime
+IST = ZoneInfo("Asia/Kolkata")
+
 class ProcessLock:
     """
     True Distributed Lock using PostgreSQL Advisory Locks + local threading.Lock.
@@ -21,6 +25,7 @@ class ProcessLock:
         self.db_conn = None
         # Generate a stable 32-bit integer for the Postgres lock key based on the name
         self.lock_key = zlib.crc32(lock_name.encode('utf-8'))
+        self.is_acquired = False
 
     def locked(self) -> bool:
         """
@@ -65,6 +70,10 @@ class ProcessLock:
                     if not locked:
                         raise BlockingIOError("Could not acquire Postgres distributed lock")
 
+            self.is_acquired = True
+            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized scanner start banner
+            name_display = self.lock_name.replace("_", " ").title()
+            logger.info(f"********************* Starting {name_display} Scanner at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')} *********************")
             return True
         except (BlockingIOError, IOError):
             if self.db_conn:
@@ -91,6 +100,12 @@ class ProcessLock:
             return False
 
     def release(self):
+        if self.is_acquired:
+            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized scanner completion banner
+            name_display = self.lock_name.replace("_", " ").title()
+            logger.info(f"********************* {name_display} Scanner completed at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')} *********************")
+            self.is_acquired = False
+
         # 1. Release Postgres lock by simply closing the dedicated connection
         if self.db_conn is not None:
             try:

@@ -999,22 +999,17 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None):
             logger.info("📈 PERFORMANCE TRACKER | Rebuild already in progress, skipping redundant trigger.")
             return
         try:
-            logger.info("📈 PERFORMANCE TRACKER | Rebuilding performance data...")
-            # RCA & DESIGN DECISION (2026-07-15):
-            # - Removed the main.scanner_execution_lock block.
-            # - Why: Scanners can take several minutes to run, during which they hold the lock.
-            #   If a rebuild blocks on the lock, any new alert or manual click won't show on the
-            #   dashboard until the scanner completes, causing visible lag.
-            # - Safety: yf_rate_limiter.py globally throttle Yahoo Finance requests, and
-            #   with scanners is safe and ensures instant dashboard updates.
-            #   Note: force_live_fetch=True ensures post-market triggers grab EOD prices.
-            #   It does NOT trigger full historical replay anymore unless full_tick_replay=True.
+            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized start banner for Exit Monitors / Performance Tracker
+            ist_now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+            logger.info(f"********************* Starting Exit Monitors / Performance Tracker at {ist_now} *********************")
             build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
         except Exception as e:
             logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
         finally:
+            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized completion banner
+            ist_now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+            logger.info(f"********************* Exit Monitors / Performance Tracker completed at {ist_now} *********************")
             _perf_rebuild_lock.release()
-            logger.info("📈 PERFORMANCE TRACKER | Background rebuild completed, lock released.")
 
     # Spawn thread to run in background so UI / scanners are not blocked
     threading.Thread(target=_target, name="PerfRebuildThread").start()
