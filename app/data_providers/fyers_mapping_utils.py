@@ -48,14 +48,14 @@ def load_fyers_mappings():
                 except Exception:
                     pass
 
-                # Load INVALID mappings (Retry ONCE on first run of new day, skip for rest of today)
-                today_date_str = datetime.now(IST).strftime("%Y-%m-%d")
+                # Load INVALID mappings (Active invalid symbols whose retry_after is still in the future)
+                current_time = datetime.now(IST).isoformat()
                 cur.execute("""
                     SELECT original_sym FROM symbol_mappings 
                     WHERE mapping_type = 'FYERS' 
                     AND (mapping_state = 'INVALID' OR is_invalid = TRUE)
-                    AND last_verified LIKE %s
-                """, (f"{today_date_str}%",))
+                    AND (retry_after IS NULL OR retry_after > %s)
+                """, (current_time,))
                 inv_rows = cur.fetchall()
                 _fyers_invalid_cache = {row[0] for row in inv_rows}
                 
@@ -87,10 +87,10 @@ def mark_fyers_invalid(symbol: str):
                 row = cur.fetchone()
                 failures = (row[0] if row else 0) + 1
                 
-                # Exponential backoff
-                if failures == 1: days = 7
-                elif failures == 2: days = 30
-                elif failures == 3: days = 90
+                # Exponential backoff: 1 day (daily retry), 7 days, 30 days, 365 days
+                if failures == 1: days = 1
+                elif failures == 2: days = 7
+                elif failures == 3: days = 30
                 else: days = 365
                 
                 retry_after = (datetime.now(IST) + timedelta(days=days)).isoformat()
