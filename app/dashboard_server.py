@@ -456,32 +456,39 @@ from database import (
     send_user_message, get_user_messages, mark_user_messages_read, get_unread_message_counts
 )
 
+_viewers_cache = {"timestamp": 0, "payload": None}
+
 @app.route("/api/viewers", methods=["POST", "GET"])
 @login_required
 def api_viewers():
     """Tracks active viewers by IP and Name using DB. Cleans up inactive ones (>120s)."""
-    # 1. First, mark any inactive sessions as offline
-    cleanup_stale_sessions()
-
-    # 2. If it's a heartbeat/ping, update or start their session
+    global _viewers_cache
+    now_ts = time.time()
+    
     if request.method == "POST":
         user_id = session.get("user_id")
         if user_id:
             ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
-            # Ping their session table
             ping_user_session(user_id, ip)
+            _viewers_cache["payload"] = None
+    elif _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
+        return Response(_viewers_cache["payload"], mimetype="application/json")
 
-    # 3. Always return current state (online + history)
+    cleanup_stale_sessions()
     stats = get_online_users_and_history()
     unread = get_unread_message_counts()
     
-    return jsonify({
+    res = {
         "active_count": len(stats["online"]),
         "viewers": [u["username"] for u in stats["online"]],
         "history": stats["history"],
         "detailed_online": stats["online"],
         "unread_messages": unread
-    })
+    }
+    payload = json.dumps(serialize_datetimes(res))
+    _viewers_cache["timestamp"] = now_ts
+    _viewers_cache["payload"] = payload
+    return Response(payload, mimetype="application/json")
 
 @app.route("/api/messages", methods=["GET", "POST"])
 @login_required
@@ -1021,15 +1028,30 @@ def api_summary():
     return jsonify({"error": "No data yet"}), 404
 
 
+def _get_shortlist_cache():
+    from data_registry import registry
+    data = registry.get("shortlist_cache")
+    if data is None:
+        data = {"mtime": 0, "payload": None}
+        registry.put("shortlist_cache", data)
+    return data
+
 @app.route("/api/shortlist")
 @login_required
 def api_shortlist():
-    """Returns the elite fundamental watchlist data as JSON."""
+    """Returns the elite fundamental watchlist data as JSON. Cached in-memory by file mtime."""
     from config import WATCHLIST_PATH
-    import pandas as pd
     try:
         if not os.path.exists(WATCHLIST_PATH):
             return jsonify([])
+            
+        mtime = os.path.getmtime(WATCHLIST_PATH)
+        cache = _get_shortlist_cache()
+        if cache["mtime"] == mtime and cache["payload"] is not None:
+            return Response(cache["payload"], mimetype="application/json")
+
+        import pandas as pd
+        import json
         import math
         def sanitize_nans(obj):
             if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
@@ -1046,21 +1068,39 @@ def api_shortlist():
         df = df.replace([float('inf'), float('-inf')], float('nan'))
         df = df.where(pd.notnull(df), None)
         records = sanitize_nans(df.to_dict(orient="records"))
-        return jsonify(records)
+        payload = json.dumps(records)
+        cache["mtime"] = mtime
+        cache["payload"] = payload
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception(f"Failed to load shortlist JSON")
         return jsonify([])
 
+def _get_shortlist_excluded_cache():
+    from data_registry import registry
+    data = registry.get("shortlist_excluded_cache")
+    if data is None:
+        data = {"mtime": 0, "payload": None}
+        registry.put("shortlist_excluded_cache", data)
+    return data
+
 @app.route("/api/shortlist_excluded")
 @login_required
 def api_shortlist_excluded():
-    """Returns excluded stocks data as JSON."""
+    """Returns excluded stocks data as JSON. Cached in-memory by file mtime."""
     from config import DATA_DIR
-    import pandas as pd
     try:
         excluded_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
         if not os.path.exists(excluded_path):
             return jsonify([])
+            
+        mtime = os.path.getmtime(excluded_path)
+        cache = _get_shortlist_excluded_cache()
+        if cache["mtime"] == mtime and cache["payload"] is not None:
+            return Response(cache["payload"], mimetype="application/json")
+
+        import pandas as pd
+        import json
         import math
         def sanitize_nans(obj):
             if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
@@ -1077,7 +1117,10 @@ def api_shortlist_excluded():
         df = df.replace([float('inf'), float('-inf')], float('nan'))
         df = df.where(pd.notnull(df), None)
         records = sanitize_nans(df.to_dict(orient="records"))
-        return jsonify(records)
+        payload = json.dumps(records)
+        cache["mtime"] = mtime
+        cache["payload"] = payload
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception(f"Failed to load excluded stocks JSON")
         return jsonify([])
@@ -1958,6 +2001,8 @@ def api_download_shortlist():
 _cached_worker_symbols = set()
 _cached_worker_symbols_time = 0
 
+_scanner_status_cache = {"timestamp": 0, "payload": None}
+
 @app.route("/api/scanner_status")
 @login_required
 def api_scanner_status():
@@ -1968,6 +2013,11 @@ def api_scanner_status():
     Previously called get_scanner_today_trades() once per scanner (~10 separate DB round-trips).
     Now uses get_all_scanners_today_trades() for 1 query total.
     """
+    global _scanner_status_cache
+    now_ts = time.time()
+    if _scanner_status_cache["payload"] is not None and (now_ts - _scanner_status_cache["timestamp"]) < 3.0:
+        return Response(_scanner_status_cache["payload"], mimetype="application/json")
+
     try:
         import os
         from database import get_all_scanner_health, get_all_scanners_today_trades
@@ -2028,7 +2078,6 @@ def api_scanner_status():
             elif sc == "AI Worker" and (processed_count is None or total_count is None or total_count == 0):
                 try:
                     global _cached_worker_symbols, _cached_worker_symbols_time
-                    now_ts = time.time()
                     # Cache the expensive symbol set for 5 minutes
                     if not _cached_worker_symbols or (now_ts - _cached_worker_symbols_time) > 300:
                         from database import get_ai_concall_stats
@@ -2112,7 +2161,10 @@ def api_scanner_status():
         for i, (sc, _) in enumerate(queued_scanners):
             result[sc]["status"] = f"QUEUED-{i + 1}"
             
-        return jsonify(serialize_datetimes(result))
+        res_payload = json.dumps(serialize_datetimes(result))
+        _scanner_status_cache["timestamp"] = now_ts
+        _scanner_status_cache["payload"] = res_payload
+        return Response(res_payload, mimetype="application/json")
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
         return jsonify({}), 200
