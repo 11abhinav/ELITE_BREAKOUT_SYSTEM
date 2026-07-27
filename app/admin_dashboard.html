@@ -2035,18 +2035,32 @@
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:20px;">
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
               <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">⚡ Rate Limiting & Provider Priority</h3>
-              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Primary Provider: <strong>Fyers (6 workers, 3.0 req/sec)</strong><br>Fallback 1: <strong>YFinance</strong><br>Fallback 2: <strong>BSE Direct API</strong></p>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Primary Provider: <strong>Fyers (6 workers, 3.0 req/sec)</strong><br>Fallback 1: <strong>YFinance Rate-Limited Fetcher</strong><br>Fallback 2: <strong>BSE India Direct API</strong></p>
               <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Active & Verified</div>
             </div>
+
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
-              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">📱 WebPush Mobile Delivery</h3>
-              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Status: <strong>Active WebPush Service</strong><br>Auto Admin Alert Dispatch: <strong>ENABLED</strong></p>
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">📱 WebPush Mobile & Browser Delivery</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">VAPID Service: <strong>Auto-Generating Keypair Fallback</strong><br>Auto Admin Alert Dispatch: <strong>ENABLED</strong><br>Browser Push Support: <strong>Safari 16.4+, Chrome, Firefox, Mobile PWA</strong></p>
               <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Connected</div>
             </div>
+
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
-              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">🔐 Multi-Device Sessions</h3>
-              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Session Lifetime: <strong>30 Days Permanent Cookie</strong><br>Restart Policy: <strong>Persist Across Container Reboots</strong></p>
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">🔐 Multi-Device Sessions & Persistence</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Session Cookie Lifetime: <strong>30 Days Permanent Cookie</strong><br>Reboot Policy: <strong>Persist Across Container Reboots</strong><br>Revocation Rule: <strong>Invalidate Only On Explicit Logout</strong></p>
               <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Fail-Open Active</div>
+            </div>
+
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">⏱️ Scanner & Engine Execution Policy</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">EOD Scanner Schedule: <strong>15:35 IST Daily</strong><br>Multi-TF Breakout Engine: <strong>Every 5 Mins</strong><br>Reversal Scanner Engine: <strong>Every 15 Mins</strong></p>
+              <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Automated Scheduler Active</div>
+            </div>
+
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
+              <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">🗄️ Database Connection & Memory Health</h3>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Connection Pool Timeout: <strong>30 Seconds</strong><br>Memory Leak Protection: <strong>Auto Garbage Collection @ 75% RAM</strong><br>Parquet Binary Cache: <strong>Daily Auto Cleanup</strong></p>
+              <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Healthy</div>
             </div>
           </div>
         </div>
