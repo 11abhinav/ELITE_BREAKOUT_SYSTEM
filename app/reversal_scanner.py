@@ -455,6 +455,10 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
 
 def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
+    from database import is_scanner_stopped
+    if is_scanner_stopped("REVERSAL"):
+        logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
+        return 0
 
     ist_now = datetime.now(IST)
     scan_start = datetime.now(IST)

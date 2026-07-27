@@ -1260,6 +1260,10 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
 
 def start(debug_limit: int = None, is_test_mode: bool = False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTIBAGGER"):
+        logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
+        return {}
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")
     try:

@@ -1164,6 +1164,10 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multi_tf_scanner")
 
 def start(run_once=False, is_test_mode=False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTI_TF"):
+        logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
+        return
     if run_once:
         if not _scan_lock.acquire(blocking=False):
             raise RuntimeError("Scanner is already actively running!")

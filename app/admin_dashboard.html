@@ -445,7 +445,9 @@
     .badge-running { background: rgba(99,102,241,.1); color: var(--brand); border: 1px solid rgba(99,102,241,.2); }
     .badge-queued { background: rgba(245,158,11,.1); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
     .badge-down { background: rgba(220,38,38,.1); color: var(--warn); border: 1px solid rgba(220,38,38,.2); }
+    .badge-stopped { background: rgba(255,170,0,.15); color: #ffaa00; border: 1px solid rgba(255,170,0,.4); }
     .badge-idle { background: var(--card3); color: var(--muted); border: 1px solid var(--border); }
+    .status-stopped { border-color: rgba(255,170,0,.3) !important; background: rgba(255,170,0,.02); }
 
     .scanner-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
@@ -1727,9 +1729,17 @@
           <!-- SCANNER STATUS -->
           <div class="section-label" style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
             <span>Scanner Health</span>
-            <button id="refresh-master-symbols-btn" onclick="refreshMasterSymbolsUniverse()" class="btn btn-sm" style="font-size:11px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; font-weight:700;">
-              ⚡ Sync Master Stock List
-            </button>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button onclick="toggleAllScanners('pause')" class="btn btn-sm" style="font-size:11px; background:rgba(255,77,109,0.15); color:#ff4d6d; border:1px solid #ff4d6d; font-weight:700; cursor:pointer;">
+                ⏸️ Pause All Scanners
+              </button>
+              <button onclick="toggleAllScanners('resume')" class="btn btn-sm" style="font-size:11px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent); font-weight:700; cursor:pointer;">
+                ▶️ Start All Scanners
+              </button>
+              <button id="refresh-master-symbols-btn" onclick="refreshMasterSymbolsUniverse()" class="btn btn-sm" style="font-size:11px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; font-weight:700;">
+                ⚡ Sync Master Stock List
+              </button>
+            </div>
           </div>
           <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
 
@@ -2407,6 +2417,46 @@
       }
     }
 
+    async function toggleAllScanners(action) {
+      const actionText = action === 'pause' ? 'PAUSE ALL' : 'START ALL';
+      const confirmed = await showCustomConfirm(`Are you sure you want to <strong>${actionText} scanners</strong>?<br><br>${action === 'pause' ? 'This will pause all scheduled and manual runs across all scanners until started.' : 'This will start/resume all scanners for normal scheduled operation.'}`);
+      if (!confirmed) return;
+      try {
+        const endpoint = `/api/scanner_health/${action}_all`;
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && (data.status === 'success' || data.success)) {
+          showCustomToast(data.message || `All scanners ${action === 'pause' ? 'PAUSED' : 'STARTED'} successfully`, 'success');
+          doRefresh();
+        } else {
+          showCustomToast(`Failed: ${data.message || data.error}`, 'error');
+        }
+      } catch (e) {
+        showCustomToast(`Error: ${e.message || e}`, 'error');
+      }
+    }
+
+    async function toggleScannerStop(event, sc, action) {
+      if (event) event.stopPropagation();
+      const isPause = action === 'pause' || action === 'stop';
+      const actionText = isPause ? 'PAUSE' : 'START';
+      const confirmed = await showCustomConfirm(`Are you sure you want to <strong>${actionText}</strong> <strong style="color:var(--accent)">${sc}</strong>?<br><br>${isPause ? 'When paused, this scanner will skip all scheduled and manual runs until started.' : 'Starting will restore normal scheduled flow.'}`);
+      if (!confirmed) return;
+      try {
+        const endpoint = `/api/scanner_health/${isPause ? 'pause' : 'resume'}/${encodeURIComponent(sc)}`;
+        const res = await fetch(endpoint, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && (data.status === 'success' || data.success)) {
+          showCustomToast(data.message || `Scanner ${sc} ${actionText}D successfully`, 'success');
+          doRefresh();
+        } else {
+          showCustomToast(`Failed to ${action} ${sc}: ${data.message || data.error}`, 'error');
+        }
+      } catch (e) {
+        showCustomToast(`Error: ${e.message || e}`, 'error');
+      }
+    }
+
     function renderScannerGrid(scanner_stats) {
       const el = document.getElementById('scannerGrid');
       if (!scanner_stats || !Object.keys(scanner_stats).length) {
@@ -2426,6 +2476,7 @@
           const data = scanner_stats[sc] || { today_alerts: 0, last_success: null, status: 'IDLE', today_trades: [], error_severity: null };
           const meta = SCANNER_META[sc] || { label: sc, desc: '' };
           const isAck = data.is_acknowledged !== false;
+          const isStopped = data.status === 'STOPPED' || data.status === 'PAUSED';
 
           // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
           const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
@@ -2439,7 +2490,11 @@
           let badgeClass = 'badge-ok';
           let badgeText = '● ' + (data.status || 'LIVE');
           
-          if (isDown) {
+          if (isStopped) {
+             statusClass = 'status-stopped';
+             badgeClass = 'badge-stopped';
+             badgeText = '⏸ PAUSED';
+          } else if (isDown) {
              statusClass = 'status-down';
              badgeClass = 'badge-down';
              badgeText = data.status === 'DEGRADED' ? '● DEGRADED' : '● DOWN';
@@ -2604,7 +2659,11 @@
                 <button onclick="event.stopPropagation(); setPledgeWorkerMode('auto')" style="background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Auto (6-8AM)">⏱️</button>
               </div>`;
           } else if (ALLOWED_SCANNERS.includes(sc)) {
-            triggerBtnHtml = `<button onclick="triggerScanner(event, '${sc}')" style="margin-left: 8px; background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.1)'; this.style.color='var(--accent)';">▶ Run Now</button>`;
+            if (isStopped) {
+              triggerBtnHtml = `<button onclick="toggleScannerStop(event, '${sc}', 'resume')" style="margin-left: 8px; background: rgba(0,212,161,0.15); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.15)'; this.style.color='var(--accent)';">▶ Start</button>`;
+            } else {
+              triggerBtnHtml = `<button onclick="triggerScanner(event, '${sc}')" style="margin-left: 8px; background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.1)'; this.style.color='var(--accent)';">▶ Run Now</button><button onclick="toggleScannerStop(event, '${sc}', 'pause')" style="margin-left: 4px; background: rgba(255,77,109,0.15); color: #ff4d6d; border: 1px solid #ff4d6d; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ff4d6d'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,77,109,0.15)'; this.style.color='#ff4d6d';">⏸️ Pause</button>`;
+            }
           }
 
           html_buffer += `

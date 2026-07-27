@@ -131,6 +131,10 @@ def start(force: bool = False):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
+    from database import is_scanner_stopped
+    if is_scanner_stopped("PULLBACK"):
+        logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
+        return 0
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Pullback Scanner is already actively running!")
     try:

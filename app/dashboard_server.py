@@ -1906,6 +1906,56 @@ def api_acknowledge_scanner_health(scanner_name):
         logger.exception(f"❌ /api/scanner_health/acknowledge failed for {scanner_name}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/scanner_health/stop/<scanner_name>", methods=["POST"])
+@app.route("/api/scanner_health/pause/<scanner_name>", methods=["POST"])
+@admin_required
+def api_stop_scanner_health(scanner_name):
+    """Admin endpoint to PAUSE/STOP a scanner from running (manual or scheduled)."""
+    try:
+        from database import stop_scanner
+        stop_scanner(scanner_name)
+        return jsonify({"status": "success", "scanner": scanner_name, "message": f"Scanner '{scanner_name}' PAUSED successfully."})
+    except Exception as e:
+        logger.exception(f"❌ /api/scanner_health/pause failed for {scanner_name}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/scanner_health/resume/<scanner_name>", methods=["POST"])
+@app.route("/api/scanner_health/start/<scanner_name>", methods=["POST"])
+@admin_required
+def api_resume_scanner_health(scanner_name):
+    """Admin endpoint to RESUME/START a stopped scanner."""
+    try:
+        from database import resume_scanner
+        resume_scanner(scanner_name)
+        return jsonify({"status": "success", "scanner": scanner_name, "message": f"Scanner '{scanner_name}' RESUMED/STARTED successfully."})
+    except Exception as e:
+        logger.exception(f"❌ /api/scanner_health/resume failed for {scanner_name}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/scanner_health/pause_all", methods=["POST"])
+@admin_required
+def api_pause_all_scanners():
+    """Admin endpoint to PAUSE all scanners."""
+    try:
+        from database import pause_all_scanners
+        pause_all_scanners()
+        return jsonify({"status": "success", "message": "ALL scanners PAUSED successfully."})
+    except Exception as e:
+        logger.exception("❌ /api/scanner_health/pause_all failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/scanner_health/resume_all", methods=["POST"])
+@admin_required
+def api_resume_all_scanners():
+    """Admin endpoint to RESUME/START all scanners."""
+    try:
+        from database import resume_all_scanners
+        resume_all_scanners()
+        return jsonify({"status": "success", "message": "ALL scanners RESUMED/STARTED successfully."})
+    except Exception as e:
+        logger.exception("❌ /api/scanner_health/resume_all failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/admin/trigger_scanner/<scanner_name>", methods=["POST"])
 @admin_required
 def api_trigger_scanner(scanner_name):

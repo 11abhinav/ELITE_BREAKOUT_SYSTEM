@@ -945,6 +945,10 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
 def run_wealth_scan(is_test_mode=False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("Wealth Engine"):
+        logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
+        return None
     # [VERSION: SYMBOL_FIX_v1.0] Graceful skip instead of RuntimeError when prior scan
     # is still running. The 5-min scheduler can overlap if a scan takes >5 min;
     # crashing pollutes the error log unnecessarily.

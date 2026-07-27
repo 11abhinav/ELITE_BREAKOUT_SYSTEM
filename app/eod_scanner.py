@@ -211,6 +211,10 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
     }
 
 def start(force: bool = False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("EOD"):
+        logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
+        return 0
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")
     try:

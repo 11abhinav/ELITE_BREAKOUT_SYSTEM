@@ -2298,7 +2298,7 @@ def upsert_scanner_health(
     # Normalize and sanitize status values to match DB CHECK constraint
     if status is not None:
         status = str(status).upper()
-    allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED'}
+    allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'STOPPED', 'PAUSED'}
     if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
         logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
         status = 'IDLE'
@@ -2463,6 +2463,90 @@ def get_all_scanner_health() -> list[dict]:
             except Exception:
                 logger.exception("❌ get_all_scanner_health failed")
                 return []
+
+
+def normalize_scanner_name(scanner_name: str) -> str:
+    """Canonicalize scanner name strings across UI and DB."""
+    if not scanner_name:
+        return "UNKNOWN"
+    s = scanner_name.strip()
+    upper = s.upper().replace("-", "_").replace(" ", "_")
+    if upper in ["DAILY_BUILDER", "DAILYBUILDER"]:
+        return "DAILY_BUILDER"
+    elif upper in ["EOD", "EOD_BREAKOUT"]:
+        return "EOD"
+    elif upper in ["REVERSAL", "REVERSAL_SCANNER"]:
+        return "REVERSAL"
+    elif upper in ["PULLBACK", "PULLBACK_PIPELINE"]:
+        return "PULLBACK"
+    elif upper in ["WEALTH", "WEALTH_ENGINE"]:
+        return "Wealth Engine"
+    elif upper in ["MULTIBAGGER"]:
+        return "MULTIBAGGER"
+    elif upper in ["MULTI_TF", "MULTITF"]:
+        return "MULTI_TF"
+    elif upper in ["PERFORMANCE_TRACKER", "PERF_TRACKER"]:
+        return "PERFORMANCE_TRACKER"
+    elif upper in ["AI_WORKER"]:
+        return "AI Worker"
+    elif upper in ["PLEDGE_WORKER"]:
+        return "Pledge Worker"
+    return s
+
+
+def is_scanner_stopped(scanner_name: str) -> bool:
+    """Return True if scanner is currently STOPPED by Admin."""
+    norm_name = normalize_scanner_name(scanner_name)
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status FROM scanner_health WHERE UPPER(scanner_name) = UPPER(%s) LIMIT 1", (norm_name,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0]).upper() in ("STOPPED", "PAUSED")
+    except Exception as e:
+        logger.warning(f"is_scanner_stopped query failed for {scanner_name}: {e}")
+    return False
+
+
+def stop_scanner(scanner_name: str) -> bool:
+    """Set scanner health status to PAUSED by Admin."""
+    norm_name = normalize_scanner_name(scanner_name)
+    upsert_scanner_health(norm_name, status="PAUSED", error_msg="Paused by Admin")
+    logger.info(f"🛑 Scanner '{norm_name}' has been PAUSED by Admin.")
+    return True
+
+
+def resume_scanner(scanner_name: str) -> bool:
+    """Resume scanner from PAUSED state back to IDLE/OK."""
+    norm_name = normalize_scanner_name(scanner_name)
+    upsert_scanner_health(norm_name, status="IDLE", error_msg=None)
+    logger.info(f"▶️ Scanner '{norm_name}' has been RESUMED by Admin.")
+    return True
+
+
+ALL_KNOWN_SCANNERS = [
+    'DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL',
+    'PULLBACK', 'Wealth Engine', 'MULTIBAGGER',
+    'PERFORMANCE_TRACKER', 'Pledge Worker', 'AI Worker'
+]
+
+
+def pause_all_scanners() -> bool:
+    """Pause all scanners at once."""
+    for sc in ALL_KNOWN_SCANNERS:
+        stop_scanner(sc)
+    logger.info("🛑 ALL SCANNERS PAUSED BY ADMIN")
+    return True
+
+
+def resume_all_scanners() -> bool:
+    """Resume all scanners at once."""
+    for sc in ALL_KNOWN_SCANNERS:
+        resume_scanner(sc)
+    logger.info("▶️ ALL SCANNERS RESUMED BY ADMIN")
+    return True
 
 
 def get_scanner_today_trades(scanner_name: str, today_str: str) -> list[dict]:

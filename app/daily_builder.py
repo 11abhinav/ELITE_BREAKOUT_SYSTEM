@@ -1033,6 +1033,10 @@ from lock_utils import ProcessLock
 _build_lock = ProcessLock("daily_builder")
 
 def main(force_rebuild: bool = False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("DAILY_BUILDER"):
+        logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
+        return
     if not _build_lock.acquire(blocking=False):
         raise RuntimeError("Daily Builder is already actively running!")
     try:
