@@ -1709,7 +1709,8 @@
         <div class="card" style="margin-bottom:18px; padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <h3 style="font-size:16px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;"><span>🛠️</span> Manual Watchlist (Admin)</h3>
-            <div style="display:flex; gap:8px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="run-manual-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" class="refresh-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; font-weight:700; padding:8px 16px; border-radius:8px; box-shadow:0 4px 14px rgba(59,130,246,0.35);">⚡ Execute Deep Scan on All Watchlist Stocks</button>
               <button class="refresh-btn" onclick="loadManualWatchlist()" style="font-weight:700;">🔄 Load Manual Watchlist</button>
               <button class="refresh-btn" onclick="downloadManualWatchlistCSV()" style="font-weight:700;">📥 Download CSV</button>
             </div>
@@ -6430,6 +6431,11 @@ function triggerStockDiagnostic(overrideSym, isDeep = false) {
     });
 }
 
+function triggerStockDiagnosticBySymbol(sym) {
+  if (!sym) return;
+  triggerStockDiagnostic(sym, true);
+}
+
 function showInvalidTickerAlert(sym, errorMsg) {
   let modal = document.getElementById('stock-diagnostic-main-container');
   if (!modal) {
@@ -6913,11 +6919,22 @@ function loadManualWatchlist() {
         tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
         return;
       }
-      tbody.innerHTML = list.map(it => `<tr><td>${it.symbol}</td><td>${formatISTDate(it.added_at)}</td><td>${it.last_status || '—'}</td><td><button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${it.symbol}')">🔍</button></td></tr>`).join('');
+      tbody.innerHTML = list.map(it => `
+        <tr>
+          <td><strong style="color:var(--text); font-family:var(--font-mono); font-size:13px;">${it.symbol}</strong></td>
+          <td style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">${formatISTDate(it.added_at)}</td>
+          <td><span class="badge badge-scanner" style="font-size:11px;">${it.last_status || 'MONITORING'}</span></td>
+          <td style="text-align:right;">
+            <button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${it.symbol}')" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.35); font-weight:700; padding:6px 14px; border-radius:6px;" title="Rescan & View Detailed Diagnostic Analysis">
+              ⚡ Rescan & Detailed Analysis 🔍
+            </button>
+          </td>
+        </tr>
+      `).join('');
     })
     .catch(err => {
       console.error('Failed to load manual watchlist:', err);
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--danger);padding:18px;">Failed to load.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
     });
 }
 
@@ -7076,34 +7093,35 @@ function openSavedWatchlistAnalysis(target) {
 }
 
 function runWatchlistDeepAnalysis() {
-  const btn = document.getElementById('run-watchlist-deep-scan-btn');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<span>⏳</span> Analyzing Watchlist Stocks...`;
-  }
+  const btns = document.querySelectorAll('#run-watchlist-deep-scan-btn, #run-manual-watchlist-deep-scan-btn');
+  btns.forEach(b => {
+    b.disabled = true;
+    b.innerHTML = `<span>⏳</span> Analyzing Watchlist Stocks...`;
+  });
 
   showCustomToast('⚡ Starting Deep Diagnostic Analysis on all Watchlist stocks...', 'info');
 
   fetch('/api/v1/user_watchlist/deep_analysis', { method: 'POST' })
     .then(res => res.json())
     .then(res => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `⚡ Execute Deep Analysis on All Watchlist Stocks`;
-      }
+      btns.forEach(b => {
+        b.disabled = false;
+        b.innerHTML = `⚡ Execute Deep Scan on All Watchlist Stocks`;
+      });
       if (res.success) {
         showCustomToast(`✅ ${res.message || 'Deep Analysis completed!'}`, 'success');
         loadUserWatchlist();
+        loadManualWatchlist();
         showWatchlistDeepAnalysisSummaryModal(res.items || []);
       } else {
         showCustomToast(`Failed to run deep analysis: ${res.error}`, 'error');
       }
     })
     .catch(err => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `⚡ Execute Deep Analysis on All Watchlist Stocks`;
-      }
+      btns.forEach(b => {
+        b.disabled = false;
+        b.innerHTML = `⚡ Execute Deep Scan on All Watchlist Stocks`;
+      });
       showCustomToast(`Deep Analysis error: ${err.message}`, 'error');
     });
 }
