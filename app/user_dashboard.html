@@ -3161,7 +3161,8 @@ function renderStockDiagnosticModal(data) {
       badgeCls = 'badge-queued';
     }
 
-    const canCreateAlert = Boolean(data.is_deep_analysis) && (status.includes('YES') || isCoreMet) && item.scanner !== 'DAILY_BUILDER';
+    // Manual alert creation is restricted to Admin users only (admin_dashboard.html)
+    const canCreateAlert = false;
     
     const rawReasons = (stage.reasons || []).filter(r => Boolean(r) && !r.includes("Added to Watchlist")).join(' • ') || 'Evaluated clean';
     let reasonsText = rawReasons;

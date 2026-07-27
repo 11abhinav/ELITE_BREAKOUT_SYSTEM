@@ -3008,7 +3008,7 @@ def api_analyze_stock():
 
 
 @app.route("/api/v1/create_manual_alert", methods=["POST"])
-@login_required
+@admin_required
 def api_create_manual_alert():
     """Promotes a qualified setup to an ACTIVE BUY alert."""
     try:
