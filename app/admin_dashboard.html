@@ -3687,6 +3687,8 @@
     }
 
     function renderTradeTable() {
+      // Prevent rendering the All Trades table when user is viewing other admin tabs (e.g., Scanner Health)
+      if (typeof activeAdminTab !== 'undefined' && activeAdminTab !== 'signals-trades') return;
       const sc = document.getElementById('filterScanner').value;
       const st = document.getElementById('filterStatus').value;
       const sym = document.getElementById('filterSymbol').value.trim().toUpperCase();
