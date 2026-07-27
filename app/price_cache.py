@@ -976,6 +976,19 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
                 break
             if all_hit and len(res) == len(symbols):
                 logger.debug(f"[{requester}] 📦 Intraday cache hit | {interval}|{period} | All {len(symbols)} symbols fresh")
+                # [VERSION: DATA_FETCH_ACCELERATION_v1.0] Stitch 1-second live price tick into last candle
+                from market_utils import is_market_open
+                if is_market_open():
+                    try:
+                        from live_prices import get_live_prices
+                        live_prices_map = get_live_prices(list(res.keys()))
+                        for sym, df_item in res.items():
+                            if isinstance(df_item, pd.DataFrame) and not df_item.empty and sym in live_prices_map:
+                                lp = live_prices_map[sym]
+                                if lp and float(lp) > 0:
+                                    df_item.iloc[-1, df_item.columns.get_loc("Close")] = float(lp)
+                    except Exception:
+                        pass
                 return res
 
         # If another thread is already fetching this key, wait for it to complete

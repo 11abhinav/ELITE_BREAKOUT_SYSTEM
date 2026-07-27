@@ -38,10 +38,8 @@ class RateLimiter:
                 time.sleep(self.interval - elapsed)
             self.last_call = time.time()
 
-# Shared rate limiter across Fyers fetcher instances. 
-# Fyers limit is often ~200/minute, but some users have stricter tiers (100/min).
-# We use 1.5 (90/min) to stay safely below the limit.
-_fyers_rate_limiter = RateLimiter(max_per_second=1.5)
+# [VERSION: DATA_FETCH_ACCELERATION_v1.0] Rate limit increased to 3.0 req/sec with 6 parallel threads
+_fyers_rate_limiter = RateLimiter(max_per_second=3.0)
 
 # Circuit breaker for Fyers API to auto-fallback on repeated failures
 class FyersCircuitBreaker:
@@ -537,8 +535,8 @@ class FyersFetcher(DataFetcher):
         ns_symbols = list(normalized_map.keys())
         results = {}
         
-        # Restrict max workers to 3 to prevent burst spikes on Fyers API
-        max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
+        # [VERSION: DATA_FETCH_ACCELERATION_v1.0] Scale max workers to 6 for faster batch fetching
+        max_workers = min(6, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
                 executor.submit(self.get_ohlcv, normalized_map[ns_sym][0], interval, period, retries, range_from, range_to): ns_sym

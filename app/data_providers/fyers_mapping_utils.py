@@ -48,14 +48,14 @@ def load_fyers_mappings():
                 except Exception:
                     pass
 
-                # Load INVALID mappings
-                current_time = datetime.now(IST).isoformat()
+                # Load INVALID mappings (Retry ONCE on first run of new day, skip for rest of today)
+                today_date_str = datetime.now(IST).strftime("%Y-%m-%d")
                 cur.execute("""
                     SELECT original_sym FROM symbol_mappings 
                     WHERE mapping_type = 'FYERS' 
                     AND (mapping_state = 'INVALID' OR is_invalid = TRUE)
-                    AND (retry_after IS NULL OR retry_after > %s)
-                """, (current_time,))
+                    AND last_verified LIKE %s
+                """, (f"{today_date_str}%",))
                 inv_rows = cur.fetchall()
                 _fyers_invalid_cache = {row[0] for row in inv_rows}
                 
