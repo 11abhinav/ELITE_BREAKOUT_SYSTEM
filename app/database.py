@@ -2485,13 +2485,15 @@ def upsert_scanner_health(
                 if total_count is not None:
                     set_clauses.append("total_count = %s")
                     params.append(total_count)
+                import json
                 if outcome is not None:
+                    outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
                     set_clauses.append("outcome = %s")
-                    params.append(outcome)
+                    params.append(outcome_str)
                 if provider_stats is not None:
-                    import json
+                    provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
                     set_clauses.append("provider_stats = %s")
-                    params.append(json.dumps(provider_stats))
+                    params.append(provider_stats_str)
                 if duration_seconds is not None:
                     set_clauses.append("duration_seconds = %s")
                     params.append(duration_seconds)
@@ -2536,12 +2538,13 @@ def upsert_scanner_health(
                     insert_cols.append("total_count")
                     insert_vals.append(total_count)
                 if outcome is not None:
+                    outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
                     insert_cols.append("outcome")
-                    insert_vals.append(outcome)
+                    insert_vals.append(outcome_str)
                 if provider_stats is not None:
-                    import json
+                    provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
                     insert_cols.append("provider_stats")
-                    insert_vals.append(json.dumps(provider_stats))
+                    insert_vals.append(provider_stats_str)
                 if duration_seconds is not None:
                     insert_cols.append("duration_seconds")
                     insert_vals.append(duration_seconds)

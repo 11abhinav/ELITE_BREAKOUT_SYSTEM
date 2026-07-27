@@ -302,5 +302,26 @@ class TestAuditFixes(unittest.TestCase):
         passed_total = any(call.kwargs.get("total_count") == 1 for call in health_calls)
         self.assertTrue(passed_total, "upsert_scanner_health was not called with total_count=1")
 
+    @patch('database.get_connection')
+    def test_upsert_scanner_health_adapts_dict_outcome(self, mock_get_conn):
+        """Verify upsert_scanner_health serializes dict outcome and provider_stats to JSON string without psycopg2 ProgrammingError."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        from database import upsert_scanner_health
+        dict_outcome = {"total": 50, "qualified": 5}
+        dict_stats = {"yfinance": 50, "fyers": 0}
+
+        upsert_scanner_health("PULLBACK", status="OK", outcome=dict_outcome, provider_stats=dict_stats)
+
+        mock_cursor.execute.assert_called()
+        call_args = mock_cursor.execute.call_args[0]
+        params = call_args[1]
+
+        for p in params:
+            self.assertNotIsInstance(p, dict, "upsert_scanner_health MUST serialize dict parameters to JSON string")
+
 if __name__ == '__main__':
     unittest.main()
