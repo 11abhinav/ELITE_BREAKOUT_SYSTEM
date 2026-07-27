@@ -130,10 +130,11 @@ MIN_OPM_NONFIN    = 10               # 10% OPM — excludes commodity-level marg
 # PATH B only
 MIN_ROA_FIN       = 0.8              
 
-def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None) -> dict:
+def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, ignore_min_price: bool = False) -> dict:
     """
     Evaluates a single symbol against canonical Daily Builder universe eligibility criteria.
-    Checks Price >= ₹100, History >= 50 bars, 20D turnover >= ₹1.0Cr, promoter blacklist, D/E ceiling, and OPM limits.
+    Checks Price >= ₹100 (unless ignore_min_price=True for stock analyzer), History >= 50 bars,
+    20D turnover >= ₹1.0Cr, promoter blacklist, D/E ceiling, and OPM limits.
     """
     if df is None or df.empty or len(df) < 50:
         return {
@@ -154,7 +155,7 @@ def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict
     close_price = float(latest["Close"])
 
     checks = []
-    if close_price < MIN_PRICE:
+    if not ignore_min_price and close_price < MIN_PRICE:
         checks.append(f"Price ₹{close_price:.2f} < ₹{MIN_PRICE:.0f} minimum price floor")
 
     avg_turnover_20d = (ticker['Close'] * ticker['Volume']).tail(20).mean() / 1e7
@@ -182,10 +183,11 @@ def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict
     if checks:
         return {"status": "NO", "qualified": False, "reasons": checks}
 
+    price_msg = f"Price ₹{close_price:.2f} ≥ ₹{MIN_PRICE:.0f}" if not ignore_min_price else f"Price ₹{close_price:.2f} (<₹100 allowed for Stock Analyzer)"
     return {
         "status": "CORE MET",
         "qualified": True,
-        "reasons": [f"Price ₹{close_price:.2f} ≥ ₹{MIN_PRICE:.0f} | 20D Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {len(ticker)} ≥ 50"]
+        "reasons": [f"{price_msg} | 20D Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {len(ticker)} ≥ 50"]
     }
 
 # =====================================================================================

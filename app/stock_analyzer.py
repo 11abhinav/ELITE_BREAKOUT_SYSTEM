@@ -585,7 +585,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     deficits = []
 
     # ---------------- STAGE 1: DAILY BUILDER (UNIVERSE ELIGIBILITY) ----------------
-    db_eval = evaluate_daily_builder_symbol(sym_clean, df, fund_data=fund_data)
+    db_eval = evaluate_daily_builder_symbol(sym_clean, df, fund_data=fund_data, ignore_min_price=True)
     db_pass = db_eval.get("qualified", False)
     db_reasons = db_eval.get("reasons", [])
 

@@ -106,7 +106,7 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
     @patch('stock_analyzer.compute_nifty_rs_rating')
     @patch('stock_analyzer.get_fundamentals')
     def test_analyze_symbol_daily_builder_price_floor_deficit(self, mock_fund, mock_rs, mock_fetch, mock_val):
-        """Verify price floor < ₹100 generates explicit deficit warning."""
+        """Verify Stock Analyzer allows price < ₹100 for daily builder evaluation while validating other criteria."""
         dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         prices = [50.0 + i * 0.5 for i in range(60)] # Max price 79.5 < 100.0
         df = pd.DataFrame({
@@ -126,10 +126,11 @@ class TestStockAnalyzerDiagnosticEngine(unittest.TestCase):
 
         self.assertTrue(res.get("success"))
         funnel = res.get("funnel", {})
-        self.assertEqual(funnel["daily_builder"]["status"], "NO")
+        # Price < ₹100 should be allowed in Stock Analyzer mode, so daily_builder status should be CORE MET if liquidity & history pass
+        self.assertEqual(funnel["daily_builder"]["status"], "CORE MET")
 
         deficits_text = " ".join(res.get("deficits", []))
-        self.assertIn("Price Floor Deficit", deficits_text)
+        self.assertNotIn("Price Floor Deficit", deficits_text)
 
     @patch('stock_analyzer.validate_nse_bse_ticker', return_value={"is_valid": True, "symbol": "TATAMOTORS"})
     @patch('stock_analyzer.fetch_watchlist_data')
