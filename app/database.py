@@ -5360,6 +5360,38 @@ def batch_upsert_breakout_watchlist(records: list):
     except Exception as e:
         logger.exception(f"❌ Failed to batch upsert breakout watchlist for {len(records)} records: {e}")
 
+def get_mtf_target_universe() -> 'pd.DataFrame':
+    """
+    Returns the consolidated universe of symbols for the Multi-TF scanner Phase A.
+    This replaces the broad daily builder watchlist with a highly targeted list of:
+    1. Open alerts from other scanners (excluding MULTI_TF)
+    2. Active wealth/multibagger alerts
+    3. Master Watchlist (manual symbols)
+    
+    Returns a DataFrame with at least a 'Stock' column to drop into the existing pipeline.
+    """
+    init_db()
+    import pandas as pd
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT symbol FROM alerts 
+                    WHERE status = 'OPEN' AND scanner != 'MULTI_TF'
+                    UNION
+                    SELECT DISTINCT symbol FROM wealth_buy_alert 
+                    WHERE status = 'ACTIVE'
+                    UNION
+                    SELECT DISTINCT symbol FROM stock_analysis_master
+                """)
+                rows = cur.fetchall()
+                symbols = [r[0] for r in rows if r[0]]
+                df = pd.DataFrame({"Stock": symbols})
+                return df
+    except Exception as e:
+        logger.error(f"Failed to fetch MTF target universe: {e}")
+        return pd.DataFrame(columns=["Stock"])
+
 def get_active_breakout_watchlist() -> list:
     try:
         with get_connection() as conn:

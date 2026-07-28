@@ -8,7 +8,6 @@ import pandas as pd
 from technical_indicators import apply_indicators
 from memory_profiler import MemoryProfiler
 from core_enums import ProviderResult
-from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from database import (
     upsert_breakout_watchlist,
@@ -18,7 +17,8 @@ from database import (
     check_recent_alert,
     save_alert_if_new, save_candidate,
     mark_breakout_watchlist_cooldown,
-    upsert_scanner_health
+    upsert_scanner_health,
+    get_mtf_target_universe
 )
 import json
 from config import MIN_STOCK_PRICE, SCANNER_MULTI_TF, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
@@ -274,17 +274,17 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
         return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
     logger.info("🕒 Starting Phase A (1H Trend Scanner)...")
     
-    # 1. Get fundamental universe
-    watchlist = get_watchlist()
+    # 1. Get targeted intraday timing universe (Open Alerts + Wealth + Master)
+    watchlist = get_mtf_target_universe()
     if watchlist.empty:
-        logger.warning("No watchlist found.")
+        logger.warning("No target universe found for Multi-TF scanner.")
         return {"fetched": 0, "total": 0, "stale": 0}
 
     # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
     import hashlib
     _wl_stocks = sorted(watchlist["Stock"].tolist())
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
-    logger.info(f"📋 [MULTI_TF] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
+    logger.info(f"📋 [MULTI_TF] Targeted universe fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
     import gc, time, os
     BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "50"))
