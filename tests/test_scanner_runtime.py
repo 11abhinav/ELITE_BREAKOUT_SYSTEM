@@ -32,7 +32,7 @@ class TestScannerRuntimeFailures(unittest.TestCase):
     """
 
     @patch('eod_scanner.init_db')
-    @patch('eod_scanner.get_mtf_target_universe')
+    @patch('eod_scanner.get_watchlist')
     def test_eod_scanner_crash_handling(self, mock_get_mtf_target_universe, mock_init_db):
         mock_get_mtf_target_universe.side_effect = Exception("Simulated DB crash in EOD")
         
@@ -63,7 +63,7 @@ class TestScannerRuntimeFailures(unittest.TestCase):
             self.fail(f"Wealth engine leaked an exception: {e}")
 
     @patch('reversal_scanner.init_db')
-    @patch('reversal_scanner.get_mtf_target_universe')
+    @patch('reversal_scanner.get_watchlist')
     def test_reversal_scanner_crash_handling(self, mock_get_mtf_target_universe, mock_init_db):
         mock_get_mtf_target_universe.side_effect = Exception("Simulated crash in Reversal")
         
