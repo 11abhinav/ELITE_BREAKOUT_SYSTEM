@@ -568,7 +568,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "rsi":           _f(row.get("rsi")),
             "volume_ratio":  _f(row.get("volume_ratio")),
             "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
-            "remaining_shares": row.get("remaining_shares"),
+            "remaining_shares": row.get("remaining_shares") if row.get("remaining_shares") is not None else row.get("shares_bought", 0),
             "exit_history":  row.get("exit_history"),
             "context":       row.get("context"),          # Diagnostic filters and context
             "is_rejected":   row.get("is_rejected", False),
