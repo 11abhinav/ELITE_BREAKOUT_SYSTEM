@@ -1806,6 +1806,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             today_alerts=alerts_count,
             processed_count=len(results),
             total_count=len(fundamentals_list),
+            scheduled_for="04:00 & 19:00 IST",
             duration_seconds=duration_sec
         )
         insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks in {duration_sec}s.")
