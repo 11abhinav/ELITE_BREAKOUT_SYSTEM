@@ -1137,7 +1137,7 @@ def run_system_scheduler():
                 telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
                 with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                     from wealth_engine import run_wealth_intraday_update
-                    run_wealth_intraday_update()
+                    run_wealth_intraday_update(write_health=not should_run_full_scan)
                 duration_sec = round(time.time() - start_time, 1)
                 logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
                 upsert_scanner_health(

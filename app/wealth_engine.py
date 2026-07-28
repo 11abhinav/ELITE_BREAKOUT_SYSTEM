@@ -1533,7 +1533,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 send_push_to_all("❌ Wealth Engine DOWN", f"Crash: {str(e)[:100]}")
             except Exception as _fb_e: logger.exception(f"Fallback reporting failed: {_fb_e}")
 
-def run_wealth_intraday_update(is_test_mode=False):
+def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     """
     Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
     Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
@@ -1624,13 +1624,14 @@ def run_wealth_intraday_update(is_test_mode=False):
             if realtime_metrics:
                 update_position_real_time_prices({s: {"price": p, "score": wealth_df[wealth_df["Stock"] == s]["Hold_Score"].iloc[0] if "Hold_Score" in wealth_df.columns and s in wealth_df["Stock"].values else None} for s, p in realtime_metrics.items()})
 
-            duration_sec = round(time.time() - start_time, 1)
-            today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
-            upsert_scanner_health(
-                scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
-                today_alerts=today_buys, total_count=len(wealth_df),
-                duration_seconds=duration_sec
-            )
+            if write_health:
+                duration_sec = round(time.time() - start_time, 1)
+                today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
+                upsert_scanner_health(
+                    scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                    today_alerts=today_buys, total_count=len(wealth_df),
+                    duration_seconds=duration_sec
+                )
 
         duration_sec = round(time.time() - start_time, 1)
         logger.info(f"⚡ [WEALTH ENGINE 5M] Intraday portfolio update completed in {duration_sec}s")
