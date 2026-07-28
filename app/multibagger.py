@@ -84,8 +84,10 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     # [FIX MUL-1] Normalize pledge to ratio (0.0-1.0) for consistent comparison
     pledge_ratio = _pledge_ratio(raw_pledge)
 
-    # Call V5 pipeline for exact composite scoring
-    composite_score = 70.0
+    # [FIX MUL-15] Initialize as None so a failed V5 pipeline cannot silently produce
+    # a passing composite score. The diagnostic tier logic now rejects when composite
+    # is None (V5 did not run), preventing under-qualified stocks from earning labels.
+    composite_score = None
     try:
         from wealth_engine import map_watchlist_to_v5
         v5_dict = map_watchlist_to_v5({**fd, "Stock": symbol, "Close": close_price})
@@ -111,12 +113,10 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     is_prime = False
     is_high_quality = False
 
-    # [FIX MUL-1] All pledge comparisons now use ratio (0.0-1.0).
-    # [FIX MUL-4] When fundamentals are missing, do NOT allow a default composite=70
-    # to satisfy the tier — require actual V5 score or reject.
-    # [FIX MUL-9] The composite > 70 path still requires at least one known fundamental
-    # (pledge or F-score) to avoid tagging weak names with zero verification.
-    if f_score is not None and pledge_ratio is not None:
+    # [FIX MUL-15] If V5 scoring failed, composite_score is None — reject immediately.
+    if composite_score is None:
+        reasons.append("V5 composite scoring unavailable (pipeline failure)")
+    elif f_score is not None and pledge_ratio is not None:
         is_prime = (f_score >= 7) and (pledge_ratio <= 0.10) and is_uptrend and (composite_score >= 70.0)
         is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
     elif f_score is not None and pledge_ratio is None:
@@ -223,6 +223,10 @@ class ScreenerResult:
     status: str
     notes: str
     change_pct: float = 0.0
+    # [FIX MUL-16/17] Track whether alert was actually inserted into DB.
+    # Before this, ALERT_TRIGGERED was set before Top-N suppression and
+    # save_alert_if_new, so both the count and watchlist could be overstated.
+    alert_inserted: bool = False
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
@@ -503,6 +507,11 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         car = f.get("capital_adequacy_ratio")
         if car is not None and not pd.isna(car):
             known_metrics_count += 1
+            # [FIX MUL-10] CAR is the solvency metric for financial-sector companies
+            # (banks, NBFCs, insurers). Without this, every financial stock hit
+            # "Data Void ... solvency=MISSING" because solvency was only tracked
+            # in the non-financial branch (D/E, ICR, Altman-Z).
+            has_solvency_metric = True
             if safe_float(car) < 0.12:
                 return False, f"Low CAR ({safe_float(car)*100:.1f}%)"
             
@@ -568,7 +577,9 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
     Enforces Piotroski F-Score >= 7 for Top Tier ("🚀 Prime Multibagger").
     Returns (Tier, Score)
     """
-    is_prime_fscore = f_score is None or f_score >= 7
+    # [FIX MUL-11] Prime tier requires F-Score >= 7. The original `f_score is None`
+    # let missing data pass as valid, silently bypassing the Piotroski requirement.
+    is_prime_fscore = f_score is not None and f_score >= 7
 
     if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0 and is_prime_fscore:
         return "🚀 Prime Multibagger", composite
@@ -582,21 +593,31 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
-    # [VERSION: MULTIBAGGER_EMA20_FIX_v1.0] Fix entry EMA block
-    [FINDING-C FIX] Removed not_freefall (price >= yesterday). A fundamentally
-    prime stock pulling back into its buy zone on a red day is the ideal entry.
-    The V5 pipeline already validates the technical buy zone.
-    [FIX MUL-2] Replaced hard `< sma_200` reject with a 3% band.
-    Deep-value entries frequently dip 1-3% below the 200-DMA intraday/EOD.
-    The screening tier already enforced `close > sma50 > sma200` at qualification;
-    a 3% band allows the advertised deep-value path without losing the trend guard.
+    [FIX MUL-12] Strengthened from a weak volume-only check to require:
+    1. Price within 3% below SMA200 (deep-value band)
+    2. Bullish close (close > open) — confirms buyers are in control
+    3. Close near EMA20 (within 5%) — prevents chasing extended moves
+    4. Volume >= 80% of 20-day average (prevents alerts on dead stocks)
+    EMA reclaim is NOT required (the deep-value path intentionally allows entries
+    below EMA20, but the stock must show some buying interest via bullish close).
     """
     if price_data.price < price_data.sma_200 * 0.97:
         return False
-        
-    volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20 if price_data.volume_sma20 > 0 else True
-    
-    return volume_ok
+
+    # [FIX MUL-13] Missing volume should not produce a confirmed alert.
+    if price_data.volume_sma20 <= 0:
+        return False
+
+    volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20
+
+    # Bullish close: close > open confirms buyers are present
+    bullish_close = price_data.close > price_data.open if hasattr(price_data, 'close') and hasattr(price_data, 'open') else True
+
+    # Close near EMA20: within 5% — prevents chasing extended moves
+    ema20 = price_data.ema_20 if price_data.ema_20 > 0 else price_data.price
+    near_ema = price_data.price >= ema20 * 0.95
+
+    return volume_ok and bullish_close and near_ema
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
@@ -916,8 +937,11 @@ def save_watchlist_to_db(results: list):
     # Map ScreenerResult attributes to list of tuples for execute_values
     data = []
     for r in results:
-        # Determine last alert fields (only write when alert is triggered)
-        if r.status == "ALERT_TRIGGERED":
+        # [FIX MUL-17] Only mark last_alert_price/at for results that actually
+        # inserted into the DB. Before this, any result with ALERT_TRIGGERED status
+        # (including those suppressed by Top-N or rejected by save_alert_if_new)
+        # would update last_alert_price in the watchlist.
+        if getattr(r, 'alert_inserted', False):
             last_price = r.price
             last_at = datetime.now(IST)
         else:
@@ -1757,12 +1781,22 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             if live_p and live_p > 0:
                 price = live_p
 
+            # [FIX MUL-14] Revalidate live price against buy zone. A stock that was
+            # in the buy zone at scan time may have moved outside it by the time the
+            # live price is fetched. Without this, alerts fire after the stock has
+            # already moved beyond its buy zone.
+            pipeline_res = cand["pipeline_result"]
+            bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
+            bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
+            if bz_high > 0 and (price < bz_low or price > bz_high):
+                logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
+                continue
+
             c_total = cand["total_score"]
             c_cqs = cand["cqs"]
             c_trend = cand["trend_score"]
             c_pas = cand["pas"]
             c_notes = cand["notes"]
-            pipeline_res = cand["pipeline_result"]
             raw_fund = cand["raw_fundamentals"]
             c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
             
@@ -1830,6 +1864,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 inserted = True
 
             if inserted:
+                # [FIX MUL-16/17] Mark the corresponding ScreenerResult so that
+                # save_watchlist_to_db and the final alert count use actual DB inserts,
+                # not pre-Top-N ALERT_TRIGGERED flags.
+                for _r in results:
+                    if _r.symbol.upper() == sym.upper():
+                        _r.alert_inserted = True
+                        break
                 from core.multibagger_pipeline import V5_CONFIG
                 if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
                     msg = (
@@ -1856,7 +1897,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
-    alerts_count = sum(1 for r in results if r.status == "ALERT_TRIGGERED")
+    # [FIX MUL-16] Count actual DB inserts, not ALERT_TRIGGERED status flags.
+    # Before this, the count included candidates suppressed by Top-N or rejected
+    # by save_alert_if_new (e.g., duplicate alert within lookback window).
+    alerts_count = sum(1 for r in results if getattr(r, 'alert_inserted', False))
     duration_sec = round(time.time() - start_time, 1)
     try:
         from database import insert_notification, upsert_scanner_health

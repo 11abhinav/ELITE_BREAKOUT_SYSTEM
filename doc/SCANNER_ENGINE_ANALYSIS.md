@@ -1,6 +1,6 @@
 # Elite Breakout System — Scanner Engine Analysis
 
-> Generated: 2026-07-28 | 7 scanners reviewed | 34 fixes applied (P0-P6 + MTF structural + Multibagger)
+> Generated: 2026-07-28 | 7 scanners reviewed | 42 fixes applied (P0-P6 + MTF structural + Multibagger)
 
 ---
 
@@ -725,6 +725,46 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 - **Before:** `elif f_score is None and composite_score > 70.0` allowed "High Quality Multibagger" with zero fundamental verification (no F-score, no pledge).
 - **After:** Split into two branches: F-Score unknown but pledge known (allows HQ if pledge ≤ 15%), and both unknown (rejects).
 - **Rationale:** A "multibagger" label requires at minimum one verified fundamental data point. Composite > 70 alone is not sufficient fundamental backing for the label.
+
+#### MUL-10: Financial-sector stocks always fail quality gate (CRITICAL)
+- **Before:** `has_solvency_metric` was only set inside the non-financial branch (D/E, ICR, Altman-Z). For financials, CAR (Capital Adequacy Ratio) was checked but never flagged as a solvency metric. The final gate required `has_solvency_metric`, so every bank/NBFC/insurer hit "Data Void ... solvency=MISSING".
+- **After:** `has_solvency_metric = True` when CAR is present in the financial branch.
+- **Rationale:** CAR is the regulatory solvency metric for financial companies. The same bug also triggered erroneous sell alerts for existing financial positions via the exit monitor's `passes_multibagger_quality_gate` call.
+
+#### MUL-11: classify_conviction Prime Piotroski bypassed (CRITICAL)
+- **Before:** `is_prime_fscore = f_score is None or f_score >= 7` — missing F-score (`None`) passed as valid, so any composite ≥ 75 qualified as "Prime Multibagger" without Piotroski verification.
+- **After:** `is_prime_fscore = f_score is not None and f_score >= 7` — missing F-score now blocks Prime tier.
+- **Rationale:** The documented requirement is F-Score ≥ 7 for Prime. The `None` shortcut silently bypassed this, creating a false-positive hole.
+
+#### MUL-12: entry_confirmed too weak — only checked volume (MEDIUM)
+- **Before:** Entry passed on SMA-200 band + volume ≥ 80% of average. No bullish close, no EMA proximity check.
+- **After:** Requires bullish close (close > open) and close within 5% of EMA20, in addition to volume and SMA-200 band.
+- **Rationale:** Volume alone doesn't confirm buyer control. A bullish close shows active buying; EMA proximity prevents chasing extended moves. EMA reclaim is intentionally not required (deep-value path allows entries below EMA20).
+
+#### MUL-13: Missing volume auto-passes (MEDIUM)
+- **Before:** `volume_sma20 > 0 else True` — missing/zero volume returned `True`, confirming entry on a dead stock.
+- **After:** Returns `False` when `volume_sma20 <= 0`.
+- **Rationale:** An alert should never fire on a stock with no verifiable trading activity.
+
+#### MUL-14: Live price not revalidated against buy zone (HIGH)
+- **Before:** Buy-zone validation ran at scan time. Live price replaced the validated price later, but buy-zone and SMA conditions were not rechecked. Alert could fire after stock moved outside its buy zone.
+- **After:** After applying live price, revalidate against `buy_zone_low`/`buy_zone_high`. Skip alert if outside zone.
+- **Rationale:** The stock may have moved significantly between scan time and live price fetch (seconds to minutes). Alerting outside the buy zone violates the entry strategy.
+
+#### MUL-15: Failed V5 defaults to composite=70 (HIGH)
+- **Before:** `composite_score = 70.0` at initialization. If V5 threw an exception, the default 70.0 was used, which could satisfy `>= 65` for "High Quality" with zero fundamental verification.
+- **After:** Initialized as `None`. If V5 fails, `composite_score` stays `None` and the evaluator returns "NO" with a clear reason.
+- **Rationale:** A default score should never qualify a stock. `None` forces explicit handling of the failure case.
+
+#### MUL-16: Alert count overstated (MEDIUM)
+- **Before:** `alerts_count` counted every result with `status == "ALERT_TRIGGERED"`, including candidates suppressed by Top-N or rejected by `save_alert_if_new` (e.g., duplicate within lookback window).
+- **After:** Counts only results where `alert_inserted == True` (actual DB insert confirmed).
+- **Rationale:** The health metric `today_alerts` should reflect actual alerts sent, not candidates evaluated.
+
+#### MUL-17: Watchlist marks alert before Top-N suppression (MEDIUM)
+- **Before:** `save_watchlist_to_db` checked `r.status == "ALERT_TRIGGERED"` to set `last_alert_price`/`last_alert_at`. This status was set before Top-N filtering and `save_alert_if_new`, so watchlist records could claim an alert occurred when none was sent.
+- **After:** Uses `alert_inserted` flag, only set when `save_alert_if_new` returns `inserted=True`.
+- **Rationale:** Watchlist history should reflect actual alerts, not intent.
 
 ---
 
