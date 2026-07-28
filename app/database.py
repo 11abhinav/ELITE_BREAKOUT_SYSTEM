@@ -627,6 +627,7 @@ def init_db():
                         PRIMARY KEY (mapping_type, original_sym)
                     )
                 """)
+                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS is_invalid BOOLEAN DEFAULT FALSE")
                 cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS mapping_state TEXT DEFAULT 'ACTIVE'")
                 cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0")
                 cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS retry_after TEXT DEFAULT NULL")
