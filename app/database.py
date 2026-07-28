@@ -2639,7 +2639,7 @@ def get_all_scanner_health() -> list[dict]:
                     "REVERSAL": "18:00 IST",
                     "PULLBACK": "18:00 IST",
                     "MULTIBAGGER": "19:00 IST",
-                    "MULTI_TF": "Every 5min (9:15 AM - 3:30 PM)",
+                    "MULTI_TF": "Every 5min (9:15 AM - 2:55 PM)",
                     "Wealth Engine": "Every 15min (9:15 AM - 3:30 PM)",
                     "PERFORMANCE_TRACKER": "Every 5min (9:15 AM - 3:30 PM)",
                     "MULTIBAGGER_EXIT": "Every 15min (9:15 AM - 3:30 PM)",

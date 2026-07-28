@@ -1491,7 +1491,7 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
-        "MULTI_TF":            20,   # runs every 5 min → stale if no heartbeat in 20 min
+        "MULTI_TF":            20,   # runs every 5 min (ends 2:55 PM) → stale if no heartbeat in 20 min
         "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
         "Wealth Engine":       45,   # [VERSION: WEALTH_HEALTH_FIX_v1.0] health only updates on 15-min full scan → stale if no heartbeat in 45 min
         "DAILY_BUILDER":       "DAILY",
