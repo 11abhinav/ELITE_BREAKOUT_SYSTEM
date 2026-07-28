@@ -2107,12 +2107,16 @@
         if (typeof loadPendingUsers === 'function') loadPendingUsers();
         if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
       } else if (tabId === 'health-errors') {
-        if (typeof loadScannerStatus === 'function') loadScannerStatus();
+        if (typeof loadDiagnostics === 'function' && !diagnosticsLoaded) {
+           document.getElementById('diagnostics-status').textContent = 'Loading...';
+           loadDiagnostics().then(() => {
+             diagnosticsLoaded = true;
+             document.getElementById('diagnostics-status').textContent = 'Active';
+           });
+        }
         if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
-        if (typeof loadNonCriticalErrors === 'function') loadNonCriticalErrors();
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
         if (typeof loadApiHealth === 'function') loadApiHealth();
-        if (typeof fetchFetchErrors === 'function') fetchFetchErrors();
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
