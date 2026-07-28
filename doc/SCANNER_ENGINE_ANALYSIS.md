@@ -1,6 +1,6 @@
 # Elite Breakout System — Scanner Engine Analysis
 
-> Generated: 2026-07-28 | 6 scanners reviewed | 25 fixes applied (P0-P6 + MTF structural)
+> Generated: 2026-07-28 | 7 scanners reviewed | 31 fixes applied (P0-P6 + MTF structural + Multibagger)
 
 ---
 
@@ -674,6 +674,42 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 | MEDIUM | Run backtest on last 90 days of data | Compare alert quality |
 | MEDIUM | Add regression tests for shared condition function | Prevent future drift |
 | LOW | Consider making Multi-TF Phase B/C/D scoring bonuses (not requirements) | Further increase alert volume |
+
+---
+
+### Priority 7 — Multibagger Scanner (Fixes MUL-1 through MUL-6)
+
+**File:** `app/multibagger.py`
+
+#### MUL-1: Pledge unit mismatch — quality gate effectively disabled (CRITICAL)
+- **Before:** Gate compared pledge as ratio (`> 0.20`), but `evaluate_multibagger_symbol` compared as percentage (`<= 10.0`). A 90%-pledged promoter passed `<= 10.0` because a ratio is always ≤1. Conversely, if gate was ever fed a percentage, `> 0.20` rejected every stock with any pledge at all.
+- **After:** Added `_pledge_ratio()` normalizer that tolerates either unit and always returns ratio. Both gate and tier logic now compare against ratios (0.10 = 10%, 0.15 = 15%).
+- **Rationale:** The pipeline stores pledge as ratio (`pledge_val / 100.0`), but diagnostic callers could pass either unit. The mismatch meant the pledge ceiling was either always-pass or always-fail depending on the caller.
+
+#### MUL-2: entry_confirmed SMA-200 hard reject blocks deep-value entries (MEDIUM)
+- **Before:** `price < sma_200` hard-rejected entries below the 200-DMA. A genuine deep-value pullback frequently dips 1-3% below the 200-DMA, making the advertised "Deep Value Zone" path largely unreachable.
+- **After:** `price < sma_200 * 0.97` — allows a 3% band below the 200-DMA. The screening tier already enforced `close > sma50 > sma200` at qualification.
+- **Rationale:** The docstring says "a prime stock pulling back into its buy zone on a red day is the ideal entry" — the hard reject contradicted this intent.
+
+#### MUL-3: is_uptrend always False for young stocks (LOW-MEDIUM)
+- **Before:** `close > sma50 > sma200` with `< 200 bars` collapsed to `close > close` (always False) because sma200 defaulted to close_price.
+- **After:** Guard on data length: `>= 200 bars` requires full stack, `>= 50 bars` requires close > sma50, `< 50 bars` assumes uptrend.
+- **Rationale:** Legitimately young high-quality names could never pass `is_uptrend` in the diagnostic. Production path uses V5 pipeline which has its own trend check.
+
+#### MUL-4: Missing-fundamentals fallback passes weak names (HIGH for false positives)
+- **Before:** When `f_score` or `pledge_pct` was missing, `is_prime = (composite >= 75) and is_uptrend`. Since composite defaults to 70.0 when V5 fails, a failed pipeline + uptrend passed "High Quality" (≥65) with zero fundamental verification.
+- **After:** When composite is the 70.0 default (V5 didn't run), reject — `is_high_quality = False`. Only real V5 scores (>70) can qualify.
+- **Rationale:** The default 70.0 was specifically designed as a "no data" sentinel, but the `>= 65` threshold treated it as a passing grade.
+
+#### MUL-5: Gate's "known_metrics ≥ 2" floor is trivially satisfied (MEDIUM)
+- **Before:** Any 2 metrics known (e.g., revenue CAGR + ROCE) passed, while debt, cash conversion, and Altman-Z could all be unknown.
+- **After:** Require ≥ 3 metrics AND at least one solvency metric (D/E, interest coverage, or Altman-Z).
+- **Rationale:** A "multibagger" tag without solvency verification is a false-positive risk. The solvency metrics are the minimum for assessing default/leverage risk.
+
+#### MUL-6: Institutional bonus inflates tier classification (MEDIUM)
+- **Before:** `classify_conviction()` received the post-bonus `total`. `inst_bonus` could push a 63 → 65 and flip "Watchlist" → "High Quality", firing an alert on a name that failed on its own merits.
+- **After:** Classification uses `pre_bonus_total`; `inst_bonus` only affects the final `total` used for ranking.
+- **Rationale:** Bonuses should enhance ranking within a tier, not create tiers. A stock that scores 63 without institutional footprints is not a "High Quality Multibagger."
 
 ---
 

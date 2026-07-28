@@ -22,6 +22,16 @@ class FairValueResult:
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
+# [FIX MUL-1] Pledge values arrive in different units depending on source:
+# - Production pipeline stores as ratio (0.0-1.0) via `pledge_val / 100.0`
+# - Diagnostic/fund_data may carry percentage (0-100)
+# This normalizer tolerates either unit and always returns a ratio.
+def _pledge_ratio(v):
+    if v is None or pd.isna(v):
+        return None
+    v = float(v)
+    return v / 100.0 if v > 1.0 else v
+
 import requests
 import threading
 import pandas as pd
@@ -68,7 +78,8 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     raw_f_score = fd.get("score", fd.get("piotroski_score"))
     f_score = int(raw_f_score) if (raw_f_score is not None and not pd.isna(raw_f_score)) else None
     raw_pledge = fd.get("promoter_pledge_pct")
-    pledge_pct = float(raw_pledge) if (raw_pledge is not None and not pd.isna(raw_pledge)) else None
+    # [FIX MUL-1] Normalize pledge to ratio (0.0-1.0) for consistent comparison
+    pledge_ratio = _pledge_ratio(raw_pledge)
 
     # Call V5 pipeline for exact composite scoring
     composite_score = 70.0
@@ -83,29 +94,51 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
 
     sma50 = float(ticker["Close"].rolling(50).mean().iloc[-1]) if len(ticker) >= 50 else close_price
     sma200 = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else close_price
-    is_uptrend = (close_price > sma50 > sma200)
+    # [FIX MUL-3] When history < 200 bars, sma200 defaults to close_price, so
+    # `close > sma50 > sma200` collapses to `close > close` which is always False.
+    # Guard on data length: if we can't compute a real 200-SMA, assume uptrend
+    # for the diagnostic (production path uses V5 pipeline which has its own trend check).
+    if len(ticker) >= 200:
+        is_uptrend = (close_price > sma50 > sma200)
+    elif len(ticker) >= 50:
+        is_uptrend = (close_price > sma50)
+    else:
+        is_uptrend = True
 
     is_prime = False
     is_high_quality = False
 
-    if f_score is not None and pledge_pct is not None:
-        is_prime = (f_score >= 7) and (pledge_pct <= 10.0) and is_uptrend and (composite_score >= 70.0)
-        is_high_quality = (composite_score >= 65.0) and (pledge_pct <= 15.0) and is_uptrend
-    else:
-        is_prime = (composite_score >= 75.0) and is_uptrend
+    # [FIX MUL-1] All pledge comparisons now use ratio (0.0-1.0).
+    # [FIX MUL-4] When fundamentals are missing, do NOT allow a default composite=70
+    # to satisfy the tier — require actual V5 score or reject.
+    if f_score is not None and pledge_ratio is not None:
+        is_prime = (f_score >= 7) and (pledge_ratio <= 0.10) and is_uptrend and (composite_score >= 70.0)
+        is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
+    elif f_score is not None and pledge_ratio is None:
+        # Pledge unknown — allow prime if F-Score is strong, but block high-quality tier
+        is_prime = (f_score >= 7) and is_uptrend and (composite_score >= 70.0)
         is_high_quality = (composite_score >= 65.0) and is_uptrend
+    elif f_score is None and composite_score > 70.0:
+        # [FIX MUL-4] V5 pipeline returned a real score (>70 means it ran successfully).
+        # The 70.0 default means the pipeline failed — do NOT pass on defaults.
+        is_prime = False
+        is_high_quality = (composite_score >= 65.0) and is_uptrend
+    else:
+        # No fundamentals and no real V5 score — reject
+        is_prime = False
+        is_high_quality = False
 
     is_qualified = bool(is_prime or is_high_quality)
 
     reasons = []
     if is_prime:
-        reasons.append(f"🚀 Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {pledge_pct if pledge_pct is not None else 0.0:.1f}% ≤ 10%")
+        reasons.append(f"Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 10%")
     elif is_high_quality:
-        reasons.append(f"💎 High Quality Multibagger: V5 Score {composite_score:.1f} ≥ 65 | Pledge {pledge_pct if pledge_pct is not None else 0.0:.1f}% ≤ 15%")
+        reasons.append(f"High Quality Multibagger: V5 Score {composite_score:.1f} >= 65 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 15%")
     elif f_score is not None and f_score < 7:
-        reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score ≥7)")
-    elif pledge_pct is not None and pledge_pct > 15.0:
-        reasons.append(f"Promoter Pledge {pledge_pct:.1f}% > 15.0% maximum ceiling")
+        reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score >= 7)")
+    elif pledge_ratio is not None and pledge_ratio > 0.15:
+        reasons.append(f"Promoter Pledge {pledge_ratio*100:.1f}% > 15.0% maximum ceiling")
     else:
         reasons.append(f"Multibagger V5 Score {composite_score:.1f} < 65.0 threshold")
 
@@ -420,6 +453,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         return False, "Invalid fundamental dataset"
     # [VERSION: MULTIBAGGER_GATE_FIX_v1.1] Fixed missing data penalties & added minimum known metrics floor
     known_metrics_count = 0
+    has_solvency_metric = False  # [FIX MUL-5] Track solvency metrics separately
     
     # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
     is_fin = f.get("is_financial", False)
@@ -440,11 +474,11 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         
     # [VERSION: PLEDGE_GATE_FIX_v1.0] Safe handling of None/null for promoter_pledge_pct in quality gate
     pledge_val = f.get("promoter_pledge_pct")
-    if pledge_val is not None and not pd.isna(pledge_val):
-        pledge = safe_float(pledge_val)
-        if pledge > 0.20:
-            return False, f"High promoter pledge ({pledge*100:.1f}%)"
-        
+    pr = _pledge_ratio(pledge_val)
+    if pr is not None:
+        if pr > 0.20:
+            return False, f"High promoter pledge ({pr*100:.1f}%)"
+        known_metrics_count += 1
     if f.get("auditor_flags") is True:
         return False, "Auditor/Forensic red flags"
 
@@ -494,27 +528,32 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         de = f.get("debt_equity")
         if de is not None and not pd.isna(de):
             known_metrics_count += 1
+            has_solvency_metric = True
             if safe_float(de) > 2.0:
                 return False, f"Debt/Equity > 2.0 ({safe_float(de):.2f})"
             
         icr = f.get("interest_coverage_ratio")
         if icr is not None and not pd.isna(icr):
             known_metrics_count += 1
+            has_solvency_metric = True
             if safe_float(icr) < 3.0:
                 return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
             
         altman_z = f.get("altman_z")
         if altman_z is not None and not pd.isna(altman_z):
             known_metrics_count += 1
+            has_solvency_metric = True
             # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Check if service sector to apply solvent threshold of 1.10 vs 1.80 for manufacturing
             is_svc = any(k in str(f.get("sector", "")).lower() for k in ["technology", "communication", "services"])
             z_threshold = 1.10 if is_svc else 1.80
             if safe_float(altman_z) < z_threshold:
                 return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f} < {z_threshold})"
 
-    # Minimum data footprint check: At least 2 fundamental metrics must be known
-    if known_metrics_count < 2:
-        return False, f"Data Void: Only {known_metrics_count} fundamental metrics known"
+    # [FIX MUL-5] Minimum data footprint: require at least 3 metrics total AND at least
+    # one solvency metric (D/E, interest coverage, or Altman-Z). The old floor of 2 metrics
+    # was trivially satisfied by revenue CAGR + ROCE alone, leaving debt/default risk unchecked.
+    if known_metrics_count < 3 or not has_solvency_metric:
+        return False, f"Data Void: Only {known_metrics_count} metrics known, solvency={'present' if has_solvency_metric else 'MISSING'}"
 
     return True, ""
 
@@ -542,8 +581,12 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     [FINDING-C FIX] Removed not_freefall (price >= yesterday). A fundamentally
     prime stock pulling back into its buy zone on a red day is the ideal entry.
     The V5 pipeline already validates the technical buy zone.
+    [FIX MUL-2] Replaced hard `< sma_200` reject with a 3% band.
+    Deep-value entries frequently dip 1-3% below the 200-DMA intraday/EOD.
+    The screening tier already enforced `close > sma50 > sma200` at qualification;
+    a 3% band allows the advertised deep-value path without losing the trend guard.
     """
-    if price_data.price < price_data.sma_200:
+    if price_data.price < price_data.sma_200 * 0.97:
         return False
         
     volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20 if price_data.volume_sma20 > 0 else True
@@ -1562,13 +1605,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         except Exception as e:
             logger.warning(f"Error checking institutional footprints in Multibagger: {e}")
             inst_bonus = 0.0
+
+        # [FIX MUL-6] Classify conviction on the pre-bonus composite, then apply
+        # inst_bonus only to the final total used for ranking. Without this,
+        # inst_bonus could push a 63 → 65 and flip "Watchlist" → "High Quality",
+        # firing an alert on a name that failed on its own merits.
+        pre_bonus_total = total
         total = min(100.0, total + inst_bonus)
         
         buy_low = pipeline_result.buy_zone.buy_zone_low
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
         f_score_val = raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))
-        tier, composite = classify_conviction(cqs, pas, trend, total, f_score=f_score_val)
+        tier, composite = classify_conviction(cqs, pas, trend, pre_bonus_total, f_score=f_score_val)
         
         # [VERSION: MULTIBAGGER_BEAR_FIX_v1.2] Removed BEAR regime downgrade entirely.
         # As per recent architectural decisions, the scoring engine naturally penalizes weak setups.
