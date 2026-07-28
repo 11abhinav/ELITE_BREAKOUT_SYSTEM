@@ -35,7 +35,7 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
-def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None) -> dict:
+def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None, allow_live_fetch: bool = True) -> dict:
     """
     Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
     Attempts to fetch true 1H intraday data for Phase A trend permission verification when daily bars are supplied.
@@ -51,7 +51,8 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     if ticker is None and pre_fetched_h1_df is not None and not pre_fetched_h1_df.empty:
         ticker = pre_fetched_h1_df.copy()
 
-    if ticker is None:
+    # [VERSION: QUICK_DIAGNOSTIC_v1.0] Allow skipping live API fetch for quick UI diagnostics
+    if ticker is None and allow_live_fetch:
         try:
             h1_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="1mo", interval="1h")
             if h1_data and symbol in h1_data and isinstance(h1_data[symbol], pd.DataFrame) and not h1_data[symbol].empty:

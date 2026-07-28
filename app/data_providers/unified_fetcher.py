@@ -156,12 +156,12 @@ class UnifiedFetcher:
                     
                 if provider == "fyers":
                     logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
-                    pending_list = list(pending)
-                    chunk_size = 50
-                    for i in range(0, len(pending_list), chunk_size):
-                        chunk = pending_list[i:i+chunk_size]
+                    # [VERSION: CONCURRENT_FYERS_BATCH_v1.0] Run Fyers live quote batches concurrently using ThreadPoolExecutor
+                    import concurrent.futures
+
+                    def fetch_fyers_chunk(chunk):
                         fyers_symbols = [self.fyers._normalize_symbol(s) for s in chunk if self.fyers._normalize_symbol(s)]
-                        if not fyers_symbols: continue
+                        if not fyers_symbols: return
                     
                         try:
                             from fyers_auth import get_fyers_client
@@ -169,17 +169,28 @@ class UnifiedFetcher:
                             if fyers_client:
                                 resp = fyers_client.quotes({"symbols": ",".join(fyers_symbols)})
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
+                                    success_count = 0
                                     for item in resp.get("d", []):
                                         if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
                                             for orig in chunk:
                                                 if self.fyers._normalize_symbol(orig) == item["n"]:
                                                     results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
-                                                    # [VERSION: UNIFIED_FETCHER_FALLBACK_SUCCESS_LOG_v1.0] Explicit success logging for live quotes
-                                                    logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig}: ₹{item['v']['lp']:.2f}")
+                                                    # Change to debug to reduce log spam and speed up
+                                                    logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig}: ₹{item['v']['lp']:.2f}")
                                                     pending.discard(orig)
+                                                    success_count += 1
                                                     break
+                                    if success_count > 0:
+                                        logger.info(f"✅ [Fyers] Fetched a batch of {success_count} quotes successfully.")
                         except Exception as e:
                             logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
+
+                    pending_list = list(pending)
+                    chunk_size = 50
+                    chunks = [pending_list[i:i+chunk_size] for i in range(0, len(pending_list), chunk_size)]
+                    
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(chunks) or 1)) as executor:
+                        executor.map(fetch_fyers_chunk, chunks)
                         
                 elif provider == "yahoo":
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")

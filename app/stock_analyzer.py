@@ -518,7 +518,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     # with a live on-demand fetch score (e.g. 3). The batch scan runs quarterly with full annual data;
     # live on-demand fetches use daily Yahoo data and can produce lower/different scores.
     # Rule: existing score in cache wins; on-demand only fills MISSING fields.
-    if roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or not fund_data or "score" not in fund_data:
+    # [VERSION: QUICK_DIAGNOSTIC_v1.0] Skip live fundamental fetching for fast diagnostic lookups
+    if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or not fund_data or "score" not in fund_data) and is_deep_analysis:
         try:
             from fundamentals_cache import fetch_single_piotroski
             lookup_sym = "TMCV" if sym_clean in ["TMCV", "TATAMOTORS"] else sym_clean
@@ -632,7 +633,8 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
     
     logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multi-TF Intraday Evaluator...")
-    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx, pre_fetched_h1_df=pre_fetched_h1_df)
+    # [VERSION: QUICK_DIAGNOSTIC_v1.0] Skip live 1H API fetch when running fast UI lookup
+    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx, pre_fetched_h1_df=pre_fetched_h1_df, allow_live_fetch=is_deep_analysis)
 
     eod_status = eod_eval.get("status", "NO")
     eod_reasons = list(eod_eval.get("reasons", []))

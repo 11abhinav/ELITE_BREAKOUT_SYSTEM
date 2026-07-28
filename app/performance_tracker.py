@@ -263,7 +263,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
         sl = t["stop_loss"]
         status = t["status"]
-        rem_shares = t["remaining_shares"]
+        # [VERSION: NULL_REM_SHARES_HOTFIX_v1.0] Defensive fallback for NULL remaining_shares
+        rem_shares = t.get("remaining_shares") if t.get("remaining_shares") is not None else t.get("shares_bought", 0)
         
         # 0. Gap Risk Tracking
         if execution_state == "OPEN" and open_p < sl:
