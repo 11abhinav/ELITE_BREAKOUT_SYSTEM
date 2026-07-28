@@ -663,7 +663,7 @@ def _run_eod_with_retries(today_str):
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="After Bhavcopy (18:30-19:30 IST)",
+                scheduled_for="18:00 IST (After Bhavcopy)",
                 duration_seconds=duration_sec
             )
             try:
@@ -687,12 +687,12 @@ def _run_eod_with_retries(today_str):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
                 return
             
             logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
             
             if retry_count == 1:
                 try:
@@ -760,7 +760,7 @@ def _run_reversal_with_retries(today_str):
                 status="OK",
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="After Bhavcopy (18:30-19:30 IST)",
+                scheduled_for="18:00 IST (After Bhavcopy)",
                 duration_seconds=duration_sec
             )
             try:
@@ -784,12 +784,12 @@ def _run_reversal_with_retries(today_str):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
                 return
             
             logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
             
             if retry_count == 1:
                 try:
@@ -847,7 +847,7 @@ def _run_pullback_with_retries(today_str):
                 duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
-            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="After Bhavcopy (18:30-19:30 IST)", duration_seconds=duration_sec)
+            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
             return
         except Exception as exc:
             if "actively running" in str(exc).lower():
@@ -858,11 +858,11 @@ def _run_pullback_with_retries(today_str):
             now = datetime.now(IST)
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — PULLBACK scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
                 return
             logger.critical(f"💀 PULLBACK scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="After Bhavcopy (18:30-19:30 IST)")
+            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             time.sleep(wait_time)
 

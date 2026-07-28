@@ -35,7 +35,7 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
-def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None) -> dict:
+def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None) -> dict:
     """
     Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
     Attempts to fetch true 1H intraday data for Phase A trend permission verification when daily bars are supplied.
@@ -47,6 +47,9 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         med_tf = pd.Series(time_diffs).median() if len(time_diffs) > 0 else 1440
         if med_tf < 300:
             ticker = df.copy()
+
+    if ticker is None and pre_fetched_h1_df is not None and not pre_fetched_h1_df.empty:
+        ticker = pre_fetched_h1_df.copy()
 
     if ticker is None:
         try:
@@ -1157,6 +1160,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     cur.execute("SELECT * FROM breakout_watchlist WHERE is_active = TRUE;")
                     bw_rows = cur.fetchall()
             if bw_rows:
+                import os
+                from config import DATA_DIR
                 bw_df = pd.DataFrame(bw_rows)
                 MULTI_TF_PATH = os.path.join(DATA_DIR, "multi_tf_system.parquet")
                 os.makedirs(os.path.dirname(MULTI_TF_PATH), exist_ok=True)

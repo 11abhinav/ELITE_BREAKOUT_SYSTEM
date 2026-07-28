@@ -2630,7 +2630,25 @@ def get_all_scanner_health() -> list[dict]:
                     FROM scanner_health
                     ORDER BY scanner_name
                 """)
-                return [dict(row) for row in cur.fetchall()]
+                rows = [dict(row) for row in cur.fetchall()]
+                
+                schedule_map = {
+                    "DAILY_BUILDER": "01:00 AM IST",
+                    "EOD": "18:00 IST",
+                    "REVERSAL": "18:00 IST",
+                    "PULLBACK": "18:00 IST",
+                    "MULTIBAGGER": "19:00 IST",
+                    "MULTI_TF": "Every 5min (9:15 AM - 3:30 PM)",
+                    "Wealth Engine": "Every 15min (9:15 AM - 3:30 PM)",
+                    "PERFORMANCE_TRACKER": "Every 5min (9:15 AM - 3:30 PM)",
+                    "MULTIBAGGER_EXIT": "Every 15min (9:15 AM - 3:30 PM)",
+                    "WEALTH_EXIT": "Every 5min (9:15 AM - 3:30 PM)"
+                }
+                for r in rows:
+                    if r.get("scanner_name") in schedule_map:
+                        r["scheduled_for"] = schedule_map[r["scanner_name"]]
+                        
+                return rows
             except Exception:
                 logger.exception("❌ get_all_scanner_health failed")
                 return []

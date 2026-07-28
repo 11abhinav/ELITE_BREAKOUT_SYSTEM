@@ -319,7 +319,7 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
 
 
-def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None, _pre_fetched_regime_ctx: dict = None, _pre_fetched_temp_universe: pd.DataFrame = None) -> dict:
+def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None, _pre_fetched_regime_ctx: dict = None, _pre_fetched_temp_universe: pd.DataFrame = None, pre_fetched_h1_df: pd.DataFrame = None) -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
@@ -632,7 +632,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
     
     logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multi-TF Intraday Evaluator...")
-    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx)
+    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx, pre_fetched_h1_df=pre_fetched_h1_df)
 
     eod_status = eod_eval.get("status", "NO")
     eod_reasons = list(eod_eval.get("reasons", []))
@@ -808,6 +808,9 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
     fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER_BATCH")
     logger.info(f"✅ [STOCK ANALYZER BATCH] Bulk fetch complete. {len(fetched_map)} datasets received.")
 
+    logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1mo 1H OHLCV for {len(clean_syms)} symbols in 1 bulk request for Multi-TF Evaluator...")
+    fetched_h1_map = fetch_watchlist_data(sample_df, "1mo", "1h", requester="STOCK_ANALYZER_BATCH_H1")
+
     results = {}
     for idx, sym in enumerate(clean_syms, 1):
         df = fetched_map.get(sym)
@@ -815,6 +818,12 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
             df = fetched_map.get(f"{sym}.NS")
             if df is None or not isinstance(df, pd.DataFrame) or df.empty:
                 df = fetched_map.get(f"{sym}.BO")
+                
+        h1_df = fetched_h1_map.get(sym)
+        if h1_df is None or not isinstance(h1_df, pd.DataFrame) or h1_df.empty:
+            h1_df = fetched_h1_map.get(f"{sym}.NS")
+            if h1_df is None or not isinstance(h1_df, pd.DataFrame) or h1_df.empty:
+                h1_df = fetched_h1_map.get(f"{sym}.BO")
 
         logger.info(f"🔄 [STOCK ANALYZER BATCH] [{idx}/{len(clean_syms)}] Processing {sym}...")
         results[sym] = analyze_symbol(
@@ -823,7 +832,8 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
             is_deep_analysis=is_deep_analysis,
             pre_fetched_df=df,
             _pre_fetched_regime_ctx=_regime_ctx_cache,
-            _pre_fetched_temp_universe=_temp_universe_cache
+            _pre_fetched_temp_universe=_temp_universe_cache,
+            pre_fetched_h1_df=h1_df
         )
 
     logger.info(f"✅ [STOCK ANALYZER BATCH] Complete. {len(results)}/{len(clean_syms)} symbols evaluated.")

@@ -6836,7 +6836,8 @@ function removeFromWatchlist(sym) {
         if (res.success) {
           showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
           _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
-          loadUserWatchlist();
+          if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
+          if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
         }
       });
     }
@@ -7008,6 +7009,9 @@ function loadManualWatchlist() {
               </button>
               <button onclick="triggerStockDiagnosticBySymbol('${it.symbol}')" style="padding:5px 10px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Execute Fresh Live Re-Scan">
                 ⚡ Re-Scan
+              </button>
+              <button onclick="removeFromWatchlist('${it.symbol}')" style="padding:5px 10px; background:rgba(220,38,38,0.1); color:var(--warn); border:1px solid rgba(220,38,38,0.2); border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Remove from Watchlist">
+                🗑️ Delete
               </button>
             </td>
           </tr>

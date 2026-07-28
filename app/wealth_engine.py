@@ -968,6 +968,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     IST = ZoneInfo("Asia/Kolkata")
+    
+    logger.info(f"🚀 [START] WEALTH ENGINE INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
+
     import os
 
     WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
@@ -1514,6 +1517,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             run_purge_with_telemetry("Wealth Engine Complete")
         except Exception as me:
             logger.debug(f"Wealth Engine memory purge failed: {me}")
+
+        logger.info(f"✅ [STOP] WEALTH ENGINE COMPLETED | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
 
     except Exception as e:
 
