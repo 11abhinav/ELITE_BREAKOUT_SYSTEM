@@ -1235,7 +1235,7 @@ def init_db():
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS login_time TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS logoff_time TIMESTAMPTZ")
-                # Fix: migrate logoff_time from TEXT to TIMESTAMPTZ if still TEXT
+                # Fix: migrate logoff_time/login_time from TEXT to TIMESTAMPTZ if still TEXT
                 cur.execute("""
                     DO $$
                     BEGIN
@@ -1243,6 +1243,7 @@ def init_db():
                             SELECT 1 FROM information_schema.columns
                             WHERE table_name = 'user_sessions' AND column_name = 'logoff_time' AND data_type = 'text'
                         ) THEN
+                            ALTER TABLE user_sessions ALTER COLUMN logoff_time DROP DEFAULT;
                             ALTER TABLE user_sessions ALTER COLUMN logoff_time TYPE TIMESTAMPTZ
                             USING logoff_time::TIMESTAMPTZ;
                         END IF;
@@ -1250,6 +1251,7 @@ def init_db():
                             SELECT 1 FROM information_schema.columns
                             WHERE table_name = 'user_sessions' AND column_name = 'login_time' AND data_type = 'text'
                         ) THEN
+                            ALTER TABLE user_sessions ALTER COLUMN login_time DROP DEFAULT;
                             ALTER TABLE user_sessions ALTER COLUMN login_time TYPE TIMESTAMPTZ
                             USING login_time::TIMESTAMPTZ;
                         END IF;
@@ -5000,7 +5002,7 @@ def cleanup_stale_sessions():
                     UPDATE user_sessions
                     SET is_online = FALSE
                     WHERE is_online = TRUE
-                    AND EXTRACT(EPOCH FROM (now() - logoff_time)) > 120
+                    AND EXTRACT(EPOCH FROM (now() - logoff_time::timestamptz)) > 120
                 """)
                 conn.commit()
     except Exception as e:
@@ -5018,7 +5020,7 @@ def get_online_users_and_history():
                     cur.execute("""
                         (
                             SELECT u.username, u.first_name, u.last_name, s.ip_address,
-                                   s.login_time, NULL::timestamp AS logoff_time, TRUE AS is_online
+                                   s.login_time::timestamptz, NULL::timestamptz AS logoff_time, TRUE AS is_online
                             FROM user_sessions s
                             JOIN users u ON s.user_id = u.user_id
                             WHERE s.is_online = TRUE
@@ -5027,7 +5029,7 @@ def get_online_users_and_history():
                         UNION ALL
                         (
                             SELECT u.username, u.first_name, u.last_name, s.ip_address,
-                                   s.login_time, s.logoff_time, FALSE AS is_online
+                                   s.login_time::timestamptz, s.logoff_time::timestamptz, FALSE AS is_online
                             FROM user_sessions s
                             JOIN users u ON s.user_id = u.user_id
                             WHERE s.is_online = FALSE
@@ -5041,9 +5043,21 @@ def get_online_users_and_history():
 
             # Format dates/times for cleaner frontend display
             for row in online + history:
-                row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
-                if row.get('logoff_time'):
-                    row['logoff_time'] = row['logoff_time'].split('.')[0]
+                lt = row['login_time']
+                if hasattr(lt, 'strftime'):
+                    row['login_time'] = lt.strftime('%Y-%m-%d %H:%M:%S')
+                elif lt:
+                    row['login_time'] = str(lt).split('.')[0]
+                else:
+                    row['login_time'] = ''
+                lft = row.get('logoff_time')
+                if lft:
+                    if hasattr(lft, 'strftime'):
+                        row['logoff_time'] = lft.strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        row['logoff_time'] = str(lft).split('.')[0]
+                else:
+                    row['logoff_time'] = ''
                 fn = row.get('first_name') or ''
                 if fn.lower() == 'undefined': fn = ''
                 ln = row.get('last_name') or ''
