@@ -4888,6 +4888,46 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None, forc
             logger.exception(f"❌ Failed to close position")
             return False
 
+def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, position_source: str = "ALERT") -> bool:
+    """
+    Atomically closes an open position in either 'wealth_buy_alert' or 'manual_portfolio'.
+    Returns True if at least one record was updated/deleted.
+    """
+    with _DB_WRITE_LOCK:
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    if position_source == "MANUAL":
+                        cur.execute("""
+                            DELETE FROM manual_portfolio
+                            WHERE symbol = %s
+                        """, (symbol,))
+                        updated = cur.rowcount >= 1
+                    else:
+                        now = datetime.now(IST)
+                        exit_date = now.strftime('%Y-%m-%d')
+                        exit_time = now.strftime('%H:%M:%S')
+                        cur.execute("""
+                            UPDATE wealth_buy_alert
+                            SET is_closed = TRUE,
+                                exit_price = %s,
+                                exit_date = %s,
+                                exit_time = %s,
+                                exit_signal = %s,
+                                status = 'CLOSED'
+                            WHERE symbol = %s AND is_closed = FALSE
+                        """, (exit_price, exit_date, exit_time, exit_reason, symbol))
+                        updated = cur.rowcount >= 1
+                    conn.commit()
+                    if updated:
+                        logger.info(f"💰 ATOMIC POSITION CLOSED ({position_source}): {symbol} at ₹{exit_price}")
+                        insert_notification('sell', 'Position Closed', f'{symbol} ({position_source}) closed at ₹{exit_price}: {exit_reason}', symbol)
+                    return updated
+        except Exception as e:
+            logger.exception(f"❌ Failed atomic position close for {symbol} ({position_source}): {e}")
+            return False
+
+
 def get_open_symbols() -> list:
     """Get list of symbols with open positions."""
     try:

@@ -77,23 +77,10 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     roce = _safe_num(fd.get("roce", fd.get("ROCE %", fd.get("roce_val", 0.0))))
     roe = _safe_num(fd.get("roe", fd.get("ROE %", fd.get("roe_val", 0.0))))
     debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
-    yoy_sales_raw = fd.get("yoy_revenue", fd.get("YOY Revenue %"))
-    yoy_profit_raw = fd.get("yoy_profit", fd.get("YOY Profit %"))
     peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
 
-    yoy_sales_pct = None
-    if yoy_sales_raw is not None and not pd.isna(yoy_sales_raw):
-        try:
-            v_sales = float(yoy_sales_raw)
-            yoy_sales_pct = v_sales * 100.0 if abs(v_sales) <= 5.0 else v_sales
-        except Exception: pass
-
-    yoy_profit_pct = None
-    if yoy_profit_raw is not None and not pd.isna(yoy_profit_raw):
-        try:
-            v_profit = float(yoy_profit_raw)
-            yoy_profit_pct = v_profit * 100.0 if abs(v_profit) <= 5.0 else v_profit
-        except Exception: pass
+    yoy_sales_pct = _parse_yoy_percent(fd, "yoy_revenue", "YOY Revenue %")
+    yoy_profit_pct = _parse_yoy_percent(fd, "yoy_profit", "YOY Profit %")
 
     peg_num = float(peg_val) if (peg_val is not None and not pd.isna(peg_val)) else None
 
@@ -290,10 +277,11 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
             # 6-Month Relative Strength vs Nifty
             hist_6m = hist.tail(126)
+            is_macro_proxy = (nifty_6m_ret is None)
             if len(hist_6m) > 0:
                 start_6m = hist_6m['Close'].iloc[0]
                 stock_6m_ret = ((cmp - start_6m) / start_6m) * 100.0 if start_6m > 0 else 0.0
-                rs_6m = None if nifty_6m_ret is None else stock_6m_ret - nifty_6m_ret
+                rs_6m = stock_6m_ret if is_macro_proxy else (stock_6m_ret - nifty_6m_ret)
             else:
                 rs_6m = 0.0
 
@@ -315,6 +303,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "ema_20":  _safe_num(last_row['ema_20']) if not pd.isna(last_row['ema_20']) else None,
                 "cmp": cmp,
                 "rs_6m": rs_6m,
+                "rs_is_absolute_proxy": is_macro_proxy,
                 "dist_52w_high": dist_52w_high,
                 "liquidity": liquidity,
                 "RSI": _safe_num(last_row['RSI']) if not pd.isna(last_row['RSI']) else 50.0,
@@ -335,14 +324,111 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
 
 # =====================================================================================
+# FINANCIAL CLASSIFIER & UNIT CONVERTERS
+# =====================================================================================
+
+FINANCIAL_SECTORS = {
+    'financial services', 'financials', 'banking', 'banks', 
+    'nbfc', 'housing finance', 'insurance', 'asset management'
+}
+
+FINANCIAL_INDUSTRIES = {
+    'private sector bank', 'public sector bank', 'non banking financial company (nbfc)',
+    'housing finance company', 'life insurance', 'general insurance',
+    'asset management company', 'capital market services', 'stockbroking'
+}
+
+FINANCIAL_SYMBOL_OVERRIDES = {
+    'HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK', 
+    'BAJFINANCE', 'BAJAJFINSV', 'CHOLAFIN', 'MUTHOOTFIN', 'SHRIRAMFIN'
+}
+
+def is_financial_sector(r: dict) -> bool:
+    """
+    Safely identifies Financial sector entities using normalized Sector/Industry fields,
+    falling back to an explicit symbol whitelist if metadata is empty.
+    """
+    if not isinstance(r, dict):
+        return False
+    sector = str(r.get('Sector', r.get('sector', ''))).strip().lower()
+    industry = str(r.get('Industry', r.get('industry', ''))).strip().lower()
+    symbol = str(r.get('Stock', r.get('symbol', ''))).strip().upper()
+    
+    if sector in FINANCIAL_SECTORS or any(s in sector for s in FINANCIAL_SECTORS):
+        return True
+    if industry in FINANCIAL_INDUSTRIES or any(i in industry for i in FINANCIAL_INDUSTRIES):
+        return True
+    if not sector and not industry and symbol in FINANCIAL_SYMBOL_OVERRIDES:
+        return True
+        
+    return False
+
+def watchlist_percent_to_ratio(val, default: float = 0.0) -> float:
+    """Converts a known 0-100 percentage value from watchlist to 0.0-1.0 ratio scale."""
+    num = _safe_num(val, default=default)
+    return num / 100.0
+
+def ratio_to_percent(val, default: float = 0.0) -> float:
+    """Converts a known 0.0-1.0 ratio float to 0-100 percentage scale."""
+    num = _safe_num(val, default=default)
+    return num * 100.0
+
+def _parse_yoy_percent(fd: dict, ratio_key: str, percent_key: str) -> Optional[float]:
+    """
+    Parses YoY growth to a 0-100 percentage scale by key origin:
+    - Ratio-scale key (from map_watchlist_to_v5 dict, e.g. 'yoy_revenue': 0.20) is converted: 0.20 * 100 = 20.0
+    - Percent-scale key (from raw Screener export, e.g. 'YOY Revenue %': 20.0) is used as-is.
+    Eliminates magnitude guessing completely.
+    """
+    if not isinstance(fd, dict):
+        return None
+    # 1. Ratio-scale key takes precedence (V5 dictionary format)
+    v_ratio = fd.get(ratio_key)
+    if v_ratio is not None and not pd.isna(v_ratio) and v_ratio != "":
+        try:
+            return float(v_ratio) * 100.0
+        except (ValueError, TypeError):
+            pass
+    # 2. Percent-scale key (Raw Screener export format)
+    v_pct = fd.get(percent_key)
+    if v_pct is not None and not pd.isna(v_pct) and v_pct != "":
+        try:
+            return float(v_pct)
+        except (ValueError, TypeError):
+            pass
+    return None
+
+# =====================================================================================
+# SHARED BUCKET PREDICATES
+# =====================================================================================
+
+def check_core_compounder_rules(score: float, mcap: float, roce: float, roe: float, de: float, is_fin: bool) -> bool:
+    """Core Compounder: ₹10,000 Cr+ mcap. Non-financials enforce D/E <= 0.50; Financials omit D/E ceiling."""
+    prof_ok = (roe >= 15.0) if is_fin else (roce >= 20.0 and roe >= 15.0)
+    de_ok = True if is_fin else (de <= 0.50)
+    return score >= 65 and mcap >= 10000 and prof_ok and de_ok
+
+def check_growth_multiplier_rules(score: float, mcap: float, yoy_sales: float, yoy_profit: float, rs_6m: float, dist_52w: float) -> bool:
+    """Growth Multiplier: ₹2,000 Cr+ emerging leaders."""
+    return score >= 60 and mcap >= 2000 and yoy_sales >= 20.0 and yoy_profit >= 20.0 and rs_6m >= 0 and dist_52w <= 15.0
+
+def check_quality_on_sale_rules(score: float, roce: float, roe: float, dist_52w: float, de: float, is_fin: bool) -> bool:
+    """Quality-On-Sale: score >= 50, dist_52w >= 10%. Financials omit D/E ceiling."""
+    prof_ok = (roe >= 15.0) if is_fin else (roce >= 15.0)
+    de_ok = True if is_fin else (de <= 1.0)
+    return score >= 50 and prof_ok and dist_52w >= 10.0 and de_ok
+
+def check_opportunistic_rules(score: float, yoy_profit: float, rs_6m: float, cats: str) -> bool:
+    """Opportunistic / Turnaround: massive momentum + turnaround growth."""
+    return score >= 55 and yoy_profit >= 40.0 and rs_6m >= 15.0 and "SME" not in cats
+
+# =====================================================================================
 # SCORING ENGINE: V5 Pipeline (core/multibagger_pipeline.py)
 # =====================================================================================
 # Scores are derived from run_pipeline_for_symbol() -> PipelineDecision.
 # CIS = composite_score, BQS = quality.score, RVS = valuation.score
 # See core/score_engine.py for V5 factor weights and canonical rubric.
 # =====================================================================================
-
-
 
 from memory_profiler import profile_function
 
@@ -371,6 +457,11 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
     shares = (market_cap / price) if price > 0 else 0.0
     eps = (price / pe) if pe is not None and pe != 0 else 0.0
     bvps = (price / pb) if pb is not None and pb != 0 else 0.0
+    
+    peg_raw = raw_data.get('PEG Ratio', raw_data.get('PEG'))
+    peg_val = _safe_float_allow_missing(peg_raw)
+    
+    is_fin = is_financial_sector(raw_data)
         
     return {
         'market_cap': market_cap,
@@ -386,7 +477,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] 1Y YoY used as 3Y CAGR
         'fcf_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] FCF growth proxied with YoY Profit
         'reinvestment_rate': 0.50, # Proxy 50% retention if missing
-        'peg': _safe_float(raw_data.get('PEG Ratio', raw_data.get('PEG Ratio')), default=1.0),
+        'peg': peg_val,
         'pe': pe,
         'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA')), default=pe),
         'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin')), default=10.0) / 100.0,
@@ -407,6 +498,8 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
         'relative_volume_10d': 1.0,  # Proxy default
         'sector': str(raw_data.get('Sector', 'Unknown')),
+        'Path': 'Financial' if is_fin else 'Standard',
+        'is_financial': is_fin,
         'price': price
     }
 
@@ -447,18 +540,18 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     import pandas as pd
     
     # [VERSION: WEALTH_BUCKET_FIX_v1.1] Handle pandas NaN semantics for missing data
-    score      = r.get("FM_Score", 0)
-    mcap       = r.get("Market Cap Cr")
-    roce       = r.get("ROCE %")
-    roe        = r.get("ROE %")
-    de         = r.get("Debt/Equity")
-    yoy_sales  = r.get("YOY Revenue %")
-    yoy_profit = r.get("YOY Profit %")
-    rs_6m      = r.get("rs_6m")
-    dist_52w   = r.get("dist_52w_high")
-    pledge     = r.get("Promoter_Pledge")
-    liquidity  = r.get("liquidity", 0) or 0
+    score      = _safe_num(r.get("FM_Score", 0))
+    mcap       = _safe_num(r.get("Market Cap Cr", 0))
+    roce       = _safe_num(r.get("ROCE %", 0))
+    roe        = _safe_num(r.get("ROE %", 0))
+    de         = _safe_num(r.get("Debt/Equity", 0))
+    yoy_sales  = _safe_num(r.get("YOY Revenue %", 0))
+    yoy_profit = _safe_num(r.get("YOY Profit %", 0))
+    rs_6m      = _safe_num(r.get("rs_6m", 0))
+    dist_52w   = _safe_num(r.get("dist_52w_high", 0))
+    liquidity  = _safe_num(r.get("liquidity", 0))
     cats       = str(r.get("Category", ""))
+    is_fin     = is_financial_sector(r.to_dict() if hasattr(r, 'to_dict') else r)
 
     buckets = []
 
@@ -469,48 +562,29 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         return None
 
     # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
-    peg = r.get("PEG Ratio", r.get("PEG"))
-    if peg is not None and not pd.isna(peg):
+    peg_raw = r.get("PEG Ratio", r.get("PEG"))
+    if peg_raw is not None and not pd.isna(peg_raw) and peg_raw != "":
         try:
-            peg_val = float(peg)
+            peg_val = float(peg_raw)
             if peg_val > 3.0:
                 return None
         except (ValueError, TypeError):
             pass
 
-    # Helper for missing data bypass
-    def _is_ok(val, threshold, is_lower_bound=True, require_data=True):
-        if pd.isna(val) or val == "":
-            return not require_data
-        try:
-            v = float(val)
-        except (ValueError, TypeError):
-            return not require_data
-        
-        if is_lower_bound:
-            return v >= threshold
-        else:
-            return v <= threshold
-
-    # 1. Core Compounder — ₹10,000 Cr+ mega-quality
-    # Rule: EOD-002
-    if score >= 65 and _is_ok(mcap, 10000) and _is_ok(roce, 20) and _is_ok(roe, 15) and _is_ok(de, 0.5, False):
+    if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
         buckets.append("Core")
 
-    # 2. Growth Multiplier — ₹2,000 Cr+ emerging leaders
-    if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
+    if check_growth_multiplier_rules(score, mcap, yoy_sales, yoy_profit, rs_6m, dist_52w):
         buckets.append("Growth")
 
-    # 3. Quality-On-Sale — high quality but correcting (52W high dist >= 10%)
-    # [FIX P5-12] Lowered from 20%→10% (same rationale as evaluate_wealth_symbol)
-    if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 10) and _is_ok(de, 1.0, False):
+    if check_quality_on_sale_rules(score, roce, roe, dist_52w, de, is_fin):
         buckets.append("Quality-On-Sale")
 
-    # 4. Opportunistic / Turnaround — massive momentum + turnaround growth
-    if score >= 55 and _is_ok(yoy_profit, 40) and _is_ok(rs_6m, 15) and "SME" not in cats:
+    if check_opportunistic_rules(score, yoy_profit, rs_6m, cats):
         buckets.append("Opportunistic")
 
     return ", ".join(buckets) if buckets else "REVIEW"
+
 
 
 @profile_function("Wealth: apply_sector_cap")
@@ -560,29 +634,19 @@ def calculate_hold_score(r: pd.Series) -> int:
     """
     Evaluates existing holdings based on a 100-point exit rubric.
     Score < 45 = SELL REVIEW
-    
-    NEW: Includes drawdown circuit breaker (hard stop at 20% loss).
+    Pure scoring function without side effects.
     """
     score = 0
     
-    # 1. DRAWDOWN CIRCUIT BREAKER (NEW - Added Phase 1)
-    # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'or 0' silent suppression
     cmp = _safe_num(r.get("cmp"))
     entry_price = _safe_num(r.get("entry_price"))
     
-    if not entry_price or entry_price <= 0:
-        pass # Not an open holding, safely ignore drawdown circuit breaker
-    
     if entry_price > 0 and cmp > 0:
-        drawdown_pct = ((entry_price - cmp) / entry_price) * 100
-        
-        # CATASTROPHIC STOP: >20% loss (Unconditional early return)
-        if drawdown_pct > 20:
-            return 0  # Instant SELL signal (Hold_Score = 0 < 45)
-        
-        # WARNING: >10% loss  
-        if drawdown_pct > 10:
-            score -= 25  # Force below 45 → SELL REVIEW
+        drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
+        if drawdown_pct >= 20.0:
+            return 0  # Zero score for >=20% drawdown
+        elif drawdown_pct > 10.0:
+            score -= 25  # Soft drawdown penalty (-25 pts) for 10-20% loss zone
     
     # 2. Technical Health (40 pts)
     ema20 = _safe_num(r.get("ema_20"))
@@ -595,20 +659,15 @@ def calculate_hold_score(r: pd.Series) -> int:
     if cmp > sma200 and sma200 > 0: score += 10
     if rs_6m > 0: score += 10
     
-    # 3. Fundamental Integrity (30 pts)
-    # Mapping Piotroski/Fundamentals to our existing FM_Score (V5 thresholds)
+    # 3. Fundamental Integrity (30 pts - 10 pts reallocated from hardcoded None pledge)
     fm_score = _safe_num(r.get("FM_Score"))
-    if fm_score >= 65: score += 15
-    elif fm_score >= 50: score += 5
-    
-    pledge = r.get("Promoter_Pledge")
-    if pledge is not None and pledge == 0: score += 10
+    if fm_score >= 65: score += 25
+    elif fm_score >= 50: score += 10
     
     yoy_profit = _safe_num(r.get("YOY Profit %"))
     if yoy_profit > 0: score += 5
     
     # 4. Sector & Momentum Regime (15 pts)
-    # Using 6-month RS Rating (Percentile)
     rs_rating = _safe_num(r.get("RS_Rating"))
     if rs_rating > 80: score += 15
     elif rs_rating > 50: score += 5
@@ -703,10 +762,6 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
 
     def check_completeness(r):
-        # [VERSION: WEALTH_COMPLETENESS_FIX_v1.0] 
-        # Removed hard fundamental checks (ROE, ROCE, FCF Margin, etc.) to prevent double-penalizing
-        # missing data. The V5 pipeline's FM_Score already accounts for and degrades on missing data.
-        # We only require technicals and the final V5 scores to be present.
         mand_cols = ["cmp", "sma_200", "rs_6m", "FM_Score", "Valuation_Score", "Consistency_Score", "data_quality", "momentum_confidence"]
         for col in mand_cols:
             if pd.isna(r.get(col)): return False
@@ -743,7 +798,6 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
 
     def _get_entry_signal(r):
         score = r.get("FM_Score", 0)
-        # [VERSION: WEALTH_SAFE_NUM_v1.0] Fix NaN-vs-'or 0' silent suppression in entry signal
         cmp = _safe_num(r.get("cmp"))
         sma = _safe_num(r.get("sma_200"))
         rs = _safe_num(r.get("rs_6m"))
@@ -761,31 +815,33 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             if "Quality-On-Sale" in bucket:
                 cons_score = r.get("Consistency_Score", 0)
                 val_score = r.get("Valuation_Score", 0)
+                is_fin = is_financial_sector(r.to_dict() if hasattr(r, 'to_dict') else r)
+                
                 def passes_profitability_gate(record: pd.Series) -> bool:
-                    path = record.get("Path", "")
                     roce = _safe_num(record.get("ROCE %"))
                     roe = _safe_num(record.get("ROE %"))
-                    if path == "Financial":
-                        return roe >= 15
-                    return roce >= 15
+                    if is_financial_sector(record.to_dict() if hasattr(record, 'to_dict') else record):
+                        return roe >= 15.0
+                    return roce >= 15.0
                     
                 profitability_ok = passes_profitability_gate(r)
                 fcf_margin = r.get("FCF Margin %")
-                path = r.get("Path", "")
                 mom_conf = r.get("momentum_confidence", "")
                 
-                # [VERSION: WEALTH_FCF_MISSING_FIX] Treat missing FCF data as "Unknown" (pass) rather than "Fail", 
-                # so we don't reject prime multibaggers solely due to provider data voids.
-                # Explicitly negative FCF still fails.
-                fcf_ok = True if path == "Financial" else (pd.isna(fcf_margin) or fcf_margin > 0)
+                fcf_ok = True if is_fin else (pd.isna(fcf_margin) or fcf_margin > 0)
                 
-                if (score >= 65 and cons_score >= 18 and val_score >= 10 and
+                # Missing PEG policy: if PEG is missing, require val_score (RVS) >= 50
+                peg_raw = r.get("PEG Ratio", r.get("PEG"))
+                has_missing_peg = (peg_raw is None or pd.isna(peg_raw) or peg_raw == "")
+                peg_val_ok = (val_score >= 50.0) if has_missing_peg else True
+                
+                if (score >= 65 and cons_score >= 18 and val_score >= 10 and peg_val_ok and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
                     rs > -10 and profitability_ok and fcf_ok and mom_conf != "LOW"):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
-        if bucket == "REVIEW" or not bucket:
+        if bucket in ("REVIEW", "None", "", "nan") or pd.isna(r.get("Portfolio_Bucket")):
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Failed Bucket Quality Gates"})
             
         symbol = r.get("Stock")
@@ -797,12 +853,17 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             
         # Baseline Active Entry Condition (V5 Thresholds)
         if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
-            if r.get("momentum_confidence", "") == "LOW":
+            mom_conf = r.get("momentum_confidence", "")
+            mom_score = r.get("momentum_score", 0)
+            is_qos = ("Quality-On-Sale" in bucket)
+            
+            min_mom_score = 20 if (is_qos and mom_conf == "LOW") else (15 if is_qos else 25)
+            
+            if mom_conf == "LOW" and not is_qos:
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
             
-            mom_score = r.get("momentum_score", 0)
-            if mom_score < 25:
-                return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": f"Waiting for Momentum (Score {mom_score} < 25)"})
+            if mom_score < min_mom_score:
+                return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": f"Waiting for Momentum (Score {mom_score} < {min_mom_score})"})
                 
             return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score:.1f}, Mom: {mom_score}"})
             
@@ -887,19 +948,46 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         base_hold_score = calculate_hold_score(r)
         sym = r.get("Stock")
         
-        final_hold_score = base_hold_score
+        cmp = _safe_num(r.get("cmp"))
+        entry_price = _safe_num(r.get("entry_price"))
+        prev_close = _safe_num(r.get("prev_close"))  # Genuine prev_close (None if missing)
+        used_fallback = r.get("used_fallback_data", False)
+        data_quality = str(r.get("data_quality", ""))
+        import math
+        
+        # 1. Strict Live Price & Genuine Prev Close Validation
+        has_genuine_prev_close = prev_close is not None and prev_close > 0
+        is_live_valid = (
+            math.isfinite(cmp) and 
+            cmp > 0 and 
+            not used_fallback and 
+            data_quality == "LIVE" and 
+            has_genuine_prev_close and 
+            (abs(cmp - prev_close) / prev_close <= 0.50)
+        )
+        
+        # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
+        drawdown_pct = 0.0
+        if entry_price > 0 and cmp > 0:
+            drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
+
+        if entry_price > 0 and is_live_valid and drawdown_pct >= 20.0:
+            r["Hold_Score"] = 0
+            r["Exit_Code"] = "SELL"
+            r["Exit_Reason"] = f"Hard Drawdown Stop Triggered: -{drawdown_pct:.1f}% (>= 20.0% max loss threshold)"
+            return r
+
+        # 3. Tax Bonus Computation (Applied ONLY if no hard stop triggered)
         tax_info = {}
+        final_hold_score = base_hold_score
         try:
             entry_date = _coerce_to_date(r.get("entry_date"))
-            entry_price = _safe_num(r.get("entry_price"))
-            cmp_price = _safe_num(r.get("cmp"), default=entry_price)
-            pnl_pct = ((cmp_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
             if entry_date:
-                tax_info = compute_tax_hold_bonus(entry_date, pnl_pct)
+                tax_info = compute_tax_hold_bonus(entry_date, -drawdown_pct)
                 final_hold_score = min(100, base_hold_score + tax_info.get('bonus', 0))
         except Exception:
             pass
-            
+
         r["Hold_Score"] = final_hold_score
         
         from wealth_hold_tracking import HoldScoreTrendAnalyzer
@@ -907,22 +995,12 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         hold_trend = trend["reason"] if trend["action"] != "HOLD" else "Stable"
         r["hold_trend"] = hold_trend
 
-        cmp = _safe_num(r.get("cmp"))
-        sma = _safe_num(r.get("sma_200"))
-        rs = _safe_num(r.get("rs_6m"))
-        data_quality = r.get("data_quality")
-        used_fallback_data = r.get("used_fallback_data", False)
-        
-        exit_code = ""
-        exit_reason = ""
-        
-        if used_fallback_data:
-            # Fallback to HOLD and suppress SELL evaluations
+        # 4. Soft Exits & Review Signals
+        if not is_live_valid:
             r["Exit_Code"] = ""
             r["Exit_Reason"] = ""
             return r
-            
-        # Fetch Macro Regime for RS Exit scaling
+
         from macro_utils import get_macro_regime
         macro_regime = get_macro_regime()
         
@@ -932,30 +1010,37 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         elif macro_regime == "STRONG_BEAR":
             rs_threshold = -60
             
+        rs = _safe_num(r.get("rs_6m"))
+        sma = _safe_num(r.get("sma_200"))
+        
         rs_exit_triggered = False
-        rs_exit_reason = ""
         if rs < rs_threshold:
             if macro_regime in ("BEAR", "WEAK_BEAR", "STRONG_BEAR", "RANGEBOUND"):
                 if final_hold_score < 50 or (sma > 0 and cmp < sma):
                     rs_exit_triggered = True
-                    rs_exit_reason = f"Catastrophic RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold}) + Confirmed Weakness"
             else:
                 rs_exit_triggered = True
-                rs_exit_reason = f"Catastrophic RS Breakdown (RS: {rs:.1f} < {rs_threshold})"
-            
-        if cmp > 0 and data_quality not in ["MISSING_PARTIAL", "CACHED_PREV_DAY"]:
-            if "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
-                exit_code, exit_reason = "SELL_REVIEW", hold_trend
-            elif final_hold_score < 45:
-                exit_code, exit_reason = "SELL_REVIEW", f"Hold Score: {final_hold_score}/100"
-            elif rs_exit_triggered:
-                exit_code, exit_reason = "SELL", rs_exit_reason
-            elif sma > 0 and cmp < (0.75 * sma):
-                exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse"
-                
-        if not exit_code and tax_info.get("harvest_signal"):
-            exit_code, exit_reason = "TLH", f"Tax-Loss Harvest Opportunity: {pnl_pct:.1f}%"
-            
+
+        exit_code = ""
+        exit_reason = ""
+
+        # Correct Priority Order:
+        # 1. RS Exit (with confirmed weakness)
+        # 2. Catastrophic Trend Collapse (cmp < 0.75 * sma)
+        # 3. Hold Score Degradation (< 45)
+        # 4. Hold Trend Warnings
+        # 5. Tax Loss Harvesting
+        if rs_exit_triggered and sma > 0 and cmp < sma:
+            exit_code, exit_reason = "SELL", f"Confirmed RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold} & CMP < 200SMA)"
+        elif sma > 0 and cmp < (0.75 * sma):
+            exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse (CMP < 75% 200SMA)"
+        elif "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
+            exit_code, exit_reason = "SELL_REVIEW", hold_trend
+        elif final_hold_score < 45:
+            exit_code, exit_reason = "SELL_REVIEW", f"Hold Score Degraded: {final_hold_score}/100"
+        elif tax_info.get("harvest_signal"):
+            exit_code, exit_reason = "TLH", f"Tax-Loss Harvest Opportunity: -{drawdown_pct:.1f}%"
+
         r["Exit_Code"] = exit_code
         r["Exit_Reason"] = exit_reason
         return r
@@ -1067,7 +1152,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # ── DATA FETCH (Candidates + Orphans) ──
         nifty_6m_ret, nifty_dist_52w = fetch_nifty_macro_state()
         if nifty_6m_ret is None:
-            logger.info("Nifty Macro: UNAVAILABLE — suppressing macro gates")
+            logger.info("Nifty Macro: UNAVAILABLE — rs_6m running in absolute-return proxy mode (rs_is_absolute_proxy=True)")
         else:
             logger.info(f"💰 [WEALTH ENGINE] Nifty 6M Return: {nifty_6m_ret:.1f}%")
 
@@ -1097,6 +1182,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     tech["sma_50"] = prev_row.get("sma_50")
                     tech["sma_200"] = prev_row.get("sma_200")
                     tech["rs_6m"] = prev_row.get("rs_6m")
+                    tech["rs_is_absolute_proxy"] = prev_row.get("rs_is_absolute_proxy", (nifty_6m_ret is None))
                     tech["dist_52w_high"] = prev_row.get("dist_52w_high")
                     tech["liquidity"] = prev_row.get("liquidity", 0.0)
                     tech["RSI"] = prev_row.get("RSI", 50.0)
@@ -1189,7 +1275,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                                 last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
                                 
                                 if last_dt_str == today_date_str:
-                                    # Update today's existing candle
+                                    # Update today's existing candle (preserve Open, update High/Low/Close)
+                                    curr_high = hist_df.iloc[-1]['High']
+                                    curr_low = hist_df.iloc[-1]['Low']
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(curr_high, live_price)
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Low')]  = min(curr_low, live_price)
                                     hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
                                 else:
                                     # Append a new live candle for today
@@ -1198,6 +1288,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                                         new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
                                     else:
                                         new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                    new_row['Open']  = live_price
+                                    new_row['High']  = live_price
+                                    new_row['Low']   = live_price
                                     new_row['Close'] = live_price
                                     hist_df = pd.concat([hist_df, new_row])
                                 
@@ -1249,7 +1342,25 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
 
         tech_df = pd.DataFrame(technicals)
         
-        # [MEMORY FIX] Release large objects before entering Candidate Selection
+        # Per-symbol quality set tracking for candidate vs orphan degradation
+        candidate_stale_symbols = set()
+        candidate_missing_symbols = set()
+        orphan_stale_symbols = set()
+        orphan_missing_symbols = set()
+
+        for item in technicals:
+            sym = item.get("Stock")
+            if not sym: continue
+            is_cand = sym in candidate_symbols
+            data_q = item.get("data_quality")
+            if data_q in ["CACHED_PREV_DAY", "STALE_INTRADAY"] or item.get("used_fallback_data"):
+                if is_cand: candidate_stale_symbols.add(sym)
+                else: orphan_stale_symbols.add(sym)
+            elif item.get("cmp") is None:
+                if is_cand: candidate_missing_symbols.add(sym)
+                else: orphan_missing_symbols.add(sym)
+        
+        # Memory release
         del technicals
         del all_live_prices
         del all_concalls
@@ -1286,14 +1397,18 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         BUY_GATE_ACTIVE = False
         suppression_reason = None
         
-        degraded = rejection_counts.get("stale_data", 0) + rejection_counts.get("no_data", 0)
-        fresh_ratio = 1.0 - (degraded / max(len(candidate_symbols), 1))
+        candidate_degraded_count = len(candidate_stale_symbols | candidate_missing_symbols)
+        fresh_ratio = 1.0 - (candidate_degraded_count / max(len(candidate_symbols), 1))
+        MIN_WEALTH_FRESH_RATIO = float(os.environ.get("MIN_WEALTH_FRESH_RATIO", "0.95"))
         
         breadth_pct = None
         if not candidate_tech.empty and "above_sma200" in candidate_tech.columns:
-            total_eval = len(candidate_tech)
-            above_200 = candidate_tech["above_sma200"].sum()
-            breadth_pct = (above_200 / total_eval) * 100
+            valid_sma200 = candidate_tech["above_sma200"].dropna()
+            if len(valid_sma200) >= 10:
+                above_200 = valid_sma200.sum()
+                breadth_pct = (above_200 / len(valid_sma200)) * 100.0
+            else:
+                logger.warning(f"⚠️ Market breadth calculation skipped — insufficient valid sample size ({len(valid_sma200)} < 10)")
             
         if nifty_dist_52w is not None and nifty_dist_52w > 20:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty {nifty_dist_52w:.1f}% below 52W high"
@@ -1301,8 +1416,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty 6M return {nifty_6m_ret:.1f}%"
         elif breadth_pct is not None and breadth_pct < 30:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Breadth weak: {breadth_pct:.1f}% above SMA200"
-        elif fresh_ratio < 0.95:
-            BUY_GATE_ACTIVE = True; suppression_reason = f"Fresh data only {fresh_ratio*100:.1f}%"
+        elif fresh_ratio < MIN_WEALTH_FRESH_RATIO:
+            BUY_GATE_ACTIVE = True; suppression_reason = f"Fresh candidate data only {fresh_ratio*100:.1f}% (< {MIN_WEALTH_FRESH_RATIO*100:.0f}% required)"
             if not getattr(database, "DONT_SAVE_WEALTH", False):
                 try:
                     upsert_scanner_health("Wealth Engine", "DEGRADED", error_msg=f"Data stale ({fresh_ratio*100:.1f}% fresh). Signals suppressed.")
@@ -1581,10 +1696,10 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("SELECT symbol, entry_price, added_at::date AS entry_date FROM manual_portfolio")
                     for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"], "source": "MANUAL"}
                     cur.execute("SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
                     for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"], "source": "ALERT"}
         except Exception as _pe:
             logger.warning(f"Failed to load open portfolio: {_pe}")
 
@@ -1604,6 +1719,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict() if sym in wealth_df["Stock"].values else {"Stock": sym}
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
+            row["position_source"] = p_info.get("source", "ALERT")
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
@@ -1618,12 +1734,13 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     symbol = row.get("Stock")
                     cmp = row.get("cmp")
                     exit_reason = row.get("Exit_Reason")
+                    p_source = row.get("position_source", "ALERT")
                     if symbol and cmp:
                         if is_test_mode:
-                            logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason}")
+                            logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason} (Source: {p_source})")
                         elif not getattr(database, "DONT_SAVE_WEALTH", False):
-                            from database import close_position
-                            close_position(symbol, cmp, exit_reason)
+                            from database import close_position_atomic
+                            close_position_atomic(symbol, cmp, exit_reason, position_source=p_source)
 
                 port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
                 for sym, info in port_map.items():

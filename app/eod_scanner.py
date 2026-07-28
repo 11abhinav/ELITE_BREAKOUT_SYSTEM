@@ -19,7 +19,10 @@ from scoring_engine import calculate_score
 from sector_rotation import get_sector_scores, SectorRotationResult
 from surveillance import get_live_blacklist, force_refresh_blacklist
 from trade_ranking_engine import TradeRankingEngine
-from macro_utils import MarketRegimeEngine, get_nifty_20d_return, get_macro_regime
+from macro_utils import (
+    MarketRegimeEngine, get_nifty_20d_return, get_macro_regime,
+    compute_nifty_rs_rating, compute_sector_regime_rankings
+)
 from strategy_policy import StrategyPolicyEngine
 from database import (
     init_db, save_alert_if_new, save_candidate, upsert_fetch_error,
@@ -46,6 +49,9 @@ from config import (
     MIN_BREAKOUT_MARGIN,
     MIN_BREAKOUT_VOLUME_RATIO,
     BASE_TIGHTNESS_THRESHOLD,
+    RS_BONUS,
+    SECTOR_BONUS,
+    MAX_MOMENTUM_BONUS,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,6 +345,31 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         regime_ctx=regime_ctx
     )
 
+    if score > 0:
+        candle_pen = cond.get("candle_penalty", 0)
+        score = max(0, score - candle_pen)
+
+        # Gap-and-go extension penalty
+        atr_ext = (candle_close - prior_high) / atr20 if atr20 > 0 else 0
+        max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
+        if atr_ext > max_ext:
+            pen_mult = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_PENALTY_MULT", 10)
+            max_pen = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_MAX_PENALTY", 20)
+            score = max(0, score - min(max_pen, (atr_ext - max_ext) * pen_mult))
+
+        # Gap penalty (gapping > 3% above prior high)
+        gap_pct = cond.get("gap_pct")
+        if gap_pct is not None:
+            max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
+            if gap_pct > max_gap_pct:
+                excess = gap_pct - max_gap_pct
+                score = max(0, score - min(20, int(excess * 3)))
+
+        # OBV divergence penalty
+        if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
+            if _safe_float(latest.get("OBV_SLOPE")) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
+                score = max(0, score - 5)
+
     score_threshold = SCORE_THRESHOLDS.get("1d", 82)
     is_qualified = (score >= score_threshold)
 
@@ -481,15 +512,25 @@ def _start_wrapper(force: bool = False):
 
             # [VERSION: EOD_DELIVERY_FALLBACK_v1.0] Try today first, fallback to previous days if not available
             delivery_map = {}
+            delivery_days_back = 0
+            delivery_found = False
+            seen_delivery_dates = set()
+
             for days_back in range(0, 5):
                 candidate = ist_now.date() - timedelta(days=days_back)
                 while candidate.weekday() >= 5:
                     candidate -= timedelta(days=1)
                 
+                if candidate in seen_delivery_dates:
+                    continue
+                seen_delivery_dates.add(candidate)
+
                 try:
                     delivery_map = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
                     if delivery_map:
-                        if days_back > 0:
+                        delivery_days_back = (ist_now.date() - candidate).days
+                        delivery_found = True
+                        if delivery_days_back > 0:
                             logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
                             try:
                                 from push_service import send_push_to_all
@@ -502,12 +543,25 @@ def _start_wrapper(force: bool = False):
                             logger.info(f"✅ EOD Scanner using TODAY'S Bhavcopy from: {candidate}")
                         break
                 except Exception as e:
-                    logger.error(f"❌ Delivery fetch failed for {candidate}: {e}")
+                    logger.debug(f"Delivery fetch failed for {candidate}: {e}")
 
             try:
                 rotation_result = get_sector_scores()
             except Exception:
                 rotation_result = SectorRotationResult({}, set(), set(), "", datetime.now(IST).date(), 0.0)
+
+            # Pre-compute macro momentum rankings for entire watchlist once before scan loop
+            try:
+                rs_dict = compute_nifty_rs_rating(symbols)
+            except Exception as _rse:
+                logger.warning(f"Failed to pre-compute RS ratings: {_rse}")
+                rs_dict = {}
+
+            try:
+                sector_rankings_dict = compute_sector_regime_rankings()
+            except Exception as _sre:
+                logger.warning(f"Failed to pre-compute sector regime rankings: {_sre}")
+                sector_rankings_dict = {}
 
         total_alerts       = 0
         alerts_by_category = {}
@@ -771,7 +825,7 @@ def _start_wrapper(force: bool = False):
                             candle_close = _safe_float(latest.get("Close"))
                             candle_range = candle_high - candle_low
                             candle_body  = abs(candle_close - candle_open)
-                            upper_wick   = candle_high - candle_close
+                            upper_wick   = candle_high - max(candle_close, candle_open)
 
                             if candle_range <= 0:
                                 rejection_counts["zero_candle_range"] += 1
@@ -851,7 +905,6 @@ def _start_wrapper(force: bool = False):
 
                             # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
                             technical_penalties = {}
-                            candle_penalty = 0
                             atr_extension = (candle_close - prior_high) / atr20
                             max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
                             if atr_extension > max_ext:
@@ -860,8 +913,9 @@ def _start_wrapper(force: bool = False):
                                 technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
                 
                             # ATR Expansion
-                            if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2):
-                                logger.info(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < 1.2)")
+                            min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
+                            if candle_range / atr20 < min_atr_expansion:
+                                logger.info(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
                                 rejection_counts["no_atr_expansion"] += 1
                                 continue
 
@@ -949,7 +1003,7 @@ def _start_wrapper(force: bool = False):
                                 
                                     if not is_tight_base:
                                         logger.debug(f"  ⊘ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — skipping")
-                                        rejection_counts["pre_breakout_weak"] += 1
+                                        rejection_counts["prior_red_candles"] = rejection_counts.get("prior_red_candles", 0) + 1
                                         continue
 
                             # ── v5: BASE TIGHTNESS FILTER ──────────────────────────────────────────
@@ -997,6 +1051,13 @@ def _start_wrapper(force: bool = False):
                                 bayesian_version=bayesian_version
                             )
 
+                            # Default momentum values in case score <= 0 or gating fails
+                            rs_pct_val = float(rs_dict.get(symbol, 50.0))
+                            rs_bonus_val = 0
+                            sector_bonus_val = 0
+                            total_momentum_bonus = 0
+                            base_score_val = int(score)
+
                             if score > 0:
                                 for pen_name, pen_val in technical_penalties.items():
                                     score -= pen_val
@@ -1005,12 +1066,19 @@ def _start_wrapper(force: bool = False):
                                 score = max(0, score + obv_penalty)
                                 # [FIX P1-3] Apply candle quality penalty (body/wick/close position)
                                 score = max(0, score - candle_penalty)
-                                try:
-                                    safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                                    sector_bonus = rotation_result.score_bonus_for(safe_sector)
-                                    score = max(0, min(score + sector_bonus, 100))
-                                except Exception:
-                                    pass
+
+                                base_score_val = int(score)
+
+                                # ── Feature F-03 & F-07: Momentum Bonus Injection (Prior to Score Gate) ──
+                                rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
+
+                                safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
+                                sector_info = sector_rankings_dict.get(safe_sec_str, {})
+                                sector_status = sector_info.get("effective_status", "NEUTRAL")
+                                sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
+
+                                total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
+                                score = max(0, min(100, score + total_momentum_bonus))
 
                             # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
                             forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
@@ -1033,8 +1101,6 @@ def _start_wrapper(force: bool = False):
                                 continue
 
                             logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
-
-                            dedup_key  = f"{category}|{signal_str}|{today_str}|EOD"
 
                             # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
                             if (symbol, "EOD") in cooldown_alerts:
@@ -1122,8 +1188,10 @@ def _start_wrapper(force: bool = False):
                 
                             # Append configuration metadata for forward-testing and analytics
                             context["algo_version"] = ACTIVE_ALGO_VERSION
-                            if days_back > 0:
+                            if delivery_found and delivery_days_back > 0:
                                 context["delivery_data_status"] = "missing_used_fallback"
+                            elif not delivery_found:
+                                context["delivery_data_status"] = "unavailable"
                             
                             context["algo_params"] = {
                                 **EOD_CONFIG,
@@ -1134,31 +1202,12 @@ def _start_wrapper(force: bool = False):
                             }
 
                             if not is_test_mode:
-                                # [EOD_SAVE_ALERT_FIX_v1.0] BUG-5 FIX: dedup_key was passed as breakout_type (2nd positional).
-                                # save_alert_if_new(symbol, breakout_type, alert_time, ...) — 2nd arg must be the scanner type string.
-                                # Passing the full dedup_key string was corrupting the breakout_type column in the DB.
-                                # BUG-7 FIX: regime_ctx is not a named param in save_alert_if_new — it was silently swallowed by **kwargs.
-                                # Derive bayesian_regime (string) from the dict and pass it via the correct named param.
                                 _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
                                 _regime_score = float(regime_ctx.get("market_score", 80.0)) if isinstance(regime_ctx, dict) else 80.0
 
-                                # ── Feature F-03 & F-07: Momentum Bonus Injection ──
-                                from macro_utils import compute_nifty_rs_rating, compute_sector_regime_rankings
-                                from config import RS_BONUS, SECTOR_BONUS, MAX_MOMENTUM_BONUS
-
-                                rs_dict = compute_nifty_rs_rating([symbol])
-                                rs_pct_val = float(rs_dict.get(symbol, 50.0))
-                                rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
-
-                                sector_rankings_dict = compute_sector_regime_rankings()
-                                sector_info = sector_rankings_dict.get(sector, {})
-                                sector_status = sector_info.get("effective_status", "NEUTRAL")
+                                safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
+                                sector_info = sector_rankings_dict.get(safe_sec_str, {})
                                 sector_name_val = sector_info.get("sector_name", sector or "")
-                                sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
-
-                                total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
-                                base_score_val = int(score)
-                                final_score_val = min(100, base_score_val + total_momentum_bonus)
 
                                 cand = {
                                     "symbol": symbol,
@@ -1168,7 +1217,7 @@ def _start_wrapper(force: bool = False):
                                     "category": category,
                                     "entry_price": round(candle_close, 2),
                                     "signals": signal_str,
-                                    "score": final_score_val,
+                                    "score": int(score),
                                     "rsi": round(rsi_val, 1),
                                     "volume_ratio": round(volume_ratio, 2),
                                     "stop_loss": suggested_stop,
@@ -1242,14 +1291,8 @@ def _start_wrapper(force: bool = False):
                 approved_candidates = approved_candidates[:max_alerts]
                 from database import save_rejected_alert
                 for cand in rejected_cands:
-                    rejection_counts["duplicate"] = rejection_counts.get("duplicate", 0) + 1
+                    rejection_counts["max_alerts_exceeded"] = rejection_counts.get("max_alerts_exceeded", 0) + 1
                     logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
-                    if not is_test_mode:
-                        try:
-                            # [VERSION: RANKED_OUT_FIX] Do not log RANKED_OUT to rejected_alerts to avoid polluting genuine rejection metrics
-                            pass
-                        except Exception as e:
-                            pass
                     
             for cand in approved_candidates:
                 c = dict(cand)
@@ -1437,12 +1480,13 @@ def _start_wrapper(force: bool = False):
             except Exception:
                 pass
 
-        elif total_fetched_count < len(watchlist) * 0.70:
-            outcome = "PARTIAL"
-            status = "DEGRADED"
         elif total_fetched_count == 0:
             outcome = "FAILED"
             status = "DOWN"
+            error_msg = f"🚫 CRITICAL BLOCKER: 0/{len(watchlist)} symbols fetched (missing data)"
+        elif total_fetched_count < len(watchlist) * 0.70:
+            outcome = "PARTIAL"
+            status = "DEGRADED"
 
         if not is_test_mode:
             try:
@@ -1460,7 +1504,7 @@ def _start_wrapper(force: bool = False):
                 )
             except Exception:
                 logger.exception("❌ Failed to update scanner health for EOD")
-            if status == "OK" or status == "DEGRADED":
+            if status == "OK":
                 try:
                     insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks. Outcome: {outcome}")
                     from push_service import send_push_to_all
