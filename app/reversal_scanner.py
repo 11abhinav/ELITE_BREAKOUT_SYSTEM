@@ -54,8 +54,8 @@ MAX_DROP_FROM_52W_HIGH = REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]
 
 RSI_OVERSOLD_THRESHOLD = REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]
 RSI_CURL_MIN           = REVERSAL_CONFIG["RSI_CURL_MIN"]
-# [AUDIT-A1 / Blocker 5] Hard floor: RSI must bounce at least this many points from historical trough.
-MIN_RSI_RECOVERY       = max(6.0, float(RSI_CURL_MIN - RSI_OVERSOLD_THRESHOLD) + 1.0) # 8.0
+# [AUDIT-A1 / v6.1] Fixed floor: RSI must bounce at least 8.0 points from historical trough (validated by _validate_config).
+MIN_RSI_RECOVERY       = 8.0
 RSI_TROUGH_LOOKBACK    = 35
 
 MIN_VOLUME_RATIO       = REVERSAL_CONFIG["MIN_VOLUME_RATIO"]
@@ -248,12 +248,14 @@ def _is_climax_top(
     vol_ratio: Optional[float] = None,
 ) -> bool:
     """
-    [Blocker 3] Blow-off climax top filter.
+    [Blocker 3 / v6.1] Blow-off climax top filter.
     Only triggers on extreme volume (>= CLIMAX_VOL_MULT x mean, or p95) AND
     when stock has run up >= CLIMAX_MIN_RUNUP_PCT (10%) over VOL_WINDOW_BARS (5 bars).
     NOTE: Callers must pass the CURRENT-bar vol_ratio here, never the windowed max.
     """
     if candle_high <= candle_low or len(ticker) < VOL_WINDOW_BARS + 1:
+        return False
+    if vol_ratio is None and (ticker is None or "Volume" not in ticker.columns or ticker.empty):
         return False
     try:
         close_nb_ago = float(ticker["Close"].iloc[-(VOL_WINDOW_BARS + 1)])
@@ -263,9 +265,14 @@ def _is_climax_top(
         if runup < CLIMAX_MIN_RUNUP_PCT:
             return False
 
+        if vol_ratio is not None and vol_ratio <= 0:
+            return False
+
         latest_vol = float(ticker["Volume"].iloc[-1])
         if latest_vol <= 0 and len(ticker) >= 2:
             latest_vol = float(ticker["Volume"].iloc[-2])
+        if latest_vol <= 0:
+            return False
 
         lookback_ct = min(CLIMAX_VOLUME_LOOKBACK, len(ticker) - 1)
         prior = ticker["Volume"].iloc[-lookback_ct - 1 : -1]
@@ -741,6 +748,23 @@ def _evaluate_candidate(
             "context": {},
         }
 
+    # [AUDIT-C2 / v6.1] Hoisted check: exit early if volume is missing and OBV trend is not accumulating
+    if is_synthetic_no_vol and len(df) >= 2:
+        _early_obv_trend = int(_opt_float(df.iloc[-2], "OBV_TREND", 0))
+    else:
+        _early_obv_trend = int(_opt_float(latest, "OBV_TREND", 0))
+
+    if vol_ratio is None and _early_obv_trend != 1:
+        return {
+            "passed": False,
+            "reject_reason": "Volume unavailable and no OBV accumulation to substitute",
+            "reject_code": "low_volume",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+
     sl_args = {
         "df": df,
         "entry_price": close_price,
@@ -859,17 +883,6 @@ def _evaluate_candidate(
 
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
     effective_min_score = round((MIN_REVERSAL_SCORE + score_premium) * AVAILABLE_MAX / COMPONENT_MAX)
-
-    if vol_ratio is None and obv_trend != 1:
-        return {
-            "passed": False,
-            "reject_reason": "Volume unavailable and no OBV accumulation to substitute",
-            "reject_code": "low_volume",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": sl_res,
-            "context": {},
-        }
 
     sma50_series = df["SMA50"].dropna()
     sma50_slope_up = (len(sma50_series) >= 6 and float(sma50_series.iloc[-1]) > float(sma50_series.iloc[-6]))
@@ -1402,7 +1415,18 @@ def _validate_config():
         raise ValueError("REVERSAL config contradictions:\n  - " + "\n  - ".join(fatal))
 
 
-_validate_config()
+try:
+    _validate_config()
+except ValueError as e:
+    logger.critical("REVERSAL config invalid — scanner will not run: %s", e)
+    try:
+        from database import upsert_scanner_health
+        upsert_scanner_health("REVERSAL", "DOWN", error_msg=f"Config: {str(e)[:200]}")
+        from push_service import send_push_to_all
+        send_push_to_all("❌ REVERSAL config invalid", str(e)[:100])
+    except Exception:
+        pass
+    raise
 
 
 from lock_utils import ProcessLock

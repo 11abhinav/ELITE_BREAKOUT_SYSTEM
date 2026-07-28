@@ -85,6 +85,22 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             
     return {}
 
+
+def fetch_latest_available_delivery_data(today_ist_date: date) -> tuple[dict[str, float], date]:
+    """
+    Attempts to fetch delivery data starting from today_ist_date down through previous trading days.
+    Returns (delivery_map, resolved_date).
+    """
+    for days_back in range(0, 5):
+        candidate = today_ist_date - timedelta(days=days_back)
+        while candidate.weekday() >= 5:
+            candidate -= timedelta(days=1)
+        res = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
+        if res:
+            return res, candidate
+    return {}, today_ist_date
+
+
 def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[str, float]:
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     from database import get_bhavcopy_cache, save_bhavcopy_cache
