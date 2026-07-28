@@ -3,6 +3,7 @@ import os
 import time
 import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -84,25 +85,25 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     # [FIX MUL-1] Normalize pledge to ratio (0.0-1.0) for consistent comparison
     pledge_ratio = _pledge_ratio(raw_pledge)
 
-    # [FIX MUL-15] Initialize as None so a failed V5 pipeline cannot silently produce
-    # a passing composite score. The diagnostic tier logic now rejects when composite
-    # is None (V5 did not run), preventing under-qualified stocks from earning labels.
+    # [VERSION: MULTIBAGGER_DIAG_ALIGN_v1.1] Extract component scores from V5 pipeline and use classify_conviction directly
     composite_score = None
+    cqs = 0.0
+    pas = 0.0
+    trend = 0.0
     try:
         from wealth_engine import map_watchlist_to_v5
         v5_dict = map_watchlist_to_v5({**fd, "Stock": symbol, "Close": close_price})
         v5_decision = run_pipeline_for_symbol(symbol, v5_dict)
         if v5_decision and hasattr(v5_decision, 'composite_score'):
             composite_score = float(v5_decision.composite_score)
+            cqs = float(getattr(v5_decision.quality, 'score', 0.0))
+            pas = float(getattr(v5_decision.valuation, 'score', 0.0))
+            trend = float(getattr(v5_decision.market_structure, 'score', 0.0))
     except Exception as _v5e:
         logger.warning(f"Could not compute V5 score for {symbol}: {_v5e}")
 
     sma50 = float(ticker["Close"].rolling(50).mean().iloc[-1]) if len(ticker) >= 50 else close_price
     sma200 = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else close_price
-    # [FIX MUL-3] When history < 200 bars, sma200 defaults to close_price, so
-    # `close > sma50 > sma200` collapses to `close > close` which is always False.
-    # Guard on data length: if we can't compute a real 200-SMA, assume uptrend
-    # for the diagnostic (production path uses V5 pipeline which has its own trend check).
     if len(ticker) >= 200:
         is_uptrend = (close_price > sma50 > sma200)
     elif len(ticker) >= 50:
@@ -110,47 +111,24 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     else:
         is_uptrend = True
 
-    is_prime = False
-    is_high_quality = False
-    reasons = []  # [FIX MUL-18] Initialize before any code path appends to it
-
-    # [FIX ISSUE-4] Prime tier requires verified pledge (<= 10%). Missing pledge must
-    # produce UNVERIFIED, not Prime — a stock with unknown promoter pledge could have
-    # 80% pledge and be fundamentally fragile.
+    reasons = []
     if composite_score is None:
         reasons.append("V5 composite scoring unavailable (pipeline failure)")
-    elif f_score is not None and pledge_ratio is not None:
-        verified_prime_pledge = pledge_ratio <= 0.10
-        is_prime = (f_score >= 7) and verified_prime_pledge and is_uptrend and (composite_score >= 70.0)
-        is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
-    elif f_score is not None and pledge_ratio is None:
-        # Pledge unknown — block both Prime and High Quality (pledge is a hard requirement)
-        is_prime = False
-        is_high_quality = False
-    elif f_score is None and pledge_ratio is not None:
-        # F-Score unknown, pledge known — allow high-quality if pledge is clean
-        is_prime = False
-        is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
+        tier = "⚪ Low Conviction"
     else:
-        # Both unknown — reject. A "multibagger" label requires at minimum
-        # one verified fundamental data point.
-        is_prime = False
-        is_high_quality = False
+        tier, _ = classify_conviction(cqs, pas, trend, composite_score, f_score=f_score, pledge_ratio=pledge_ratio)
 
+    is_prime = (tier == "🚀 Prime Multibagger") and is_uptrend
+    is_high_quality = (tier == "💎 High Quality") and is_uptrend
     is_qualified = bool(is_prime or is_high_quality)
 
-    # [FIX MUL-18] reasons list already initialized before classify_conviction logic
+    pledge_text = f"{pledge_ratio * 100:.1f}%" if pledge_ratio is not None else "UNVERIFIED"
     if is_prime:
-        reasons.append(f"Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 10%")
+        reasons.append(f"Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {pledge_text} <= 10%")
     elif is_high_quality:
-        reasons.append(f"High Quality Multibagger: V5 Score {composite_score:.1f} >= 65 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 15%")
+        reasons.append(f"High Quality Multibagger: V5 Score {composite_score:.1f} >= 65 | Pledge {pledge_text} <= 15%")
     elif composite_score is not None:
-        if f_score is not None and f_score < 7:
-            reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score >= 7)")
-        elif pledge_ratio is not None and pledge_ratio > 0.15:
-            reasons.append(f"Promoter Pledge {pledge_ratio*100:.1f}% > 15.0% maximum ceiling")
-        else:
-            reasons.append(f"Multibagger V5 Score {composite_score:.1f} < 65.0 threshold")
+        reasons.append(f"Multibagger V5 Score {composite_score:.1f} ({tier}) | Pledge: {pledge_text}")
     # else: reasons already set from the None guard above
 
     from sl_target_helper import compute_sl_and_target
@@ -239,6 +217,24 @@ class ScreenerResult:
     # Before this, ALERT_TRIGGERED was set before Top-N suppression and
     # save_alert_if_new, so both the count and watchlist could be overstated.
     alert_inserted: bool = False
+
+# [VERSION: MULTIBAGGER_REJECTION_VISIBILITY_v1.1] Helper to construct and append ScreenerResult for rejected symbols
+def append_rejection(results: list, symbol: str, status: str, notes: str, price: float = 0.0, cqs: float = 0.0, pas: float = 0.0, trend_score: float = 0.0, total_score: float = 0.0, buy_zone_low: float = 0.0, buy_zone_high: float = 0.0, bucket: str = "⚪ Low Conviction"):
+    results.append(ScreenerResult(
+        symbol=symbol,
+        price=round(price, 2) if price else 0.0,
+        cqs=round(cqs, 1) if cqs else 0.0,
+        pas=round(pas, 1) if pas else 0.0,
+        trend_score=round(trend_score, 1) if trend_score else 0.0,
+        total_score=round(total_score, 1) if total_score else 0.0,
+        buy_zone_low=round(buy_zone_low, 2) if buy_zone_low else 0.0,
+        buy_zone_high=round(buy_zone_high, 2) if buy_zone_high else 0.0,
+        bucket=bucket,
+        status=status,
+        notes=notes,
+        change_pct=0.0,
+        alert_inserted=False
+    ))
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
@@ -631,13 +627,13 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
-    [FIX MUL-12] Strengthened from a weak volume-only check to require:
+    [FIX MUL-12] Strengthened to require:
     1. Price within 3% below SMA200 (deep-value band)
     2. Bullish close (close > open) — confirms buyers are in control
     3. Close near EMA20 (within 5%) — prevents chasing extended moves
-    4. Volume >= 80% of 20-day average (prevents alerts on dead stocks)
-    EMA reclaim is NOT required (the deep-value path intentionally allows entries
-    below EMA20, but the stock must show some buying interest via bullish close).
+    4. Completed-bar daily volume >= 80% of 20-day average
+    Note: Volume check (completed_bar_volume_ok) evaluates daily completed-bar volume
+    confirmation from Phase 1 daily bar data, not intraday live volume.
     """
     if price_data.price < price_data.sma_200 * 0.97:
         return False
@@ -646,7 +642,8 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     if price_data.volume_sma20 <= 0:
         return False
 
-    volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20
+    # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Daily completed-bar volume confirmation check
+    completed_bar_volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20
 
     # [FIX MUL-21 REVISED] Bullish close: close > open confirms buyers are present.
     # When open/close data is unavailable, reject (default False) — never assume bullish.
@@ -660,7 +657,7 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     # [FIX MUL-22] Upper bound added: price must be within 5% above EMA20, not just within 5% below
     near_ema = ema20 * 0.95 <= price_data.price <= ema20 * 1.05
 
-    return volume_ok and bullish_close and near_ema
+    return completed_bar_volume_ok and bullish_close and near_ema
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol not in cache:
@@ -698,18 +695,22 @@ def safe_extract(df, row_name, col_idx=0, default=None):
 
 # [FIX ISSUE-2/3] Normalize ratio values that providers may return as either
 # percentage (15.0) or decimal (0.15). Always normalizes to 0.0-1.0 scale.
-# [FIX-2] Detect stale trade dates for new entries. A stock with old price data
-# may still pass scoring and buy-zone checks, but the alert would fire on stale info.
+# [VERSION: MULTIBAGGER_STALE_DATE_FIX_v1.1] Detect stale trade dates for new entries.
+# Checks if last_trade_date is >= max_business_days (default 3 business days).
+# Fails closed (returns True) on parsing exception or missing date to protect against unverified freshness.
 def _is_stale_trade_date(last_trade_date, max_business_days=3):
     if not last_trade_date:
         return True  # No date => treat as stale
     try:
         import numpy as np
-        start = np.datetime64(last_trade_date)
+        clean_date_str = str(last_trade_date)[:10]
+        start = np.datetime64(clean_date_str)
         end = np.datetime64(datetime.now(IST).date())
-        return np.busday_count(start, end) > max_business_days
-    except Exception:
-        return False  # If check fails, don't reject
+        # [FIX ISSUE-4] >= max_business_days: trade exactly 3 business days old is stale
+        return int(np.busday_count(start, end)) >= max_business_days
+    except Exception as exc:
+        logger.warning(f"Unable to validate trade date {last_trade_date}: {exc}")
+        return True  # [FIX ISSUE-3] Fail closed on error => treat as stale
 
 def normalize_ratio(value):
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -1145,9 +1146,8 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     return _start_wrapper(debug_limit, is_test_mode)
 
 def _persist_sell_review(alert_id, reason):
-    """[FIX-10] Persist SELL_REVIEW status in the database without closing the position.
-    Sets both exit_signal and exit_reason for schema compatibility — different code paths
-    use different column names, and if one is absent the update fails silently."""
+    """[VERSION: MULTIBAGGER_PERSIST_REVIEW_v1.1] Persist SELL_REVIEW status in the database without closing the position.
+    Matches status IN ('OPEN', 'SELL_REVIEW') so existing reviewed positions update reason and timestamp."""
     try:
         from database import get_connection
         with get_connection() as conn:
@@ -1159,7 +1159,7 @@ def _persist_sell_review(alert_id, reason):
                         exit_reason = %s,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s
-                      AND status = 'OPEN'
+                      AND status IN ('OPEN', 'SELL_REVIEW')
                 """, (reason, reason, alert_id))
             conn.commit()
         logger.info(f"📝 SELL_REVIEW persisted for alert_id={alert_id}: {reason}")
@@ -1177,11 +1177,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         open_positions = []
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Query only open alerts with breakout_type/scanner = 'MULTIBAGGER'
+                # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.1] Include both OPEN and SELL_REVIEW so reviewed positions remain monitored
                 cur.execute("""
                     SELECT id, symbol, entry_price as alert_price, alert_date
                     FROM alerts 
-                    WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN' AND is_rejected = FALSE;
+                    WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE;
                 """)
                 open_positions = [dict(row) for row in cur.fetchall()]
                 
@@ -1258,12 +1258,15 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         is_invalid = False
                         invalidation_reason = ""
                 else:
-                    # No data available — NEVER exit a position just because Yahoo Finance
-                    # returned nothing. Missing data is NOT a sign of deterioration.
-                    logger.warning(f"[EXIT MONITOR] {symbol}: no fundamental data available — skipping fundamental exit check.")
-                    cqs = 15.0
-                    is_invalid = False
-                    invalidation_reason = ""
+                    # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.2] No data available — NEVER exit a position
+                    # when fundamentals are unavailable. Persist SELL_REVIEW and continue loop to skip catastrophic stop and 200-DMA checks.
+                    logger.warning(f"[EXIT MONITOR] {symbol}: fundamentals unavailable — SELL_REVIEW")
+                    if not is_test_mode:
+                        _persist_sell_review(
+                            alert_id,
+                            "SELL_REVIEW: Fundamental data unavailable",
+                        )
+                    continue
                 try:
                     # [FIX #17] Use IST-aware datetime for grace period consistency
                     if pos.get("alert_date"):
@@ -1342,10 +1345,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 if not exit_triggered and fund and not is_fallback:
                     ok, gate_reason = passes_multibagger_quality_gate(fund)
                     if not ok:
-                        # [FIX MUL-27] "Data Void" means data is missing/incomplete, NOT that
-                        # fundamentals deteriorated. Only fire a confirmed exit for real metric
-                        # breaches. Data gaps get SELL_REVIEW (human review / next-scan retry).
-                        if gate_reason.startswith("Data Void"):
+                        # [VERSION: MULTIBAGGER_UNSUPPORTED_EXIT_FIX_v1.1] Review-only prefixes:
+                        # Data gaps or unsupported yfinance metrics get SELL_REVIEW (human review / retry).
+                        review_prefixes = ("Data Void", "UNSUPPORTED", "Invalid fundamental dataset")
+                        if gate_reason.startswith(review_prefixes):
                             exit_triggered = False
                             logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
                             if not is_test_mode:
@@ -1406,13 +1409,14 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
         from database import get_connection
         from psycopg2.extras import RealDictCursor
         
-        # 1. Fetch only ACTIVE MULTIBAGGER positions from alerts table
+        # 1. Fetch active/reviewed MULTIBAGGER positions from alerts table
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.1] Include both OPEN and SELL_REVIEW so reviewed positions remain monitored
                 cur.execute("""
                     SELECT id, symbol, entry_price as alert_price, alert_date
                     FROM alerts 
-                    WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN' AND is_rejected = FALSE;
+                    WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE;
                 """)
                 open_positions = cur.fetchall()
                 
@@ -1512,15 +1516,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
     shortlist_candidates = []
     
-    # Always include currently open positions in the shortlist so their fundamentals are fetched concurrently
+    # Always include currently open or reviewed positions in the shortlist so their fundamentals are fetched concurrently
     open_symbols = set()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT symbol FROM alerts WHERE scanner = 'MULTIBAGGER' AND status = 'OPEN'")
+                # [VERSION: MULTIBAGGER_OPEN_SYMBOLS_FIX_v1.1] Query both OPEN and SELL_REVIEW
+                cur.execute("SELECT symbol FROM alerts WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE")
                 open_symbols = {row[0] for row in cur.fetchall()}
     except Exception as e:
-        logger.error(f"Failed to fetch open positions for shortlist injection: {e}")
+        logger.error(f"Failed to fetch open/reviewed positions for shortlist injection: {e}")
         
     for sym, price_data in price_data_map.items():
         if sym in open_symbols:
@@ -1697,7 +1702,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             raw_fundamentals["relative_volume_10d"] = None
             
         # Calculate proxy RS Rating from 6-month momentum
-        mom = getattr(price_data, 'mom_6m', 0.0)
+        mom = safe_float(getattr(price_data, 'mom_6m', 0.0))
         if mom > 0.40: rs = 95.0
         elif mom > 0.20: rs = 85.0
         elif mom > 0.10: rs = 75.0
@@ -1741,35 +1746,47 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
+            append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price)
             continue
 
-        # [FIX-2] Reject stale entries — if the last trade was more than 3 business
-        # days ago, the price data is too old to fire a reliable alert.
+        # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
+            append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price)
             continue
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
+            append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price)
             continue
 
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
         # means the V5 pipeline will impute a neutral score, artificially inflating the result.
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
+            append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price)
             continue
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
             logger.info(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
+            status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
+            append_rejection(results, sym, status_code, reason, price=price_data.price)
             continue
 
         # 3. Run the V5 Pipeline
-        pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
+        # [VERSION: MULTIBAGGER_PIPELINE_GUARD_v1.1] Guard per-symbol pipeline execution with exception logging
+        try:
+            pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
+        except Exception:
+            logger.exception("%s: V5 pipeline failed", sym)
+            append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price)
+            continue
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
             logger.info(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
+            append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price)
             continue
                 
         # Extract scores from the V5 pipeline
@@ -1943,10 +1960,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             sym = cand["symbol"]
             price = cand["price"]
             
-            # [VERSION: MULTIBAGGER_LIVE_PRICE_FIX_v1.0] Apply batched live price
+            # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
             live_p = live_prices_dict.get(sym)
-            if live_p and live_p > 0:
-                price = live_p
+            try:
+                parsed_p = float(live_p) if live_p is not None else float("nan")
+            except (TypeError, ValueError):
+                parsed_p = float("nan")
+
+            if not math.isfinite(parsed_p) or parsed_p <= 0:
+                logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
+                cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
+                cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
+                continue
+
+            price = float(parsed_p)
+            cand["price"] = price  # [FIX ISSUE-7] Update candidate price to validated live price
 
             # [FIX MUL-14] Revalidate live price against buy zone.
             pipeline_res = cand["pipeline_result"]
@@ -2023,21 +2051,27 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 from zoneinfo import ZoneInfo
                 ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
                 
-                inserted, reason, _, _ = save_alert_if_new(
-                    symbol=sym,
-                    breakout_type="MULTIBAGGER",
-                    alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                    scanner="MULTIBAGGER",
-                    category=c_tier,
-                    entry_price=round(price, 2),
-                    stop_loss=0.0, # As requested: No SL for Multibagger
-                    target_price=0.0,
-                    signals="Value, Momentum, Quality",
-                    score=scaled_score,
-                    context=context_dict,
-                    capital_allocated=alloc,
-                    shares_bought=pos_shares
-                )
+                # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
+                try:
+                    inserted, reason, _, _ = save_alert_if_new(
+                        symbol=sym,
+                        breakout_type="MULTIBAGGER",
+                        alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                        scanner="MULTIBAGGER",
+                        category=c_tier,
+                        entry_price=round(price, 2),
+                        stop_loss=0.0, # As requested: No SL for Multibagger
+                        target_price=0.0,
+                        signals="Value, Momentum, Quality",
+                        score=scaled_score,
+                        context=context_dict,
+                        capital_allocated=alloc,
+                        shares_bought=pos_shares
+                    )
+                except Exception as exc:
+                    logger.exception(f"{sym}: alert insertion failed: {exc}")
+                    inserted = False
+                    reason = f"Database insertion error: {exc}"
             else:
                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
                 inserted = True
