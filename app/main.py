@@ -392,6 +392,7 @@ def _run_multibagger_exit_single():
         logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
+        from multibagger import run_standalone_exit_monitor
         run_standalone_exit_monitor()
         duration_sec = round(time.time() - start_time, 1)
         logger.info(f"✅ MULTIBAGGER EXIT | Completed in {format_duration(duration_sec)}")
