@@ -160,7 +160,13 @@ REVERSAL_CONFIG = {
     "MIN_ROE": 12.0,
     "MIN_YOY_REVENUE_GROWTH": 8.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
-    "REVERSAL_COOLDOWN_TRADING_DAYS": 40
+    "REVERSAL_COOLDOWN_TRADING_DAYS": 40,
+    # [AUDIT-B3] Quality-category drop floor — documented carve-out for Wealth/Blue Chip/Debt-Free;
+    # 15% lets shallower pullbacks qualify for blue-chip-quality stocks.
+    "QUALITY_CAT_MIN_DROP": 15.0,
+    # [AUDIT-A1] Minimum RSI recovery from historical trough to current bar (hard gate).
+    # Ensures a genuine bounce exists, not just a stock sitting at RSI_CURL_MIN.
+    "MIN_RSI_RECOVERY": 5.0,
 }
 
 ALERT_COOLDOWN_MINUTES = {
