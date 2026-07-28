@@ -2213,6 +2213,7 @@ _cached_worker_symbols = set()
 _cached_worker_symbols_time = 0
 
 _scanner_status_cache = {"timestamp": 0, "payload": None}
+_wealth_trades_cache = {"timestamp": 0, "trades": []}
 
 @app.route("/api/scanner_status")
 @login_required
@@ -2248,32 +2249,38 @@ def api_scanner_status():
             # Special case for Wealth Engine: It doesn't write to the alerts table.
             # We must parse its parquet file to get today's trades for the tooltip to work!
             if sc == "Wealth Engine":
-                try:
-                    import os, pandas as pd
-                    from config import DATA_DIR
-                    wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                    if os.path.exists(wealth_path):
-                        wdf = pd.read_parquet(wealth_path)
-                        # Filter for BUY signals
-                        buy_df = wdf[wdf["Signal_Code"] == "BUY"]
-                        today_trades = []
-                        for _, wrow in buy_df.iterrows():
-                            today_trades.append({
-                                "symbol": wrow.get("Stock", ""),
-                                "category": wrow.get("Portfolio_Bucket", ""),
-                                "signals": wrow.get("Signal", ""),
-                                "entry_price": wrow.get("cmp", 0),
-                                "alert_time": today_str,
-                                "stop_loss": None,
-                                "target_price": None,
-                                "exit_price": None,
-                                "closed_at": None,
-                                "pnl_pct": None,
-                                "status": "OPEN",
-                                "score": wrow.get("FM_Score", 0)
-                            })
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
+                global _wealth_trades_cache
+                if (now_ts - _wealth_trades_cache.get("timestamp", 0)) < 300:
+                    today_trades = _wealth_trades_cache.get("trades", [])
+                else:
+                    try:
+                        import os, pandas as pd
+                        from config import DATA_DIR
+                        wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+                        if os.path.exists(wealth_path):
+                            wdf = pd.read_parquet(wealth_path)
+                            # Filter for BUY signals
+                            buy_df = wdf[wdf["Signal_Code"] == "BUY"]
+                            today_trades = []
+                            for _, wrow in buy_df.iterrows():
+                                today_trades.append({
+                                    "symbol": wrow.get("Stock", ""),
+                                    "category": wrow.get("Portfolio_Bucket", ""),
+                                    "signals": wrow.get("Signal", ""),
+                                    "entry_price": wrow.get("cmp", 0),
+                                    "alert_time": today_str,
+                                    "stop_loss": None,
+                                    "target_price": None,
+                                    "exit_price": None,
+                                    "closed_at": None,
+                                    "pnl_pct": None,
+                                    "status": "OPEN",
+                                    "score": wrow.get("FM_Score", 0)
+                                })
+                            _wealth_trades_cache["timestamp"] = now_ts
+                            _wealth_trades_cache["trades"] = today_trades
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
 
             # [VERSION: AI_STATS_API_v1.0] Add dynamic fallback for AI Worker to align with Pledge Worker fallback
             processed_count = row.get("processed_count")

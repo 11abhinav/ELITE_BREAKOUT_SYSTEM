@@ -6236,7 +6236,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                            COALESCE(m.status, w.last_status),
                            w.notes,
                            COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
-                           COALESCE(m.deep_analysis_result, w.deep_analysis_result),
+                           NULL as deep_analysis_result,
                            m.cmp,
                            m.cmp_updated_at
                     FROM user_watchlists w
