@@ -1233,82 +1233,47 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 current_price = price_data.price
 
                 
-                # Fetch latest fundamentals (using cache first)
-                fund = get_cached_fundamentals(symbol, cache)
-                if not fund:
-                    fund = fetch_ticker_fundamentals(symbol)
-                    
-                if fund:
-                    technicals = {
-                        "price": current_price,
-                        "sma_50": price_data.sma_50,
-                        "sma_200": price_data.sma_200,
-                        "atr": price_data.atr_14
-                    }
-                    # [FIX-3] Isolate pipeline execution — if it raises, price-based safety
-                    # rules (catastrophic stop, SMA200 breakdown) must still execute.
-                    try:
-                        decision = run_pipeline_for_symbol(symbol, fund, technicals)
-                        cqs = decision.quality.score
-                        is_invalid = decision.is_invalidated
-                        invalidation_reason = decision.invalidation_reason or ""
-                    except Exception as pipeline_exc:
-                        logger.warning(f"[EXIT MONITOR] {symbol}: fundamental pipeline failed: {pipeline_exc}")
-                        cqs = None  # Signal that CQS is unavailable
-                        is_invalid = False
-                        invalidation_reason = ""
-                else:
-                    # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.2] No data available — NEVER exit a position
-                    # when fundamentals are unavailable. Persist SELL_REVIEW and continue loop to skip catastrophic stop and 200-DMA checks.
-                    logger.warning(f"[EXIT MONITOR] {symbol}: fundamentals unavailable — SELL_REVIEW")
+                # [VERSION: MULTIBAGGER_EXIT_FRESHNESS_v1.0] Exit freshness validation (fail closed)
+                last_trade_date = getattr(price_data, "last_trade_date", None)
+                if not last_trade_date:
+                    logger.warning(f"⚠️ {symbol}: SELL_REVIEW: Trade date unavailable")
+                    if not is_test_mode:
+                        _persist_sell_review(alert_id, "SELL_REVIEW: Trade date unavailable")
+                    continue
+
+                try:
+                    import numpy as np
+                    start_date = np.datetime64(str(last_trade_date)[:10])
+                    end_date = np.datetime64(datetime.now(IST).date())
+                    bus_days = np.busday_count(start_date, end_date)
+                    if bus_days >= 10:
+                        stale_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
+                        logger.warning(f"⚠️ {symbol}: {stale_reason}")
+                        if not is_test_mode:
+                            _persist_sell_review(alert_id, stale_reason)
+                        continue
+                except Exception as exc:
+                    logger.warning(f"Stale data check failed for {symbol}: {exc}")
                     if not is_test_mode:
                         _persist_sell_review(
                             alert_id,
-                            "SELL_REVIEW: Fundamental data unavailable",
+                            "SELL_REVIEW: Unable to verify price freshness",
                         )
                     continue
-                try:
-                    # [FIX #17] Use IST-aware datetime for grace period consistency
-                    if pos.get("alert_date"):
-                        adate = datetime.strptime(str(pos["alert_date"])[:10], "%Y-%m-%d").date()
-                        days_held = (datetime.now(IST).date() - adate).days
-                    else:
-                        days_held = 0
-                except Exception as e:
-                    logger.exception(f"Failed to parse alert_date for {symbol}: {e}")
-                    days_held = 0
 
                 exit_triggered = False
                 exit_reason = ""
-                
-                # [FIX ISSUE-1] Stale Data Check — SKIP ALL exit calculations when stale.
-                # Stale data means the price feed is broken. Running stop-loss and SMA200
-                # exit checks against a potentially wrong old price would close positions
-                # at incorrect prices. Persist SELL_REVIEW and move to next position.
-                is_stale = False
-                if hasattr(price_data, "last_trade_date") and price_data.last_trade_date:
-                    import numpy as np
-                    try:
-                        start_date = np.datetime64(price_data.last_trade_date)
-                        end_date = np.datetime64(datetime.now(IST).date())
-                        bus_days = np.busday_count(start_date, end_date)
-                        if bus_days >= 10:
-                            is_stale = True
-                            stale_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {price_data.last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
-                            logger.warning(f"⚠️ {symbol}: {stale_reason}")
-                            if not is_test_mode:
-                                _persist_sell_review(alert_id, stale_reason)
-                            continue
-                    except Exception as e:
-                        logger.warning(f"Stale data check failed for {symbol}: {e}")
-                
-                # Rule 1: Dynamic Catastrophic Stop (Market Cap & Trend Health)
-                if not exit_triggered and entry_price <= 0:
-                    logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Invalid entry_price ({entry_price}). Skipping drawdown check.")
-                elif not exit_triggered:
+
+                # Fetch fundamentals (using cache first)
+                fund = get_cached_fundamentals(symbol, cache)
+                if not fund:
+                    fund = fetch_ticker_fundamentals(symbol)
+
+                # [VERSION: MULTIBAGGER_EXIT_HIERARCHY_v1.0] Rule 1: Emergency Catastrophic Stop Loss ALWAYS runs first
+                # to protect capital against severe drawdown (>= 20-30% loss) even if fundamental data is missing or degraded.
+                if entry_price > 0:
                     drawdown_pct = ((entry_price - current_price) / entry_price) * 100.0
-                    
-                    # Base threshold by market cap
+
                     mcap_cr = (safe_float(fund.get("market_cap")) / 10000000.0) if fund else 0.0
                     if mcap_cr > 20000:
                         max_loss_pct = 20.0  # Large Cap
@@ -1319,48 +1284,77 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     else:
                         max_loss_pct = 30.0  # Small/Micro Cap
                         cap_tier = "Small Cap"
-                        
-                    # Adjust for trend health (if price is deep below 200-DMA, tighten the stop)
+
                     if price_data.sma_200 > 0 and current_price < 0.90 * price_data.sma_200:
                         max_loss_pct -= 2.0  # Tighten stop by 2% if deeply bearish trend
                         trend_health = "Weak Trend"
                     else:
                         trend_health = "Strong/Neutral Trend"
-                        
+
                     if drawdown_pct >= max_loss_pct:
                         exit_triggered = True
                         exit_reason = f"Catastrophic Stop [{cap_tier}, {trend_health}]: Drawdown >= {max_loss_pct:.1f}% ({drawdown_pct:.1f}% loss)"
-                    
-                # Rule 2: Anti-Whipsaw 200-DMA exit
-                if not exit_triggered and price_data.sma_200 > 0:
-                    closes_below_count = getattr(price_data, "closes_below_sma200_count", 0)
-                    if closes_below_count >= 3:
-                        if current_price < 0.93 * price_data.sma_200:
+
+                # Handle missing fundamental data: if Catastrophic Stop did NOT trigger, persist SELL_REVIEW and finish.
+                if not exit_triggered and not fund:
+                    logger.warning(f"[EXIT MONITOR] {symbol}: fundamentals unavailable — SELL_REVIEW")
+                    if not is_test_mode:
+                        _persist_sell_review(
+                            alert_id,
+                            "SELL_REVIEW: Fundamental data unavailable",
+                        )
+                    continue
+
+                # If fundamentals present and Catastrophic Stop did NOT trigger, run fundamental checks & V5 pipeline
+                if not exit_triggered and fund:
+                    technicals = {
+                        "price": current_price,
+                        "sma_50": price_data.sma_50,
+                        "sma_200": price_data.sma_200,
+                        "atr": price_data.atr_14
+                    }
+                    cqs = None
+                    is_invalid = False
+                    invalidation_reason = ""
+                    try:
+                        decision = run_pipeline_for_symbol(symbol, fund, technicals)
+                        cqs = decision.quality.score
+                        is_invalid = decision.is_invalidated
+                        invalidation_reason = decision.invalidation_reason or ""
+                    except Exception as pipeline_exc:
+                        logger.warning(f"[EXIT MONITOR] {symbol}: fundamental pipeline failed: {pipeline_exc}")
+
+                    is_fallback = fund.get("data_freshness") == "FALLBACK"
+                    is_review_only_gate = False
+                    if not is_fallback:
+                        ok, gate_reason = passes_multibagger_quality_gate(fund)
+                        if not ok:
+                            review_prefixes = ("Data Void", "UNSUPPORTED", "Invalid fundamental dataset")
+                            if gate_reason.startswith(review_prefixes):
+                                is_review_only_gate = True
+                                logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
+                                if not is_test_mode:
+                                    _persist_sell_review(alert_id, f"SELL_REVIEW: {gate_reason}")
+                            else:
+                                exit_triggered = True
+                                exit_reason = f"Quality kill-gate breach: {gate_reason}"
+
+                    # If review-only gate breach occurred, skip fundamental decay and 200-DMA breakdown exits
+                    if not exit_triggered and not is_review_only_gate:
+                        # [VERSION: MULTIBAGGER_V5_INVALIDATION_EXIT_v1.0] Check V5 Invalidation
+                        if is_invalid:
                             exit_triggered = True
-                            exit_reason = f"Sustained 200-DMA breakdown: 3+ closes below, and >7% deep (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
-                        
-                # Rule 3: Fundamental Deterioration
-                is_fallback = fund.get("data_freshness") == "FALLBACK" if fund else False
-                
-                if not exit_triggered and fund and not is_fallback:
-                    ok, gate_reason = passes_multibagger_quality_gate(fund)
-                    if not ok:
-                        # [VERSION: MULTIBAGGER_UNSUPPORTED_EXIT_FIX_v1.1] Review-only prefixes:
-                        # Data gaps or unsupported yfinance metrics get SELL_REVIEW (human review / retry).
-                        review_prefixes = ("Data Void", "UNSUPPORTED", "Invalid fundamental dataset")
-                        if gate_reason.startswith(review_prefixes):
-                            exit_triggered = False
-                            logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
-                            if not is_test_mode:
-                                _persist_sell_review(alert_id, f"SELL_REVIEW: {gate_reason}")
-                            exit_reason = ""  # Clear — not an exit trigger
-                        else:
+                            exit_reason = f"V5 invalidation: {invalidation_reason}"
+                        # Check CQS score decay (< 55)
+                        elif cqs is not None and cqs < 55.0:
                             exit_triggered = True
-                            exit_reason = f"Quality kill-gate breach: {gate_reason}"
-                    # [FIX-3] Only check CQS decay when pipeline succeeded (cqs is not None).
-                    elif cqs is not None and cqs < 55.0:
-                        exit_triggered = True
-                        exit_reason = f"Deteriorating Fundamentals: Quality score decayed below hold-threshold 55 (CQS: {cqs:.1f})"
+                            exit_reason = f"Deteriorating Fundamentals: Quality score decayed below hold-threshold 55 (CQS: {cqs:.1f})"
+                        # Rule 2: Anti-Whipsaw 200-DMA exit
+                        elif price_data.sma_200 > 0:
+                            closes_below_count = getattr(price_data, "closes_below_sma200_count", 0)
+                            if closes_below_count >= 3 and current_price < 0.93 * price_data.sma_200:
+                                exit_triggered = True
+                                exit_reason = f"Sustained 200-DMA breakdown: 3+ closes below, and >7% deep (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
                         
                 # Handle triggered exit
                 if exit_triggered:
@@ -1855,13 +1849,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (EMA Reclaimed)"
                 else:
                     notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (Deep Value Zone)"
+                
+                fv = safe_float(getattr(pipeline_result.valuation, 'fair_value', 0.0))
+                mos = safe_float(getattr(pipeline_result.valuation, 'margin_of_safety', 0.0))
+                if fv > 0:
+                    notes += f" | FV: {fv:.0f} (MoS: {mos:.0f}%)"
+                
                 alert_triggered = True
                 
         bucket = tier
-        
-        # Additional Valuation logging 
-        if pipeline_result.valuation.fair_value > 0:
-            notes += f" | FV: {pipeline_result.valuation.fair_value:.0f} (MoS: {pipeline_result.valuation.margin_of_safety:.0f}%)"
             
         if alert_triggered:
             skip_alert = False
@@ -1956,165 +1952,164 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             live_prices_dict = {}
         
         for cand in top_n:
-
-            sym = cand["symbol"]
-            price = cand["price"]
-            
-            # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
-            live_p = live_prices_dict.get(sym)
             try:
-                parsed_p = float(live_p) if live_p is not None else float("nan")
-            except (TypeError, ValueError):
-                parsed_p = float("nan")
+                sym = cand["symbol"]
+                price = cand["price"]
+                
+                # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
+                live_p = live_prices_dict.get(sym)
+                try:
+                    parsed_p = float(live_p) if live_p is not None else float("nan")
+                except (TypeError, ValueError):
+                    parsed_p = float("nan")
 
-            if not math.isfinite(parsed_p) or parsed_p <= 0:
-                logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
-                cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
-                cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
-                continue
-
-            price = float(parsed_p)
-            cand["price"] = price  # [FIX ISSUE-7] Update candidate price to validated live price
-
-            # [FIX MUL-14] Revalidate live price against buy zone.
-            pipeline_res = cand["pipeline_result"]
-            bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
-            bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
-            if bz_high > 0 and (price < bz_low or price > bz_high):
-                logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
-                # [FIX ISSUE-10] Track distinct rejection reason
-                cand["rejection_status"] = "PRICE_MOVED"
-                cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
-                continue
-
-            # [FIX MUL-24] Recheck entry_confirmed against live price.
-            live_price_data = cand.get("_price_data")
-            if live_price_data is not None:
-                from dataclasses import replace
-                live_pd = replace(live_price_data, price=price, today_close=price)
-                if not entry_confirmed(live_pd):
-                    logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
-                    # [FIX ISSUE-10] Track distinct rejection reason
-                    cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
-                    cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
+                if not math.isfinite(parsed_p) or parsed_p <= 0:
+                    logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
+                    cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
+                    cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
                     continue
 
-            c_total = cand["total_score"]
-            c_cqs = cand["cqs"]
-            c_trend = cand["trend_score"]
-            c_pas = cand["pas"]
-            c_notes = cand["notes"]
-            raw_fund = cand["raw_fundamentals"]
-            c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
-            
-            logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
-            
-            scaled_score = int(c_total)
-            
-            # Custom Capital Allocation based on tier
-            if c_tier == "🚀 Prime Multibagger":
-                alloc = 100000.0
-            elif c_tier == "💎 High Quality":
-                alloc = 50000.0
-            else:
-                alloc = 25000.0
-                
-            pos_shares = int(alloc / price) if price > 0 else 0
-            
-            inserted = False
-            if not is_test_mode:
-                context_dict = {
-                    "multibagger_meta": {
-                        "valuation_score": c_pas,
-                        "momentum_score": int(c_trend),
-                        "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
-                        "data_quality": "LIVE",
-                        "pipeline_tier": c_tier
-                    }
-                }
-                
-                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
-                _last_bar_date = "unknown"
-                try:
-                    _price_data = price_data_map.get(sym)
-                    if _price_data and hasattr(_price_data, 'timestamp'):
-                        _last_bar_date = str(_price_data.timestamp)[:10]
-                except Exception:
-                    pass
-                logger.info(
-                    f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
-                    f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
-                    f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
-                )
-                
-                # We use save_alert_if_new to insert into the main alerts table!
-                from zoneinfo import ZoneInfo
-                ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
-                
-                # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
-                try:
-                    inserted, reason, _, _ = save_alert_if_new(
-                        symbol=sym,
-                        breakout_type="MULTIBAGGER",
-                        alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                        scanner="MULTIBAGGER",
-                        category=c_tier,
-                        entry_price=round(price, 2),
-                        stop_loss=0.0, # As requested: No SL for Multibagger
-                        target_price=0.0,
-                        signals="Value, Momentum, Quality",
-                        score=scaled_score,
-                        context=context_dict,
-                        capital_allocated=alloc,
-                        shares_bought=pos_shares
-                    )
-                except Exception as exc:
-                    logger.exception(f"{sym}: alert insertion failed: {exc}")
-                    inserted = False
-                    reason = f"Database insertion error: {exc}"
-            else:
-                logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
-                inserted = True
+                price = float(parsed_p)
+                cand["price"] = price  # [FIX ISSUE-7] Update candidate price to validated live price
 
-            # [FIX-8] Track insertion status AND rejection reason on the candidate
-            # for reconciliation. The old code discarded the `reason` from save_alert_if_new,
-            # making every failed insertion assume DUPLICATE.
-            cand["inserted"] = inserted
-            if not inserted:
-                cand["insert_reason"] = str(reason)
-                if "duplicate" in str(reason).lower():
-                    cand["rejection_status"] = "DUPLICATE"
+                # [FIX MUL-14] Revalidate live price against buy zone.
+                pipeline_res = cand["pipeline_result"]
+                bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
+                bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
+                if bz_high > 0 and (price < bz_low or price > bz_high):
+                    logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
+                    # [FIX ISSUE-10] Track distinct rejection reason
+                    cand["rejection_status"] = "PRICE_MOVED"
+                    cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
+                    continue
+
+                # [FIX MUL-24] Recheck entry_confirmed against live price.
+                live_price_data = cand.get("_price_data")
+                if live_price_data is not None:
+                    from dataclasses import replace
+                    live_pd = replace(live_price_data, price=price, today_close=price)
+                    if not entry_confirmed(live_pd):
+                        logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
+                        # [FIX ISSUE-10] Track distinct rejection reason
+                        cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
+                        cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
+                        continue
+
+                c_total = cand["total_score"]
+                c_cqs = cand["cqs"]
+                c_trend = cand["trend_score"]
+                c_pas = cand["pas"]
+                c_notes = cand["notes"]
+                raw_fund = cand["raw_fundamentals"]
+                c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
+                
+                logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
+                
+                scaled_score = int(c_total)
+                
+                # Custom Capital Allocation based on tier
+                if c_tier == "🚀 Prime Multibagger":
+                    alloc = 100000.0
+                elif c_tier == "💎 High Quality":
+                    alloc = 50000.0
                 else:
-                    cand["rejection_status"] = "INSERT_FAILED"
-                cand["rejection_reason"] = str(reason)
-
-            if inserted:
-                # [FIX MUL-16/17] Mark the corresponding ScreenerResult so that
-                # save_watchlist_to_db and the final alert count use actual DB inserts,
-                # not pre-Top-N ALERT_TRIGGERED flags.
-                for _r in results:
-                    if _r.symbol.upper() == sym.upper():
-                        _r.alert_inserted = True
-                        # [FIX-9] Update the ScreenerResult price to the validated live price
-                        # so the Telegram summary and watchlist persist the correct price,
-                        # not the stale batch-download price.
-                        _r.price = round(price, 2)
-                        break
-                from core.multibagger_pipeline import V5_CONFIG
-                if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
-                    msg = (
-                        f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
-                        f"----------------------------------------\n"
-                        f"• Price: ₹{price:.1f}\n"
-                        f"• Classification: <b>{pipeline_res.classification}</b>\n"
-                        f"• Composite Score: {pipeline_res.composite_score:.1f}/100\n"
-                        f"• Confidence: {pipeline_res.confidence:.0f}%\n"
-                        f"• Fair Value: ₹{pipeline_res.valuation.fair_value:.1f} (MoS: {pipeline_res.valuation.margin_of_safety:.1f}%)\n"
-                        f"• Buy Zone: ₹{pipeline_res.buy_zone.buy_zone_low:.1f} - ₹{pipeline_res.buy_zone.buy_zone_high:.1f}\n"
-                        f"• Sector: {raw_fund.get('sector', 'Unknown')}\n"
-                        f"\n<i>System V5 Architecture</i>"
+                    alloc = 25000.0
+                    
+                pos_shares = int(alloc / price) if price > 0 else 0
+                
+                inserted = False
+                if not is_test_mode:
+                    context_dict = {
+                        "multibagger_meta": {
+                            "valuation_score": c_pas,
+                            "momentum_score": int(c_trend),
+                            "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
+                            "data_quality": "LIVE",
+                            "pipeline_tier": c_tier
+                        }
+                    }
+                    
+                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                    _last_bar_date = "unknown"
+                    try:
+                        _price_data = price_data_map.get(sym)
+                        if _price_data and hasattr(_price_data, 'timestamp'):
+                            _last_bar_date = str(_price_data.timestamp)[:10]
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
+                        f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
+                        f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
                     )
-                    queue_telegram_message(msg, symbol=sym)
+                    
+                    # We use save_alert_if_new to insert into the main alerts table!
+                    from zoneinfo import ZoneInfo
+                    ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
+                    
+                    # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
+                    try:
+                        inserted, reason, _, _ = save_alert_if_new(
+                            symbol=sym,
+                            breakout_type="MULTIBAGGER",
+                            alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                            scanner="MULTIBAGGER",
+                            category=c_tier,
+                            entry_price=round(price, 2),
+                            stop_loss=0.0, # As requested: No SL for Multibagger
+                            target_price=0.0,
+                            signals="Value, Momentum, Quality",
+                            score=scaled_score,
+                            context=context_dict,
+                            capital_allocated=alloc,
+                            shares_bought=pos_shares
+                        )
+                    except Exception as exc:
+                        logger.exception(f"{sym}: alert insertion failed: {exc}")
+                        inserted = False
+                        reason = "Database insertion failed"
+                else:
+                    logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
+                    inserted = True
+
+                # [FIX-8] Track insertion status AND rejection reason on the candidate
+                cand["inserted"] = inserted
+                if not inserted:
+                    cand["insert_reason"] = str(reason)
+                    if "duplicate" in str(reason).lower():
+                        cand["rejection_status"] = "DUPLICATE"
+                    else:
+                        cand["rejection_status"] = "INSERT_FAILED"
+                    cand["rejection_reason"] = str(reason)
+
+                if inserted:
+                    for _r in results:
+                        if _r.symbol.upper() == sym.upper():
+                            _r.alert_inserted = True
+                            _r.price = round(price, 2)
+                            break
+                    from core.multibagger_pipeline import V5_CONFIG
+                    if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
+                        fv_val = safe_float(getattr(pipeline_res.valuation, 'fair_value', 0.0))
+                        mos_val = safe_float(getattr(pipeline_res.valuation, 'margin_of_safety', 0.0))
+                        msg = (
+                            f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
+                            f"----------------------------------------\n"
+                            f"• Price: ₹{price:.1f}\n"
+                            f"• Classification: <b>{pipeline_res.classification}</b>\n"
+                            f"• Composite Score: {pipeline_res.composite_score:.1f}/100\n"
+                            f"• Confidence: {pipeline_res.confidence:.0f}%\n"
+                            f"• Fair Value: ₹{fv_val:.1f} (MoS: {mos_val:.1f}%)\n"
+                            f"• Buy Zone: ₹{pipeline_res.buy_zone.buy_zone_low:.1f} - ₹{pipeline_res.buy_zone.buy_zone_high:.1f}\n"
+                            f"• Sector: {raw_fund.get('sector', 'Unknown')}\n"
+                            f"\n<i>System V5 Architecture</i>"
+                        )
+                        queue_telegram_message(msg, symbol=sym)
+            except Exception as exc:
+                logger.exception(f"{cand.get('symbol', 'UNKNOWN')}: candidate processing failed: {exc}")
+                cand["rejection_status"] = "PROCESSING_FAILED"
+                cand["rejection_reason"] = "Candidate processing failed"
+                continue
 
     # [FIX-1 + ISSUE-10] Reconcile statuses using all candidates (including those cut by Top-N).
     # Build rejected_map from all_alert_candidates, not the sliced alert_candidates.

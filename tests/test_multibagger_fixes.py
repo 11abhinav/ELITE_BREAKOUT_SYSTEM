@@ -85,6 +85,101 @@ def test_missing_fundamentals_never_closes_position():
         mock_persist.assert_called_once_with(101, "SELL_REVIEW: Fundamental data unavailable")
 
 
+def test_missing_fundamentals_allows_catastrophic_stop():
+    """Missing fundamentals allows emergency Catastrophic Stop if drawdown >= 30%."""
+    today_str = datetime.now(IST).date().isoformat()
+    test_price_data = ExitPriceData(
+        symbol="RELIANCE",
+        price=600.0, # 40% drawdown from 1000.0 entry
+        sma_50=950.0,
+        sma_200=900.0,
+        high_20d=1050.0,
+        close_yesterday=650.0,
+        sma_200_yesterday=895.0,
+        atr_14=20.0,
+        ema_20=680.0,
+        closes_below_sma200_count=0,
+        last_trade_date=today_str
+    )
+    price_data_map = {"RELIANCE": test_price_data}
+
+    mock_db_positions = [{
+        "id": 101,
+        "symbol": "RELIANCE",
+        "alert_price": 1000.0,
+        "alert_date": today_str
+    }]
+
+    with patch("multibagger.get_connection") as mock_conn, \
+         patch("multibagger.batch_download_market_data", return_value={"RELIANCE": test_price_data}), \
+         patch("multibagger.get_cached_fundamentals", return_value=None), \
+         patch("multibagger.fetch_ticker_fundamentals", return_value=None), \
+         patch("multibagger._persist_sell_review") as mock_persist, \
+         patch("multibagger.update_alert_outcome") as mock_update_outcome:
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_db_positions
+        mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        run_exit_monitor(price_data_map, cache={}, is_test_mode=False)
+
+        # Catastrophic Stop SHOULD trigger and close position
+        mock_update_outcome.assert_called_once()
+        kwargs = mock_update_outcome.call_args.kwargs
+        assert "Catastrophic Stop" in kwargs.get("exit_signal", "")
+
+
+def test_v5_invalidation_triggers_exit():
+    """V5 pipeline invalidation triggers exit with V5 invalidation reason."""
+    today_str = datetime.now(IST).date().isoformat()
+    test_price_data = ExitPriceData(
+        symbol="INFY",
+        price=1000.0,
+        sma_50=950.0,
+        sma_200=900.0,
+        high_20d=1050.0,
+        close_yesterday=995.0,
+        sma_200_yesterday=895.0,
+        atr_14=20.0,
+        ema_20=980.0,
+        closes_below_sma200_count=0,
+        last_trade_date=today_str
+    )
+    price_data_map = {"INFY": test_price_data}
+
+    mock_db_positions = [{
+        "id": 102,
+        "symbol": "INFY",
+        "alert_price": 1000.0,
+        "alert_date": today_str
+    }]
+
+    fund = {"symbol": "INFY", "market_cap": 10000000000.0, "data_freshness": "LIVE"}
+
+    mock_decision = MagicMock()
+    mock_decision.quality.score = 70.0
+    mock_decision.is_invalidated = True
+    mock_decision.invalidation_reason = "Promoter pledge spiked above 25%"
+
+    with patch("multibagger.get_connection") as mock_conn, \
+         patch("multibagger.batch_download_market_data", return_value={"INFY": test_price_data}), \
+         patch("multibagger.get_cached_fundamentals", return_value=fund), \
+         patch("multibagger.passes_multibagger_quality_gate", return_value=(True, "")), \
+         patch("multibagger.run_pipeline_for_symbol", return_value=mock_decision), \
+         patch("multibagger.update_alert_outcome") as mock_update_outcome:
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_db_positions
+        mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        run_exit_monitor(price_data_map, cache={}, is_test_mode=False)
+
+        # V5 invalidation SHOULD trigger exit
+        mock_update_outcome.assert_called_once()
+        kwargs = mock_update_outcome.call_args.kwargs
+        assert "V5 invalidation: Promoter pledge spiked above 25%" in kwargs.get("exit_signal", "")
+
+
 def test_unsupported_financial_gate_never_closes_position():
     """Test 2 & 8: UNSUPPORTED gate reason issues SELL_REVIEW and does not close position."""
     today_str = datetime.now(IST).date().isoformat()
