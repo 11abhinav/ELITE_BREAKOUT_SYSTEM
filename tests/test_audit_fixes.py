@@ -265,8 +265,8 @@ class TestAuditFixes(unittest.TestCase):
     def test_multibagger_conviction_tier_classification(self):
         """Verify classify_conviction correctly assigns Prime, High Quality, or Watchlist tiers."""
         from multibagger import classify_conviction
-        # Prime Multibagger: composite >= 75, cqs >= 65, pas >= 50, trend >= 10, f_score >= 7
-        tier1, score1 = classify_conviction(cqs=70.0, pas=60.0, trend=15.0, composite=80.0, f_score=7)
+        # Prime Multibagger: composite >= 75, cqs >= 65, pas >= 50, trend >= 10, f_score >= 7, clean pledge <= 10%
+        tier1, score1 = classify_conviction(cqs=70.0, pas=60.0, trend=15.0, composite=80.0, f_score=7, pledge_ratio=0.05)
         self.assertEqual(tier1, "🚀 Prime Multibagger")
 
         # High Quality: composite >= 65, cqs >= 60, trend >= 10, plus clean pledge (<= 15%)

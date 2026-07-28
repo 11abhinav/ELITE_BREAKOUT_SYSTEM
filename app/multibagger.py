@@ -58,10 +58,10 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     Evaluates a single symbol against the production Multibagger V5 scanner rules.
     Runs full V5 composite scoring, quality/valuation/trend gates, Piotroski & promoter pledge checks, conviction tier classification, and target calculations without side effects.
     """
-    if df is None or df.empty or len(df) < 50:
+    if df is None or df.empty or len(df) < 200:
         return {
             "status": "NO",
-            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 50 minimum)"],
+            "reasons": [f"Insufficient history: requires 200 bars, got {len(df) if df is not None else 0}"],
             "score": 0.0,
             "qualified": False
         }
@@ -71,8 +71,8 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         ticker.columns = ticker.columns.get_level_values(0)
     ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    if len(ticker) < 50:
-        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
+    if len(ticker) < 200:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars: {len(ticker)} < 200 required"], "score": 0.0, "qualified": False}
 
     latest = ticker.iloc[-1]
     close_price = float(latest["Close"])
@@ -114,16 +114,19 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     is_high_quality = False
     reasons = []  # [FIX MUL-18] Initialize before any code path appends to it
 
-    # [FIX MUL-15] If V5 scoring failed, composite_score is None — reject immediately.
+    # [FIX ISSUE-4] Prime tier requires verified pledge (<= 10%). Missing pledge must
+    # produce UNVERIFIED, not Prime — a stock with unknown promoter pledge could have
+    # 80% pledge and be fundamentally fragile.
     if composite_score is None:
         reasons.append("V5 composite scoring unavailable (pipeline failure)")
     elif f_score is not None and pledge_ratio is not None:
-        is_prime = (f_score >= 7) and (pledge_ratio <= 0.10) and is_uptrend and (composite_score >= 70.0)
+        verified_prime_pledge = pledge_ratio <= 0.10
+        is_prime = (f_score >= 7) and verified_prime_pledge and is_uptrend and (composite_score >= 70.0)
         is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
     elif f_score is not None and pledge_ratio is None:
-        # Pledge unknown — allow prime if F-Score is strong, but block high-quality tier
-        is_prime = (f_score >= 7) and is_uptrend and (composite_score >= 70.0)
-        is_high_quality = (composite_score >= 65.0) and is_uptrend
+        # Pledge unknown — block both Prime and High Quality (pledge is a hard requirement)
+        is_prime = False
+        is_high_quality = False
     elif f_score is None and pledge_ratio is not None:
         # F-Score unknown, pledge known — allow high-quality if pledge is clean
         is_prime = False
@@ -215,6 +218,8 @@ class ExitPriceData:
     atr_14: float
     ema_20: float
     closes_below_sma200_count: int = 0
+    # [FIX ISSUE-1] Add last_trade_date for stale-data detection in exit monitor
+    last_trade_date: str = ""
 
 @dataclass
 class ScreenerResult:
@@ -525,18 +530,17 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         return False, "Auditor/Forensic red flags"
 
     if is_fin:
-        # [FIX MUL-20 REVISED] ROE/ROA are profitability, not solvency. For financial-sector
-        # companies (banks, NBFCs, insurers), CAR (Capital Adequacy Ratio) is the true solvency
-        # metric — it measures regulatory capital vs risk-weighted assets. Without CAR the gate
-        # cannot confirm solvency, so we mark it UNVERIFIED and reject.
-        car_raw = f.get("capital_adequacy_ratio")
-        car = safe_float(car_raw) if (car_raw is not None and not pd.isna(car_raw)) else None
+        # [FIX-4] yfinance does not provide standard CAR fields for Indian financial companies.
+        # Rather than falsely labelling this "Data Void" (which implies retry-able), mark it
+        # UNSUPPORTED — financial stocks cannot generate alerts through this scanner until
+        # a verified CAR data source is integrated.
+        car = normalize_ratio(f.get("capital_adequacy_ratio"))
         if car is None:
-            return False, "Data Void: solvency=UNVERIFIED (CAR missing)"
+            return False, "UNSUPPORTED: financial-sector CAR unavailable from yfinance"
         known_metrics_count += 1
         has_solvency_metric = True
         if car < 0.11:  # Regulatory floor + buffer
-            return False, f"Solvency fail: CAR={car:.1%}"
+            return False, f"Solvency fail: CAR {car:.2%}"
 
         roe = f.get("roe")
         if roe is not None and not pd.isna(roe):
@@ -613,9 +617,11 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
     # A stock with pledge=25% should never get the "💎 High Quality" label.
     clean_pledge = pledge_ratio is not None and pledge_ratio <= 0.15
 
-    if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0 and is_prime_fscore:
+    if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0 and is_prime_fscore and clean_pledge:
         return "🚀 Prime Multibagger", composite
-    elif composite >= 65 and cqs >= 60 and trend >= 10.0 and (is_prime_fscore or clean_pledge):
+    # [FIX ISSUE-5] High Quality requires clean pledge — Piotroski alone does not exempt from pledge check.
+    # A stock with a great F-Score but 25% promoter pledge is still risky.
+    elif composite >= 65 and cqs >= 60 and trend >= 10.0 and clean_pledge:
         return "💎 High Quality", composite
     elif composite >= 50:
         return "🟡 Watchlist", composite
@@ -672,7 +678,9 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
-        if age_days < 7:
+        # [FIX ISSUE-13] Reduce cache TTL from 7 days to 1 day. A 7-day cache retains
+        # stale earnings, debt, pledge, and profitability data that can cause false alerts.
+        if age_days < 1:
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -687,6 +695,32 @@ def safe_extract(df, row_name, col_idx=0, default=None):
     except (TypeError, ValueError, KeyError, IndexError) as e:
         logger.debug(f"Extract error for {row_name}: {e}")
     return default
+
+# [FIX ISSUE-2/3] Normalize ratio values that providers may return as either
+# percentage (15.0) or decimal (0.15). Always normalizes to 0.0-1.0 scale.
+# [FIX-2] Detect stale trade dates for new entries. A stock with old price data
+# may still pass scoring and buy-zone checks, but the alert would fire on stale info.
+def _is_stale_trade_date(last_trade_date, max_business_days=3):
+    if not last_trade_date:
+        return True  # No date => treat as stale
+    try:
+        import numpy as np
+        start = np.datetime64(last_trade_date)
+        end = np.datetime64(datetime.now(IST).date())
+        return np.busday_count(start, end) > max_business_days
+    except Exception:
+        return False  # If check fails, don't reject
+
+def normalize_ratio(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        ratio = float(value)
+        if ratio > 1.0:
+            return ratio / 100.0
+        return ratio
+    except (TypeError, ValueError):
+        return None
 
 def compute_cagr(df, row_name, years=3):
     try:
@@ -957,10 +991,12 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "debt_equity": info.get("debtToEquity") / 100.0 if info.get("debtToEquity") is not None else None,
         # [FIX] ICR: do not use abs() on EBIT to preserve negative earnings signal.
         "interest_coverage_ratio": (lambda ie: (ebit / abs(ie)) if (ebit is not None and ie and abs(ie) > 1) else (100.0 if ebit is not None and ebit >= 0 else (-100.0 if ebit is not None else None)))(safe_extract(fin, 'Interest Expense')),
-        "debt_yoy_growth": 0.0, # Dummy for now
+        "debt_yoy_growth": None,  # [FIX ISSUE-12] Set None (unknown) instead of 0.0 (confirmed no growth)
         "altman_z": altman_z,
         "current_ratio": info.get("currentRatio"),
         "roa": roa,  # [FIX MUL-20] Added ROA for financial solvency gate
+        # [FIX ISSUE-2/3] Populate CAR from yfinance info for financial-sector solvency gate
+        "capital_adequacy_ratio": normalize_ratio(info.get("capitalAdequacyRatio") or info.get("capitalToRiskWeightedAssets")),
 
         "price": price,
         "is_financial": is_financial_sector(info.get("sector")),
@@ -1051,7 +1087,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
             total = item['total']
             status = item['status']
             
-            alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else (" ⏳ WAITING" if status != "SUPPRESSED" else " ⛔ SUPPRESSED")
+            alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else (" ⏳ WAITING" if status in ("WAITING_BUY_ZONE", "REJECTED") else f" ⛔ {status}")
             line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/100</b>{alert_marker}\n"
             
             if len(current_msg) + len(line) > 3900:
@@ -1107,6 +1143,28 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     
     # Delegate to the actual scanning logic
     return _start_wrapper(debug_limit, is_test_mode)
+
+def _persist_sell_review(alert_id, reason):
+    """[FIX-10] Persist SELL_REVIEW status in the database without closing the position.
+    Sets both exit_signal and exit_reason for schema compatibility — different code paths
+    use different column names, and if one is absent the update fails silently."""
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE alerts
+                    SET status = 'SELL_REVIEW',
+                        exit_signal = %s,
+                        exit_reason = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                      AND status = 'OPEN'
+                """, (reason, reason, alert_id))
+            conn.commit()
+        logger.info(f"📝 SELL_REVIEW persisted for alert_id={alert_id}: {reason}")
+    except Exception as e:
+        logger.error(f"Failed to persist SELL_REVIEW for alert_id={alert_id}: {e}")
 
 def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = False):
     """
@@ -1187,10 +1245,18 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         "sma_200": price_data.sma_200,
                         "atr": price_data.atr_14
                     }
-                    decision = run_pipeline_for_symbol(symbol, fund, technicals)
-                    cqs = decision.quality.score
-                    is_invalid = decision.is_invalidated
-                    invalidation_reason = decision.invalidation_reason or ""
+                    # [FIX-3] Isolate pipeline execution — if it raises, price-based safety
+                    # rules (catastrophic stop, SMA200 breakdown) must still execute.
+                    try:
+                        decision = run_pipeline_for_symbol(symbol, fund, technicals)
+                        cqs = decision.quality.score
+                        is_invalid = decision.is_invalidated
+                        invalidation_reason = decision.invalidation_reason or ""
+                    except Exception as pipeline_exc:
+                        logger.warning(f"[EXIT MONITOR] {symbol}: fundamental pipeline failed: {pipeline_exc}")
+                        cqs = None  # Signal that CQS is unavailable
+                        is_invalid = False
+                        invalidation_reason = ""
                 else:
                     # No data available — NEVER exit a position just because Yahoo Finance
                     # returned nothing. Missing data is NOT a sign of deterioration.
@@ -1212,10 +1278,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 exit_triggered = False
                 exit_reason = ""
                 
-                # [FIX MUL-27/REVISED] Stale Data Check (Suspension / Trading Halt)
-                # Stale data means the price feed is broken, NOT that fundamentals
-                # deteriorated. We flag SELL_REVIEW for human inspection but do NOT
-                # auto-close or compute P&L on a potentially wrong price.
+                # [FIX ISSUE-1] Stale Data Check — SKIP ALL exit calculations when stale.
+                # Stale data means the price feed is broken. Running stop-loss and SMA200
+                # exit checks against a potentially wrong old price would close positions
+                # at incorrect prices. Persist SELL_REVIEW and move to next position.
                 is_stale = False
                 if hasattr(price_data, "last_trade_date") and price_data.last_trade_date:
                     import numpy as np
@@ -1225,7 +1291,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         bus_days = np.busday_count(start_date, end_date)
                         if bus_days >= 10:
                             is_stale = True
-                            exit_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {price_data.last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
+                            stale_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {price_data.last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
+                            logger.warning(f"⚠️ {symbol}: {stale_reason}")
+                            if not is_test_mode:
+                                _persist_sell_review(alert_id, stale_reason)
+                            continue
                     except Exception as e:
                         logger.warning(f"Stale data check failed for {symbol}: {e}")
                 
@@ -1278,12 +1348,14 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         if gate_reason.startswith("Data Void"):
                             exit_triggered = False
                             logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
-                            # Fall through to handle_triggered_exit as a review, not a close
-                            exit_reason = f"SELL_REVIEW: {gate_reason}"
+                            if not is_test_mode:
+                                _persist_sell_review(alert_id, f"SELL_REVIEW: {gate_reason}")
+                            exit_reason = ""  # Clear — not an exit trigger
                         else:
                             exit_triggered = True
                             exit_reason = f"Quality kill-gate breach: {gate_reason}"
-                    elif cqs < 55.0:
+                    # [FIX-3] Only check CQS decay when pipeline succeeded (cqs is not None).
+                    elif cqs is not None and cqs < 55.0:
                         exit_triggered = True
                         exit_reason = f"Deteriorating Fundamentals: Quality score decayed below hold-threshold 55 (CQS: {cqs:.1f})"
                         
@@ -1322,10 +1394,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                             f"• Reason: <i>{exit_reason}</i>\n"
                         )
                         queue_telegram_message(sell_msg, symbol=symbol)
-
-                # [FIX MUL-27 REVISED] SELL_REVIEW flags (stale data, data void) — log but do NOT close
-                elif is_stale and exit_reason:
-                    logger.info(f"⚠️ {symbol}: {exit_reason} — position held, no auto-close")
             except Exception as e:
                 logger.error(f"❌ Unhandled exception in exit monitor for {pos.get('symbol', 'UNKNOWN')}: {e}", exc_info=True)
                     
@@ -1372,7 +1440,8 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
                     sma_200_yesterday=stock_data.sma_200_yesterday,
                     atr_14=stock_data.atr_14,
                     ema_20=stock_data.ema_20,
-                    closes_below_sma200_count=stock_data.closes_below_sma200_count
+                    closes_below_sma200_count=stock_data.closes_below_sma200_count,
+                    last_trade_date=getattr(stock_data, 'last_trade_date', '') or ''
                 )
                 
         # 3. Use cache for fundamentals
@@ -1539,16 +1608,26 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         logger.info(f"📊 Data Integrity: {total_fetched}/{total_expected} ({fetch_ratio:.1%}) fundamentals loaded.")
         if fetch_ratio < 0.70:
             error_msg = f"Incomplete data error: Only {total_fetched}/{total_expected} ({fetch_ratio:.1%}) stocks fetched."
-            logger.warning(f"⚠️ {error_msg}")
-            # [VERSION: MB_FETCH_ABORT_FIX] Gracefully degrade instead of aborting the script
+            logger.error(f"⚠️ {error_msg}")
+            # [FIX ISSUE-8] Abort scan when coverage is too low. Peer calculations and Top-N
+            # rankings become unreliable with insufficient data. Existing positions continue
+            # monitoring via the separate exit monitor path.
             if not is_test_mode:
                 try:
-                    upsert_scanner_health(scanner_name="MULTIBAGGER", status="DEGRADED", error_msg=error_msg)
+                    upsert_scanner_health(
+                        scanner_name="MULTIBAGGER",
+                        status="DEGRADED",
+                        error_msg=error_msg,
+                        today_alerts=0,
+                        processed_count=0,
+                        total_count=total_expected
+                    )
                     from push_service import send_push_to_all
-                    send_push_to_all("⚠️ MULTIBAGGER Scanner DEGRADED", error_msg, bypass_throttle=True)
+                    send_push_to_all("⚠️ MULTIBAGGER Scanner DEGRADED — No New Alerts", error_msg, bypass_throttle=True)
                 except Exception:
                     pass
-            # Allow the valid subset to continue rather than raising an Exception
+            logger.error(f"🚫 Aborting scan: coverage {fetch_ratio:.1%} below 70% threshold.")
+            return {"total_count": total_expected, "processed_count": 0, "today_alerts": 0}
     
     # Check Market Regime (Explicitly fetch Nifty)
     # Default to BEAR (conservative fail-direction for quality-over-quantity)
@@ -1613,7 +1692,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if getattr(price_data, 'volume_sma20', 0) > 0:
             raw_fundamentals["relative_volume_10d"] = price_data.latest_volume / price_data.volume_sma20
         else:
-            raw_fundamentals["relative_volume_10d"] = 1.0
+            # [FIX ISSUE-6] Unknown volume set to None, not favorable 1.0.
+            # 1.0 pretends normal volume and inflates the candidate's score.
+            raw_fundamentals["relative_volume_10d"] = None
             
         # Calculate proxy RS Rating from 6-month momentum
         mom = getattr(price_data, 'mom_6m', 0.0)
@@ -1661,9 +1742,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
             continue
+
+        # [FIX-2] Reject stale entries — if the last trade was more than 3 business
+        # days ago, the price data is too old to fire a reliable alert.
+        if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
+            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
+            continue
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
+            continue
+
+        # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
+        # means the V5 pipeline will impute a neutral score, artificially inflating the result.
+        if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
+            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
             continue
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
@@ -1711,11 +1804,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if f_score_val is None:
             _raw_fs = raw_fundamentals.get("score", raw_fundamentals.get("piotroski_score"))
             f_score_val = int(_raw_fs) if (_raw_fs is not None and not pd.isna(_raw_fs)) else None
-        tier, composite = classify_conviction(cqs, pas, trend, pre_bonus_total, f_score=f_score_val, pledge_ratio=_pledge_ratio(raw_fundamentals.get("promoter_pledge_pct")))
-        
-        # [VERSION: MULTIBAGGER_BEAR_FIX_v1.2] Removed BEAR regime downgrade entirely.
-        # As per recent architectural decisions, the scoring engine naturally penalizes weak setups.
-        # We do not forcibly downgrade HIGH_QUALITY alerts to WATCH_ONLY just because the market is BEAR.
+        # [FIX-7] Apply BEAR regime adjustment BEFORE classification so the tier
+        # reflects the regime-adjusted score. A stock scoring 72 in BEAR should not
+        # be classified as Prime (requires >= 70) after a 5-point penalty.
+        regime_adjusted_score = (pre_bonus_total - 5.0) if market_regime == "BEAR" else pre_bonus_total
+        tier, composite = classify_conviction(cqs, pas, trend, regime_adjusted_score, f_score=f_score_val, pledge_ratio=_pledge_ratio(raw_fundamentals.get("promoter_pledge_pct")))
+
+        if market_regime == "BEAR":
+            # In BEAR regime, downgrade High Quality to Watchlist (only Prime survives)
+            if tier == "💎 High Quality":
+                tier = "🟡 Watchlist"
+                alert_triggered = False
+            # Also adjust total for ranking/display
+            total = total - 5.0
         
         if tier not in ["🚀 Prime Multibagger", "💎 High Quality"]:
             status = "WAITING_BUY_ZONE"
@@ -1811,12 +1912,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         # Sort by tier, total_score desc, cqs desc
         alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
         
+        # [FIX-1] Save full list BEFORE Top-N slicing so rejected_map can find
+        # candidates that were cut by the limit. Without this, suppressed candidates
+        # disappear and get misclassified as DUPLICATE during reconciliation.
+        all_alert_candidates = list(alert_candidates)
+
         from config import SCANNER_MAX_ALERTS
         max_alerts = SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)
         if len(alert_candidates) > max_alerts:
             logger.info(f"Limiting MULTIBAGGER alerts from {len(alert_candidates)} to {max_alerts}")
             for cand in alert_candidates[max_alerts:]:
-                logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
+                cand["rejection_status"] = "SUPPRESSED_TOP_N"
+                cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
+                logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
             alert_candidates = alert_candidates[:max_alerts]
 
         top_n = alert_candidates
@@ -1840,26 +1948,27 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             if live_p and live_p > 0:
                 price = live_p
 
-            # [FIX MUL-14] Revalidate live price against buy zone. A stock that was
-            # in the buy zone at scan time may have moved outside it by the time the
-            # live price is fetched. Without this, alerts fire after the stock has
-            # already moved beyond its buy zone.
+            # [FIX MUL-14] Revalidate live price against buy zone.
             pipeline_res = cand["pipeline_result"]
             bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
             bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
             if bz_high > 0 and (price < bz_low or price > bz_high):
                 logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
+                # [FIX ISSUE-10] Track distinct rejection reason
+                cand["rejection_status"] = "PRICE_MOVED"
+                cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
                 continue
 
-            # [FIX MUL-24] Recheck entry_confirmed against live price. The original scan-time
-            # price might have passed EMA-proximity and bullish-close, but the live price could
-            # now be extended above EMA20 or show a bearish close.
+            # [FIX MUL-24] Recheck entry_confirmed against live price.
             live_price_data = cand.get("_price_data")
             if live_price_data is not None:
                 from dataclasses import replace
                 live_pd = replace(live_price_data, price=price, today_close=price)
                 if not entry_confirmed(live_pd):
                     logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
+                    # [FIX ISSUE-10] Track distinct rejection reason
+                    cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
+                    cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
                     continue
 
             c_total = cand["total_score"]
@@ -1933,8 +2042,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
                 inserted = True
 
-            # [FIX MUL-25/26] Track insertion status on the candidate for reconciliation
+            # [FIX-8] Track insertion status AND rejection reason on the candidate
+            # for reconciliation. The old code discarded the `reason` from save_alert_if_new,
+            # making every failed insertion assume DUPLICATE.
             cand["inserted"] = inserted
+            if not inserted:
+                cand["insert_reason"] = str(reason)
+                if "duplicate" in str(reason).lower():
+                    cand["rejection_status"] = "DUPLICATE"
+                else:
+                    cand["rejection_status"] = "INSERT_FAILED"
+                cand["rejection_reason"] = str(reason)
 
             if inserted:
                 # [FIX MUL-16/17] Mark the corresponding ScreenerResult so that
@@ -1943,6 +2061,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 for _r in results:
                     if _r.symbol.upper() == sym.upper():
                         _r.alert_inserted = True
+                        # [FIX-9] Update the ScreenerResult price to the validated live price
+                        # so the Telegram summary and watchlist persist the correct price,
+                        # not the stale batch-download price.
+                        _r.price = round(price, 2)
                         break
                 from core.multibagger_pipeline import V5_CONFIG
                 if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
@@ -1960,16 +2082,39 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     )
                     queue_telegram_message(msg, symbol=sym)
 
-    # [FIX MUL-25/26] Reconcile statuses after Top-N + DB insertion. Candidates that
-    # were suppressed by Top-N or rejected by save_alert_if_new still carry
-    # "ALERT_TRIGGERED" on their ScreenerResult, making the summary show false "BUY READY".
+    # [FIX-1 + ISSUE-10] Reconcile statuses using all candidates (including those cut by Top-N).
+    # Build rejected_map from all_alert_candidates, not the sliced alert_candidates.
     inserted_symbols = {c["symbol"].upper() for c in (alert_candidates or []) if c.get("inserted")}
+    rejected_map = {c["symbol"].upper(): c for c in (all_alert_candidates if 'all_alert_candidates' in dir() else []) if c.get("rejection_status")}
     for r in results:
-        if r.status == "ALERT_TRIGGERED" and r.symbol.upper() not in inserted_symbols:
-            r.status = "SUPPRESSED"
+        sym_upper = r.symbol.upper()
+        if r.status == "ALERT_TRIGGERED" and sym_upper not in inserted_symbols:
+            # Check if there's a specific rejection reason from live validation or Top-N
+            cand_info = rejected_map.get(sym_upper)
+            if cand_info:
+                r.status = cand_info["rejection_status"]
+            else:
+                # Generic suppression (e.g., duplicate alert within lookback window)
+                r.status = "DUPLICATE"
 
-    # [FIX MUL-26] Build Telegram summary from actual DB inserts, not pre-Top-N categorization.
-    alert_inserted_results = [r for r in results if getattr(r, 'alert_inserted', False)]
+    # [FIX ISSUE-9] Rebuild Telegram categories from final statuses AFTER all insertion
+    # attempts. The original categorized_stocks was built before Top-N, live validation,
+    # and DB insertion — so it contained suppressed and rejected candidates.
+    categorized_stocks = {}
+    for r in results:
+        label = r.bucket or "Other"
+        if r.symbol.upper() in open_symbols:
+            label = f"🛡️ {label} (Currently Held)"
+        if label not in categorized_stocks:
+            categorized_stocks[label] = []
+        categorized_stocks[label].append({
+            'symbol': r.symbol,
+            'price': r.price,
+            'cqs': r.cqs,
+            'pas': r.pas,
+            'total': r.total_score,
+            'status': r.status
+        })
 
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
