@@ -1235,6 +1235,26 @@ def init_db():
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS login_time TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS logoff_time TIMESTAMPTZ")
+                # Fix: migrate logoff_time from TEXT to TIMESTAMPTZ if still TEXT
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'user_sessions' AND column_name = 'logoff_time' AND data_type = 'text'
+                        ) THEN
+                            ALTER TABLE user_sessions ALTER COLUMN logoff_time TYPE TIMESTAMPTZ
+                            USING logoff_time::TIMESTAMPTZ;
+                        END IF;
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'user_sessions' AND column_name = 'login_time' AND data_type = 'text'
+                        ) THEN
+                            ALTER TABLE user_sessions ALTER COLUMN login_time TYPE TIMESTAMPTZ
+                            USING login_time::TIMESTAMPTZ;
+                        END IF;
+                    END $$;
+                """)
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT FALSE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
@@ -4958,14 +4978,14 @@ def ping_user_session(user_id: int, ip_address: str):
                 if session:
                     # Update logoff_time (last ping)
                     cur.execute("""
-                        UPDATE user_sessions SET logoff_time = (now() AT TIME ZONE 'Asia/Kolkata')::TEXT
+                        UPDATE user_sessions SET logoff_time = NOW()
                         WHERE id = %s
                     """, (session[0],))
                 else:
                     # Create new session
                     cur.execute("""
                         INSERT INTO user_sessions (user_id, ip_address, login_time, logoff_time, is_online)
-                        VALUES (%s, %s, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, (now() AT TIME ZONE 'Asia/Kolkata')::TEXT, TRUE)
+                        VALUES (%s, %s, NOW(), NOW(), TRUE)
                     """, (user_id, ip_address))
                 conn.commit()
     except Exception as e:
@@ -4980,7 +5000,7 @@ def cleanup_stale_sessions():
                     UPDATE user_sessions
                     SET is_online = FALSE
                     WHERE is_online = TRUE
-                    AND EXTRACT(EPOCH FROM (now() - logoff_time::timestamp)) > 120
+                    AND EXTRACT(EPOCH FROM (now() - logoff_time)) > 120
                 """)
                 conn.commit()
     except Exception as e:
