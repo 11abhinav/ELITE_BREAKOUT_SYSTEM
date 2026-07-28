@@ -3438,6 +3438,7 @@ function saveToUserWatchlist(sym, company, score) {
         currentDiagnosticData.is_in_watchlist = true;
       }
       _watchlistFetchCacheUser = null; // Invalidate on write
+      _watchlistFetchCacheUser_ts = 0;
       loadUserWatchlist();
     } else {
       if (btn) {

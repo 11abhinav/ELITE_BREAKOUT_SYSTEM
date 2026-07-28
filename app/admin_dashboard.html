@@ -6820,12 +6820,7 @@ function saveToUserWatchlist(sym, company, score) {
       }
       _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
       loadUserWatchlist();
-    } else {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
-      }
-      showCustomToast(`Failed to add #${sym} to watchlist: ${res.error}`, 'error');
+      if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
     }
   })
   .catch(err => {
@@ -6853,7 +6848,8 @@ function removeFromWatchlist(sym) {
       .then(res => {
         if (res.success) {
           showCustomToast(`🗑️ #${sym} removed from watchlist`, 'info');
-          _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
+      _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
+      _watchlistFetchCache_ts = 0;
           if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
           if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
         }

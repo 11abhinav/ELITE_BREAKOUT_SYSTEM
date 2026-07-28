@@ -1318,6 +1318,8 @@ def init_db():
                 """)
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ")
                 cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT")
+                # Index for fast per-user watchlist queries (avoids full table scan)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
                 # [VERSION: CMP_MASTER_v1.0] Live price columns for watchlist CMP display
                 cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp NUMERIC(12,2)")
                 cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ")
@@ -6271,7 +6273,7 @@ def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bo
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM user_watchlists WHERE user_id::text = %s AND symbol = %s", (user_id_str, sym_clean))
+                cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
@@ -6297,7 +6299,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                            m.cmp_updated_at
                     FROM user_watchlists w
                     LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
-                    WHERE w.user_id::text = %s
+                    WHERE w.user_id = %s
                     ORDER BY w.added_at DESC
                 """, (user_id_str,))
                 rows = cur.fetchall()

@@ -3269,7 +3269,7 @@ def api_analyze_stock():
                 cached_master["is_in_watchlist"] = is_in_wl
                 return jsonify(cached_master)
 
-        result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep)
+        result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep, _skip_validation=True)
         result["is_in_watchlist"] = is_in_wl
         return jsonify(result)
     except Exception as e:
@@ -3329,7 +3329,7 @@ def api_add_user_watchlist():
     """Save ticker to user's personal watchlist after strict ticker validation."""
     try:
         from database import add_to_user_watchlist
-        from stock_analyzer import validate_nse_bse_ticker
+        from stock_analyzer import validate_nse_bse_ticker_fast
         data = request.get_json() or {}
         symbol = data.get("symbol", "").strip().upper()
         company_name = data.get("company_name", symbol)
@@ -3341,8 +3341,8 @@ def api_add_user_watchlist():
         if not symbol:
             return jsonify({"success": False, "error": "Symbol is required."}), 400
 
-        # Strict Ticker Validation
-        v_res = validate_nse_bse_ticker(symbol)
+        # Fast Ticker Validation (master dict + DB only, no Yahoo HTTP/price fetch)
+        v_res = validate_nse_bse_ticker_fast(symbol)
         is_valid_ticker = bool(v_res.get("is_valid") or v_res.get("valid"))
         if not is_valid_ticker:
             return jsonify({

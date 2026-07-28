@@ -51,6 +51,59 @@ def _safe_num_or_none(val):
         return None
 
 
+def validate_nse_bse_ticker_fast(symbol: str) -> dict:
+    """
+    Lightweight validation: master dictionary + DB only. No Yahoo HTTP / price fetch.
+    Used for watchlist saves where symbol was already validated via autocomplete.
+    """
+    if not symbol or not isinstance(symbol, str) or len(symbol.strip()) < 1:
+        return {"is_valid": False, "error": "Symbol input cannot be empty."}
+    raw = symbol.strip().upper()
+    sym_clean = raw.replace('.NS', '').replace('.BO', '').replace('.BSE', '')
+    import re
+    if not re.match(r"^[A-Z0-9&\-]{2,20}$", sym_clean):
+        return {"is_valid": False, "error": f"Invalid ticker format '{symbol}'."}
+    found = False
+    company_name = sym_clean
+    sector_name = "EQUITY"
+    # 1. Master dictionary (instant, in-memory)
+    try:
+        master = _load_master_symbol_dictionary()
+        if sym_clean in master:
+            found = True
+            company_name = master[sym_clean].get("company_name", sym_clean)
+            sector_name = master[sym_clean].get("sector", "EQUITY")
+    except Exception:
+        pass
+    # 2. BSE mappings (fast, in-memory)
+    if not found:
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            if sym_clean in bse_map or f"{sym_clean}.NS" in bse_map or f"{sym_clean}.BO" in bse_map:
+                found = True
+        except Exception:
+            pass
+    # 3. DB symbol_mappings (fast, indexed query)
+    if not found:
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT original_sym FROM symbol_mappings WHERE UPPER(original_sym) = %s OR UPPER(mapped_sym) = %s LIMIT 1", (sym_clean, sym_clean))
+                    if cur.fetchone():
+                        found = True
+        except Exception:
+            pass
+    if not found:
+        return {"is_valid": False, "error": f"'{sym_clean}' is not recognized. Use autocomplete to select a valid ticker."}
+    try:
+        from database import sync_master_symbols
+        sync_master_symbols([{"symbol": sym_clean, "company_name": company_name, "sector": sector_name}])
+    except Exception:
+        pass
+    return {"is_valid": True, "symbol": sym_clean, "company_name": company_name, "sector": sector_name}
+
+
 def validate_nse_bse_ticker(symbol: str) -> dict:
     """
     Validates if the provided ticker symbol is a recognized NSE/BSE Indian stock ticker.
@@ -325,16 +378,20 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
 
 
-def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None, _pre_fetched_regime_ctx: dict = None, _pre_fetched_temp_universe: pd.DataFrame = None, pre_fetched_h1_df: pd.DataFrame = None) -> dict:
+def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis: bool = False, pre_fetched_df: pd.DataFrame = None, _pre_fetched_regime_ctx: dict = None, _pre_fetched_temp_universe: pd.DataFrame = None, pre_fetched_h1_df: pd.DataFrame = None, _skip_validation: bool = False) -> dict:
     """
     Runs full dry-run multi-scanner diagnostic evaluation for a single ticker symbol.
     Validates ticker symbol first; returns structured error if invalid NSE/BSE stock ticker.
     Supports pre_fetched_df for zero-latency bulk watchlist processing.
+    _skip_validation=True skips expensive Yahoo HTTP validation (use when caller already validated).
     """
     from database import add_to_user_watchlist, get_user_watchlist, update_user_watchlist_scan_result
 
-    # 0. Validate NSE/BSE Ticker
-    val = validate_nse_bse_ticker(symbol)
+    # 0. Validate NSE/BSE Ticker (use fast path when caller already validated)
+    if _skip_validation:
+        val = validate_nse_bse_ticker_fast(symbol)
+    else:
+        val = validate_nse_bse_ticker(symbol)
     if not val["is_valid"]:
         return {
             "symbol": symbol.strip().upper() if symbol else "",
@@ -841,7 +898,8 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
             pre_fetched_df=df,
             _pre_fetched_regime_ctx=_regime_ctx_cache,
             _pre_fetched_temp_universe=_temp_universe_cache,
-            pre_fetched_h1_df=h1_df
+            pre_fetched_h1_df=h1_df,
+            _skip_validation=True
         )
 
     logger.info(f"✅ [STOCK ANALYZER BATCH] Complete. {len(results)}/{len(clean_syms)} symbols evaluated.")
