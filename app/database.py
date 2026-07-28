@@ -202,6 +202,27 @@ def insert_notification(notif_type: str, title: str, message: str, symbol: str =
     import threading
     threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol), daemon=True).start()
 
+class _AdvisoryLockGuard:
+    def __init__(self):
+        import os, psycopg2
+        self.conn = None
+        try:
+            db_url = os.getenv("DATABASE_URL")
+            if db_url:
+                self.conn = psycopg2.connect(db_url)
+                with self.conn.cursor() as cur:
+                    # Prevent concurrent DDL deadlocks across multi-process workers
+                    cur.execute("SELECT pg_advisory_lock(20240728)")
+        except Exception as e:
+            logger.error(f"Failed to acquire advisory lock: {e}")
+
+    def __del__(self):
+        if self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+
 def init_db():
     global _DB_INITIALIZED
 
@@ -211,6 +232,8 @@ def init_db():
     with _INIT_LOCK:
         if _DB_INITIALIZED:
             return
+
+        _guard = _AdvisoryLockGuard()
 
         with get_connection() as conn:
             with conn.cursor() as cur:
