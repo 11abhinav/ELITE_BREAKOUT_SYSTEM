@@ -384,7 +384,7 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
 
     @patch('database.get_connection')
     def test_strict_per_user_watchlist_query(self, mock_get_conn):
-        """Verify get_user_watchlist queries strictly WHERE user_id::text = %s."""
+        """Verify get_user_watchlist queries strictly WHERE user_id = %s (no ::text cast, uses index)."""
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_get_conn.return_value.__enter__.return_value = mock_conn
@@ -398,9 +398,10 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["symbol"], "TATAMOTORS")
-        # Ensure query strictly bound user_id '57880'
+        # Ensure query strictly bound user_id '57880' — no ::text cast (defeats index)
         execute_args = mock_cursor.execute.call_args[0]
-        self.assertIn("user_id::text = %s", execute_args[0])
+        self.assertIn("user_id = %s", execute_args[0])
+        self.assertNotIn("user_id::text", execute_args[0])
         self.assertEqual(execute_args[1], ("57880",))
 
 
