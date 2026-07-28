@@ -1255,6 +1255,13 @@ def init_db():
                             ALTER TABLE user_sessions ALTER COLUMN login_time TYPE TIMESTAMPTZ
                             USING login_time::TIMESTAMPTZ;
                         END IF;
+                        -- Ensure logoff_time is nullable (NULL = user still online)
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'user_sessions' AND column_name = 'logoff_time' AND is_nullable = 'NO'
+                        ) THEN
+                            ALTER TABLE user_sessions ALTER COLUMN logoff_time DROP NOT NULL;
+                        END IF;
                     END $$;
                 """)
                 cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT FALSE")
