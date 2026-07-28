@@ -1352,7 +1352,9 @@ def _validate_config():
     if RSI_CURL_MIN <= RSI_OVERSOLD_THRESHOLD:
         fatal.append(f"RSI_CURL_MIN ({RSI_CURL_MIN}) must exceed RSI_OVERSOLD_THRESHOLD ({RSI_OVERSOLD_THRESHOLD})")
     
-    _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 5))
+    _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 0))
+    if MIN_RSI_RECOVERY < 8.0:
+        fatal.append(f"MIN_RSI_RECOVERY ({MIN_RSI_RECOVERY}) < lowest scorer tier (8): rsi_pts can be 0, collapsing core below CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR})")
     BEAR_CORE_REALISTIC = 18 + 3 + 5 + _MIN_RSI_PTS
     if CORE_SCORE_FLOOR > BEAR_CORE_REALISTIC:
         fatal.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({BEAR_CORE_REALISTIC}) -> blackout")
