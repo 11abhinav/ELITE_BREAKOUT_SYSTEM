@@ -22,6 +22,20 @@ class FairValueResult:
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
+# [FIX MUL-8] Moved pandas import before _pledge_ratio to avoid latent NameError.
+# _pledge_ratio calls pd.isna() at call-time, so it usually works, but defining
+# it before the import is fragile and breaks if the import is ever reordered.
+import pandas as pd
+import yfinance as yf
+from typing import Dict, Any, Optional
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import requests
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from psycopg2.extras import execute_values
+
 # [FIX MUL-1] Pledge values arrive in different units depending on source:
 # - Production pipeline stores as ratio (0.0-1.0) via `pledge_val / 100.0`
 # - Diagnostic/fund_data may carry percentage (0-100)
@@ -31,17 +45,6 @@ def _pledge_ratio(v):
         return None
     v = float(v)
     return v / 100.0 if v > 1.0 else v
-
-import requests
-import threading
-import pandas as pd
-import yfinance as yf
-from typing import Dict, Any, Optional
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from requests.adapters import HTTPAdapter
-from psycopg2.extras import execute_values
 
 from database import get_connection, save_alert_if_new, close_position, update_alert_outcome, init_db, upsert_scanner_health
 from telegram_engine import queue_telegram_message
@@ -111,6 +114,8 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     # [FIX MUL-1] All pledge comparisons now use ratio (0.0-1.0).
     # [FIX MUL-4] When fundamentals are missing, do NOT allow a default composite=70
     # to satisfy the tier — require actual V5 score or reject.
+    # [FIX MUL-9] The composite > 70 path still requires at least one known fundamental
+    # (pledge or F-score) to avoid tagging weak names with zero verification.
     if f_score is not None and pledge_ratio is not None:
         is_prime = (f_score >= 7) and (pledge_ratio <= 0.10) and is_uptrend and (composite_score >= 70.0)
         is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
@@ -118,13 +123,13 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         # Pledge unknown — allow prime if F-Score is strong, but block high-quality tier
         is_prime = (f_score >= 7) and is_uptrend and (composite_score >= 70.0)
         is_high_quality = (composite_score >= 65.0) and is_uptrend
-    elif f_score is None and composite_score > 70.0:
-        # [FIX MUL-4] V5 pipeline returned a real score (>70 means it ran successfully).
-        # The 70.0 default means the pipeline failed — do NOT pass on defaults.
+    elif f_score is None and pledge_ratio is not None:
+        # F-Score unknown, pledge known — allow high-quality if pledge is clean
         is_prime = False
-        is_high_quality = (composite_score >= 65.0) and is_uptrend
+        is_high_quality = (composite_score >= 65.0) and (pledge_ratio <= 0.15) and is_uptrend
     else:
-        # No fundamentals and no real V5 score — reject
+        # Both unknown — reject. A "multibagger" label requires at minimum
+        # one verified fundamental data point.
         is_prime = False
         is_high_quality = False
 
@@ -1617,6 +1622,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
         f_score_val = raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))
+        # [FIX MUL-7] Production pipeline stores Piotroski under "score" / "piotroski_score"
+        # (matching evaluate_multibagger_symbol line 68). The old keys "piotroski_f_score"
+        # and "f_score" are never written, so f_score_val was always None — silently
+        # bypassing the >= 7 Piotroski requirement for Prime tier.
+        if f_score_val is None:
+            _raw_fs = raw_fundamentals.get("score", raw_fundamentals.get("piotroski_score"))
+            f_score_val = int(_raw_fs) if (_raw_fs is not None and not pd.isna(_raw_fs)) else None
         tier, composite = classify_conviction(cqs, pas, trend, pre_bonus_total, f_score=f_score_val)
         
         # [VERSION: MULTIBAGGER_BEAR_FIX_v1.2] Removed BEAR regime downgrade entirely.

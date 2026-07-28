@@ -1,6 +1,6 @@
 # Elite Breakout System — Scanner Engine Analysis
 
-> Generated: 2026-07-28 | 7 scanners reviewed | 31 fixes applied (P0-P6 + MTF structural + Multibagger)
+> Generated: 2026-07-28 | 7 scanners reviewed | 34 fixes applied (P0-P6 + MTF structural + Multibagger)
 
 ---
 
@@ -710,6 +710,21 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 - **Before:** `classify_conviction()` received the post-bonus `total`. `inst_bonus` could push a 63 → 65 and flip "Watchlist" → "High Quality", firing an alert on a name that failed on its own merits.
 - **After:** Classification uses `pre_bonus_total`; `inst_bonus` only affects the final `total` used for ranking.
 - **Rationale:** Bonuses should enhance ranking within a tier, not create tiers. A stock that scores 63 without institutional footprints is not a "High Quality Multibagger."
+
+#### MUL-7: Production F-score key mismatch silently bypasses Prime gate (CRITICAL)
+- **Before:** `raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))` — neither key is ever written by `fetch_ticker_fundamentals`. The Piotroski score lives under `"score"` / `"piotroski_score"`. So `f_score_val` was always `None`, and `classify_conviction` treated `None` as "always passes Piotroski ≥ 7".
+- **After:** Fallback reads `"score"` / `"piotroski_score"` (matching `evaluate_multibagger_symbol` line 68), converting to int if present.
+- **Rationale:** Without this fix, any stock with composite ≥ 75 was tagged "Prime Multibagger" regardless of its actual Piotroski F-Score — the exact false-positive hole the original MUL-1 through MUL-6 fixes were meant to close.
+
+#### MUL-8: `_pledge_ratio` uses `pd` before pandas import (MEDIUM, crash risk)
+- **Before:** `_pledge_ratio` called `pd.isna()` but `import pandas as pd` was defined 5 lines later. Function body runs at call-time so it usually worked, but the ordering was fragile.
+- **After:** Moved all import statements above `_pledge_ratio` definition.
+- **Rationale:** Prevents latent `NameError` if module imports are reordered or if `_pledge_ratio` is called during module loading.
+
+#### MUL-9: Diagnostic fundamentals-optional path still too easy (MEDIUM)
+- **Before:** `elif f_score is None and composite_score > 70.0` allowed "High Quality Multibagger" with zero fundamental verification (no F-score, no pledge).
+- **After:** Split into two branches: F-Score unknown but pledge known (allows HQ if pledge ≤ 15%), and both unknown (rejects).
+- **Rationale:** A "multibagger" label requires at minimum one verified fundamental data point. Composite > 70 alone is not sufficient fundamental backing for the label.
 
 ---
 
