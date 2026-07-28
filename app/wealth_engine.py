@@ -1115,26 +1115,16 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": sym}
 
-        # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch intraday snapshots for ALL symbols once.
-        # Previously called inside the batch loop (once per 50-symbol chunk = 7x per cycle).
-        # One bulk call populates the cache for all 308 symbols in a single API round-trip.
-        #
-        # [VERSION: WEALTH_CADENCE_OPT_v1.0] cadence_override=900 (15 min) allows reuse of the
-        # SystemScheduler's already-fetched 5m cache instead of triggering a full 10-minute
-        # re-fetch of 302 symbols on every 5-minute scan cycle. The live-price stitching at
-        # lines 1030–1068 patches the 1D candle with the intraday CMP, so 15-min-old intraday
-        # data is sufficient for scoring accuracy. This is the primary fix for the 18-minute
-        # market-hours runtime — intraday re-fetch was consuming ~10 of those 18 minutes.
-        logger.info(f"💰 [WEALTH ENGINE] Pre-fetching intraday snapshots for {len(all_symbols_to_fetch)} symbols...")
+        # [VERSION: WEALTH_SPEEDUP_v1.0] Replace 5m snapshot bulk fetch with direct live_prices fetch.
+        # Fetching 1D of 5m historical data for 300 stocks took too long and defeated the purpose
+        # of just getting the current CMP delta. We now use UnifiedFetcher directly.
+        logger.info(f"💰 [WEALTH ENGINE] Fetching live CMP for {len(all_symbols_to_fetch)} symbols...")
         try:
-            all_snapshots = get_intraday_snapshot(
-                all_symbols_to_fetch, interval="5m", period="1d",
-                cadence_override=900,  # Tolerate up to 15-min stale cache to avoid re-fetch
-                requester="WealthEngine"
-            ) or {}
+            from live_prices import get_live_prices
+            all_live_prices = get_live_prices(list(all_symbols_to_fetch)) or {}
         except Exception as _snap_e:
-            logger.warning(f"⚠️ [WEALTH ENGINE] Snapshot pre-fetch failed: {_snap_e}. Falling back to empty snapshots.")
-            all_snapshots = {}
+            logger.warning(f"⚠️ [WEALTH ENGINE] Live price fetch failed: {_snap_e}. Falling back to 1D close.")
+            all_live_prices = {}
 
         # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch concall data for ALL symbols once.
         # Previously caused 7 separate DB round-trips (one per batch). Single bulk query is faster.
@@ -1150,7 +1140,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
 
                 # Slice from pre-fetched dicts — no additional API/DB calls per batch
-                chunk_snapshots = {sym: all_snapshots.get(sym) for sym in chunk}
+                chunk_live_prices = {sym: all_live_prices.get(sym) for sym in chunk}
                 chunk_concalls  = {sym: all_concalls.get(sym)  for sym in chunk}
                 
                 if chunk_historical_data is None:
@@ -1162,35 +1152,32 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     today_date_str = now_ist.strftime("%Y-%m-%d")
                     for sym, hist_df in chunk_historical_data.items():
                         if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
-                            snap_df = chunk_snapshots.get(sym) if chunk_snapshots else None
-                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
-                                valid_closes = snap_df['Close'].dropna()
-                                if not valid_closes.empty:
-                                    live_price = float(valid_closes.iloc[-1])
-                                    # Ensure we don't mutate the global cache directly
-                                    hist_df = hist_df.copy()
-                                    last_dt = hist_df.index[-1] if not hist_df.index.empty else None
-                                    t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
-                                    if t_col:
-                                        last_dt = hist_df[t_col].iloc[-1]
-                                    
-                                    last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
-                                    
-                                    if last_dt_str == today_date_str:
-                                        # Update today's existing candle
-                                        hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
-                                    else:
-                                        # Append a new live candle for today
-                                        new_row = hist_df.iloc[-1:].copy()
-                                        if t_col:
-                                            new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
-                                        else:
-                                            new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
-                                        new_row['Close'] = live_price
-                                        hist_df = pd.concat([hist_df, new_row])
-                                    
-                                    chunk_historical_data[sym] = hist_df
+                            live_price = chunk_live_prices.get(sym)
+                            if live_price and float(live_price) > 0:
+                                live_price = float(live_price)
+                                # Ensure we don't mutate the global cache directly
+                                hist_df = hist_df.copy()
+                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
+                                if t_col:
+                                    last_dt = hist_df[t_col].iloc[-1]
                                 
+                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                
+                                if last_dt_str == today_date_str:
+                                    # Update today's existing candle
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                else:
+                                    # Append a new live candle for today
+                                    new_row = hist_df.iloc[-1:].copy()
+                                    if t_col:
+                                        new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                    else:
+                                        new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                    new_row['Close'] = live_price
+                                    hist_df = pd.concat([hist_df, new_row])
+                                
+                                chunk_historical_data[sym] = hist_df
                     
                 valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 global_fetched_count += valid_fetches
@@ -1207,7 +1194,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     
                 # Explicit cleanup of large DataFrame references
                 del chunk_historical_data
-                del chunk_snapshots
+                del chunk_live_prices
                 del chunk_concalls
 
         required_count = int(len(df) * 0.70)
@@ -1240,7 +1227,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         
         # [MEMORY FIX] Release large objects before entering Candidate Selection
         del technicals
-        del all_snapshots
+        del all_live_prices
         del all_concalls
         import gc; gc.collect()
         
