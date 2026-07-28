@@ -5399,9 +5399,9 @@ def get_mtf_target_universe() -> 'pd.DataFrame':
                     WHERE status = 'OPEN' AND scanner != 'MULTI_TF'
                     UNION
                     SELECT DISTINCT symbol FROM wealth_buy_alert 
-                    WHERE status = 'ACTIVE'
+                    WHERE is_closed = FALSE
                     UNION
-                    SELECT DISTINCT symbol FROM stock_analysis_master
+                    SELECT DISTINCT symbol FROM user_watchlists
                 """)
                 rows = cur.fetchall()
                 symbols = [r[0] for r in rows if r[0]]

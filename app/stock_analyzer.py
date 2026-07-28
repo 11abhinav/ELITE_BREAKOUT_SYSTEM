@@ -139,11 +139,17 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
 
     # 5. Fallback check: If Yahoo Search API fails due to rate-limit/network, verify via fast light price data fetcher
     if not found and not sym_clean.startswith("NONEXISTENT") and not sym_clean.startswith("INVALID"):
+        import concurrent.futures
         try:
             from price_cache import fetch_unified_historical
-            test_res = fetch_unified_historical([sym_clean], period="5d", interval="1d", requester="TICKER_VAL")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(fetch_unified_historical, [sym_clean], "5d", "1d", "TICKER_VAL")
+                test_res = future.result(timeout=2.0)
             if test_res and sym_clean in test_res and test_res[sym_clean] is not None and not test_res[sym_clean].empty:
                 found = True
+        except concurrent.futures.TimeoutError:
+            logger.warning(f"Ticker validation timed out for {sym_clean}, assuming valid to unblock UI.")
+            found = True
         except Exception:
             pass
 
