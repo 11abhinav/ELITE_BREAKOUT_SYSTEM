@@ -108,8 +108,11 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     if sales_ok and profit_ok and roce >= 15.0:
         buckets.append("Growth Multiplier")
 
-    # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 15%)
-    if roce >= 15.0 and debt_equity <= 1.0 and drop_pct >= 15.0:
+    # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 10%)
+    # [FIX P5-12] Lowered drop threshold from 15%→10%. A 10% correction from 52W high
+    # is already meaningful for high-quality stocks. 15% was too deep and missed
+    # quality stocks that had healthy 10-14% pullbacks during consolidation.
+    if roce >= 15.0 and debt_equity <= 1.0 and drop_pct >= 10.0:
         buckets.append("Quality-On-Sale")
 
     # 4. Opportunistic (YoY Profit >= 40%)
@@ -135,11 +138,28 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
 
     status_str = "CORE MET" if is_qualified else ("WATCHLIST" if buckets else "NO")
 
+    # [FIX P5-11] Gradient scoring instead of binary 85/50.
+    # Each bucket contributes to a weighted score:
+    # Core Compounder=30, Growth Multiplier=25, Quality-On-Sale=20, Opportunistic=15
+    # Trend OK = +10, PEG OK = +5
+    bucket_scores = {
+        "Core Compounder": 30,
+        "Growth Multiplier": 25,
+        "Quality-On-Sale": 20,
+        "Opportunistic": 15,
+    }
+    gradient_score = sum(bucket_scores.get(b, 0) for b in buckets)
+    if is_trend_ok:
+        gradient_score += 10
+    if peg_ok:
+        gradient_score += 5
+    gradient_score = min(100.0, max(50.0, float(gradient_score)))
+
     return {
         "status": status_str,
         "reasons": reasons,
         "buckets": buckets,
-        "score": 85.0 if is_qualified else 50.0,
+        "score": gradient_score if is_qualified else 50.0,
         "qualified": is_qualified,
         "entry_price": close_price,
         "stop_loss": sl_result.get("stop_loss"),
@@ -481,8 +501,9 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     if score >= 60 and _is_ok(mcap, 2000) and _is_ok(yoy_sales, 20) and _is_ok(yoy_profit, 20) and _is_ok(rs_6m, 0) and _is_ok(dist_52w, 15, False):
         buckets.append("Growth")
 
-    # 3. Quality-On-Sale — high quality but correcting (52W high dist > 20%)
-    if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 20) and _is_ok(de, 1.0, False):
+    # 3. Quality-On-Sale — high quality but correcting (52W high dist >= 10%)
+    # [FIX P5-12] Lowered from 20%→10% (same rationale as evaluate_wealth_symbol)
+    if score >= 50 and _is_ok(roce, 15) and _is_ok(dist_52w, 10) and _is_ok(de, 1.0, False):
         buckets.append("Quality-On-Sale")
 
     # 4. Opportunistic / Turnaround — massive momentum + turnaround growth

@@ -77,6 +77,198 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
+
+def _check_eod_conditions(
+    ticker: pd.DataFrame,
+    latest: pd.Series,
+    symbol: str,
+    mode: str = "production",
+    prior_high_source: str = "indicator",
+    delivery_pct: float = None,
+    nifty_ret: float = None,
+    regime_ctx: dict = None,
+) -> dict:
+    """
+    Shared EOD breakout condition checks for both UI and production paths.
+
+    Args:
+        ticker: full DataFrame with indicators applied
+        latest: the last row of ticker
+        symbol: stock symbol for logging
+        mode: "ui" returns reasons list; "production" returns rejection key + logs
+        prior_high_source: "indicator" uses PRIOR_20D_HIGH column, "raw" uses 20-bar max
+        delivery_pct, nifty_ret, regime_ctx: passed through for scoring
+
+    Returns dict:
+        passed: bool
+        reason: str or None
+        candle_penalty: int
+        body_ratio, close_pos, wick_ratio, rsi_val, volume_ratio, avg_volume, atr20
+        candle_close, candle_open, candle_high, candle_low, candle_range, candle_body
+        prior_high, atr_extension, gap_pct (may be None if not computed)
+    """
+    candle_high  = _safe_float(latest.get("High"))
+    candle_low   = _safe_float(latest.get("Low"))
+    candle_open  = _safe_float(latest.get("Open"))
+    candle_close = _safe_float(latest.get("Close"))
+    candle_range = candle_high - candle_low
+    candle_body  = abs(candle_close - candle_open)
+    upper_wick   = candle_high - max(candle_close, candle_open)
+
+    if candle_range <= 0:
+        return {"passed": False, "reason": "Zero candle range"}
+
+    body_ratio  = candle_body / candle_range
+    close_pos   = (candle_close - candle_low) / candle_range
+    wick_ratio  = upper_wick / candle_range
+
+    if len(ticker) >= 22:
+        avg_volume = float(ticker["Volume"].iloc[-21:-1].mean())
+    else:
+        avg_volume = float(ticker["Volume"].iloc[:-1].mean())
+
+    if avg_volume <= 0:
+        return {"passed": False, "reason": "Zero avg volume"}
+
+    volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
+    rsi_val      = _safe_float(latest.get("RSI"), 50.0)
+    atr20        = _safe_float(latest.get("ATR20"), _safe_float(latest.get("ATR"), candle_close * 0.025))
+
+    # ── Shared hard gates ──────────────────────────────────────────────────
+    if volume_ratio < MIN_VOLUME_RATIO:
+        return {"passed": False, "reason": f"Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x"}
+    if avg_volume < MIN_AVG_VOLUME_SHARES:
+        return {"passed": False, "reason": f"Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f}"}
+    if candle_close < MIN_STOCK_PRICE:
+        return {"passed": False, "reason": f"Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.0f} floor"}
+    if not (MIN_RSI <= rsi_val <= MAX_RSI):
+        return {"passed": False, "reason": f"RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI}"}
+
+    # ── Prior high & breakout check ────────────────────────────────────────
+    if prior_high_source == "indicator":
+        if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
+            return {"passed": False, "reason": "Missing PRIOR_20D_HIGH"}
+        prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
+        if prior_high <= 0:
+            return {"passed": False, "reason": "Invalid PRIOR_20D_HIGH"}
+        if candle_close <= prior_high:
+            return {"passed": False, "reason": f"Close ₹{candle_close:.2f} <= Prior High ₹{prior_high:.2f}"}
+    else:
+        lookback = 20 if len(ticker) >= 21 else len(ticker) - 1
+        prior_high = float(ticker['High'].iloc[-lookback-1:-1].max()) if lookback > 0 else float(ticker['High'].max())
+        if candle_close <= prior_high:
+            return {"passed": False, "reason": f"Close ₹{candle_close:.2f} <= 20D High ₹{prior_high:.2f}"}
+
+    # ── ATR checks ─────────────────────────────────────────────────────────
+    if "ATR20" in ticker.columns and not pd.isna(latest.get("ATR20")):
+        atr20 = _safe_float(latest.get("ATR20"))
+    if atr20 <= 0:
+        return {"passed": False, "reason": "ATR20 <= 0"}
+
+    atr_extension = (candle_close - prior_high) / atr20
+    max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
+    if atr_extension > max_ext:
+        pass  # Soft penalty, not hard reject
+
+    # ── ATR expansion ──────────────────────────────────────────────────────
+    if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9):
+        return {"passed": False, "reason": f"ATR expansion {candle_range/atr20:.2f} < {EOD_ADVANCED_CONFIG.get('MIN_ATR_EXPANSION_RATIO', 0.9)}"}
+
+    # ── Trend alignment ────────────────────────────────────────────────────
+    if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
+        if candle_close < _safe_float(latest.get("EMA20")):
+            return {"passed": False, "reason": f"Below EMA20"}
+    if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
+        if candle_close < _safe_float(latest.get("SMA50")):
+            return {"passed": False, "reason": "Below SMA50"}
+    if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
+        if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
+            return {"passed": False, "reason": f"ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD}"}
+
+    # ── 52W high distance ──────────────────────────────────────────────────
+    if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
+        high_52w = _safe_float(latest.get("HIGH_52W"))
+        if high_52w > 0:
+            pct_from_high = (high_52w - candle_close) / high_52w * 100
+            if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
+                return {"passed": False, "reason": f"Too far from 52W high ({pct_from_high:.1f}%)"}
+
+    # ── Single-day move cap ────────────────────────────────────────────────
+    if len(ticker) >= 2:
+        prev_close = _safe_float(ticker["Close"].iloc[-2])
+        if prev_close > 0:
+            single_move_pct = abs(candle_close - prev_close) / prev_close * 100
+            if single_move_pct > EOD_ADVANCED_CONFIG.get("MAX_SINGLE_DAY_MOVE_PCT", 15.0):
+                return {"passed": False, "reason": f"Single-day move {single_move_pct:.1f}% > cap"}
+
+    # ── Pre-breakout candle context ────────────────────────────────────────
+    lookback_ctx = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
+    max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
+    tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
+    if len(ticker) >= (lookback_ctx + 1):
+        red_count = sum(
+            1 for _ri in range(-(lookback_ctx + 1), -1)
+            if _safe_float(ticker["Close"].iloc[_ri]) < _safe_float(ticker["Open"].iloc[_ri])
+        )
+        if red_count > max_red:
+            is_tight_base = False
+            if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                if _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= tight_base_threshold:
+                    is_tight_base = True
+            if not is_tight_base:
+                return {"passed": False, "reason": f"Pre-breakout weak ({red_count}/{lookback_ctx} red candles)"}
+
+    # ── Base width ─────────────────────────────────────────────────────────
+    if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+        bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
+        if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
+            return {"passed": False, "reason": f"Base too wide (BB Pctile {bb_width_pctile:.2f})"}
+
+    # ── Candle quality penalties (soft, not hard) ──────────────────────────
+    candle_penalty = 0
+    if body_ratio < MIN_BODY_RATIO:
+        shortfall = (MIN_BODY_RATIO - body_ratio) / MIN_BODY_RATIO
+        candle_penalty += min(15, int(shortfall * 30))
+    if candle_close <= candle_open:
+        candle_penalty += 5
+    if close_pos < MIN_CLOSE_POSITION:
+        shortfall = (MIN_CLOSE_POSITION - close_pos) / MIN_CLOSE_POSITION
+        candle_penalty += min(10, int(shortfall * 20))
+    if wick_ratio > MAX_UPPER_WICK_RATIO:
+        excess = (wick_ratio - MAX_UPPER_WICK_RATIO) / MAX_UPPER_WICK_RATIO
+        candle_penalty += min(10, int(excess * 20))
+
+    # ── Gap penalty (soft) ─────────────────────────────────────────────────
+    gap_lookback_bars = EOD_ADVANCED_CONFIG.get("GAP_LOOKBACK_BARS", 10)
+    max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
+    gap_pct = None
+    if len(ticker) >= gap_lookback_bars + 1:
+        gap_ref_high = float(ticker["High"].iloc[-(gap_lookback_bars + 1):-1].max())
+        if gap_ref_high > 0:
+            gap_pct = (candle_open - gap_ref_high) / gap_ref_high * 100
+
+    return {
+        "passed": True,
+        "candle_penalty": candle_penalty,
+        "body_ratio": body_ratio,
+        "close_pos": close_pos,
+        "wick_ratio": wick_ratio,
+        "rsi_val": rsi_val,
+        "volume_ratio": volume_ratio,
+        "avg_volume": avg_volume,
+        "atr20": atr20,
+        "candle_close": candle_close,
+        "candle_open": candle_open,
+        "candle_high": candle_high,
+        "candle_low": candle_low,
+        "candle_range": candle_range,
+        "candle_body": candle_body,
+        "upper_wick": upper_wick,
+        "prior_high": prior_high,
+        "atr_extension": atr_extension,
+        "gap_pct": gap_pct,
+    }
+
 def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
     """
     Evaluates a single symbol against the production EOD breakout scanner rules.
@@ -107,63 +299,30 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 
     ticker = apply_indicators(ticker, timeframe="1d")
     latest = ticker.iloc[-1]
-    candle_high = _safe_float(latest.get("High"))
-    candle_low = _safe_float(latest.get("Low"))
-    candle_open = _safe_float(latest.get("Open"))
-    candle_close = _safe_float(latest.get("Close"))
-    candle_range = candle_high - candle_low
 
-    if candle_range <= 0:
-        return {"status": "NO", "reasons": ["Invalid zero candle price range"], "score": 0.0, "qualified": False}
-
-    candle_body = abs(candle_close - candle_open)
-    upper_wick = candle_high - max(candle_close, candle_open)
-    body_ratio = candle_body / candle_range
-    close_pos = (candle_close - candle_low) / candle_range
-    wick_ratio = upper_wick / candle_range
-
-    avg_volume = float(ticker["Volume"].iloc[-21:-1].mean()) if len(ticker) >= 22 else float(ticker["Volume"].iloc[:-1].mean())
-    vol_ratio = (_safe_float(latest.get("Volume")) / avg_volume) if avg_volume > 0 else 1.0
-    rsi_val = _safe_float(latest.get("RSI"), 50.0)
-
-    prior_high = float(ticker['High'].iloc[-21:-1].max()) if len(ticker) >= 21 else float(ticker['High'].max())
-    is_breakout = (candle_close > prior_high)
-
-    atr20 = _safe_float(latest.get("ATR20"), _safe_float(latest.get("ATR"), candle_close * 0.025))
-    atr_exp_ratio = (candle_range / atr20) if atr20 > 0 else 1.0
-    ema20_ext = ((candle_close - prior_high) / atr20) if atr20 > 0 else 0.0
-
-    checks = []
-    if not is_breakout:
-        checks.append(f"Close ₹{candle_close:.2f} ≤ Prior 20D High ₹{prior_high:.2f}")
-    if vol_ratio < MIN_VOLUME_RATIO:
-        checks.append(f"Volume Ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x threshold")
-    if avg_volume < MIN_AVG_VOLUME_SHARES:
-        # [BUG FIX: EVAL_EOD_LIQUIDITY_v1.0] Match production scanner MIN_AVG_VOLUME_SHARES liquidity gate
-        checks.append(f"Avg Volume {avg_volume:.0f} shares < {MIN_AVG_VOLUME_SHARES:.0f} minimum liquidity floor")
-    if wick_ratio > MAX_UPPER_WICK_RATIO:
-        checks.append(f"Upper Wick {wick_ratio*100:.1f}% > {MAX_UPPER_WICK_RATIO*100:.0f}% max limit")
-    if candle_close <= candle_open:
-        checks.append("Bearish candle (Close ≤ Open)")
-    if body_ratio < MIN_BODY_RATIO:
-        checks.append(f"Body Ratio {body_ratio*100:.1f}% < {MIN_BODY_RATIO*100:.0f}% min")
-    if close_pos < MIN_CLOSE_POSITION:
-        checks.append(f"Close Position {close_pos*100:.1f}% < {MIN_CLOSE_POSITION*100:.0f}% min")
-    if candle_close < MIN_STOCK_PRICE:
-        checks.append(f"Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum price floor")
-    if not (MIN_RSI <= rsi_val <= MAX_RSI):
-        # [BUG FIX: EVAL_EOD_RSI_v1.0] Match production scanner RSI range gate (MIN_RSI <= RSI <= MAX_RSI)
-        checks.append(f"RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} valid range")
-
-    if checks:
+    # [FIX P6-13] Use shared condition check for consistency with production path
+    cond = _check_eod_conditions(
+        ticker=ticker, latest=latest, symbol=symbol, mode="ui",
+        prior_high_source="raw",
+    )
+    if not cond.get("passed"):
         return {
             "status": "NO",
-            "reasons": checks,
+            "reasons": [cond.get("reason", "Condition check failed")],
             "score": 0.0,
             "qualified": False,
-            "entry_price": candle_close,
-            "atr_20": atr20
+            "entry_price": _safe_float(latest.get("Close")),
+            "atr_20": cond.get("atr20", 0)
         }
+
+    candle_close = cond["candle_close"]
+    candle_low   = cond["candle_low"]
+    candle_high  = cond["candle_high"]
+    candle_range = cond["candle_range"]
+    prior_high   = cond["prior_high"]
+    rsi_val      = cond["rsi_val"]
+    vol_ratio    = cond["volume_ratio"]
+    atr20        = cond["atr20"]
 
     signals = detect_breakouts(ticker, timeframe="1d")
     score, _, _ = calculate_score(
@@ -416,6 +575,11 @@ def _start_wrapper(force: bool = False):
                 global_min_score += modifier
         except Exception as e:
             logger.warning(f"Failed to fetch REGIME_POLICIES: {e}")
+
+        # [FIX P1-4] Cap the regime-adjusted threshold at 87 to prevent over-rejection
+        # in sideways/bear regimes. Regime modifiers above +5 were pushing the threshold
+        # to 92-95, killing valid setups that the scoring engine already penalizes for weakness.
+        global_min_score = min(global_min_score, 87)
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
@@ -618,22 +782,28 @@ def _start_wrapper(force: bool = False):
                             wick_ratio     = upper_wick / candle_range
                             rsi_val        = _safe_float(latest.get("RSI"))
 
+                            # [FIX P1-3] Converted hard candle gates to scoring penalties.
+                            # Previously these 4 conditions hard-rejected ~40% of valid breakouts.
+                            # Now each applies a proportional penalty to the final score.
+                            candle_penalty = 0
                             if body_ratio < MIN_BODY_RATIO:
-                                logger.info(f"REJECTION: {symbol} (Phase: CANDLE_BODY, Reason: Body ratio {body_ratio:.2f} < {MIN_BODY_RATIO:.2f})")
-                                rejection_counts["weak_body"] += 1
-                                continue
+                                shortfall = (MIN_BODY_RATIO - body_ratio) / MIN_BODY_RATIO
+                                pen = min(15, int(shortfall * 30))
+                                candle_penalty += pen
+                                logger.debug(f"⚠️ {symbol} body_ratio penalty: -{pen} (ratio={body_ratio:.2f} < {MIN_BODY_RATIO})")
                             if candle_close <= candle_open:
-                                logger.info(f"REJECTION: {symbol} (Phase: CANDLE_TYPE, Reason: Bearish candle (Close ₹{candle_close:.2f} <= Open ₹{candle_open:.2f}))")
-                                rejection_counts["bearish_candle"] += 1
-                                continue
+                                candle_penalty += 5
+                                logger.debug(f"⚠️ {symbol} bearish_candle penalty: -5")
                             if close_position < MIN_CLOSE_POSITION:
-                                logger.info(f"REJECTION: {symbol} (Phase: CLOSE_POSITION, Reason: Close position {close_position:.2f} < {MIN_CLOSE_POSITION:.2f})")
-                                rejection_counts["weak_close_pos"] += 1
-                                continue
+                                shortfall = (MIN_CLOSE_POSITION - close_position) / MIN_CLOSE_POSITION
+                                pen = min(10, int(shortfall * 20))
+                                candle_penalty += pen
+                                logger.debug(f"⚠️ {symbol} close_position penalty: -{pen} (pos={close_position:.2f} < {MIN_CLOSE_POSITION})")
                             if wick_ratio > MAX_UPPER_WICK_RATIO:
-                                logger.info(f"REJECTION: {symbol} (Phase: UPPER_WICK, Reason: Upper wick ratio {wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO:.2f})")
-                                rejection_counts["upper_wick"] += 1
-                                continue
+                                excess = (wick_ratio - MAX_UPPER_WICK_RATIO) / MAX_UPPER_WICK_RATIO
+                                pen = min(10, int(excess * 20))
+                                candle_penalty += pen
+                                logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
                             if volume_ratio < MIN_VOLUME_RATIO:
                                 logger.info(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
                                 rejection_counts["low_volume"] += 1
@@ -681,6 +851,7 @@ def _start_wrapper(force: bool = False):
 
                             # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
                             technical_penalties = {}
+                            candle_penalty = 0
                             atr_extension = (candle_close - prior_high) / atr20
                             max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
                             if atr_extension > max_ext:
@@ -694,12 +865,11 @@ def _start_wrapper(force: bool = False):
                                 rejection_counts["no_atr_expansion"] += 1
                                 continue
 
-                            if "BB_WIDTH_PCTILE" in ticker.columns and not pd.isna(latest.get("BB_WIDTH_PCTILE")):
-                                bb_width_pctile = _safe_float(latest.get("BB_WIDTH_PCTILE"))
-                                if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
-                                    logger.info(f"REJECTION: {symbol} (Phase: BASE_TIGHTNESS, Reason: BB Width percentile {bb_width_pctile:.2f} > 0.80)")
-                                    rejection_counts["base_too_wide"] += 1
-                                    continue
+                            # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
+                            # The base_too_wide filter at line 776 already checks the PREVIOUS bar's
+                            # BB_WIDTH_PCTILE, which is the correct pre-breakout snapshot. Checking the
+                            # current (breakout) bar's BB width is self-defeating because BB expands on
+                            # breakout candles.
 
                             if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
                                 if candle_close < _safe_float(latest.get("EMA20")):
@@ -738,6 +908,13 @@ def _start_wrapper(force: bool = False):
                                         rejection_counts["gap_day"] += 1
                                         continue
 
+                            # [FIX P1-1] Removed hard 3% gap filter — gap penalty is now
+                            # applied as a scoring penalty via technical_penalties below.
+                            # Previously this hard-rejected valid breakout candidates that
+                            # gapped up on strong institutional demand.
+
+                            # [FIX P1-1] Gap penalty: proportional scoring penalty instead of hard reject.
+                            # Stocks gapping up >3% on breakout day are penalized but not killed.
                             gap_lookback_bars = EOD_ADVANCED_CONFIG.get("GAP_LOOKBACK_BARS", 10)
                             max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
                             if len(ticker) >= gap_lookback_bars + 1:
@@ -745,8 +922,10 @@ def _start_wrapper(force: bool = False):
                                 if gap_reference_high > 0:
                                     gap_pct = (candle_open - gap_reference_high) / gap_reference_high * 100
                                     if gap_pct > max_gap_pct:
-                                        rejection_counts["gap_extended"] += 1
-                                        continue
+                                        excess = gap_pct - max_gap_pct
+                                        pen = min(20, int(excess * 3))
+                                        technical_penalties["gap_extended"] = pen
+                                        logger.debug(f"⚠️ {symbol} gap penalty: -{pen} (gap={gap_pct:.1f}%)")
 
                             delivery_pct = delivery_map.get(symbol, None)
 
@@ -824,6 +1003,8 @@ def _start_wrapper(force: bool = False):
                         
                                 # [FINDING-8] Apply OBV divergence penalty (soft, not hard reject)
                                 score = max(0, score + obv_penalty)
+                                # [FIX P1-3] Apply candle quality penalty (body/wick/close position)
+                                score = max(0, score - candle_penalty)
                                 try:
                                     safe_sector  = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
                                     sector_bonus = rotation_result.score_bonus_for(safe_sector)

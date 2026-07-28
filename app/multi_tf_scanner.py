@@ -146,14 +146,22 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         if m30_data and symbol in m30_data and isinstance(m30_data[symbol], pd.DataFrame) and not m30_data[symbol].empty:
             df_30 = apply_indicators(m30_data[symbol].copy(), timeframe="30m")
             if df_30 is not None and len(df_30) >= 2:
-                prev_30 = df_30.iloc[-2]
-                bb_pctile = float(prev_30.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                # [FIX P2-5] Look back 6-8 bars for recent squeeze, not just prior bar
+                bb_recent_squeeze = False
+                for _lb in range(1, min(8, len(df_30))):
+                    _idx = len(df_30) - 1 - _lb
+                    if _idx < 0:
+                        break
+                    _p = float(df_30.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                    if _p < 0.45:
+                        bb_recent_squeeze = True
+                        break
                 dist_to_bo = (prior_high - close_price) / prior_high
-                if bb_pctile < 0.45 or dist_to_bo < -0.015:
+                if bb_recent_squeeze or dist_to_bo < -0.015:
                     has_30m_pass = True
-                    phase_details.append(f"30m Phase B Squeeze Met (BB Pctile {bb_pctile:.2f} < 0.45)")
+                    phase_details.append(f"30m Phase B Squeeze-Released Met (recent squeeze detected)")
                 else:
-                    phase_details.append(f"30m Phase B Pending (BB Pctile {bb_pctile:.2f} ≥ 0.45)")
+                    phase_details.append(f"30m Phase B Pending (no recent squeeze in lookback)")
     except Exception:
         pass
 
@@ -709,11 +717,24 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         mean_vol = max(float(mean_vol or 1.0), 1.0)
                         vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
                 
-                    # Consolidation formed OR Fast Breakout override
-                    # [FINDING-E FIX] Widened bb_pctile from 0.30 to 0.45. A stock in the
-                    # lower 45th percentile of BB width is still consolidating. 30th pctile
-                    # was extreme squeeze only — rejected most valid coiling setups.
-                    is_consolidation = bb_pctile < 0.45 and (-0.015 <= dist_to_breakout <= 0.025)
+                    # [FIX P2-5] Changed from "squeeze now" to "squeeze recently released".
+                    # Previously required bb_pctile < 0.45 on the immediately prior candle.
+                    # Now looks back 6-8 bars for a recent squeeze (BB Width Pctile < 0.45)
+                    # that is now expanding (current bb_pctile > prev bb_pctile), which
+                    # captures the coiling→expansion transition more reliably.
+                    bb_pctile_recent_squeeze = False
+                    lookback_squeeze = min(8, len(df) - 1)
+                    for _lb in range(1, lookback_squeeze + 1):
+                        _idx = len(df) - 1 - _lb
+                        if _idx < 0:
+                            break
+                        _p = float(df.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                        if _p < 0.45:
+                            bb_pctile_recent_squeeze = True
+                            break
+                    bb_expanding = bb_pctile > (float(df.iloc[-3].get("BB_WIDTH_PCTILE", 0.5) or 0.5) if len(df) >= 4 else bb_pctile)
+
+                    is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.015 <= dist_to_breakout <= 0.025)
                     is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
                 
                     if is_consolidation or is_fast_breakout:
@@ -1025,8 +1046,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 inserted, reason = True, "TEST_MODE"
                                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {symbol}")
                             else:
-                                base_score = int(80 + (vol_ratio * 5))
-                                base_score = max(0, min(100, base_score))
+                                # [FIX P2-6] Weighted phase scoring: base 60 + phase bonuses.
+                                # Phase A (mandatory): base = 60
+                                # Phase B (30m squeeze): +10
+                                # Phase C (15m alignment): +5
+                                # Phase D (5m trigger): +10
+                                # Total max = 85, threshold = 75
+                                phase_score = 60
+                                if state in ("SETUP_ARMED", "ENTRY_READY", "TRADE_ACTIVE"):
+                                    phase_score += 10  # Phase B bonus
+                                if state in ("ENTRY_READY", "TRADE_ACTIVE"):
+                                    phase_score += 5   # Phase C bonus
+                                if state == "TRADE_ACTIVE":
+                                    phase_score += 10  # Phase D bonus
+                                base_score = phase_score
                                 
                                 # ── Bayesian Pledge Penalty ──
                                 promoter_pledge_pct = pledge_map.get(symbol)

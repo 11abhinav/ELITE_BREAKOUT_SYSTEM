@@ -149,10 +149,12 @@ EOD_ADVANCED_CONFIG = {
 REVERSAL_CONFIG = {
     "MIN_DROP_FROM_52W_HIGH": 20.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
-    # ── [FIX] Reversal RSI Constraint Relaxation ──
-    # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
+    # ── [FIX P3-8] RSI constraint relaxation ──
+    # RSI_CURL_MIN lowered from 50→45: allows stocks that are still building momentum
+    # but have clearly turned up from oversold. Combined with RSI slope condition
+    # (must be rising over last 3 bars) to prevent catching falling knives.
+    "RSI_CURL_MIN": 45,
     "RSI_OVERSOLD_THRESHOLD": 38,
-    "RSI_CURL_MIN": 50,
     "MIN_VOLUME_RATIO": 2.0,
     "MIN_AVG_DAILY_VOLUME": 300_000,
     "MIN_ROE": 12.0,
@@ -185,7 +187,9 @@ SCANNER_MAX_ALERTS = {
 # =====================================================================================
 
 # Reversal Gate 8: RSI must have been below RSI_OVERSOLD_THRESHOLD within this many bars
-REVERSAL_RSI_LOOKBACK = 15
+# [FIX P3-8] Extended from 15 to 25 bars to capture slower bottoming patterns
+# where RSI oversold condition occurred 3-4 weeks ago during the base formation.
+REVERSAL_RSI_LOOKBACK = 25
 
 # Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
 BB_WIDTH_PCTILE_LOOKBACK = 60
@@ -203,16 +207,30 @@ MAX_POSITION_PCT = 0.25
 
 PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
-    "LOOKBACK": 10, "CONFIRM": 3,
+    # [FIX P4-9] CONFIRM reduced from 3→2 to reduce pivot confirmation lag.
+    # 3 bars of confirmation was too conservative, missing valid swing highs
+    # where the pullback started just 2 bars after the high was printed.
+    "LOOKBACK": 10, "CONFIRM": 2,
     "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
     "MIN_DEPTH_PCT": 23.6, "MAX_DEPTH_PCT": 61.8,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
-    "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
-    "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.75,
-    "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
+    # [FIX P4-9] MAX_INTERNAL_SWINGS relaxed from 2→3. Some valid pullbacks have
+    # 3 minor internal swings during the corrective phase — requiring ≤2 was
+    # rejecting orderly pullbacks with slightly longer consolidation.
+    "MAX_INTERNAL_SWINGS": 3, "MAX_PB_VOLUME_RATIO": 0.75,
+    "TRIGGER_VOL_MULT": 1.3,
+    # [FIX P4-10] MIN_CLOSE_LOCATION relaxed from 0.75→0.65. 0.75 required the close
+    # to be in the top 25% of the candle range, which was too strict for reversal
+    # candles that close in the upper third — still bullish but not extreme.
+    "MIN_CLOSE_LOCATION": 0.65,
+    # [FIX P4-10] MIN_BODY_ATR relaxed from 0.5→0.35. Some valid trigger candles
+    # have moderate bodies (0.35-0.5 ATR) with strong close location and volume.
+    # Requiring ≥0.5 ATR body rejected valid continuation triggers.
+    "MIN_BODY_ATR": 0.35,
+    "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
     "OUTAGE_THRESHOLD_BUMP": 3,
-    "MIN_HISTORY": 200,   # [VERSION: PB_BAR_FIX_v1.0] Lowered from 260 to 200 bars (1y daily data has ~250 trading bars)
+    "MIN_HISTORY": 200,
     "MODE": "LIVE", "DEBUG_SWINGS": False,
 }
 

@@ -869,9 +869,13 @@ def _run_scan(force: bool = False):
                                 pass
 
                         # ── RSI curl: was oversold recently, now recovering ─────────────────────
-                        # [VERSION: REVERSAL_RSI_LOOKBACK_v1.0] Expand recent RSI lookback to 15 bars to capture slower bottoming patterns
+                        # [FIX P3-8] Extended RSI lookback to 25 bars (was 15) to capture
+                        # slower bottoming patterns. Added RSI slope condition: RSI must be
+                        # rising over last 3 bars to confirm momentum is turning up, not
+                        # just bouncing dead-cat style. Lowered RSI_CURL_MIN to 45 (was 50)
+                        # to allow stocks still building recovery momentum.
                         current_rsi = float(latest["RSI"])
-                        recent_rsi = ticker["RSI"].dropna().iloc[-16:-1]
+                        recent_rsi = ticker["RSI"].dropna().iloc[-26:-1]
                         if len(recent_rsi) < 5:
                             logger.info(f"REJECTION: {symbol} (Phase: RSI_LOOKBACK, Reason: Insufficient RSI history bars ({len(recent_rsi)} < 5))")
                             rejected["insufficient_bars"] += 1
@@ -882,6 +886,16 @@ def _run_scan(force: bool = False):
                             logger.info(f"REJECTION: {symbol} (Phase: RSI_CURL, Reason: Current RSI {current_rsi:.1f} < {RSI_CURL_MIN} or min RSI {past_15_rsi:.1f} > {RSI_OVERSOLD_THRESHOLD})")
                             rejected["failed_pattern"] += 1
                             continue
+
+                        # [FIX P3-8] RSI slope condition: RSI must be rising over last 3 bars
+                        # to confirm momentum is turning, not just oscillating.
+                        rsi_vals = ticker["RSI"].dropna().values
+                        if len(rsi_vals) >= 4:
+                            rsi_slope = rsi_vals[-1] - rsi_vals[-4]
+                            if rsi_slope < 0:
+                                logger.info(f"REJECTION: {symbol} (Phase: RSI_SLOPE, Reason: RSI slope negative ({rsi_slope:.1f}) — not rising)")
+                                rejected["failed_pattern"] += 1
+                                continue
 
                         # ── Must be holding above 20 EMA (immediate momentum) ───────────────────
                         ema20 = float(latest["EMA20"])
@@ -935,19 +949,22 @@ def _run_scan(force: bool = False):
                             rejected["low_volume"] += 1
                             continue
 
+                        # [FIX P7] Extended MACD crossover window from 10 to 20 bars.
+                        # Many valid reversal setups show MACD cross 12-18 bars ago during
+                        # the base-building phase. 10 bars missed these early signals.
                         macd_bullish_cross_recent = False
-                        if len(ticker) >= 11:
+                        if len(ticker) >= 21:
                             try:
                                 macd_bullish_cross_recent = any(
                                     float(ticker["MACD"].iloc[-i]) > float(ticker["MACD_SIGNAL"].iloc[-i]) and
                                     float(ticker["MACD"].iloc[-i-1]) <= float(ticker["MACD_SIGNAL"].iloc[-i-1])
-                                    for i in range(1, 11)  # Check last 10 bars
+                                    for i in range(1, 21)  # Check last 20 bars
                                 )
                             except (KeyError, TypeError, ValueError):
                                 pass
 
                         if not macd_bullish_cross_recent:
-                            logger.info(f"REJECTION: {symbol} (Phase: MACD_CROSSOVER, Reason: No fresh MACD bullish cross in last 10 bars)")
+                            logger.info(f"REJECTION: {symbol} (Phase: MACD_CROSSOVER, Reason: No fresh MACD bullish cross in last 20 bars)")
                             rejected["no_macd_cross"] += 1
                             continue
 
