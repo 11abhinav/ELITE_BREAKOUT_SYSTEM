@@ -543,7 +543,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     profiler_fetch2 = MemoryProfiler("MTF Price Fetch")
     profiler_fetch2.__enter__()
     try:
-        data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="1mo", interval="30m") if needs_30m else {}
+        data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="10d", interval="30m") if needs_30m else {}
     finally:
         profiler_fetch2.__exit__(None, None, None)
     if data_30m is None:
@@ -551,7 +551,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="5d", interval="15m") if needs_15m else {}
     if data_15m is None:
         data_15m = {}
-    data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="1mo", interval="5m") if needs_5m  else {}
+    data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="5d", interval="5m") if needs_5m  else {}
     if data_5m is None:
         data_5m = {}
         
