@@ -152,16 +152,20 @@ self.addEventListener('push', event => {
     badge: '/static/icons/icon-72.png',
     tag: data.tag || 'elite-alert',
     renotify: true,
-    vibrate: [200, 100, 200, 100, 200],
     data: {
       url: data.url || '/',
       symbol: data.symbol || '',
     },
     actions: [
-      { action: 'view', title: '📊 View Alert' },
+      { action: 'view', title: 'View Alert' },
       { action: 'dismiss', title: 'Dismiss' }
     ]
   };
+
+  // vibrate is unsupported on iOS Safari — only add on Android
+  if ('vibrate' in navigator) {
+    options.vibrate = [200, 100, 200, 100, 200];
+  }
 
   event.waitUntil(
     self.registration.showNotification(data.title || '🚨 New Breakout Alert!', options)

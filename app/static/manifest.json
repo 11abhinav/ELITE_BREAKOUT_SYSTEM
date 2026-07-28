@@ -2,6 +2,7 @@
   "name": "Elite Breakout System",
   "short_name": "EliteBreakout",
   "description": "Real-time NSE breakout scanner and trading alert system",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
