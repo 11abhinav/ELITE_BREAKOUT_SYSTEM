@@ -6517,6 +6517,7 @@ function closeDiagnosticModal() {
     container.style.display = 'none';
     container.innerHTML = '';
   }
+  document.body.style.overflow = '';
 }
 
 function showCustomConfirmModal({ title, message, icon = '🗑️', confirmText = 'Remove', onConfirm }) {
@@ -6562,6 +6563,7 @@ function closeCustomConfirmModal() {
     modal.style.display = 'none';
     modal.innerHTML = '';
   }
+  document.body.style.overflow = '';
 }
 
 // Global listeners for closing stock diagnostic modal via backdrop click or ESC key
