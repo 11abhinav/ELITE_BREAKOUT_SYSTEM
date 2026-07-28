@@ -1392,15 +1392,15 @@ def run_system_scheduler():
                 # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Multi-TF: 15-min candle-aligned cadence
                 # Runs on completed 15-minute bar boundaries (09:30, 09:45, 10:00 … 14:45).
                 # Stops at 15:00 — Phase D (5m trigger) signals generated past 14:45 would
-                # leave fewer than 45 minutes for position entry and risk management before close.
-                # Aligned to :00 and :15 and :30 and :45 of each hour.
+                # [VERSION: SCHEDULER_CORRECTNESS_v2.0] Multi-TF: 5-min candle-aligned cadence for fast 5m triggers
+                # Phase A (full universe scan) runs on 15m boundaries inside multi_tf_scanner; Phase B/C/D runs every 5m.
                 if now.hour < 15:  # Do not start new cycles after 14:59
                     current_slot = now.replace(second=0, microsecond=0)
-                    current_slot = current_slot.replace(minute=(now.minute // 15) * 15)
+                    current_slot = current_slot.replace(minute=(now.minute // 5) * 5)
                     if last_multi_tf is None or current_slot > last_multi_tf:
                         last_multi_tf = current_slot
                         if not is_scanner_stopped("MULTI_TF"):
-                            logger.info(f"🚀 MULTI_TF SCAN | Starting candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
+                            logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
                             with scanner_execution_lock:
                                 _trigger_multi_tf()
                         else:

@@ -1256,10 +1256,13 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 # 1. Sweep old states
                 run_sweeper(is_test_mode=is_test_mode)
                 
-                # 2. Hourly phase (could be scheduled to only run top/bottom of hour, but we run it to keep it simple or wrapper handles scheduling)
-                metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
+                # 2. Hourly phase (Phase A): Only runs on 15-min candle boundaries or manual trigger
+                if run_once or (ist_now.minute % 15 == 0):
+                    metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
+                else:
+                    metrics_a = {"fetched": 0, "total": 0, "stale": 0, "approved": 0, "skipped": True}
                 
-                # 3. Lower TF updater
+                # 3. Lower TF updater (Phases B, C & D): Runs EVERY 5 mins to deliver fast 5m breakout alerts
                 metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
