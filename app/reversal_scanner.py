@@ -240,6 +240,7 @@ def _score_reversal(
         pct_below_sma200: Optional[float],
         category: str,
         rr_ratio: Optional[float],
+        trend_score: int = 10,
         above_sma50: Optional[bool] = None,
         above_sma200: Optional[bool] = None,
         obv_trend: Optional[int] = None,
@@ -255,12 +256,7 @@ def _score_reversal(
     score = 0
 
     # ── Trend structure (25 pts) — CORE recovery signal ──
-    if above_sma50 and above_sma200:
-        score += 25   # full recovery structure: above both 50 & 200 SMA
-    elif above_sma50:
-        score += 18   # reclaimed SMA50 (mandatory gate, baseline recovery)
-    elif above_sma50 is False:
-        score += 10   # soft SMA50 pass
+    score += trend_score
 
     # ── SMA200 proximity (15 pts) — closer = safer entry ──
     if pct_below_sma200 is not None:
@@ -643,6 +639,7 @@ def _evaluate_candidate(
     # 8. Score Candidate
     above_sma50 = (close_price > sma50) if sma50 else False
     above_sma200 = (close_price > sma200) if sma200 else False
+    trend_score = 25 if (above_sma50 and above_sma200) else (18 if above_sma50 else 10)
     can_sym = _canonical_symbol(symbol)
     obv_trend = int(_opt_float(latest, "OBV_TREND", 0))
     delivery_pct = (delivery_map.get(symbol) or delivery_map.get(can_sym)) if delivery_map else None
@@ -653,16 +650,15 @@ def _evaluate_candidate(
     past_10_rsi_min = float(past_10_rsi.min()) if len(past_10_rsi) > 0 else current_rsi
 
     score = _score_reversal(
-        above_sma50=above_sma50,
-        above_sma200=above_sma200,
         vol_ratio=vol_ratio,
-        macd_hist=macd_hist,
+        drop_pct=drop_pct,
         current_rsi=current_rsi,
         past_10_rsi_min=past_10_rsi_min,
-        category=cat_str,
-        drop_pct=drop_pct,
-        rr_ratio=sl_res.get("natural_rr"),
+        macd_hist=macd_hist,
         pct_below_sma200=pct_below_sma200,
+        category=cat_str,
+        rr_ratio=sl_res.get("natural_rr"),
+        trend_score=trend_score,
         close_price=close_price,
         obv_trend=obv_trend,
         delivery_pct=delivery_pct,
@@ -675,7 +671,7 @@ def _evaluate_candidate(
 
     regime = regime_ctx.get("current_regime", "NEUTRAL") if regime_ctx else "NEUTRAL"
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
-    effective_min_score = min(80, MIN_REVERSAL_SCORE + score_premium)  # cap at 80
+    effective_min_score = MIN_REVERSAL_SCORE + score_premium
 
     if score < effective_min_score:
         return {
@@ -688,7 +684,6 @@ def _evaluate_candidate(
         }
 
     # Build Signal & Context
-    trend_score = 25 if (above_sma50 and above_sma200) else (18 if above_sma50 else 10)
     signals = []
     if above_sma50:
         signals.append("🎯 Reclaimed 20 EMA & SMA50")
@@ -834,7 +829,7 @@ def _run_scan(force: bool = False):
                     from database import insert_notification
                     msg = f"Reversal Scanner is using stale Bhavcopy (fallback from {resolved_date}) because today's data is not yet published."
                     insert_notification("warning", "⚠️ Stale Bhavcopy Used", msg)
-                    send_push_to_all("⚠️ Stale Bhavcopy Used", msg, bypass_throttle=True)
+                    send_push_to_all("⚠️ Stale Bhavcopy Used", msg)
                 except Exception as ne:
                     logger.error(f"Failed to send stale Bhavcopy notification: {ne}")
             else:
@@ -888,6 +883,10 @@ def _run_scan(force: bool = False):
         return 0
 
     watchlist = watchlist.drop_duplicates(subset=["Stock"]).copy()
+    # Canonical dedup: two rows that canonicalize to the same symbol (e.g. "RELIANCE" and "RELIANCE.NS")
+    # must not both be processed, since synthetic flags are keyed canonically.
+    watchlist["_canonical"] = watchlist["Stock"].apply(_canonical_symbol)
+    watchlist = watchlist.drop_duplicates(subset=["_canonical"], keep="first").drop(columns=["_canonical"])
 
     import hashlib
     import uuid
@@ -973,7 +972,7 @@ def _run_scan(force: bool = False):
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", ALERT_COOLDOWN_MINUTES.get("REVERSAL", 10080))
     today_ist = ist_now.date()
     cooldown_syms = {
-        _canonical_symbol(a["symbol"]) for a in cooldown_alerts
+        _canonical_symbol(a.get("symbol", "")) for a in cooldown_alerts
         if _to_ist_date(a.get("created_at")) != today_ist
     }
     failed_reversal_cooldown_symbols = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
@@ -1010,14 +1009,20 @@ def _run_scan(force: bool = False):
                 all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
 
                 chunk_symbols = chunk_df["Stock"].tolist()
-                chunk_snapshots = {sym: all_snapshots.get(sym) for sym in chunk_symbols}
+                chunk_snapshots = {}
+                for s in chunk_symbols:
+                    snap = all_snapshots.get(s)
+                    if snap is None:
+                        snap = all_snapshots.get(_canonical_symbol(s))
+                    if snap is not None:
+                        chunk_snapshots[_canonical_symbol(s)] = snap
                 
                 if all_ticker_data:
                     now_ist = datetime.now(IST)
                     today_date_str = now_ist.strftime("%Y-%m-%d")
                     for sym, hist_df in all_ticker_data.items():
                         if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
-                            snap_df = chunk_snapshots.get(sym) if chunk_snapshots else None
+                            snap_df = chunk_snapshots.get(_canonical_symbol(sym)) if chunk_snapshots else None
                             if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
                                 valid_closes = snap_df['Close'].dropna()
                                 if not valid_closes.empty:
@@ -1239,7 +1244,7 @@ def _run_scan(force: bool = False):
                                     "score": reversal_score,
                                     "drop_pct": round(ctx["drop_pct"], 2),
                                     "volume_ratio": round(ctx["technicals"]["volume_ratio"], 2) if ctx["technicals"]["volume_ratio"] is not None else None,
-                                    "delivery_pct": round(prev_delivery_map.get(symbol), 2) if prev_delivery_map.get(symbol) is not None else None,
+                                    "delivery_pct": round((prev_delivery_map.get(symbol) or prev_delivery_map.get(can_sym)), 2) if (prev_delivery_map.get(symbol) or prev_delivery_map.get(can_sym)) is not None else None,
                                     "trend_score": ctx.get("trend_score"),
                                     "rsi": round(ctx["technicals"]["rsi"], 2),
                                     "macd": float(ticker["MACD"].iloc[-1]) if "MACD" in ticker.columns and not pd.isna(ticker["MACD"].iloc[-1]) else None,
@@ -1374,7 +1379,8 @@ def _run_scan(force: bool = False):
             except Exception as e:
                 logger.exception("Failed to save REVERSAL alerts")
 
-        unaccounted = total_symbols - (sum(rejected.values()) + len(shortlisted_alerts) + queued_count + stats.get("ranked_out", 0))
+        accounted = sum(rejected.values()) + len(shortlisted_alerts) + stats.get("ranked_out", 0)
+        unaccounted = total_symbols - accounted
         if unaccounted != 0:
             logger.warning(f"⚠️ REVERSAL pipeline reconciliation mismatch: {unaccounted} symbols unaccounted (total={total_symbols}, rejected={sum(rejected.values())}, shortlisted={len(shortlisted_alerts)})")
 
