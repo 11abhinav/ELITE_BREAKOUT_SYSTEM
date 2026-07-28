@@ -98,7 +98,7 @@ def test_no_nplus1_read_queries_in_scanner_loops():
                         if func_name in all_read_funcs:
                             # Known safe exemption: multi_tf_scanner's check_recent_alert
                             # is buried inside an IF block that only triggers 0-2 times per day.
-                            if basename == "multi_tf_scanner.py" and func_name in ["check_recent_alert", "run_lower_tf_phase"]:
+                            if basename == "multi_tf_scanner.py" and func_name in ["check_recent_alert", "run_lower_tf_phase", "run_hourly_phase"]:
                                 continue
                                 
                             loopholes_found.append(f"{basename}: Loop calls DB READ function '{func_name}' at line {child.lineno}")

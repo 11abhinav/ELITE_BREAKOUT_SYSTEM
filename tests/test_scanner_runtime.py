@@ -32,9 +32,9 @@ class TestScannerRuntimeFailures(unittest.TestCase):
     """
 
     @patch('eod_scanner.init_db')
-    @patch('eod_scanner.get_watchlist')
-    def test_eod_scanner_crash_handling(self, mock_get_watchlist, mock_init_db):
-        mock_get_watchlist.side_effect = Exception("Simulated DB crash in EOD")
+    @patch('eod_scanner.get_mtf_target_universe')
+    def test_eod_scanner_crash_handling(self, mock_get_mtf_target_universe, mock_init_db):
+        mock_get_mtf_target_universe.side_effect = Exception("Simulated DB crash in EOD")
         
         # EOD gracefully catches watchlist exceptions and returns 0
         result = eod_start(force=True)
@@ -63,9 +63,9 @@ class TestScannerRuntimeFailures(unittest.TestCase):
             self.fail(f"Wealth engine leaked an exception: {e}")
 
     @patch('reversal_scanner.init_db')
-    @patch('reversal_scanner.get_watchlist')
-    def test_reversal_scanner_crash_handling(self, mock_get_watchlist, mock_init_db):
-        mock_get_watchlist.side_effect = Exception("Simulated crash in Reversal")
+    @patch('reversal_scanner.get_mtf_target_universe')
+    def test_reversal_scanner_crash_handling(self, mock_get_mtf_target_universe, mock_init_db):
+        mock_get_mtf_target_universe.side_effect = Exception("Simulated crash in Reversal")
         
         # Reversal gracefully catches watchlist exceptions and returns 0
         result = reversal_start(force=True)
@@ -80,9 +80,9 @@ class TestScannerRuntimeFailures(unittest.TestCase):
         with self.assertRaises(Exception):
             pullback_start(force=True)
 
-    @patch('multi_tf_scanner.get_watchlist')
-    def test_multi_tf_scanner_crash_handling(self, mock_get_watchlist):
-        mock_get_watchlist.side_effect = Exception("Simulated crash in Multi TF")
+    @patch('multi_tf_scanner.get_mtf_target_universe')
+    def test_multi_tf_scanner_crash_handling(self, mock_get_mtf_target_universe):
+        mock_get_mtf_target_universe.side_effect = Exception("Simulated crash in Multi TF")
         
         # Multi TF wraps everything in a while True loop with a try/except,
         # and re-raises if run_once=True.
