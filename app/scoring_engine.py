@@ -1004,14 +1004,16 @@ def calculate_score(
 
     # ── STEP 8: BAYESIAN PLEDGE PENALTY ───────────────────────────────────────────────
     if promoter_pledge_pct is not None and weights and "PLEDGE_PENALTY" in weights:
-        max_penalty = float(weights["PLEDGE_PENALTY"]) # Expected to be negative, e.g. -8.0
+        max_penalty = float(weights["PLEDGE_PENALTY"])
         if promoter_pledge_pct > 10.0:
             # Scale penalty from 10% to 50% (capped at max_penalty)
             scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
-            pledge_penalty = int(max_penalty * scale)
-            if pledge_penalty < 0:
-                score += pledge_penalty
-                logger.warning(f"  {pledge_penalty} {tag}Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+            # [FIX MTF-25] Use abs() so this works regardless of sign convention.
+            # Original `if pledge_penalty < 0` was dead code when weight was stored positive.
+            pledge_penalty = int(abs(max_penalty) * scale)
+            if pledge_penalty > 0:
+                score -= pledge_penalty
+                logger.warning(f"  -{pledge_penalty} {tag}Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
                 
     # Cap at configured max or 100
     final_score = int(score)

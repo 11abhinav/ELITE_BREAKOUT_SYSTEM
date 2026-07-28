@@ -152,7 +152,8 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
                     _idx = len(df_30) - 1 - _lb
                     if _idx < 0:
                         break
-                    _p = float(df_30.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                    _raw_p = df_30.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0)
+                    _p = float(_raw_p) if pd.notna(_raw_p) else 1.0
                     if _p < 0.45:
                         bb_recent_squeeze = True
                         break
@@ -162,8 +163,10 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
                     phase_details.append(f"30m Phase B Squeeze-Released Met (recent squeeze detected)")
                 else:
                     phase_details.append(f"30m Phase B Pending (no recent squeeze in lookback)")
-    except Exception:
-        pass
+    except Exception as exc:
+        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+        logger.exception(f"{symbol}: diagnostic 30m evaluation failed: {exc}")
+        phase_details.append("30m Phase B unavailable due to processing error")
 
     try:
         m15_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="15m")
@@ -172,13 +175,17 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
             if df_15 is not None and len(df_15) >= 2:
                 lat_15 = df_15.iloc[-1]
                 ema15 = float(lat_15.get("EMA15", lat_15.get("EMA20", close_price)))
-                if close_price >= ema15:
+                # [FIX MTF-23] Compare 15m close with 15m EMA (was incorrectly using 1h close_price)
+                close_15 = _safe_float(lat_15.get("Close"))
+                if close_15 >= ema15:
                     has_15m_pass = True
-                    phase_details.append(f"15m Phase C Entry Ready (Close ₹{close_price:.2f} ≥ EMA15 ₹{ema15:.2f})")
+                    phase_details.append(f"15m Phase C Entry Ready (Close ₹{close_15:.2f} ≥ EMA15 ₹{ema15:.2f})")
                 else:
-                    phase_details.append(f"15m Phase C Pending (Close ₹{close_price:.2f} < EMA15 ₹{ema15:.2f})")
-    except Exception:
-        pass
+                    phase_details.append(f"15m Phase C Pending (Close ₹{close_15:.2f} < EMA15 ₹{ema15:.2f})")
+    except Exception as exc:
+        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+        logger.exception(f"{symbol}: diagnostic 15m evaluation failed: {exc}")
+        phase_details.append("15m Phase C unavailable due to processing error")
 
     try:
         m5_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="5m")
@@ -195,8 +202,10 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
                     phase_details.append(f"5m Phase D Trigger Active! (Breakout Close ₹{close_5:.2f} ≥ ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x ≥ 1.2x)")
                 else:
                     phase_details.append(f"5m Phase D Pending (Close ₹{close_5:.2f} vs Breakout ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x)")
-    except Exception:
-        pass
+    except Exception as exc:
+        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+        logger.exception(f"{symbol}: diagnostic 5m evaluation failed: {exc}")
+        phase_details.append("5m Phase D unavailable due to processing error")
 
     if has_30m_pass and has_15m_pass and has_5m_pass:
         status_tag = "CORE MET (Phase A+B+C+D Trigger Ready)"
@@ -442,7 +451,11 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                             from datetime import timedelta
                             end_of_session = now_dt + timedelta(minutes=15)
                         if not is_test_mode:
-                            # [VERSION: MTF_PHASE_B_DROP_FIX] Force clear old context (expires_at, invalidated_at) so Phase B doesn't silently ignore this stock due to yesterday's stale state
+                            # [FIX MTF-18] Removed force=True — the SQL CASE in batch_upsert
+                            # already protects SETUP_ARMED/ENTRY_READY/TRADE_ACTIVE when
+                            # force=FALSE. Using force=True caused Phase A to silently
+                            # downgrade stocks back to HOURLY_APPROVED every 15 minutes,
+                            # breaking the 1h→30m→15m→5m ladder.
                             batch_upserts.append({
                                 'symbol': symbol,
                                 'category': category,
@@ -454,7 +467,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                                 'signal_timestamp': now_dt.isoformat(),
                                 'expires_at': end_of_session.isoformat(),
                                 'timeframe': "1h",
-                                'force': True
+                                'force': False
                             })
                         funnel["approved"] += 1
                         logger.info(f"📍 PICKED [MULTI-TF: HOURLY_APPROVED]: {symbol} @ ₹{close:.2f} (Dist: {dist_to_breakout*100:.2f}%, ADX: {adx_val:.1f})")
@@ -542,14 +555,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
         pledge_map = {}
         bayesian_weights = None
 
-    # Bucket symbols by required timeframe to minimize downloads
-    # SETUP_ARMED and ENTRY_READY also need 30m data for the 3% decay safety check
-    needs_30m = list(set(
+    # [FIX MTF-20] Fetch every required timeframe for every symbol that might advance
+    # during this cycle. Without this, a symbol promoted Phase A→B in this cycle has
+    # no 15m data for Phase C, and one promoted Phase B→C has no 5m data for Phase D.
+    # This forces a 3-cycle wait (or the symbol gets reset by Phase A before reaching D).
+    ladder_symbols = list({
         i["symbol"] for i in active_items
         if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")
-    ))
-    needs_15m = [i["symbol"] for i in active_items if i["current_state"] == "SETUP_ARMED"]
-    needs_5m  = [i["symbol"] for i in active_items if i["current_state"] == "ENTRY_READY"]
+    })
+    needs_30m = ladder_symbols
+    needs_15m = ladder_symbols
+    needs_5m  = ladder_symbols
     
     import pandas as pd
     profiler_fetch2 = MemoryProfiler("MTF Price Fetch")
@@ -705,7 +721,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     # [VERSION: MTF_BB_TIMING_FIX] Evaluate consolidation on previous candle (iloc[-2])
                     # so a breakout on the current candle doesn't invalidate its own base via BB expansion.
                     prev = df.iloc[-2] if len(df) >= 2 else latest
-                    bb_pctile = float(prev.get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                    _raw_bb = prev.get("BB_WIDTH_PCTILE", 1.0)
+                    bb_pctile = float(_raw_bb) if pd.notna(_raw_bb) else 1.0
                 
                     close = _safe_float(latest.get("Close"))
                     dist_to_breakout = (breakout_level - close) / breakout_level
@@ -728,11 +745,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         _idx = len(df) - 1 - _lb
                         if _idx < 0:
                             break
-                        _p = float(df.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0) or 1.0)
+                        _raw_p = df.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0)
+                        _p = float(_raw_p) if pd.notna(_raw_p) else 1.0
                         if _p < 0.45:
                             bb_pctile_recent_squeeze = True
                             break
-                    bb_expanding = bb_pctile > (float(df.iloc[-3].get("BB_WIDTH_PCTILE", 0.5) or 0.5) if len(df) >= 4 else bb_pctile)
 
                     is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.015 <= dist_to_breakout <= 0.025)
                     is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
@@ -867,9 +884,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 
                     if atr20 <= 0:
                         continue
-                        
-                    # [VERSION: MULTI_TF_THRUST_FIX_v1.0] Dynamic ATR-relative buffer (15% of ATR) to prevent mathematical contradiction
-                    # with the max_ext_atr (which is typically 80% of ATR).
+
+                    # [FIX MTF-14] Over-extension cap: use daily ATR (or 3% fallback) to measure
+                    # extension against the breakout level. The 5m ATR is ~1/17th of daily ATR,
+                    # so using it against a daily-defined breakout level creates a cap of ~0.2%
+                    # — practically every stock that entered through Phase C (+2.5% band) fails.
+                    # The extension gate must be consistent with the admission band.
+                    ref_atr = 0.0
+                    if daily_df is not None and not daily_df.empty and "ATR" in daily_df.columns:
+                        ref_atr = _safe_float(daily_df["ATR"].iloc[-1])
+                    if ref_atr <= 0:
+                        # Fallback: scale 5m ATR up ~17x (5-min bars per day) or use 2% of price
+                        ref_atr = max(atr20 * 17.0, close * 0.02)
+
+                    # Micro-buffer uses 5m ATR (appropriate for intraday noise filtering)
                     buffer_val = 0.15 * atr20
                 
                     if len(df) >= 22:
@@ -887,11 +915,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         close_position = 0.5
                         upper_wick_ratio = 0.0
 
-                    # Extension limit strict check
-                    if close > trigger_level + (max_ext_atr * atr20):
-                        if atr20 > 0:
-                            dist_atr = (close - trigger_level) / atr20
-                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
+                    # [FIX MTF-14] Extension limit uses daily-scale ref_atr (consistent with Phase C admission band)
+                    if close > trigger_level + (max_ext_atr * ref_atr):
+                        dist_atr = (close - trigger_level) / ref_atr if ref_atr > 0 else 0
+                        logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
                         continue
 
                     is_ready = False
@@ -900,13 +927,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     # Thrust/Continuation Trigger
                     # Price breaks local high while still close to level, with volume
                     if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.2:
-                        if close_position >= 0.6 and upper_wick_ratio < 0.35:
+                        # close_position + upper_wick_ratio == 1.0 always, so
+                        # close_position >= 0.6 AND upper_wick_ratio < 0.35 collapses to close_position > 0.65
+                        if close_position >= 0.65:
                             is_ready = True
                             trigger_type = "thrust"
                     
                     # [VERSION: MULTI_TF_PATCH_v1.1] Decoupled Pullback Trigger from Thrust Trigger
                     # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
-                    if not is_ready and low <= max(trigger_level, e9):
+                    # [FIX MTF-21] Defense is tested against trigger_level only (+ micro-buffer for
+                    # intraday noise). EMA9 as a defense level was inconsistent — if EMA9 > trigger_level
+                    # the stock never actually tested the breakout zone.
+                    defense_level = trigger_level
+                    if not is_ready and low <= defense_level + (0.15 * atr20):
                         # PULLBACK_TRIGGER_MODE Logic
                         trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
                         
@@ -915,7 +948,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         elif trigger_mode == "PREVIOUS_OPEN":
                             c_engulf = close > float(prev["Open"])
                         elif trigger_mode == "INSIDE_BAR":
-                            c_engulf = close > float(prev["High"]) or (float(prev["High"]) < float(df.iloc[-3]["High"]) and close > float(prev["High"])) # simplistic inside bar
+                            # [FIX MTF-22] True inside-bar: prev candle must be fully contained
+                            # within the mother candle (df.iloc[-3]). The original expression
+                            # A ∨ (B ∧ A) = A was logically identical to PREVIOUS_HIGH.
+                            mother = df.iloc[-3]
+                            is_inside = (
+                                float(prev["High"]) < float(mother["High"])
+                                and float(prev["Low"]) > float(mother["Low"])
+                            )
+                            c_engulf = is_inside and close > float(prev["High"])
                         else:
                             c_engulf = close > float(prev["High"])
                             
@@ -926,7 +967,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
                     if not is_ready:
                         # Log reasons only if stock has touched/entered the trigger zone
-                        if close >= (trigger_level - buffer_val) or low <= max(trigger_level, e9):
+                        if close >= (trigger_level - buffer_val) or low <= trigger_level + (0.15 * atr20):
                             # Boolean evaluations for decision trace
                             trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
                             if trigger_mode == "PREVIOUS_HIGH":
@@ -939,7 +980,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             c_vol = vol_ratio > 1.0
                             c_close_pos = close_position >= 0.6
                             c_bull_body = close > open_px
-                            c_defended = low <= max(trigger_level, e9)
+                            c_defended = low <= trigger_level + (0.15 * atr20)
                             c_above_trig = close >= trigger_level
                             
                             reasons = []
@@ -961,6 +1002,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
                 
                     if is_ready:
+                        # [FIX MTF-19] Promote state to TRADE_ACTIVE immediately so
+                        # the phase_score calculation below grants the +10 Phase D bonus.
+                        # Without this, state remains ENTRY_READY and the scoring
+                        # condition `if state == "TRADE_ACTIVE"` is always false.
+                        state = "TRADE_ACTIVE"
+
                         # Do not generate new buy alerts on stale data returned by provider
                         if getattr(df, 'attrs', {}).get('is_stale'):
                             logger.info(f"Skipping buy alert for {symbol} because data is stale")
@@ -1067,10 +1114,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     max_penalty = float(bayesian_weights["PLEDGE_PENALTY"])
                                     if promoter_pledge_pct > 10.0:
                                         scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
-                                        pledge_penalty = int(max_penalty * scale)
-                                        if pledge_penalty < 0:
-                                            base_score += pledge_penalty
-                                            logger.warning(f"  {pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+                                        # [FIX MTF-25] PLEDGE_PENALTY is stored as a positive magnitude.
+                                        # The original code computed pledge_penalty >= 0 then checked
+                                        # `if pledge_penalty < 0` — a condition that can never be true,
+                                        # so the penalty was never actually applied.
+                                        pledge_penalty = int(abs(max_penalty) * scale)
+                                        if pledge_penalty > 0:
+                                            base_score -= pledge_penalty
+                                            logger.warning(f"  -{pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
                                             base_score = max(0, base_score)
                                 
                                 try:

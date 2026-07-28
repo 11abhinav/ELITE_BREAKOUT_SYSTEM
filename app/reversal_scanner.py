@@ -248,11 +248,13 @@ def _score_reversal(
         max_penalty = float(weights["PLEDGE_PENALTY"])
         if promoter_pledge_pct > 10.0:
             scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
-            pledge_penalty = int(max_penalty * scale)
-            if pledge_penalty < 0:
-                score += pledge_penalty
+            # [FIX MTF-25] Use abs() so this works regardless of sign convention.
+            # Original `if pledge_penalty < 0` was dead code when weight was stored positive.
+            pledge_penalty = int(abs(max_penalty) * scale)
+            if pledge_penalty > 0:
+                score -= pledge_penalty
                 if symbol:
-                    logger.warning(f"  {pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
+                    logger.warning(f"  -{pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
 
     return min(score + inst_bonus, 100)
 

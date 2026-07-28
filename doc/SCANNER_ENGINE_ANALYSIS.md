@@ -1,6 +1,6 @@
 # Elite Breakout System — Scanner Engine Analysis
 
-> Generated: 2026-07-28 | 6 scanners reviewed | 13 fixes applied (P0-P6)
+> Generated: 2026-07-28 | 6 scanners reviewed | 25 fixes applied (P0-P6 + MTF structural)
 
 ---
 
@@ -517,6 +517,66 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 - **Before:** Fixed score of 75-80 based on ADX
 - **After:** Base 60 (Phase A mandatory) + Phase B (+10) + Phase C (+5) + Phase D (+10) = max 85. Threshold 75.
 - **Rationale:** Rewards stocks that progress through multiple confirmation phases rather than binary pass/fail. A stock with Phase A+B+C (score 75) is more likely to trigger than one with only Phase A (score 60).
+
+#### Fix 14: Phase D over-extension cap (CRITICAL)
+- **Before:** Over-extension gate used 5m ATR20 (`atr20` from 5-minute DataFrame) with `max_ext_atr=0.8`. A ₹1000 stock with 2.5% daily ATR (₹25) has a 5m ATR of ≈₹2.9, so the cap was `trigger + 0.8 × 2.9 ≈ trigger + ₹2.3` (+0.23%). But Phase C admits stocks up to +2.5% above trigger. Every stock that reached ENTRY_READY was instantly rejected by PD01_OVER_EXTENDED.
+- **After:** Extension is measured against **daily ATR** (fetched from `data_daily[symbol]`), falling back to `max(5m_ATR × 17, price × 0.02)`. The micro-buffer (0.15 × 5m_ATR) still uses the 5m ATR for intraday noise filtering.
+- **Rationale:** The extension gate must be consistent with the admission band. Phase C allows +2.5% above trigger; the extension cap on daily ATR at 0.8× allows approximately +2% (for a 2.5% daily ATR stock), which is the correct operating range.
+
+#### Fix 15: NaN handling for BB_WIDTH_PCTILE
+- **Before:** `float(val or 1.0)` silently carries NaN (NaN is truthy) through comparisons
+- **After:** Uses `float(val) if pd.notna(val) else 1.0` for proper NaN detection
+- **Rationale:** Early-session bars with insufficient BB history returned NaN, which passed through the `or 1.0` default as NaN (truthy), causing squeeze tests to silently fail instead of defaulting properly.
+
+#### Fix 16: Remove dead `bb_expanding` variable
+- **Before:** `bb_expanding` was computed at Phase B but never referenced in any condition
+- **After:** Removed entirely
+- **Rationale:** Dead code. The comment described a "squeeze → expansion" confirmation that was never actually enforced.
+
+#### Fix 17: Simplify redundant thrust check
+- **Before:** `close_position >= 0.6 and upper_wick_ratio < 0.35`
+- **After:** `close_position >= 0.65`
+- **Rationale:** Since `close_position + upper_wick_ratio == 1.0` always (they partition the candle range), the conjunction simplifies to `close_position > 0.65`. Not blocking, but eliminates misleading redundancy.
+
+#### Fix 18: Phase A must not overwrite advanced states (CRITICAL)
+- **Before:** Phase A force-upserted every qualifying symbol as `HOURLY_APPROVED` with `force=True`, silently downgrading `SETUP_ARMED` or `ENTRY_READY` stocks every 15 minutes.
+- **After:** Changed to `force=False`. The SQL CASE in `batch_upsert_breakout_watchlist` already protects advanced states when `force=FALSE`.
+- **Rationale:** Phase A re-evaluating 1H trend should not destroy progress already made in the 30m→15m→5m ladder. The SQL guard was always present but bypassed by `force=True`.
+
+#### Fix 19: Phase D must set state before scoring (CRITICAL)
+- **Before:** When `is_ready` became True, the local `state` remained `"ENTRY_READY"`. The scoring condition `if state == "TRADE_ACTIVE"` was always false, so the Phase D bonus (+10) was never granted — score was 75 instead of 85.
+- **After:** Set `state = "TRADE_ACTIVE"` immediately when `is_ready` is True, before the scoring block.
+- **Rationale:** Without this, any pledge penalty or downstream minimum score of 80 would reject a signal that legitimately passed all four phases.
+
+#### Fix 20: Fetch all ladder timeframes for all active symbols (CRITICAL)
+- **Before:** `needs_15m` was filtered to `SETUP_ARMED` only; `needs_5m` to `ENTRY_READY` only. A symbol promoted Phase A→B or B→C in the same cycle had no data for the next phase. This forced a 3-cycle wait, during which Fix 18 could reset the state.
+- **After:** All symbols in `HOURLY_APPROVED | SETUP_ARMED | ENTRY_READY` fetch 30m, 15m, and 5m data.
+- **Rationale:** A single scan can now advance a symbol from Phase A through Phase D, rather than requiring 3 separate 15-minute cycles. This also eliminates the window during which Phase A could reset the symbol between promotions.
+
+#### Fix 21: Pullback defense uses trigger_level only
+- **Before:** `low <= max(trigger_level, e9)` — if EMA9 was above the breakout level, touching EMA9 counted as defending the breakout without actually testing the breakout zone.
+- **After:** `low <= trigger_level + (0.15 * atr20)` — defense is tested against trigger_level only, with a micro-buffer for intraday noise.
+- **Rationale:** Inconsistent defense levels made the pullback trigger unpredictable. A stock that never tested the breakout zone should not be considered defended.
+
+#### Fix 22: INSIDE_BAR mode implements true inside-bar detection
+- **Before:** `close > prev["High"] or (prev["High"] < mother["High"] and close > prev["High"])` which simplifies to `close > prev["High"]` — identical to PREVIOUS_HIGH mode.
+- **After:** Checks that `prev` candle is fully contained within `mother` candle (df.iloc[-3]): `prev.High < mother.High AND prev.Low > mother.Low`. Engulfing requires close > prev.High after the inside bar.
+- **Rationale:** The `A ∨ (B ∧ A) = A` identity meant INSIDE_BAR mode never did anything. Now it correctly detects inside-bar breakout setups.
+
+#### Fix 23: Diagnostic evaluator uses correct timeframe close
+- **Before:** `if close_price >= ema15` compared the 1-hour close with the 15-minute EMA.
+- **After:** Fetches `close_15 = lat_15["Close"]` and compares `close_15 >= ema15`.
+- **Rationale:** Phase C evaluates 15-minute price alignment. Using the 1-hour close could incorrectly report Phase C as passed.
+
+#### Fix 24: Replace silent `except Exception: pass` in diagnostics
+- **Before:** All three diagnostic timeframes (30m, 15m, 5m) caught all exceptions and silently discarded them. A missing column, NaN, or fetch error appeared as "pending" with no trace.
+- **After:** `except Exception as exc: logger.exception(...) + phase_details.append("... unavailable due to processing error")`
+- **Rationale:** Technical failures should be logged, not hidden. This allows operators to distinguish between "not yet triggered" and "broken pipeline" without digging through code.
+
+#### Fix 25: Pledge penalty was dead code — never applied (CRITICAL)
+- **Before:** `pledge_penalty = int(max_penalty * scale)` always ≥ 0, then `if pledge_penalty < 0:` could never be true. The penalty was computed but never subtracted from the score.
+- **After:** `pledge_penalty = int(abs(max_penalty) * scale)` then `if pledge_penalty > 0: base_score -= pledge_penalty`. Penalty now correctly reduces score.
+- **Rationale:** The `< 0` guard was mathematically unreachable since both operands were non-negative. A stock with 50% promoter pledge now correctly loses up to `max_penalty` points instead of being scored as if it had zero pledge.
 
 ---
 
