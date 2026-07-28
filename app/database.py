@@ -4988,52 +4988,55 @@ def cleanup_stale_sessions():
 
 def get_online_users_and_history():
     """Get active viewers and a brief session history."""
-    try:
-        with get_connection() as conn:
-            from psycopg2.extras import RealDictCursor
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Active Viewers
-                cur.execute("""
-                    SELECT u.username, u.first_name, u.last_name, s.ip_address, s.login_time 
-                    FROM user_sessions s
-                    JOIN users u ON s.user_id = u.user_id
-                    WHERE s.is_online = TRUE
-                    ORDER BY s.login_time DESC
-                """)
-                online = cur.fetchall()
+    import time as _time
+    for _attempt in range(3):
+        try:
+            with get_connection() as conn:
+                from psycopg2.extras import RealDictCursor
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # Single query with UNION ALL to minimize lock hold time
+                    cur.execute("""
+                        (
+                            SELECT u.username, u.first_name, u.last_name, s.ip_address,
+                                   s.login_time, NULL::timestamp AS logoff_time, TRUE AS is_online
+                            FROM user_sessions s
+                            JOIN users u ON s.user_id = u.user_id
+                            WHERE s.is_online = TRUE
+                            ORDER BY s.login_time DESC
+                        )
+                        UNION ALL
+                        (
+                            SELECT u.username, u.first_name, u.last_name, s.ip_address,
+                                   s.login_time, s.logoff_time, FALSE AS is_online
+                            FROM user_sessions s
+                            JOIN users u ON s.user_id = u.user_id
+                            WHERE s.is_online = FALSE
+                            ORDER BY s.logoff_time DESC LIMIT 50
+                        )
+                    """)
+                    rows = cur.fetchall()
 
-                # Session History (last 50)
-                cur.execute("""
-                    SELECT u.username, u.first_name, u.last_name, s.ip_address, s.login_time, s.logoff_time 
-                    FROM user_sessions s
-                    JOIN users u ON s.user_id = u.user_id
-                    WHERE s.is_online = FALSE
-                    ORDER BY s.logoff_time DESC LIMIT 50
-                """)
-                history = cur.fetchall()
+            online = [r for r in rows if r["is_online"]]
+            history = [r for r in rows if not r["is_online"]]
 
-        # Format dates/times for cleaner frontend display
-        for row in online:
-            row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
-            fn = row.get('first_name') or ''
-            if fn.lower() == 'undefined': fn = ''
-            ln = row.get('last_name') or ''
-            if ln.lower() == 'undefined': ln = ''
-            row['name'] = f"{fn} {ln}".strip() or row['username']
-            
-        for row in history:
-            row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
-            row['logoff_time'] = row['logoff_time'].split('.')[0] if row['logoff_time'] else ''
-            fn = row.get('first_name') or ''
-            if fn.lower() == 'undefined': fn = ''
-            ln = row.get('last_name') or ''
-            if ln.lower() == 'undefined': ln = ''
-            row['name'] = f"{fn} {ln}".strip() or row['username']
-            
-        return {"online": online, "history": history}
-    except Exception as e:
-        logger.exception(f"❌ Failed to fetch users and history")
-        return {"online": [], "history": []}
+            # Format dates/times for cleaner frontend display
+            for row in online + history:
+                row['login_time'] = row['login_time'].split('.')[0] if row['login_time'] else ''
+                if row.get('logoff_time'):
+                    row['logoff_time'] = row['logoff_time'].split('.')[0]
+                fn = row.get('first_name') or ''
+                if fn.lower() == 'undefined': fn = ''
+                ln = row.get('last_name') or ''
+                if ln.lower() == 'undefined': ln = ''
+                row['name'] = f"{fn} {ln}".strip() or row['username']
+
+            return {"online": online, "history": history}
+        except Exception as e:
+            if 'deadlock' in str(e).lower() and _attempt < 2:
+                _time.sleep(0.2 * (_attempt + 1))
+                continue
+            logger.exception(f"❌ Failed to fetch users and history")
+            return {"online": [], "history": []}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
