@@ -112,6 +112,7 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
 
     is_prime = False
     is_high_quality = False
+    reasons = []  # [FIX MUL-18] Initialize before any code path appends to it
 
     # [FIX MUL-15] If V5 scoring failed, composite_score is None — reject immediately.
     if composite_score is None:
@@ -135,23 +136,26 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
 
     is_qualified = bool(is_prime or is_high_quality)
 
-    reasons = []
+    # [FIX MUL-18] reasons list already initialized before classify_conviction logic
     if is_prime:
         reasons.append(f"Prime Multibagger: V5 Score {composite_score:.1f} | Piotroski {f_score if f_score is not None else 'N/A'}/9 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 10%")
     elif is_high_quality:
         reasons.append(f"High Quality Multibagger: V5 Score {composite_score:.1f} >= 65 | Pledge {(pledge_ratio*100 if pledge_ratio is not None else 0.0):.1f}% <= 15%")
-    elif f_score is not None and f_score < 7:
-        reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score >= 7)")
-    elif pledge_ratio is not None and pledge_ratio > 0.15:
-        reasons.append(f"Promoter Pledge {pledge_ratio*100:.1f}% > 15.0% maximum ceiling")
-    else:
-        reasons.append(f"Multibagger V5 Score {composite_score:.1f} < 65.0 threshold")
+    elif composite_score is not None:
+        if f_score is not None and f_score < 7:
+            reasons.append(f"Piotroski F-Score {f_score}/9 < 7 (Prime Tier requires F-Score >= 7)")
+        elif pledge_ratio is not None and pledge_ratio > 0.15:
+            reasons.append(f"Promoter Pledge {pledge_ratio*100:.1f}% > 15.0% maximum ceiling")
+        else:
+            reasons.append(f"Multibagger V5 Score {composite_score:.1f} < 65.0 threshold")
+    # else: reasons already set from the None guard above
 
     from sl_target_helper import compute_sl_and_target
     atr_val = float(latest.get("ATR", close_price * 0.025)) if "ATR" in ticker.columns else (close_price * 0.025)
     sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTIBAGGER", ticker=ticker)
 
-    status_str = "CORE MET (Prime)" if is_prime else ("CORE MET (High Quality)" if is_high_quality else ("WATCHLIST" if composite_score >= 50.0 else "NO"))
+    # [FIX MUL-19] Guard composite_score comparison against None
+    status_str = "CORE MET (Prime)" if is_prime else ("CORE MET (High Quality)" if is_high_quality else ("WATCHLIST" if (composite_score is not None and composite_score >= 50.0) else "NO"))
 
     return {
         "status": status_str,
@@ -195,6 +199,9 @@ class StockPriceData:
     sma_200_yesterday: float
     closes_below_sma200_count: int = 0
     last_trade_date: str = ""
+    # [FIX MUL-21] Add open/close for proper bullish-close gate in entry_confirmed
+    today_open: float = 0.0
+    today_close: float = 0.0
 
 @dataclass
 class ExitPriceData:
@@ -354,19 +361,43 @@ def batch_download_market_data(symbols: list) -> dict:
                     else:
                         real_time_change = 0.0
 
+                    # [FIX MUL-21/REVISED] Capture forming-bar data BEFORE stripping.
+                    # During market hours, we want the live forming-bar open for intraday
+                    # bullish-close confirmation, not the previous completed bar's open.
+                    forming_bar_open = 0.0
+                    forming_bar_close = 0.0
+                    is_market_open = False
+                    if len(ticker_df) > 0:
+                        last_ts = ticker_df.index[-1]
+                        if last_ts.date() == ist_now.date():
+                            is_market_open = True
+                            forming_bar_open = float(ticker_df["Open"].iloc[-1]) if "Open" in ticker_df.columns else 0.0
+                            forming_bar_close = float(ticker_df["Close"].iloc[-1]) if "Close" in ticker_df.columns else 0.0
+
                     if strip_forming and len(ticker_df) > 0:
                         last_ts = ticker_df.index[-1]
                         if last_ts.date() == ist_now.date():
                             ticker_df = ticker_df.iloc[:-1]
                         
-                    if len(ticker_df) < 50:
+                    # [FIX MUL-21 NEW] Require 200 bars for SMA200-based alerts.
+                    # SMA200 is meaningless with fewer bars — produces wild values.
+                    MIN_BARS = 200
+                    if len(ticker_df) < MIN_BARS:
                         continue
                 
                     last_trade_date = str(ticker_df.index[-1].date())
                 
                     close_series = ticker_df["Close"]
                     vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
-                
+
+                    # [FIX MUL-21] Use forming-bar data during market hours; completed-bar otherwise
+                    if is_market_open and forming_bar_open > 0:
+                        today_open = forming_bar_open
+                        today_close = forming_bar_close if forming_bar_close > 0 else real_time_close
+                    else:
+                        today_open = float(ticker_df["Open"].iloc[-1]) if "Open" in ticker_df.columns and len(ticker_df) > 0 else 0.0
+                        today_close = float(close_series.iloc[-1]) if len(close_series) > 0 else 0.0
+
                     close_price = real_time_close
                     change_pct = real_time_change
                 
@@ -437,7 +468,9 @@ def batch_download_market_data(symbols: list) -> dict:
                         atr_14=atr_14,
                         ema_20=ema_20,
                         closes_below_sma200_count=closes_below_sma200_count,
-                        last_trade_date=last_trade_date
+                        last_trade_date=last_trade_date,
+                        today_open=today_open,  # [FIX MUL-21]
+                        today_close=today_close  # [FIX MUL-21]
                     )
                 except Exception as e:
                     logger.debug(f"Error parsing market data for {sym}: {e}")
@@ -492,34 +525,30 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         return False, "Auditor/Forensic red flags"
 
     if is_fin:
+        # [FIX MUL-20 REVISED] ROE/ROA are profitability, not solvency. For financial-sector
+        # companies (banks, NBFCs, insurers), CAR (Capital Adequacy Ratio) is the true solvency
+        # metric — it measures regulatory capital vs risk-weighted assets. Without CAR the gate
+        # cannot confirm solvency, so we mark it UNVERIFIED and reject.
+        car_raw = f.get("capital_adequacy_ratio")
+        car = safe_float(car_raw) if (car_raw is not None and not pd.isna(car_raw)) else None
+        if car is None:
+            return False, "Data Void: solvency=UNVERIFIED (CAR missing)"
+        known_metrics_count += 1
+        has_solvency_metric = True
+        if car < 0.11:  # Regulatory floor + buffer
+            return False, f"Solvency fail: CAR={car:.1%}"
+
         roe = f.get("roe")
         if roe is not None and not pd.isna(roe):
             known_metrics_count += 1
-            if safe_float(roe) < 0.10: # Financials allowed slightly lower ROE but still positive
+            if safe_float(roe) < 0.10:
                 return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
-            
+
         gnpa = f.get("gnpa")
         if gnpa is not None and not pd.isna(gnpa):
             known_metrics_count += 1
             if safe_float(gnpa) > 0.05:
                 return False, f"High GNPA ({safe_float(gnpa)*100:.1f}%)"
-            
-        car = f.get("capital_adequacy_ratio")
-        if car is not None and not pd.isna(car):
-            known_metrics_count += 1
-            # [FIX MUL-10] CAR is the solvency metric for financial-sector companies
-            # (banks, NBFCs, insurers). Without this, every financial stock hit
-            # "Data Void ... solvency=MISSING" because solvency was only tracked
-            # in the non-financial branch (D/E, ICR, Altman-Z).
-            has_solvency_metric = True
-            if safe_float(car) < 0.12:
-                return False, f"Low CAR ({safe_float(car)*100:.1f}%)"
-            
-        roa = f.get("roa")
-        if roa is not None and not pd.isna(roa):
-            known_metrics_count += 1
-            if safe_float(roa) < 0.01:
-                return False, f"ROA below 1% ({safe_float(roa)*100:.2f}%)"
     else:
         opm = f.get("operating_margin_ttm")
         if opm is not None and not pd.isna(opm):
@@ -571,7 +600,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
 
     return True, ""
 
-def classify_conviction(cqs: float, pas: float, trend: float, composite: float, f_score: int = None) -> tuple[str, float]:
+def classify_conviction(cqs: float, pas: float, trend: float, composite: float, f_score: int = None, pledge_ratio: float = None) -> tuple[str, float]:
     """
     Tiered classification for multibaggers.
     Enforces Piotroski F-Score >= 7 for Top Tier ("🚀 Prime Multibagger").
@@ -580,10 +609,13 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
     # [FIX MUL-11] Prime tier requires F-Score >= 7. The original `f_score is None`
     # let missing data pass as valid, silently bypassing the Piotroski requirement.
     is_prime_fscore = f_score is not None and f_score >= 7
+    # [FIX MUL-23 REVISED] High Quality requires a verified clean pledge (<= 15%), not just "pledge is known".
+    # A stock with pledge=25% should never get the "💎 High Quality" label.
+    clean_pledge = pledge_ratio is not None and pledge_ratio <= 0.15
 
     if composite >= 75 and cqs >= 65 and pas >= 50 and trend >= 10.0 and is_prime_fscore:
         return "🚀 Prime Multibagger", composite
-    elif composite >= 65 and cqs >= 60 and trend >= 10.0:
+    elif composite >= 65 and cqs >= 60 and trend >= 10.0 and (is_prime_fscore or clean_pledge):
         return "💎 High Quality", composite
     elif composite >= 50:
         return "🟡 Watchlist", composite
@@ -610,12 +642,17 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
 
     volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20
 
-    # Bullish close: close > open confirms buyers are present
-    bullish_close = price_data.close > price_data.open if hasattr(price_data, 'close') and hasattr(price_data, 'open') else True
+    # [FIX MUL-21 REVISED] Bullish close: close > open confirms buyers are present.
+    # When open/close data is unavailable, reject (default False) — never assume bullish.
+    if price_data.today_open is None or price_data.today_open <= 0 or price_data.today_close is None or price_data.today_close <= 0:
+        bullish_close = False  # Unverified => reject
+    else:
+        bullish_close = price_data.today_close > price_data.today_open
 
-    # Close near EMA20: within 5% — prevents chasing extended moves
+    # Close near EMA20: within 5% band — prevents chasing extended or collapsing moves
     ema20 = price_data.ema_20 if price_data.ema_20 > 0 else price_data.price
-    near_ema = price_data.price >= ema20 * 0.95
+    # [FIX MUL-22] Upper bound added: price must be within 5% above EMA20, not just within 5% below
+    near_ema = ema20 * 0.95 <= price_data.price <= ema20 * 1.05
 
     return volume_ok and bullish_close and near_ema
 
@@ -888,6 +925,11 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     # [VERSION: MULTIBAGGER_ROE_FIX_v1.0] Added ROE calculation with safeguards
     if pat is not None and not pd.isna(pat) and total_equity is not None and total_equity > 0:
         roe = pat / total_equity
+
+    # [FIX MUL-20] Compute ROA from net income / total assets — used by financial solvency gate
+    roa = None
+    if pat is not None and not pd.isna(pat) and assets is not None and assets > 0:
+        roa = pat / assets
     
     fund = {
         "symbol": symbol,
@@ -918,7 +960,8 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "debt_yoy_growth": 0.0, # Dummy for now
         "altman_z": altman_z,
         "current_ratio": info.get("currentRatio"),
-        
+        "roa": roa,  # [FIX MUL-20] Added ROA for financial solvency gate
+
         "price": price,
         "is_financial": is_financial_sector(info.get("sector")),
         "data_freshness": "LIVE",
@@ -1008,8 +1051,8 @@ def format_telegram_message(categorized_stocks: dict) -> list:
             total = item['total']
             status = item['status']
             
-            alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else " ⏳ WAITING"
-            line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/20</b>{alert_marker}\n"
+            alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else (" ⏳ WAITING" if status != "SUPPRESSED" else " ⛔ SUPPRESSED")
+            line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/100</b>{alert_marker}\n"
             
             if len(current_msg) + len(line) > 3900:
                 messages.append(current_msg)
@@ -1169,7 +1212,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 exit_triggered = False
                 exit_reason = ""
                 
-                # Watchdog: Stale Data Check (Suspension / Trading Halt)
+                # [FIX MUL-27/REVISED] Stale Data Check (Suspension / Trading Halt)
+                # Stale data means the price feed is broken, NOT that fundamentals
+                # deteriorated. We flag SELL_REVIEW for human inspection but do NOT
+                # auto-close or compute P&L on a potentially wrong price.
+                is_stale = False
                 if hasattr(price_data, "last_trade_date") and price_data.last_trade_date:
                     import numpy as np
                     try:
@@ -1177,7 +1224,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         end_date = np.datetime64(datetime.now(IST).date())
                         bus_days = np.busday_count(start_date, end_date)
                         if bus_days >= 10:
-                            exit_triggered = True
+                            is_stale = True
                             exit_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {price_data.last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
                     except Exception as e:
                         logger.warning(f"Stale data check failed for {symbol}: {e}")
@@ -1225,13 +1272,20 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 if not exit_triggered and fund and not is_fallback:
                     ok, gate_reason = passes_multibagger_quality_gate(fund)
                     if not ok:
-                        exit_triggered = True
-                        exit_reason = f"Quality kill-gate breach: {gate_reason}"
+                        # [FIX MUL-27] "Data Void" means data is missing/incomplete, NOT that
+                        # fundamentals deteriorated. Only fire a confirmed exit for real metric
+                        # breaches. Data gaps get SELL_REVIEW (human review / next-scan retry).
+                        if gate_reason.startswith("Data Void"):
+                            exit_triggered = False
+                            logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
+                            # Fall through to handle_triggered_exit as a review, not a close
+                            exit_reason = f"SELL_REVIEW: {gate_reason}"
+                        else:
+                            exit_triggered = True
+                            exit_reason = f"Quality kill-gate breach: {gate_reason}"
                     elif cqs < 55.0:
                         exit_triggered = True
                         exit_reason = f"Deteriorating Fundamentals: Quality score decayed below hold-threshold 55 (CQS: {cqs:.1f})"
-                elif is_invalid and not fund:
-                    logger.warning(f"[EXIT MONITOR] {symbol} failed gates due to INCOMPLETE DATA — NOT exiting. Will retry next scan.")
                         
                 # Handle triggered exit
                 if exit_triggered:
@@ -1268,6 +1322,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                             f"• Reason: <i>{exit_reason}</i>\n"
                         )
                         queue_telegram_message(sell_msg, symbol=symbol)
+
+                # [FIX MUL-27 REVISED] SELL_REVIEW flags (stale data, data void) — log but do NOT close
+                elif is_stale and exit_reason:
+                    logger.info(f"⚠️ {symbol}: {exit_reason} — position held, no auto-close")
             except Exception as e:
                 logger.error(f"❌ Unhandled exception in exit monitor for {pos.get('symbol', 'UNKNOWN')}: {e}", exc_info=True)
                     
@@ -1653,7 +1711,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if f_score_val is None:
             _raw_fs = raw_fundamentals.get("score", raw_fundamentals.get("piotroski_score"))
             f_score_val = int(_raw_fs) if (_raw_fs is not None and not pd.isna(_raw_fs)) else None
-        tier, composite = classify_conviction(cqs, pas, trend, pre_bonus_total, f_score=f_score_val)
+        tier, composite = classify_conviction(cqs, pas, trend, pre_bonus_total, f_score=f_score_val, pledge_ratio=_pledge_ratio(raw_fundamentals.get("promoter_pledge_pct")))
         
         # [VERSION: MULTIBAGGER_BEAR_FIX_v1.2] Removed BEAR regime downgrade entirely.
         # As per recent architectural decisions, the scoring engine naturally penalizes weak setups.
@@ -1708,7 +1766,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     "pas": pas,
                     "notes": notes,
                     "pipeline_result": pipeline_result,
-                    "raw_fundamentals": raw_fundamentals
+                    "raw_fundamentals": raw_fundamentals,
+                    "_price_data": price_data  # [FIX MUL-24] Store for entry_confirmed recheck at live price
                 })
 
             if status != "INVALIDATED":
@@ -1792,6 +1851,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
                 continue
 
+            # [FIX MUL-24] Recheck entry_confirmed against live price. The original scan-time
+            # price might have passed EMA-proximity and bullish-close, but the live price could
+            # now be extended above EMA20 or show a bearish close.
+            live_price_data = cand.get("_price_data")
+            if live_price_data is not None:
+                from dataclasses import replace
+                live_pd = replace(live_price_data, price=price, today_close=price)
+                if not entry_confirmed(live_pd):
+                    logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
+                    continue
+
             c_total = cand["total_score"]
             c_cqs = cand["cqs"]
             c_trend = cand["trend_score"]
@@ -1863,6 +1933,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
                 inserted = True
 
+            # [FIX MUL-25/26] Track insertion status on the candidate for reconciliation
+            cand["inserted"] = inserted
+
             if inserted:
                 # [FIX MUL-16/17] Mark the corresponding ScreenerResult so that
                 # save_watchlist_to_db and the final alert count use actual DB inserts,
@@ -1887,10 +1960,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                     )
                     queue_telegram_message(msg, symbol=sym)
 
+    # [FIX MUL-25/26] Reconcile statuses after Top-N + DB insertion. Candidates that
+    # were suppressed by Top-N or rejected by save_alert_if_new still carry
+    # "ALERT_TRIGGERED" on their ScreenerResult, making the summary show false "BUY READY".
+    inserted_symbols = {c["symbol"].upper() for c in (alert_candidates or []) if c.get("inserted")}
+    for r in results:
+        if r.status == "ALERT_TRIGGERED" and r.symbol.upper() not in inserted_symbols:
+            r.status = "SUPPRESSED"
+
+    # [FIX MUL-26] Build Telegram summary from actual DB inserts, not pre-Top-N categorization.
+    alert_inserted_results = [r for r in results if getattr(r, 'alert_inserted', False)]
+
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
     
-    # 6. Format and queue Telegram updates
+    # 6. Format and queue Telegram updates — use alert_inserted results for BUY READY list
     logger.info(f"📢 Formatting Telegram messages for {len(results)} watchlist items...")
     telegram_msgs = format_telegram_message(categorized_stocks)
     for msg in telegram_msgs:

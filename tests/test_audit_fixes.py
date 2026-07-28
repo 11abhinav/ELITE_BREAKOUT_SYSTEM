@@ -269,8 +269,8 @@ class TestAuditFixes(unittest.TestCase):
         tier1, score1 = classify_conviction(cqs=70.0, pas=60.0, trend=15.0, composite=80.0, f_score=7)
         self.assertEqual(tier1, "🚀 Prime Multibagger")
 
-        # High Quality: composite >= 65, cqs >= 60, trend >= 10
-        tier2, score2 = classify_conviction(cqs=62.0, pas=40.0, trend=12.0, composite=68.0, f_score=5)
+        # High Quality: composite >= 65, cqs >= 60, trend >= 10, plus clean pledge (<= 15%)
+        tier2, score2 = classify_conviction(cqs=62.0, pas=40.0, trend=12.0, composite=68.0, f_score=5, pledge_ratio=0.08)
         self.assertEqual(tier2, "💎 High Quality")
 
         # Watchlist: composite >= 50 (does not trigger active BUY alert)

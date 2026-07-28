@@ -1,6 +1,6 @@
 # Elite Breakout System — Scanner Engine Analysis
 
-> Generated: 2026-07-28 | 7 scanners reviewed | 42 fixes applied (P0-P6 + MTF structural + Multibagger)
+> Generated: 2026-07-28 | 7 scanners reviewed | 57 fixes applied (P0-P6 + MTF structural + Multibagger MUL-1 to MUL-28 + 3 hardening)
 
 ---
 
@@ -765,6 +765,80 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 - **Before:** `save_watchlist_to_db` checked `r.status == "ALERT_TRIGGERED"` to set `last_alert_price`/`last_alert_at`. This status was set before Top-N filtering and `save_alert_if_new`, so watchlist records could claim an alert occurred when none was sent.
 - **After:** Uses `alert_inserted` flag, only set when `save_alert_if_new` returns `inserted=True`.
 - **Rationale:** Watchlist history should reflect actual alerts, not intent.
+
+#### MUL-18: `reasons` used before initialization (CRITICAL)
+- **Before:** `reasons.append(...)` at line 118 was reached via `composite_score is None` path before `reasons = []` at line 138, causing `UnboundLocalError`.
+- **After:** `reasons = []` moved before the `composite_score is None` guard.
+- **Rationale:** All code paths must have `reasons` initialized before appending.
+
+#### MUL-19: `None` composite_score causes format/compare failures (CRITICAL)
+- **Before:** `f"{composite_score:.1f}"` and `composite_score >= 50.0` called on `None`, raising `TypeError`.
+- **After:** `reasons.append()` and `status_str` guarded with `composite_score is not None` checks. Returns "NO" when composite is None.
+- **Rationale:** V5 pipeline failures should produce clean rejection, not runtime crashes.
+
+#### MUL-20: Financial solvency gate requires real CAR, not profitability (CRITICAL)
+- **Before:** ROE and ROA set `has_solvency_metric = True`, but these are profitability metrics, not solvency.
+- **After:** Financial-sector gate requires CAR (Capital Adequacy Ratio) ≥ 11%. If CAR is missing, rejects with "Data Void: solvency=UNVERIFIED".
+- **Rationale:** CAR is the regulatory solvency metric for banks/NBFCs/insurers. ROE/ROA measure profitability, not capital adequacy. ROA is computed from `Net Income / Total Assets` and added to the fundamentals dict.
+
+#### MUL-21: `StockPriceData` lacked open/close — bullish-close gate always True (HIGH)
+- **Before:** `entry_confirmed()` used `hasattr` check for `.close`/`.open` which always passed (dataclass fields existed) or defaulted to `True`.
+- **After:** Added `today_open` and `today_close` fields to `StockPriceData`. Extracted from forming bar during market hours, completed bar otherwise. `entry_confirmed()` now defaults to `False` when data is unavailable.
+- **Rationale:** Unverified bullish close should reject, not silently pass.
+
+#### MUL-21b: Use forming-bar open for intraday confirmation (MEDIUM)
+- **Before:** `today_open` extracted from the already-stripped `ticker_df`, giving yesterday's open during market hours.
+- **After:** Forming bar captured before `strip_forming` removal. During market hours, `today_open` = forming bar's open; otherwise completed bar.
+- **Rationale:** Intraday confirmation must compare live price against today's forming-bar open, not yesterday's.
+
+#### MUL-21c: Require 200 bars for SMA200-based alerts (MEDIUM)
+- **Before:** `len(ticker_df) < 50` allowed SMA200 to be computed from only 50 bars, producing wild values.
+- **After:** `MIN_BARS = 200` — alerts require at least 200 bars of history.
+- **Rationale:** SMA200 needs 200 bars to be meaningful. 50 bars produces SMA(50) mislabeled as SMA200.
+
+#### MUL-22: EMA proximity had no upper bound (MEDIUM)
+- **Before:** `price >= ema20 * 0.95` allowed price 50%+ above EMA20 to pass.
+- **After:** `ema20 * 0.95 <= price <= ema20 * 1.05` — band in both directions.
+- **Rationale:** Chasing extended moves and collapsing stocks both produce losses.
+
+#### MUL-23: High Quality tier permitted missing Piotroski AND pledge (MEDIUM)
+- **Before:** `classify_conviction()` classified "💎 High Quality" when only `pledge_ratio is not None` (even if pledge > 15%).
+- **After:** Requires `clean_pledge = pledge_ratio is not None and pledge_ratio <= 0.15` OR `f_score >= 7`. Also normalizes pledge via `_pledge_ratio()` before passing.
+- **Rationale:** High Quality label must reflect verified fundamental health, not just "data exists".
+
+#### MUL-24: Live price revalidation missing `entry_confirmed` recheck (HIGH)
+- **Before:** Live price revalidated only against buy zone. If price moved above EMA20 or formed bearish close by fetch time, alert fired without technical stabilization check.
+- **After:** After buy-zone recheck, `entry_confirmed()` rerun against `StockPriceData` with live price. Failing candidates skipped.
+- **Rationale:** Technical conditions can change between scan-time and live-price fetch.
+
+#### MUL-25: Suppressed candidates retained `ALERT_TRIGGERED` status (MEDIUM)
+- **Before:** Candidates suppressed by Top-N or `save_alert_if_new` rejection still showed `status="ALERT_TRIGGERED"` on their `ScreenerResult`. `format_telegram_message` displayed them as "BUY READY".
+- **After:** Post-insertion reconciliation loop updates `ALERT_TRIGGERED` → `SUPPRESSED` for non-inserted candidates. Telegram summary shows `⛔ SUPPRESSED` badge.
+- **Rationale:** Status must reflect reality after all filtering stages.
+
+#### MUL-26: Telegram summary built from stale pre-Top-N data (MEDIUM)
+- **Before:** `categorized_stocks` dict populated before Top-N and DB insertion. Summary included suppressed candidates.
+- **After:** `cand["inserted"]` flag tracked per-candidate. Reconciliation marks suppressed items. Alert count and summary both derived from `alert_inserted` results.
+- **Rationale:** Telegram and health metrics should reflect actual system state, not pre-filter state.
+
+#### MUL-27: Exit monitor treated missing fundamentals as deterioration (HIGH)
+- **Before:** `passes_multibagger_quality_gate` failure always triggered exit. "Data Void" (missing CAR/incomplete metrics) caused false sell alerts.
+- **After:** `gate_reason.startswith("Data Void")` → flag as `SELL_REVIEW` without auto-close. Real metric breaches still trigger confirmed exit.
+- **Rationale:** Missing data ≠ deteriorated data. A stock with unavailable fundamentals should be reviewed, not sold.
+
+#### MUL-28: Dead condition — `is_invalid and not fund` (LOW)
+- **Before:** `elif is_invalid and not fund` branch never executed because `is_invalid` is set to `False` when `fund` is absent.
+- **After:** Removed dead branch entirely.
+- **Rationale:** Dead code creates confusion and maintenance burden.
+
+#### NEW-1: Score denominator `/20` → `/100` (MEDIUM)
+- **Before:** Telegram summary showed `Total: {score}/20`.
+- **After:** Shows `Total: {score}/100` matching V5 composite scale.
+
+#### NEW-2: Stale data must not close positions (HIGH)
+- **Before:** Stale price data (10+ trading sessions) set `exit_triggered = True`, auto-closing the position.
+- **After:** Stale data sets `is_stale = True` and `exit_reason = "SELL_REVIEW: ..."`. Position is held — no auto-close, no P&L computed on potentially wrong price.
+- **Rationale:** Stale data means the price feed is broken, not that fundamentals deteriorated. Auto-closing on wrong prices creates false realized losses.
 
 ---
 
