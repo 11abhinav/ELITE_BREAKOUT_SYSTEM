@@ -1083,7 +1083,17 @@ def _run_scan(force: bool = False):
 
     today_str = ist_now.strftime("%Y-%m-%d")
 
-    from database import get_recent_alerts_for_scanner, delete_todays_alerts_for_scanner
+    from database import (
+        get_recent_alerts_for_scanner,
+        delete_todays_alerts_for_scanner,
+        get_all_failed_reversal_cooldown_symbols,
+    )
+    from surveillance import get_live_blacklist
+
+    live_blacklist = get_live_blacklist()
+    failed_cooldown_raw = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
+    failed_cooldown_syms = {_canonical_symbol(s) for s in failed_cooldown_raw if s} if failed_cooldown_raw else set()
+
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", 3 * 1440, only_active=True)
     today_ist = ist_now.date()
     cooldown_syms = set()
@@ -1206,16 +1216,15 @@ def _run_scan(force: bool = False):
                     category = row["Category"]
                     can_sym  = _canonical_symbol(symbol)
                     
-                    # [FIX C1] Enforce surveillance / blacklist filtering
-                    live_blacklist = get_live_blacklist()
+                    # [FIX C1] Enforce surveillance / blacklist filtering (using pre-fetched set)
                     if symbol in live_blacklist or can_sym in live_blacklist:
                         rejected["blacklist"] += 1
                         logger.info(f"🚫 [REVERSAL] {symbol} skipped — active surveillance/blacklist")
                         continue
 
-                    # [FIX C8] Respect force parameter for cooldowns
+                    # [FIX C8] Respect force parameter for cooldowns (using pre-fetched sets)
                     if not force:
-                        if can_sym in cooldown_syms or _is_symbol_in_reversal_cooldown(symbol, REVERSAL_COOLDOWN_TRADING_DAYS):
+                        if can_sym in cooldown_syms or can_sym in failed_cooldown_syms:
                             rejected["cooldown"] += 1
                             continue
 
