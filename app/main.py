@@ -127,27 +127,7 @@ WINDOWS = {
 # HELPERS
 # =====================================================================================
 
-def _cleanup_old_scanner_names():
-    from database import get_connection
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM scanner_health WHERE scanner_name ILIKE '%worker%' OR scanner_name ILIKE '%wealthengine%';")
-                cur.execute("DELETE FROM scanner_health WHERE scanner_name = 'Multibagger';")
-                cur.execute("DELETE FROM scanner_health WHERE scanner_name = 'WealthEngine';")
-                # Reset stale DOWN status from previous crashes for main scanners.
-                # On boot, every scanner starts fresh — it will set its own status
-                # once it completes its first cycle. This prevents old DOWN entries
-                # from a previous deploy from showing RED on the dashboard.
-                cur.execute("""
-                    UPDATE scanner_health 
-                    SET status='IDLE', error_msg=NULL, is_acknowledged=TRUE
-                    WHERE scanner_name IN ('EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'DAILY_BUILDER', 'MULTI_TF', 'MULTIBAGGER', 'AI Worker', 'PERFORMANCE_TRACKER')
-                      AND (status IN ('DOWN', 'RUNNING') OR status LIKE 'QUEUED%');
-                """)
-            conn.commit()
-    except Exception as e:
-        logger.warning(f"Failed to cleanup old scanner names: {e}")
+
 
 def wait_for_window(name: str):
     """Block until the scan window opens (weekday only)."""
@@ -1982,7 +1962,6 @@ def _trigger_wealth_exit():
 
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
-    _cleanup_old_scanner_names()
 
     # [VERSION: SESSION_ARCH_v2A_0] Instantiate ApplicationContext at process boot.
     # This is the single process-lifetime owner of all services and sessions.

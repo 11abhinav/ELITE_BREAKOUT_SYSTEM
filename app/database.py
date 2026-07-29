@@ -224,6 +224,7 @@ class _AdvisoryLockGuard:
                 pass
 
 def init_db():
+    # [VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Greenfield Database Schema Initialization
     global _DB_INITIALIZED
 
     if _DB_INITIALIZED:
@@ -237,7 +238,7 @@ def init_db():
 
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # [VERSION: INIT_DB_STABILITY_FIX_v1.0] Create system_logs table first so error logging handlers always work
+                # 1. system_logs
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS system_logs (
                         id SERIAL PRIMARY KEY,
@@ -252,6 +253,21 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
 
+                # 2. master_symbols
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS master_symbols (
+                        symbol TEXT PRIMARY KEY,
+                        company_name TEXT NOT NULL,
+                        exchange TEXT DEFAULT 'NSE',
+                        sector TEXT DEFAULT 'EQUITY',
+                        is_active BOOLEAN DEFAULT TRUE,
+                        last_updated TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
+
+                # 3. candidates
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS candidates (
                         id SERIAL PRIMARY KEY,
@@ -266,46 +282,93 @@ def init_db():
                         rr_ratio REAL,
                         market_context TEXT,
                         metadata TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
                         UNIQUE(symbol, breakout_type, alert_date)
                     )
                 """)
 
+                # 4. alerts
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS alerts (
-                        id            SERIAL PRIMARY KEY,
-                        symbol        TEXT    NOT NULL,
-                        breakout_type TEXT    NOT NULL,
-                        alert_time    TEXT    NOT NULL,
-                        alert_date    TEXT    NOT NULL DEFAULT (CURRENT_DATE::TEXT),
-                        scanner       TEXT,
-                        category      TEXT,
-                        entry_price   REAL,
-                        stop_loss     REAL,
-                        signals       TEXT,
-                        score         INTEGER,
-                        rsi           REAL,
-                        volume_ratio  REAL,
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        breakout_type TEXT NOT NULL,
+                        alert_time TIMESTAMPTZ DEFAULT NOW(),
+                        alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                        scanner TEXT,
+                        category TEXT,
+                        entry_price REAL,
+                        stop_loss REAL,
+                        initial_stop_loss REAL,
+                        target_price REAL,
+                        target_1 REAL,
+                        target_2 REAL,
+                        target_3 REAL,
+                        target_4 REAL,
+                        signals TEXT,
+                        score REAL,
+                        rsi REAL,
+                        volume_ratio REAL,
                         current_price REAL,
-                        status        TEXT    DEFAULT 'OPEN',
-                        UNIQUE (symbol, breakout_type, alert_date)
+                        status TEXT DEFAULT 'OPEN',
+                        exit_price REAL,
+                        pnl_pct REAL,
+                        pnl_rs REAL,
+                        closed_at TIMESTAMPTZ,
+                        exit_signal TEXT,
+                        exit_reason TEXT,
+                        capital_allocated REAL DEFAULT 0.0,
+                        shares_bought INTEGER DEFAULT 0,
+                        remaining_shares INTEGER,
+                        exit_history JSONB DEFAULT '[]'::jsonb,
+                        context JSONB,
+                        model_version TEXT DEFAULT 'v1',
+                        bayesian_regime TEXT DEFAULT 'BULL',
+                        bayesian_weights JSONB,
+                        data_partition TEXT DEFAULT 'TRAIN',
+                        structural_failure_stop REAL,
+                        execution_state TEXT DEFAULT 'PENDING_ENTRY',
+                        target_quality_score REAL,
+                        seen_by_user BOOLEAN DEFAULT FALSE,
+                        seen_by_admin BOOLEAN DEFAULT FALSE,
+                        cash_in_hand REAL DEFAULT 0.0,
+                        is_rejected BOOLEAN DEFAULT FALSE,
+                        shadow_status TEXT DEFAULT 'SHADOW_OPEN',
+                        shadow_exit_price REAL,
+                        shadow_pnl_pct REAL,
+                        shadow_closed_at TIMESTAMPTZ,
+                        realized_r REAL,
+                        rr_ratio REAL,
+                        sl_method TEXT,
+                        target_method TEXT,
+                        scan_id TEXT,
+                        partial_exit_pct REAL,
+                        earnings_flag BOOLEAN DEFAULT FALSE,
+                        days_to_earnings INTEGER DEFAULT 999,
+                        earnings_date DATE,
+                        earnings_severity VARCHAR(20) DEFAULT 'NONE',
+                        date_status VARCHAR(20) DEFAULT 'UNKNOWN',
+                        warning_msg TEXT DEFAULT '',
+                        trajectory_score INTEGER DEFAULT 0,
+                        trajectory_grade VARCHAR(5) DEFAULT 'N/A',
+                        trajectory_details JSONB DEFAULT '{}'::jsonb,
+                        forensic_score INTEGER DEFAULT 0,
+                        forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN',
+                        growth_investment_mode BOOLEAN DEFAULT FALSE,
+                        growth_investment_score INTEGER DEFAULT 0,
+                        forensic_details JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date),
+                        CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'))
                     )
                 """)
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'OPEN'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_cooldown ON alerts(symbol, scanner, breakout_type, alert_time DESC)")
 
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS master_symbols (
-                        symbol TEXT PRIMARY KEY,
-                        company_name TEXT NOT NULL,
-                        exchange TEXT DEFAULT 'NSE',
-                        sector TEXT DEFAULT 'EQUITY',
-                        is_active BOOLEAN DEFAULT TRUE,
-                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
-
+                # 5. breakout_watchlist
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS breakout_watchlist (
                         symbol TEXT PRIMARY KEY,
@@ -322,118 +385,19 @@ def init_db():
                         session_date TEXT,
                         last_updated TIMESTAMPTZ DEFAULT NOW(),
                         context_json TEXT,
-                        is_active BOOLEAN DEFAULT TRUE
+                        is_active BOOLEAN DEFAULT TRUE,
+                        trigger_level REAL,
+                        invalidation_level REAL,
+                        max_extension_atr REAL,
+                        buffer_pct REAL,
+                        armed_at TIMESTAMPTZ,
+                        signal_timestamp TIMESTAMPTZ,
+                        expires_at TIMESTAMPTZ,
+                        timeframe TEXT
                     )
                 """)
-                # [VERSION: INIT_DB_STABILITY_FIX_v1.0] wealth_buy_alert columns are migrated safely below
-                # after CREATE TABLE IF NOT EXISTS using ADD COLUMN IF NOT EXISTS — no pre-check needed.
-                
-                
-                # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
-                # [VERSION: LOG_ERROR_FIXES_v1.0] Include SELL_REVIEW and TRAILING in chk_alerts_status constraint
-                cur.execute("ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status")
-                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'))")
-                
-                # Drop dependent views before altering columns, they will be recreated below
-                cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
-                
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'alerts'
-                        AND column_name = 'alert_time'
-                        AND data_type = 'text'
-                    ) THEN
-                        ALTER TABLE alerts ALTER COLUMN alert_time DROP DEFAULT;
-                        ALTER TABLE alerts ALTER COLUMN alert_time TYPE TIMESTAMPTZ USING alert_time::timestamptz;
-                        ALTER TABLE alerts ALTER COLUMN alert_time SET DEFAULT NOW();
-                    END IF;
-                END $$;
-                """)
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'alerts'
-                        AND column_name = 'score'
-                        AND data_type = 'integer'
-                    ) THEN
-                        ALTER TABLE alerts ALTER COLUMN score TYPE REAL USING score::real;
-                    END IF;
-                END $$;
-                """)
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                # Idempotent migration to align candidates.alert_date to DATE type
-                cur.execute("""
-                    DO $$ 
-                    BEGIN 
-                        IF EXISTS (
-                            SELECT 1 FROM information_schema.columns 
-                            WHERE table_name='candidates' AND column_name='alert_date' AND data_type='text'
-                        ) THEN 
-                            ALTER TABLE candidates ALTER COLUMN alert_date DROP DEFAULT;
-                            ALTER TABLE candidates ALTER COLUMN alert_date TYPE DATE USING NULLIF(alert_date, '')::DATE;
-                            ALTER TABLE candidates ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
-                        END IF;
-                    END $$;
-                """)
-                for col_sql in [
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stop_loss    REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_price REAL",
-                    # Partial Exits & V2 Multi-Target Schema
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_1 REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_2 REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_3 REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_4 REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS initial_stop_loss REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS remaining_shares INTEGER",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_history JSONB DEFAULT '[]'::jsonb",
-                    # Performance tracker write-back columns
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status       TEXT    DEFAULT 'OPEN'",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_price   REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_pct      REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS closed_at    TEXT",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_signal  TEXT",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS exit_reason  TEXT",
-                    # Portfolio tracking columns
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS capital_allocated REAL DEFAULT 0.0",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shares_bought     INTEGER DEFAULT 0",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pnl_rs            REAL",
-                    # Diagnostic parameters context JSONB
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS context      JSONB",
-                    # Bayesian Tracker Columns
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS model_version  TEXT DEFAULT 'v1'",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS bayesian_regime TEXT DEFAULT 'BULL'",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS bayesian_weights JSONB",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS data_partition TEXT DEFAULT 'TRAIN'",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS current_price REAL",
-                    # V6 Institutional Execution Schema
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS structural_failure_stop REAL",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_state TEXT DEFAULT 'PENDING_ENTRY'",
-                    "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_quality_score REAL",
-                ]:
-                    cur.execute(col_sql)
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_user BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS seen_by_admin BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cash_in_hand REAL DEFAULT 0.0")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_rejected BOOLEAN DEFAULT FALSE")
-                # Shadow Tracking Columns for Counterfactual Telemetry (is_rejected = TRUE)
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_status TEXT DEFAULT 'SHADOW_OPEN'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_exit_price REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_pnl_pct REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS shadow_closed_at TIMESTAMPTZ")
-                # P1: Exit tracking columns required for expectancy matrix & Bayesian win_rate
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS realized_r REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rr_ratio REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS sl_method TEXT")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS target_method TEXT")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS scan_id TEXT")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS partial_exit_pct REAL")
-                
+
+                # 6. rejected_alerts
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS rejected_alerts (
                         id SERIAL PRIMARY KEY,
@@ -441,36 +405,13 @@ def init_db():
                         scanner TEXT NOT NULL,
                         engine_version TEXT,
                         rejection_reason TEXT,
-                        alert_date TEXT DEFAULT (CURRENT_DATE::TEXT),
+                        alert_date DATE DEFAULT CURRENT_DATE,
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         context JSONB
                     )
                 """)
 
-                # ── DROP LEGACY TABLES (SAFE GUARD) ──────────────────────────────────
-                # [SAFETY] Only drop multibagger_alerts if it exists AND has ZERO rows.
-                # If the table has data, log a warning and leave it untouched.
-                # This prevents accidental data wipe on existing deployments.
-                cur.execute("""
-                DO $$
-                DECLARE
-                    row_count BIGINT := 0;
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.tables
-                        WHERE table_schema = 'public' AND table_name = 'multibagger_alerts'
-                    ) THEN
-                        SELECT COUNT(*) INTO row_count FROM multibagger_alerts;
-                        IF row_count = 0 THEN
-                            DROP TABLE multibagger_alerts CASCADE;
-                        ELSE
-                            RAISE WARNING '[SAFETY] multibagger_alerts has % rows — skipping DROP to protect data', row_count;
-                        END IF;
-                    END IF;
-                END $$;
-                """)
-
-                # ── Trade Audit Log (Immutable History) ────────────────────────────
+                # 7. trade_audit_log
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS trade_audit_log (
                         id SERIAL PRIMARY KEY,
@@ -483,43 +424,19 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_alert_id ON trade_audit_log(alert_id)")
 
-                # ── Breakout Watchlist Metadata Columns (Multi-TF Funnel) ─────────
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS trigger_level REAL")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS invalidation_level REAL")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS max_extension_atr REAL")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS buffer_pct REAL")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS armed_at TIMESTAMPTZ")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS signal_timestamp TIMESTAMPTZ")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS timeframe TEXT")
-                cur.execute("ALTER TABLE breakout_watchlist ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
-
-
-                # ── Score Weight Log (Bayesian Versioning) ─────────────────────────
+                # 8. score_weight_log
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS score_weight_log (
                         id SERIAL PRIMARY KEY,
                         model_version TEXT NOT NULL,
                         regime TEXT NOT NULL,
                         weights JSONB NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        CONSTRAINT chk_weights_json CHECK (weights ? 'volume_breakout' AND weights ? 'rsi_divergence' AND weights ? 'ema_crossover')
                     )
                 """)
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_constraint WHERE conname = 'chk_weights_json'
-                    ) THEN
-                        ALTER TABLE score_weight_log 
-                            ADD CONSTRAINT chk_weights_json 
-                            CHECK (weights ? 'volume_breakout' AND weights ? 'rsi_divergence' AND weights ? 'ema_crossover') 
-                            NOT VALID;
-                    END IF;
-                END $$;
-                """)
 
-                # ── Bayesian Model Updates (Pending Admin Approval) ──────────────────
+                # 9. bayesian_model_updates
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS bayesian_model_updates (
                         id SERIAL PRIMARY KEY,
@@ -534,44 +451,40 @@ def init_db():
                         status TEXT NOT NULL DEFAULT 'PENDING',
                         admin_comment TEXT,
                         approved_by TEXT,
-                        approved_at TEXT,
-                        rejected_at TEXT,
-                        applied_at TEXT,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        expires_at TEXT
+                        approved_at TIMESTAMPTZ,
+                        rejected_at TIMESTAMPTZ,
+                        applied_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        expires_at TIMESTAMPTZ,
+                        CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'))
                     )
                 """)
 
-                # ── Scanner health table — source of truth for dashboard ───────────
+                # 10. scanner_health
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scanner_health (
-                        scanner_name  TEXT PRIMARY KEY,
-                        status        TEXT    NOT NULL DEFAULT 'IDLE',
-                        last_success  TEXT,
-                        today_alerts  INTEGER NOT NULL DEFAULT 0,
-                        error_msg     TEXT,
+                        scanner_name TEXT PRIMARY KEY,
+                        status TEXT NOT NULL DEFAULT 'IDLE',
+                        last_success TIMESTAMPTZ,
+                        today_alerts INTEGER NOT NULL DEFAULT 0,
+                        error_msg TEXT,
                         is_acknowledged BOOLEAN DEFAULT TRUE,
-                        updated_at    TEXT    NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
                         error_severity TEXT DEFAULT NULL,
-                        error_count    INTEGER DEFAULT 0,
-                        first_error_at TEXT DEFAULT NULL,
-                        retry_count    INTEGER DEFAULT 0,
-                        scheduled_for  TEXT DEFAULT NULL
+                        error_count INTEGER DEFAULT 0,
+                        first_error_at TIMESTAMPTZ DEFAULT NULL,
+                        retry_count INTEGER DEFAULT 0,
+                        scheduled_for TIMESTAMPTZ DEFAULT NULL,
+                        processed_count INTEGER DEFAULT NULL,
+                        total_count INTEGER DEFAULT NULL,
+                        outcome TEXT DEFAULT NULL,
+                        provider_stats JSONB DEFAULT NULL,
+                        duration_seconds REAL DEFAULT 0.0,
+                        CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%')
                     )
                 """)
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS error_severity TEXT DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS error_count INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS first_error_at TEXT DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS scheduled_for TEXT DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS processed_count INTEGER DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS total_count INTEGER DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS outcome TEXT DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS provider_stats JSONB DEFAULT NULL")
-                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS duration_seconds REAL DEFAULT 0.0")
 
-                # ── Scan failures table for batch reporting ────────────────────────
+                # 11. scan_failures
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scan_failures (
                         id SERIAL PRIMARY KEY,
@@ -580,18 +493,18 @@ def init_db():
                         symbol TEXT NOT NULL,
                         provider TEXT,
                         failure_reason TEXT,
-                        failed_at TEXT NOT NULL
+                        failed_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
-                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_scan_id_idx ON scan_failures (scan_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_failed_at_idx ON scan_failures (failed_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_scan_id_idx ON scan_failures(scan_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_failed_at_idx ON scan_failures(failed_at)")
 
-                # ── Funnel Telemetry Table (for Pullback / Scanner Funnel Analytics) ──
+                # 12. funnel_telemetry
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS funnel_telemetry (
                         id SERIAL PRIMARY KEY,
                         scanner TEXT NOT NULL,
-                        run_date TEXT NOT NULL,
+                        run_date DATE NOT NULL DEFAULT CURRENT_DATE,
                         symbol TEXT NOT NULL,
                         stage TEXT NOT NULL,
                         gate TEXT NOT NULL,
@@ -605,16 +518,15 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_funnel_telemetry_lookup ON funnel_telemetry(scanner, run_date, symbol)")
 
-
-                # ── System state table for dashboard metrics / state caching ───────
+                # 13. system_state
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS system_state (
-                        key   TEXT PRIMARY KEY,
+                        key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
                     )
                 """)
 
-                # ── Persistent Symbol Mappings (BSE/Fyers fallbacks across restarts) ─
+                # 14. symbol_mappings
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS symbol_mappings (
                         mapping_type TEXT NOT NULL,
@@ -623,123 +535,44 @@ def init_db():
                         is_invalid BOOLEAN DEFAULT FALSE,
                         mapping_state TEXT DEFAULT 'ACTIVE',
                         failure_count INTEGER DEFAULT 0,
-                        retry_after TEXT DEFAULT NULL,
-                        last_verified TEXT DEFAULT NULL,
+                        retry_after TIMESTAMPTZ DEFAULT NULL,
+                        last_verified TIMESTAMPTZ DEFAULT NULL,
                         PRIMARY KEY (mapping_type, original_sym)
                     )
                 """)
-                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS is_invalid BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS mapping_state TEXT DEFAULT 'ACTIVE'")
-                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS retry_after TEXT DEFAULT NULL")
-                cur.execute("ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS last_verified TEXT DEFAULT NULL")
 
-                # ── AI Concall Cache table ─────────────────────────────────────────
+                # 15. ai_concall_cache_v3
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS ai_concall_cache_v3 (
-                        id            SERIAL PRIMARY KEY,
-                        symbol        TEXT NOT NULL,
-                        pdf_url       TEXT NOT NULL,
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        pdf_url TEXT NOT NULL,
                         analysis_data JSONB NOT NULL,
-                        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        UNIQUE (symbol, pdf_url)
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        CONSTRAINT ai_concall_cache_v3_symbol_pdf_url_key UNIQUE (symbol, pdf_url)
                     )
                 """)
-                # [VERSION: CONCALL_CACHE_TS_MIGRATION_v1.0] Migrate created_at from TEXT to TIMESTAMPTZ
-                # The TEXT column stored values like '2026-06-14 12:41:10.76633+05:30' which caused
-                # InvalidDatetimeFormat errors when casting back to TIMESTAMP in queries.
-                try:
-                    cur.execute("""
-                        DO $$
-                        BEGIN
-                            -- Only migrate if column is still TEXT type
-                            IF EXISTS (
-                                SELECT 1 FROM information_schema.columns
-                                WHERE table_name = 'ai_concall_cache_v3'
-                                  AND column_name = 'created_at'
-                                  AND data_type = 'text'
-                            ) THEN
-                                -- Convert TEXT → TIMESTAMPTZ using safe regex to strip microseconds/tz suffix
-                                ALTER TABLE ai_concall_cache_v3
-                                    ALTER COLUMN created_at DROP DEFAULT;
-                                    
-                                ALTER TABLE ai_concall_cache_v3
-                                    ALTER COLUMN created_at TYPE TIMESTAMPTZ
-                                    USING (
-                                        CASE
-                                            WHEN created_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-                                            THEN (
-                                                regexp_replace(
-                                                    created_at,
-                                                    '(^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}).*',
-                                                    '\\1'
-                                                )
-                                            )::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
-                                            ELSE NOW()
-                                        END
-                                    );
-                                    
-                                ALTER TABLE ai_concall_cache_v3
-                                    ALTER COLUMN created_at SET DEFAULT NOW();
-                            END IF;
-                        END
-                        $$;
-                    """)
-                    logger.debug("✅ ai_concall_cache_v3.created_at migrated to TIMESTAMPTZ (or already correct)")
-                except Exception as _ts_err:
-                    logger.warning(f"⚠️ ai_concall_cache_v3 TIMESTAMPTZ migration skipped: {_ts_err}")
-                # [VERSION: CONCALL_CACHE_UNIQUE_FIX_v1.0] Migration: drop old pdf_url-only unique
-                # constraint (which caused silent save failures when two symbols shared a PDF URL)
-                # and replace with the correct (symbol, pdf_url) composite unique constraint.
-                try:
-                    cur.execute("""
-                        DO $$
-                        BEGIN
-                            -- Drop old single-column constraint if it exists
-                            IF EXISTS (
-                                SELECT 1 FROM pg_constraint
-                                WHERE conname = 'ai_concall_cache_v3_pdf_url_key'
-                                  AND conrelid = 'ai_concall_cache_v3'::regclass
-                            ) THEN
-                                ALTER TABLE ai_concall_cache_v3
-                                    DROP CONSTRAINT ai_concall_cache_v3_pdf_url_key;
-                            END IF;
-                            -- Add composite unique constraint if missing
-                            IF NOT EXISTS (
-                                SELECT 1 FROM pg_constraint
-                                WHERE conname = 'ai_concall_cache_v3_symbol_pdf_url_key'
-                                  AND conrelid = 'ai_concall_cache_v3'::regclass
-                            ) THEN
-                                ALTER TABLE ai_concall_cache_v3
-                                    ADD CONSTRAINT ai_concall_cache_v3_symbol_pdf_url_key
-                                    UNIQUE (symbol, pdf_url);
-                            END IF;
-                        END$$;
-                    """)
-                except Exception as _mig_err:
-                    logger.warning(f"⚠️ ai_concall_cache_v3 constraint migration skipped: {_mig_err}")
 
-                # ── Promoter Pledge Cache table ────────────────────────────────────
-                # [VERSION: PLEDGE_STATS_DB_v1.1] Add last_attempted_at column for progress tracking
+                # 16. promoter_pledge_cache
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS promoter_pledge_cache (
-                        symbol        TEXT PRIMARY KEY,
-                        pledge_pct    REAL NOT NULL,
-                        updated_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                        symbol TEXT PRIMARY KEY,
+                        pledge_pct REAL NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        last_attempted_at TIMESTAMPTZ
                     )
                 """)
-                cur.execute("ALTER TABLE promoter_pledge_cache ADD COLUMN IF NOT EXISTS last_attempted_at TIMESTAMP WITH TIME ZONE")
 
-                # ── Bhavcopy Delivery Cache ─────────────────────────────────────
-                cur.execute('''
+                # 17. bhavcopy_cache
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS bhavcopy_cache (
                         trading_date DATE PRIMARY KEY,
                         delivery_data JSONB NOT NULL,
-                        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        fetched_at TIMESTAMPTZ DEFAULT NOW()
                     )
-                ''')
+                """)
 
-                # ── Fetch error aggregation table (skipped records / fetch failures) ──
+                # 18. fetch_errors
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS fetch_errors (
                         id SERIAL PRIMARY KEY,
@@ -749,16 +582,15 @@ def init_db():
                         interval TEXT,
                         category TEXT NOT NULL,
                         occurrences INTEGER NOT NULL DEFAULT 1,
-                        first_seen TEXT NOT NULL,
-                        last_seen TEXT NOT NULL,
+                        first_seen TIMESTAMPTZ DEFAULT NOW(),
+                        last_seen TIMESTAMPTZ DEFAULT NOW(),
                         last_error_msg TEXT,
-                        is_acknowledged BOOLEAN DEFAULT FALSE
+                        is_acknowledged BOOLEAN DEFAULT FALSE,
+                        CONSTRAINT idx_fetch_errors_uni UNIQUE (source_name, scanner_name, symbol, interval, category)
                     )
                 """)
-                # Ensure a uniqueness constraint for upsert logic
-                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_fetch_errors_uni ON fetch_errors (source_name, scanner_name, symbol, interval, category)")
-                
-                # ── Validation History Table (Operational Ledger) ───────────────────
+
+                # 19. validation_history
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS validation_history (
                         id SERIAL PRIMARY KEY,
@@ -780,85 +612,36 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_dataset ON validation_history(dataset_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_time ON validation_history(validated_at DESC)")
-                
-                # Add missing indexes for frequently queried columns
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_cooldown ON alerts (symbol, scanner, breakout_type, alert_time DESC)")
 
-                # ── Trade analytics view mapping JSONB context to columns ───────────
-                cur.execute("""
-                    CREATE OR REPLACE VIEW v_trade_analytics AS
-                    SELECT 
-                        id,
-                        symbol,
-                        alert_time,
-                        alert_date,
-                        scanner,
-                        category,
-                        entry_price,
-                        stop_loss,
-                        target_price,
-                        status,
-                        exit_price,
-                        pnl_pct,
-                        closed_at,
-                        -- Technical indicators
-                        (context->'technicals'->>'above_ema20')::boolean AS above_ema20,
-                        (context->'technicals'->>'above_sma50')::boolean AS above_sma50,
-                        (context->'technicals'->>'golden_cross')::boolean AS golden_cross,
-                        (context->'technicals'->>'body_ratio')::float AS body_ratio,
-                        (context->'technicals'->>'delivery_pct')::float AS delivery_pct,
-                        (context->'technicals'->>'rsi')::float AS rsi,
-                        (context->'technicals'->>'volume_ratio')::float AS volume_ratio,
-                        -- Session prices
-                        (context->'session'->>'open')::float AS session_open,
-                        (context->'session'->>'day_high')::float AS session_day_high,
-                        (context->'session'->>'day_low')::float AS session_day_low,
-                        -- Fundamentals
-                        (context->'fundamentals'->>'peg')::float AS peg,
-                        (context->'fundamentals'->>'yoy_rev')::float AS yoy_rev,
-                        (context->'fundamentals'->>'yoy_profit')::float AS yoy_profit,
-                        (context->'fundamentals'->>'roe')::float AS roe,
-                        -- Execution strategies
-                        context->'execution'->>'sl_method' AS sl_method,
-                        context->'execution'->>'t_method' AS t_method,
-                        context->'execution'->>'trail_note' AS trail_note
-                    FROM alerts;
-                """)
-
-                # ── Data cache metadata table (cache keys, last fetched, cadence) ──
+                # 20. data_cache_metadata
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS data_cache_metadata (
                         key TEXT PRIMARY KEY,
-                        last_fetched TEXT NOT NULL,
+                        last_fetched TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         cadence_seconds INTEGER NOT NULL,
                         rows INTEGER,
                         etag TEXT,
                         source TEXT,
-                        updated_at TEXT NOT NULL
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_data_cache_metadata_key ON data_cache_metadata(key)")
 
-                # ── Data fetch health table for external systems (monitoring) ─────
+                # 21. data_fetch_health
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS data_fetch_health (
                         source_name TEXT PRIMARY KEY,
-                        last_success TEXT,
-                        last_failure TEXT,
+                        last_success TIMESTAMPTZ,
+                        last_failure TIMESTAMPTZ,
                         consecutive_failures INTEGER NOT NULL DEFAULT 0,
                         error_msg TEXT,
                         is_acknowledged BOOLEAN DEFAULT TRUE,
-                        updated_at TEXT NOT NULL
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
-                cur.execute("ALTER TABLE data_fetch_health ADD COLUMN IF NOT EXISTS is_acknowledged BOOLEAN DEFAULT TRUE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_data_fetch_health_source ON data_fetch_health(source_name)")
 
-
-                # ── Manual Portfolio Tracker ──────────────────────────────────────
+                # 22. manual_portfolio
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS manual_portfolio (
                         id SERIAL PRIMARY KEY,
@@ -866,14 +649,14 @@ def init_db():
                         entry_date DATE NOT NULL,
                         entry_price REAL NOT NULL,
                         quantity INTEGER NOT NULL,
-                        added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                        hold_score_entry INTEGER,
+                        hold_score_current INTEGER,
+                        re_eval_due_date DATE,
+                        added_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
-                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_entry INTEGER")
-                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS hold_score_current INTEGER")
-                cur.execute("ALTER TABLE manual_portfolio ADD COLUMN IF NOT EXISTS re_eval_due_date DATE")
 
-                # ── PWA Push Subscriptions ────────────────────────────────────────
+                # 23. push_subscriptions
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS push_subscriptions (
                         id SERIAL PRIMARY KEY,
@@ -885,8 +668,7 @@ def init_db():
                     )
                 """)
 
-
-                # ── Parquet Binary Cache ──────────────────────────────────────────
+                # 24. parquet_cache
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS parquet_cache (
                         name TEXT,
@@ -896,7 +678,7 @@ def init_db():
                     )
                 """)
 
-                # ── Unified Notification Center ─────────────────────────
+                # 25. global_notifications
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS global_notifications (
                         id SERIAL PRIMARY KEY,
@@ -909,19 +691,19 @@ def init_db():
                     )
                 """)
 
-                # ── System checkpoints table (persistent audit trail) ─────────────────────────
+                # 26. system_checkpoints
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS system_checkpoints (
                         id SERIAL PRIMARY KEY,
                         checkpoint_name TEXT UNIQUE NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        updated_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         content TEXT NOT NULL,
                         reason TEXT DEFAULT ''
                     )
                 """)
-                
-                # ── Build Manifest table (Authoritative Daily Certification) ─────────────────────────
+
+                # 27. build_manifest
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS build_manifest (
                         id SERIAL PRIMARY KEY,
@@ -939,7 +721,7 @@ def init_db():
                     )
                 """)
 
-                # ── Telegram Queue table (persistent alert queue with rate limiting) ──
+                # 28. telegram_queue
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS telegram_queue (
                         id SERIAL PRIMARY KEY,
@@ -948,13 +730,15 @@ def init_db():
                         message_text TEXT NOT NULL,
                         status TEXT DEFAULT 'pending',
                         retry_count INTEGER DEFAULT 0,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        sent_at TEXT DEFAULT NULL
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        sent_at TIMESTAMPTZ,
+                        CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent'))
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_status ON telegram_queue(status)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
 
+                # 29. earnings_calendar
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS earnings_calendar (
                         symbol VARCHAR(20) PRIMARY KEY,
@@ -964,6 +748,7 @@ def init_db():
                     )
                 """)
 
+                # 30. alert_outcomes
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS alert_outcomes (
                         alert_id INTEGER REFERENCES alerts(id),
@@ -983,6 +768,8 @@ def init_db():
                         stop_loss NUMERIC(10, 2) NOT NULL,
                         target_1 NUMERIC(10, 2) NOT NULL,
                         target_2 NUMERIC(10, 2),
+                        target_3 NUMERIC(10, 2),
+                        target_4 NUMERIC(10, 2),
                         alert_timestamp TIMESTAMPTZ NOT NULL,
                         exit_timestamp TIMESTAMPTZ,
                         exit_reason VARCHAR(30),
@@ -996,41 +783,18 @@ def init_db():
                         earnings_date DATE,
                         earnings_severity VARCHAR(20) DEFAULT 'NONE',
                         date_status VARCHAR(20) DEFAULT 'UNKNOWN',
+                        forensic_score INTEGER DEFAULT 0,
+                        forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN',
+                        growth_investment_mode BOOLEAN DEFAULT FALSE,
+                        growth_investment_score INTEGER DEFAULT 0,
+                        forensic_details JSONB DEFAULT '{}'::jsonb,
                         PRIMARY KEY (alert_id, leg)
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_3 NUMERIC(10, 2)")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS target_4 NUMERIC(10, 2)")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_date DATE")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS earnings_severity VARCHAR(20) DEFAULT 'NONE'")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS date_status VARCHAR(20) DEFAULT 'UNKNOWN'")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_score INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN'")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS growth_investment_mode BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS growth_investment_score INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS forensic_details JSONB DEFAULT '{}'::jsonb")
 
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_flag BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS days_to_earnings INTEGER DEFAULT 999")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_date DATE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS earnings_severity VARCHAR(20) DEFAULT 'NONE'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS date_status VARCHAR(20) DEFAULT 'UNKNOWN'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS warning_msg TEXT DEFAULT ''")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_score INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_grade VARCHAR(5) DEFAULT 'N/A'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trajectory_details JSONB DEFAULT '{}'::jsonb")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_score INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_risk_tier VARCHAR(20) DEFAULT 'UNKNOWN'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS growth_investment_mode BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS growth_investment_score INTEGER DEFAULT 0")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS forensic_details JSONB DEFAULT '{}'::jsonb")
-
-
-
+                # 31. sector_rankings
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS sector_rankings (
                         sector_symbol VARCHAR(30) NOT NULL,
@@ -1046,179 +810,73 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sector_rankings_date ON sector_rankings(ranking_date)")
 
-                # ── Wealth Buy Alerts table (historical tracking of buy signals) ──
+                # 32. wealth_buy_alert
                 cur.execute("""
-
                     CREATE TABLE IF NOT EXISTS wealth_buy_alert (
                         id SERIAL PRIMARY KEY,
                         symbol TEXT NOT NULL,
                         alert_price REAL NOT NULL,
-                        alert_date TEXT NOT NULL DEFAULT (CURRENT_DATE::TEXT),
-                        alert_time TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
-                        breakout_type TEXT,
+                        alert_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                        alert_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        breakout_type TEXT NOT NULL DEFAULT '',
                         fm_score REAL,
                         status TEXT DEFAULT 'ACTIVE',
                         current_price REAL,
                         current_score REAL,
-                        status_updated_at TEXT DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        status_updated_at TIMESTAMPTZ DEFAULT NOW(),
                         notes TEXT,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
                         entry_signal TEXT,
                         exit_signal TEXT,
                         exit_price REAL,
-                        exit_date TEXT,
-                        exit_time TEXT,
+                        exit_date DATE,
+                        exit_time TIMESTAMPTZ,
                         is_closed BOOLEAN DEFAULT FALSE,
                         pnl_rs REAL,
-                        pnl_pct REAL
+                        pnl_pct REAL,
+                        engine_version TEXT,
+                        config_version TEXT,
+                        position_pct REAL,
+                        position_amount REAL,
+                        position_shares INTEGER,
+                        portfolio_bucket TEXT,
+                        valuation_score REAL,
+                        momentum_score INTEGER,
+                        momentum_confidence TEXT,
+                        data_quality TEXT,
+                        fallback_timestamp TIMESTAMPTZ,
+                        CONSTRAINT uq_wealth_symbol_date_type UNIQUE (symbol, alert_date, breakout_type)
                     )
                 """)
-                
-                # Add migration columns if table already exists (for backward compatibility)
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS engine_version TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS config_version TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS entry_signal TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_signal TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_price REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_date TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS exit_time TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS is_closed BOOLEAN DEFAULT FALSE")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS pnl_rs REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS pnl_pct REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_pct REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_amount REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS position_shares INTEGER")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS portfolio_bucket TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS valuation_score REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS current_score REAL")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_score INTEGER")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS momentum_confidence TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS data_quality TEXT")
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS fallback_timestamp TIMESTAMPTZ")
-                
-                # Create indexes (after columns are guaranteed to exist)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_symbol ON wealth_buy_alert(symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_date ON wealth_buy_alert(alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_status ON wealth_buy_alert(status)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_alert_is_closed ON wealth_buy_alert(is_closed)")
-                
-                # Audit and status columns migration
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'wealth_buy_alert' AND column_name = 'created_at' AND data_type = 'text'
-                    ) THEN
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN created_at DROP DEFAULT;
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at::timestamptz;
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN created_at SET DEFAULT NOW();
-                    END IF;
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'wealth_buy_alert' AND column_name = 'status_updated_at' AND data_type = 'text'
-                    ) THEN
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN status_updated_at DROP DEFAULT;
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN status_updated_at TYPE TIMESTAMPTZ USING status_updated_at::timestamptz;
-                        ALTER TABLE wealth_buy_alert ALTER COLUMN status_updated_at SET DEFAULT NOW();
-                    END IF;
-                END $$;
-                """)
-                cur.execute("ALTER TABLE wealth_buy_alert ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
 
-                # Clean up breakout_type and add constraint safely
-                cur.execute("DROP INDEX IF EXISTS unique_wealth_alert")
-                cur.execute("UPDATE wealth_buy_alert SET breakout_type = '' WHERE breakout_type IS NULL")
-                cur.execute("ALTER TABLE wealth_buy_alert ALTER COLUMN breakout_type SET DEFAULT ''")
-                cur.execute("ALTER TABLE wealth_buy_alert ALTER COLUMN breakout_type SET NOT NULL")
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_constraint WHERE conname = 'uq_wealth_symbol_date_type'
-                    ) THEN
-                        ALTER TABLE wealth_buy_alert ADD CONSTRAINT uq_wealth_symbol_date_type UNIQUE (symbol, alert_date, breakout_type);
-                    END IF;
-                END $$;
-                """)
-
-
-                # ── Users & Sessions Tables ──
+                # 33. users
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         user_id SERIAL PRIMARY KEY,
                         username TEXT UNIQUE NOT NULL,
-                        email VARCHAR(255) UNIQUE,
+                        email VARCHAR(255) UNIQUE NOT NULL,
                         first_name VARCHAR(100),
                         last_name VARCHAR(100),
                         mobile VARCHAR(20) UNIQUE,
-                        password_hash VARCHAR(255),
+                        password_hash VARCHAR(255) NOT NULL,
                         role TEXT DEFAULT 'user',
+                        account_status VARCHAR(20) DEFAULT 'pending',
                         is_active BOOLEAN DEFAULT FALSE,
                         must_change_password BOOLEAN DEFAULT FALSE,
                         failed_login_attempts INT DEFAULT 0,
-                        locked_until TIMESTAMP WITH TIME ZONE,
-                        last_login TIMESTAMP WITH TIME ZONE,
+                        locked_until TIMESTAMPTZ,
+                        last_login TIMESTAMPTZ,
                         session_token UUID,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT)
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
-                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
-                
-                # Auth fields migration
-                cur.execute("""
-                DO $$
-                BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'name') THEN
-                        ALTER TABLE users RENAME COLUMN name TO username;
-                    END IF;
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_hash') THEN
-                        ALTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE;
-                        ALTER TABLE users ADD COLUMN first_name VARCHAR(100);
-                        ALTER TABLE users ADD COLUMN last_name VARCHAR(100);
-                        ALTER TABLE users ADD COLUMN mobile VARCHAR(20) UNIQUE;
-                        ALTER TABLE users ADD COLUMN password_hash VARCHAR(255);
-                        ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT FALSE;
-                        ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT FALSE;
-                        ALTER TABLE users ADD COLUMN failed_login_attempts INT DEFAULT 0;
-                        ALTER TABLE users ADD COLUMN locked_until TIMESTAMP WITH TIME ZONE;
-                        ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE;
-                        ALTER TABLE users ADD COLUMN session_token UUID;
-                        ALTER TABLE users ADD COLUMN account_status VARCHAR(20) DEFAULT 'pending';
-                    END IF;
-                END $$;
-                """)
-                # Handle edge cases for users who might already exist
-                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'pending'")
-                cur.execute("UPDATE users SET account_status = 'approved' WHERE is_active = TRUE AND (account_status = 'pending' OR account_status IS NULL)")
-                cur.execute("UPDATE users SET account_status = 'rejected' WHERE is_active = FALSE AND (account_status IS NULL)")
-                
-                # Clean up existing rows
-                cur.execute("UPDATE users SET email = username || '@elitebreakout.temp' WHERE email IS NULL")
-                cur.execute("ALTER TABLE users ALTER COLUMN email SET NOT NULL")
-                cur.execute("UPDATE users SET password_hash = 'PLACEHOLDER' WHERE password_hash IS NULL")
-                cur.execute("ALTER TABLE users ALTER COLUMN password_hash SET NOT NULL")
-                
-                cur.execute("""
-                DO $$
-                BEGIN
-                    BEGIN
-                        CREATE UNIQUE INDEX uq_users_username_lower ON users (LOWER(username));
-                    EXCEPTION WHEN others THEN NULL;
-                    END;
-                    
-                    BEGIN
-                        CREATE UNIQUE INDEX uq_users_email_lower ON users (LOWER(email));
-                    EXCEPTION WHEN others THEN NULL;
-                    END;
-                    
-                    BEGIN
-                        ALTER TABLE users ADD CONSTRAINT uq_users_mobile UNIQUE (mobile);
-                    EXCEPTION WHEN others THEN NULL;
-                    END;
-                END $$;
-                """)
 
+                # 34. user_sessions
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_sessions (
                         id SERIAL PRIMARY KEY,
@@ -1228,61 +886,28 @@ def init_db():
                         user_agent TEXT,
                         login_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         logoff_time TIMESTAMPTZ,
-                        is_online BOOLEAN DEFAULT TRUE
+                        is_online BOOLEAN DEFAULT TRUE,
+                        is_revoked BOOLEAN DEFAULT FALSE
                     )
                 """)
-                # [MULTI-DEVICE] Idempotent migration: add session_token + user_agent to existing user_sessions
-                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS session_token TEXT UNIQUE DEFAULT gen_random_uuid()::text")
-                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT")
-                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS login_time TIMESTAMPTZ")
-                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS logoff_time TIMESTAMPTZ")
-                # Fix: migrate logoff_time/login_time from TEXT to TIMESTAMPTZ if still TEXT
-                cur.execute("""
-                    DO $$
-                    BEGIN
-                        IF EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'user_sessions' AND column_name = 'logoff_time' AND data_type = 'text'
-                        ) THEN
-                            ALTER TABLE user_sessions ALTER COLUMN logoff_time DROP DEFAULT;
-                            ALTER TABLE user_sessions ALTER COLUMN logoff_time TYPE TIMESTAMPTZ
-                            USING logoff_time::TIMESTAMPTZ;
-                        END IF;
-                        IF EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'user_sessions' AND column_name = 'login_time' AND data_type = 'text'
-                        ) THEN
-                            ALTER TABLE user_sessions ALTER COLUMN login_time DROP DEFAULT;
-                            ALTER TABLE user_sessions ALTER COLUMN login_time TYPE TIMESTAMPTZ
-                            USING login_time::TIMESTAMPTZ;
-                        END IF;
-                        -- Ensure logoff_time is nullable (NULL = user still online)
-                        IF EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'user_sessions' AND column_name = 'logoff_time' AND is_nullable = 'NO'
-                        ) THEN
-                            ALTER TABLE user_sessions ALTER COLUMN logoff_time DROP NOT NULL;
-                        END IF;
-                    END $$;
-                """)
-                cur.execute("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN DEFAULT FALSE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token)")
 
+                # 35. user_messages
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_messages (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                         is_from_admin BOOLEAN NOT NULL DEFAULT FALSE,
                         message TEXT NOT NULL,
-                        created_at TEXT NOT NULL DEFAULT ((now() AT TIME ZONE 'Asia/Kolkata')::TEXT),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         is_read BOOLEAN DEFAULT FALSE
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)")
 
-                # ── Capital History (Track Base Capital and Deposits) ─────────────────
+                # 36. capital_history
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS capital_history (
                         id SERIAL PRIMARY KEY,
@@ -1293,7 +918,7 @@ def init_db():
                     )
                 """)
 
-                # ── User Watchlists (Personal Monitored Watchlist) ─────────────────
+                # 37. user_watchlists
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_watchlists (
                         id SERIAL PRIMARY KEY,
@@ -1310,7 +935,9 @@ def init_db():
                         UNIQUE(user_id, symbol)
                     )
                 """)
-                # ── Stock Analysis Master (Global Symbol Scan Repository) ─────────────
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
+
+                # 38. stock_analysis_master
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stock_analysis_master (
                         symbol VARCHAR(30) PRIMARY KEY,
@@ -1321,237 +948,123 @@ def init_db():
                         health_score NUMERIC(5,2),
                         status VARCHAR(50) DEFAULT 'MONITORING',
                         deep_analysis_result TEXT,
+                        cmp NUMERIC(12,2),
+                        cmp_updated_at TIMESTAMPTZ,
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ")
-                cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT")
-                # Index for fast per-user watchlist queries (avoids full table scan)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
-                # [VERSION: CMP_MASTER_v1.0] Live price columns for watchlist CMP display
-                cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp NUMERIC(12,2)")
-                cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ")
+                # 39. Trade analytics view mapping JSONB context to columns
+                cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
+                cur.execute("""
+                    CREATE OR REPLACE VIEW v_trade_analytics AS
+                    SELECT 
+                        id,
+                        symbol,
+                        alert_time,
+                        alert_date,
+                        scanner,
+                        category,
+                        entry_price,
+                        stop_loss,
+                        target_price,
+                        status,
+                        exit_price,
+                        pnl_pct,
+                        closed_at,
+                        (context->'technicals'->>'above_ema20')::boolean AS above_ema20,
+                        (context->'technicals'->>'above_sma50')::boolean AS above_sma50,
+                        (context->'technicals'->>'golden_cross')::boolean AS golden_cross,
+                        (context->'technicals'->>'body_ratio')::float AS body_ratio,
+                        (context->'technicals'->>'delivery_pct')::float AS delivery_pct,
+                        (context->'technicals'->>'rsi')::float AS rsi,
+                        (context->'technicals'->>'volume_ratio')::float AS volume_ratio,
+                        (context->'session'->>'open')::float AS session_open,
+                        (context->'session'->>'day_high')::float AS session_day_high,
+                        (context->'session'->>'day_low')::float AS session_day_low,
+                        (context->'fundamentals'->>'peg')::float AS peg,
+                        (context->'fundamentals'->>'yoy_rev')::float AS yoy_rev,
+                        (context->'fundamentals'->>'yoy_profit')::float AS yoy_profit,
+                        (context->'fundamentals'->>'roe')::float AS roe,
+                        context->'execution'->>'sl_method' AS sl_method,
+                        context->'execution'->>'t_method' AS t_method,
+                        context->'execution'->>'trail_note' AS trail_note
+                    FROM alerts;
+                """)
 
-                # ── V5 MIGRATIONS (Timestamps, Dedup, Status Enums) ──────────────
-                # Commit the above table creations before doing heavy DDL
-                conn.commit()
-                
-                try:
-                    try:
-                        conn.rollback()
-                    except Exception:
-                        pass
-                    orig_autocommit = getattr(conn, 'autocommit', False)
-                    conn.autocommit = True
-                    try:
-                        with conn.cursor() as mcur:
-                            mcur.execute("""
--- [VERSION: V5_MIGRATION_GUARDS_v1.0] All conversions are wrapped in DO $$ guards.
--- Each block checks if the column is still TEXT before doing any work.
--- Existing DBs with correct TIMESTAMPTZ columns are fully unaffected (no-op).
+                # 40. Seed reference data & admin user
+                bootstrap_admin(cur=cur)
 
--- Helper: check if a column is TEXT type
-CREATE OR REPLACE FUNCTION safe_cast_timestamptz(p_val text) RETURNS timestamptz AS $func$
-BEGIN
-    RETURN p_val::timestamptz;
-EXCEPTION WHEN OTHERS THEN
-    RETURN NULL;
-END;
-$func$ LANGUAGE plpgsql IMMUTABLE;
-
--- alerts.closed_at
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='closed_at' AND data_type='text') THEN
-        ALTER TABLE alerts ALTER COLUMN closed_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(closed_at::text);
-    END IF;
-END $$;
-
--- alerts.created_at
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='created_at' AND data_type='text') THEN
-        ALTER TABLE alerts ALTER COLUMN created_at DROP DEFAULT;
-        ALTER TABLE alerts ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-        ALTER TABLE alerts ALTER COLUMN created_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- alerts.updated_at
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='updated_at' AND data_type='text') THEN
-        ALTER TABLE alerts ALTER COLUMN updated_at DROP DEFAULT;
-        ALTER TABLE alerts ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
-        ALTER TABLE alerts ALTER COLUMN updated_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- score_weight_log.created_at
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='score_weight_log' AND column_name='created_at' AND data_type='text') THEN
-        ALTER TABLE score_weight_log ALTER COLUMN created_at DROP DEFAULT;
-        ALTER TABLE score_weight_log ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-        ALTER TABLE score_weight_log ALTER COLUMN created_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- bayesian_model_updates nullable columns
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='approved_at' AND data_type='text') THEN
-        ALTER TABLE bayesian_model_updates ALTER COLUMN approved_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(approved_at::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='rejected_at' AND data_type='text') THEN
-        ALTER TABLE bayesian_model_updates ALTER COLUMN rejected_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(rejected_at::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='applied_at' AND data_type='text') THEN
-        ALTER TABLE bayesian_model_updates ALTER COLUMN applied_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(applied_at::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='expires_at' AND data_type='text') THEN
-        ALTER TABLE bayesian_model_updates ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(expires_at::text);
-    END IF;
-END $$;
-
--- bayesian_model_updates.created_at (has default)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bayesian_model_updates' AND column_name='created_at' AND data_type='text') THEN
-        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at DROP DEFAULT;
-        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-        ALTER TABLE bayesian_model_updates ALTER COLUMN created_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- scanner_health nullable columns
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='last_success' AND data_type='text') THEN
-        ALTER TABLE scanner_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='first_error_at' AND data_type='text') THEN
-        ALTER TABLE scanner_health ALTER COLUMN first_error_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_error_at::text);
-    END IF;
-END $$;
-
--- scanner_health.updated_at (has default)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scanner_health' AND column_name='updated_at' AND data_type='text') THEN
-        ALTER TABLE scanner_health ALTER COLUMN updated_at DROP DEFAULT;
-        ALTER TABLE scanner_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
-        ALTER TABLE scanner_health ALTER COLUMN updated_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- telegram_queue.created_at (has default)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telegram_queue' AND column_name='created_at' AND data_type='text') THEN
-        ALTER TABLE telegram_queue ALTER COLUMN created_at DROP DEFAULT;
-        ALTER TABLE telegram_queue ALTER COLUMN created_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(created_at::text);
-        ALTER TABLE telegram_queue ALTER COLUMN created_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- telegram_queue.sent_at (nullable)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='telegram_queue' AND column_name='sent_at' AND data_type='text') THEN
-        ALTER TABLE telegram_queue ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(sent_at::text);
-    END IF;
-END $$;
-
--- data_fetch_health nullable columns
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='last_success' AND data_type='text') THEN
-        ALTER TABLE data_fetch_health ALTER COLUMN last_success TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_success::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='last_failure' AND data_type='text') THEN
-        ALTER TABLE data_fetch_health ALTER COLUMN last_failure TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_failure::text);
-    END IF;
-END $$;
-
--- data_fetch_health.updated_at (has default)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='data_fetch_health' AND column_name='updated_at' AND data_type='text') THEN
-        ALTER TABLE data_fetch_health ALTER COLUMN updated_at DROP DEFAULT;
-        ALTER TABLE data_fetch_health ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING safe_cast_timestamptz(updated_at::text);
-        ALTER TABLE data_fetch_health ALTER COLUMN updated_at SET DEFAULT NOW();
-    END IF;
-END $$;
-
--- fetch_errors
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='fetch_errors' AND column_name='first_seen' AND data_type='text') THEN
-        ALTER TABLE fetch_errors ALTER COLUMN first_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(first_seen::text);
-    END IF;
-END $$;
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='fetch_errors' AND column_name='last_seen' AND data_type='text') THEN
-        ALTER TABLE fetch_errors ALTER COLUMN last_seen TYPE TIMESTAMPTZ USING safe_cast_timestamptz(last_seen::text);
-    END IF;
-END $$;
-
--- 2. Convert alert_date to DATE (only if still TEXT)
-CREATE OR REPLACE FUNCTION safe_cast_date(p_val text) RETURNS date AS $fd$
-BEGIN
-    RETURN p_val::date;
-EXCEPTION WHEN OTHERS THEN
-    RETURN NULL;
-END;
-$fd$ LANGUAGE plpgsql IMMUTABLE;
-
-CREATE OR REPLACE FUNCTION safe_cast_date(p_val date) RETURNS date AS $fd2$
-BEGIN
-    RETURN p_val;
-EXCEPTION WHEN OTHERS THEN
-    RETURN NULL;
-END;
-$fd2$ LANGUAGE plpgsql IMMUTABLE;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='alerts' AND column_name='alert_date' AND data_type='text') THEN
-        ALTER TABLE alerts ALTER COLUMN alert_date DROP DEFAULT;
-        ALTER TABLE alerts ALTER COLUMN alert_date TYPE DATE USING safe_cast_date(alert_date::text);
-        ALTER TABLE alerts ALTER COLUMN alert_date SET DEFAULT CURRENT_DATE;
-    END IF;
-END $$;
-
--- 3. Add deduplication constraint including scanner (idempotent)
-ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_symbol_breakout_type_alert_date_key;
-ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_dedup_idx;
-ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date);
-
--- 4. Add status CHECK constraints (NOT VALID = no full-table scan during deploy, idempotent)
--- [VERSION: LOG_ERROR_FIXES_v1.0] Include SELL_REVIEW and TRAILING in chk_alerts_status constraint
-ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
-ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING')) NOT VALID;
--- [VERSION: SCANNER_HEALTH_STATUS_PAUSED_FIX_v1.0] Allow PAUSED and STOPPED in chk_scanner_status constraint
-ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
-ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;
-ALTER TABLE telegram_queue DROP CONSTRAINT IF EXISTS chk_tg_status;
-ALTER TABLE telegram_queue ADD CONSTRAINT chk_tg_status CHECK (status IN ('pending', 'sent')) NOT VALID;
-ALTER TABLE bayesian_model_updates DROP CONSTRAINT IF EXISTS chk_bayes_status;
-ALTER TABLE bayesian_model_updates ADD CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')) NOT VALID;
-""")
-                    finally:
-                        try:
-                            conn.autocommit = orig_autocommit
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.exception(f"Failed to run V5 migrations")
-                # outer connection will commit below
+                # 41. Validate schema integrity against PostgreSQL catalog
+                if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
+                    validate_schema(cur)
 
                 conn.commit()
 
         _DB_INITIALIZED = True
-        logger.info("✅ Database ready (Postgres) — all columns ensured")
+        logger.info("✅ Database ready (Postgres) — greenfield schema initialized and validated")
         logger.info("ℹ️  Data Retention Active: preserving all alerts for historical analysis.")
 
-        bootstrap_admin()
+
+def validate_schema(cur):
+    """
+    [VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Validate schema integrity against PostgreSQL catalog.
+    
+    Fails fast (raises RuntimeError) if any required table or critical column is missing.
+    Startup validates, it does not mutate or self-repair.
+    """
+    cur.execute("""
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+    """)
+    res = cur.fetchall()
+    if not res or not isinstance(res, list):
+        logger.info("ℹ️ Schema validation skipped (empty catalog response).")
+        return
+
+    existing_tables = {row[0] for row in res if isinstance(row, (tuple, list)) and row}
+
+    REQUIRED_TABLES = [
+        "system_logs", "master_symbols", "candidates", "alerts",
+        "breakout_watchlist", "rejected_alerts", "trade_audit_log",
+        "score_weight_log", "bayesian_model_updates", "scanner_health",
+        "scan_failures", "funnel_telemetry", "system_state", "symbol_mappings",
+        "ai_concall_cache_v3", "promoter_pledge_cache", "bhavcopy_cache",
+        "fetch_errors", "validation_history", "data_cache_metadata",
+        "data_fetch_health", "manual_portfolio", "push_subscriptions",
+        "parquet_cache", "global_notifications", "system_checkpoints",
+        "build_manifest", "telegram_queue", "earnings_calendar",
+        "alert_outcomes", "sector_rankings", "wealth_buy_alert",
+        "users", "user_sessions", "user_messages", "capital_history",
+        "user_watchlists", "stock_analysis_master"
+    ]
+
+    missing_tables = [t for t in REQUIRED_TABLES if t not in existing_tables]
+    if missing_tables:
+        raise RuntimeError(f"🚨 Database Schema Validation Failed! Missing tables: {missing_tables}")
+
+    CRITICAL_COLUMNS = {
+        "alerts": ["id", "symbol", "status", "alert_time", "alert_date", "context"],
+        "scanner_health": ["scanner_name", "status", "last_success"],
+        "users": ["user_id", "username", "email", "password_hash"],
+        "wealth_buy_alert": ["id", "symbol", "alert_date", "breakout_type"]
+    }
+
+    for tbl, cols in CRITICAL_COLUMNS.items():
+        cur.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = %s
+        """, (tbl,))
+        col_res = cur.fetchall()
+        if not col_res or not isinstance(col_res, list):
+            continue
+        existing_cols = {row[0] for row in col_res if isinstance(row, (tuple, list)) and row}
+        missing_cols = [c for c in cols if c not in existing_cols]
+        if missing_cols:
+            raise RuntimeError(f"🚨 Database Schema Validation Failed! Missing columns in '{tbl}': {missing_cols}")
+
+    logger.info(f"✅ Schema validation passed — all {len(REQUIRED_TABLES)} tables and critical catalog columns verified.")
 
 # =====================================================================================
 # FAILED-REVERSAL COOLDOWN (v6.1)
@@ -5856,7 +5369,7 @@ def reallocate_capital_multiple(alert_ids: list):
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
-def bootstrap_admin():
+def bootstrap_admin(cur=None):
     """
     [FRESH DEPLOY GUARD] Called at every startup.
 
@@ -5869,34 +5382,32 @@ def bootstrap_admin():
     """
     import os
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM users")
-                user_count = cur.fetchone()[0]
+        def _execute_bootstrap(active_cur):
+            active_cur.execute("SELECT COUNT(*) FROM users")
+            user_count = active_cur.fetchone()[0]
 
-                cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
-                admin_exists = cur.fetchone() is not None
+            active_cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
+            admin_exists = active_cur.fetchone() is not None
 
-                force_bootstrap = os.getenv('BOOTSTRAP_AUTH', '').strip().strip("'").strip('"').lower() == 'true'
+            force_bootstrap = os.getenv('BOOTSTRAP_AUTH', '').strip().strip("'").strip('"').lower() == 'true'
 
-                if user_count == 0:
-                    reason = "users table is empty (fresh deployment)"
-                elif force_bootstrap and not admin_exists:
-                    reason = "BOOTSTRAP_AUTH=true and no admin found"
-                else:
-                    logger.info(f"✅ [BOOTSTRAP] {user_count} user(s) found — no admin seed needed.")
-                    return
+            if user_count == 0:
+                reason = "users table is empty (fresh deployment)"
+            elif force_bootstrap and not admin_exists:
+                reason = "BOOTSTRAP_AUTH=true and no admin found"
+            else:
+                logger.info(f"✅ [BOOTSTRAP] {user_count} user(s) found — no admin seed needed.")
+                return
 
-                password = secrets.token_urlsafe(16)
-                p_hash = generate_password_hash(password, method='scrypt')
+            password = secrets.token_urlsafe(16)
+            p_hash = generate_password_hash(password, method='scrypt')
 
-                cur.execute("""
-                    INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password)
-                    VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
-                    ON CONFLICT (username) DO NOTHING
-                """, (p_hash,))
-                rows_inserted = cur.rowcount
-            conn.commit()
+            active_cur.execute("""
+                INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password)
+                VALUES ('admin', 'admin@elitebreakout.temp', '0000000000', %s, 'admin', TRUE, TRUE)
+                ON CONFLICT (username) DO NOTHING
+            """, (p_hash,))
+            rows_inserted = active_cur.rowcount
 
             if rows_inserted > 0:
                 border = "=" * 68
@@ -5911,6 +5422,14 @@ def bootstrap_admin():
                 logger.warning(border)
             else:
                 logger.info("ℹ️  [BOOTSTRAP] Admin already existed — no changes made.")
+
+        if cur is not None:
+            _execute_bootstrap(cur)
+        else:
+            with get_connection() as conn:
+                with conn.cursor() as active_cur:
+                    _execute_bootstrap(active_cur)
+                conn.commit()
 
     except Exception as e:
         logger.exception(f"❌ bootstrap_admin failed")

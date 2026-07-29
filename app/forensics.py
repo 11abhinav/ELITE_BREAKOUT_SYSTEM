@@ -14,9 +14,11 @@ import psutil
 import threading
 import logging
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 FORENSICS_DIR = os.path.join(os.path.dirname(__file__), "data", "forensics")
 
@@ -52,7 +54,7 @@ class ForensicTelemetry:
     def _write_record(self, filepath: str, record: Dict[str, Any]):
         if not self.enabled:
             return
-        record["timestamp"] = datetime.now().isoformat()
+        record["timestamp"] = datetime.now(IST).isoformat()
         record["thread_id"] = threading.get_ident()
         record["thread_name"] = threading.current_thread().name
         
@@ -148,7 +150,7 @@ class ForensicTelemetry:
         """Aggregate all JSONL logs and generate End-of-Day forensic analysis report."""
         summary = {
             "report_date": date.today().isoformat(),
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(IST).isoformat(),
             "peak_rss_mb": 0.0,
             "total_scanners_executed": 0,
             "total_alerts_generated": 0,

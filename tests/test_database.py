@@ -297,9 +297,51 @@ def test_chk_alerts_status_contains_sell_review(mocker):
     execute_calls = mock_cur.execute.call_args_list
     queries = [call[0][0] for call in execute_calls]
 
-    chk_queries = [q for q in queries if "chk_alerts_status" in q and "ADD CONSTRAINT" in q]
-    assert len(chk_queries) > 0, "No chk_alerts_status ADD CONSTRAINT query found in init_db"
+    chk_queries = [q for q in queries if "chk_alerts_status" in q]
+    assert len(chk_queries) > 0, "No chk_alerts_status constraint found in init_db"
     for q in chk_queries:
         assert "SELL_REVIEW" in q, f"SELL_REVIEW missing from chk_alerts_status query: {q}"
         assert "TRAILING" in q, f"TRAILING missing from chk_alerts_status query: {q}"
+
+
+def test_validate_schema_success(mocker):
+    """[VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Ensure validate_schema passes when catalog contains all tables."""
+    from app.database import validate_schema
+    mock_cur = mocker.MagicMock()
+    # Mock information_schema.tables response with all required tables
+    required_tables = [
+        "system_logs", "master_symbols", "candidates", "alerts",
+        "breakout_watchlist", "rejected_alerts", "trade_audit_log",
+        "score_weight_log", "bayesian_model_updates", "scanner_health",
+        "scan_failures", "funnel_telemetry", "system_state", "symbol_mappings",
+        "ai_concall_cache_v3", "promoter_pledge_cache", "bhavcopy_cache",
+        "fetch_errors", "validation_history", "data_cache_metadata",
+        "data_fetch_health", "manual_portfolio", "push_subscriptions",
+        "parquet_cache", "global_notifications", "system_checkpoints",
+        "build_manifest", "telegram_queue", "earnings_calendar",
+        "alert_outcomes", "sector_rankings", "wealth_buy_alert",
+        "users", "user_sessions", "user_messages", "capital_history",
+        "user_watchlists", "stock_analysis_master"
+    ]
+    mock_cur.fetchall.side_effect = [
+        [(t,) for t in required_tables],  # tables query
+        [("id",), ("symbol",), ("status",), ("alert_time",), ("alert_date",), ("context",)],  # alerts columns
+        [("scanner_name",), ("status",), ("last_success",)],  # scanner_health columns
+        [("user_id",), ("username",), ("email",), ("password_hash",)],  # users columns
+        [("id",), ("symbol",), ("alert_date",), ("breakout_type",)]  # wealth_buy_alert columns
+    ]
+
+    validate_schema(mock_cur)
+    assert mock_cur.execute.call_count >= 5
+
+
+def test_validate_schema_raises_error_on_missing_table(mocker):
+    """[VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Ensure validate_schema raises RuntimeError if a table is missing."""
+    from app.database import validate_schema
+    mock_cur = mocker.MagicMock()
+    mock_cur.fetchall.return_value = [("alerts",), ("users",)]  # Incomplete catalog
+
+    with pytest.raises(RuntimeError, match="Missing tables"):
+        validate_schema(mock_cur)
+
 

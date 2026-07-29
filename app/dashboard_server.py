@@ -9,7 +9,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import time
 import threading
@@ -41,8 +41,13 @@ def serialize_datetimes(obj):
         return {k: serialize_datetimes(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [serialize_datetimes(i) for i in obj]
-    elif isinstance(obj, datetime):
-        return obj.astimezone(IST).isoformat()
+    elif isinstance(obj, (datetime, date)):
+        if isinstance(obj, datetime):
+            if obj.tzinfo is None:
+                obj = obj.replace(tzinfo=IST)
+            else:
+                obj = obj.astimezone(IST)
+        return obj.isoformat()
     return obj
 
 
@@ -2133,16 +2138,7 @@ def api_trigger_scanner(scanner_name):
                 os.remove(cache_path)
                 logger.info(f"🗑️ Cleared Multibagger fundamentals cache at {cache_path} before manual trigger.")
                 
-            # One-off data migration: Fix any corrupted current_score values > 100
-            try:
-                from database import get_connection
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE wealth_buy_alert SET current_score = fm_score WHERE current_score > 100;")
-                        conn.commit()
-                logger.info("🔧 Fixed corrupted current_score values > 100 in the database.")
-            except Exception as e:
-                logger.error(f"Failed to fix corrupted current_score values: {e}")
+
                 
         from main import trigger_scanner_manual
         result = trigger_scanner_manual(scanner_name)
