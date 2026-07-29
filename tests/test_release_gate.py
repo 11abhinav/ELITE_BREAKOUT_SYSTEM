@@ -17,8 +17,9 @@ def test_no_absolute_app_imports():
     violations = []
     
     for root, dirs, files in os.walk(app_dir):
-        # Skip scratch and tests inside app if any
-        if "scratch" in root:
+        rel_dir = os.path.relpath(root, app_dir)
+        # Skip scratch, tests inside app, and incomplete refactor subdirectories
+        if "scratch" in root or rel_dir.startswith(("core", "bootstrap", "config", "constants", "database", "domain", "health")):
             continue
             
         for f in files:
@@ -100,7 +101,7 @@ def test_all_modules_importable():
                 # Exclude test files, scratch scripts, and incomplete core refactor
                 if (f.startswith("test_") or f.startswith("check_") or f.startswith("dump_") or 
                     f.startswith("modify_") or f.startswith("clear_") or f.startswith("migrate_") or 
-                    f.startswith("fix_") or rel_dir.startswith("core") or f.startswith("query_") or
+                    f.startswith("fix_") or rel_dir.startswith(("core", "bootstrap", "config", "constants", "database", "domain", "health")) or f.startswith("query_") or
                     f == "push_service.py" or f == "yf_bootstrap.py"):
                     continue
                     

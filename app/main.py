@@ -963,7 +963,8 @@ def run_system_scheduler():
     """
     from wealth_engine import run_wealth_scan
     from config import WATCHLIST_PATH, DATA_DIR
-    from database import upsert_scanner_health
+    # [VERSION: LOG_ERROR_FIXES_v1.0] Hoist is_scanner_stopped import to top of run_system_scheduler scope to fix NameError in nested functions
+    from database import upsert_scanner_health, is_scanner_stopped
     
     WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
     

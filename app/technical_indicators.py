@@ -81,7 +81,8 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     HIGH_20D, HIGH_50D, HIGH_100D, HIGH_252D, HIGH_52W
     """
 
-    if df is None or df.empty:
+    # [VERSION: LOG_ERROR_FIXES_v1.0] Guard short DataFrames (<5 rows) to prevent IndexError on 14-period indicator calculations
+    if df is None or df.empty or len(df) < 5:
         return df
     # De-fragment the DataFrame to prevent pandas internal block manager crashes 
     # (e.g. np.bincount array too big) when assigning many columns sequentially.

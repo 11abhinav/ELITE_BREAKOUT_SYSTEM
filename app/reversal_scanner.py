@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from technical_indicators import apply_indicators
-from memory_profiler import MemoryProfiler
+from memory_profiler import MemoryProfiler, chunk_iterable, BatchMemoryTracker  # [VERSION: LOG_ERROR_FIXES_v1.0]
 from database import init_db, save_alert_if_new, save_candidate, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
@@ -1181,6 +1181,8 @@ def _run_scan(force: bool = False):
         logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
 
     import gc
+    # [VERSION: LOG_ERROR_FIXES_v1.0] Import chunk_iterable from memory_profiler
+    from memory_profiler import chunk_iterable, MemoryProfiler, BatchMemoryTracker
     BATCH_SIZE = 50
     total_fetched_count = 0
     total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE

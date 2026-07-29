@@ -282,3 +282,24 @@ def test_upsert_scanner_health_update(mocker):
     assert "error_msg = %s" in target_sql
     assert "2026-07-24T15:00:00" in target_params
     assert "Status: Updated progress" in target_params
+
+
+def test_chk_alerts_status_contains_sell_review(mocker):
+    """[VERSION: LOG_ERROR_FIXES_v1.0] Ensure SELL_REVIEW is present in chk_alerts_status constraint executed during init_db."""
+    import app.database
+    app.database._DB_INITIALIZED = False
+
+    mock_conn = mocker.patch("app.database.get_connection")
+    mock_cur = mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+
+    init_db()
+
+    execute_calls = mock_cur.execute.call_args_list
+    queries = [call[0][0] for call in execute_calls]
+
+    chk_queries = [q for q in queries if "chk_alerts_status" in q and "ADD CONSTRAINT" in q]
+    assert len(chk_queries) > 0, "No chk_alerts_status ADD CONSTRAINT query found in init_db"
+    for q in chk_queries:
+        assert "SELL_REVIEW" in q, f"SELL_REVIEW missing from chk_alerts_status query: {q}"
+        assert "TRAILING" in q, f"TRAILING missing from chk_alerts_status query: {q}"
+

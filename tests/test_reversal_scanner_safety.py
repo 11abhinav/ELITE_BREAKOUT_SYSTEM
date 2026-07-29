@@ -360,3 +360,33 @@ def test_core_technical_floor():
     verdict = _evaluate_candidate("TEST", df, fund_data={"Category": "Wealth Compounder"})
     if not verdict["passed"]:
         assert verdict.get("reject_code") in ("failed_pattern", "weak_core", "low_score")
+
+
+# ── TEST 26: Log Error Fixes v1.0 — chunk_iterable Import & Short DataFrame Guard ──
+def test_chunk_iterable_in_reversal_scanner():
+    """[VERSION: LOG_ERROR_FIXES_v1.0] Ensure chunk_iterable is imported and callable in reversal_scanner."""
+    from app.reversal_scanner import chunk_iterable
+    items = list(range(123))
+    chunks = list(chunk_iterable(items, 50))
+    assert len(chunks) == 3
+    assert len(chunks[0]) == 50
+    assert len(chunks[1]) == 50
+    assert len(chunks[2]) == 23
+
+
+def test_short_dataframe_apply_indicators_guard():
+    """[VERSION: LOG_ERROR_FIXES_v1.0] Ensure apply_indicators returns short DataFrames (<5 rows) without raising IndexError."""
+    from app.technical_indicators import apply_indicators
+    dates = pd.date_range("2026-07-28", periods=2, freq="D")
+    short_df = pd.DataFrame({
+        "Open": [100.0, 101.0],
+        "High": [105.0, 106.0],
+        "Low": [99.0, 100.0],
+        "Close": [102.0, 104.0],
+        "Volume": [1000, 2000]
+    }, index=dates)
+    
+    result = apply_indicators(short_df)
+    assert result is not None
+    assert len(result) == 2
+

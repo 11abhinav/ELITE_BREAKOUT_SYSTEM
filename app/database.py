@@ -330,8 +330,9 @@ def init_db():
                 
                 
                 # ── MIGRATIONS: safe to run every deploy ─────────────────────────────
+                # [VERSION: LOG_ERROR_FIXES_v1.0] Include SELL_REVIEW and TRAILING in chk_alerts_status constraint
                 cur.execute("ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status")
-                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2'))")
+                cur.execute("ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'))")
                 
                 # Drop dependent views before altering columns, they will be recreated below
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -1524,8 +1525,9 @@ ALTER TABLE alerts DROP CONSTRAINT IF EXISTS alerts_dedup_idx;
 ALTER TABLE alerts ADD CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date);
 
 -- 4. Add status CHECK constraints (NOT VALID = no full-table scan during deploy, idempotent)
+-- [VERSION: LOG_ERROR_FIXES_v1.0] Include SELL_REVIEW and TRAILING in chk_alerts_status constraint
 ALTER TABLE alerts DROP CONSTRAINT IF EXISTS chk_alerts_status;
-ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2')) NOT VALID;
+ALTER TABLE alerts ADD CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING')) NOT VALID;
 -- [VERSION: SCANNER_HEALTH_STATUS_PAUSED_FIX_v1.0] Allow PAUSED and STOPPED in chk_scanner_status constraint
 ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;
 ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;
