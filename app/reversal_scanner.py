@@ -38,11 +38,10 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Optional
 
 from technical_indicators import apply_indicators
-from memory_profiler import MemoryProfiler, chunk_iterable, BatchMemoryTracker
+from memory_profiler import MemoryProfiler, chunk_iterable
 from database import (
     init_db,
     save_alert_if_new,
-    upsert_fetch_error,
     upsert_scanner_health,
 )
 from price_cache import fetch_watchlist_data
@@ -54,7 +53,6 @@ from config import (
     ACTIVE_ALGO_VERSION
 )
 from sl_target_helper import compute_sl_and_target
-from delivery_data import fetch_delivery_data
 from surveillance import get_live_blacklist, force_refresh_blacklist
 
 
@@ -70,6 +68,7 @@ RSI_OVERSOLD_THRESHOLD = REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]
 RSI_CURL_MIN           = REVERSAL_CONFIG["RSI_CURL_MIN"]
 MIN_RSI_RECOVERY       = 8.0
 RSI_TROUGH_LOOKBACK    = 35
+MAX_TROUGH_AGE         = 10  # Enforce immediate recovery within 2 trading weeks
 
 MIN_VOLUME_RATIO       = REVERSAL_CONFIG["MIN_VOLUME_RATIO"]
 VOL_WINDOW_BARS        = 5
@@ -97,6 +96,19 @@ STALE_DEGRADED_RATIO = 0.15
 MIN_FETCH_RATIO = 0.85
 COMPONENT_MAX = 25 + 12 + 15 + 15 + 15 + 10 + 5 + 5 + 5 + 5   # = 112 max score points
 MAX_POSSIBLE_SCORE = COMPONENT_MAX
+
+
+def get_trading_days_age(start_date: date, end_date: date) -> int:
+    """Computes the number of trading days (excluding weekends) between start_date and end_date."""
+    if not start_date or not end_date or start_date <= end_date:
+        return 0
+    days = 0
+    curr = end_date
+    while curr < start_date:
+        curr += timedelta(days=1)
+        if curr.weekday() < 5:
+            days += 1
+    return days
 
 def _canonical_symbol(s: str) -> str:
     if not s:
@@ -660,7 +672,7 @@ def _evaluate_candidate(
     roe_val = _parse_percent_value(fund_data.get("ROE %")) if fund_data else None
     rev_growth = _parse_percent_value(fund_data.get("YOY Revenue %")) if fund_data else None
 
-    if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None) and not is_quality_cat:
+    if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None):
         return {
             "passed": False,
             "reject_reason": "Fundamentals unavailable (fail-closed)",
@@ -671,7 +683,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if roe_val is not None and roe_val < MIN_ROE and not is_quality_cat:
+    if roe_val is not None and roe_val < MIN_ROE:
         return {
             "passed": False,
             "reject_reason": f"ROE {roe_val:.1f}% < {MIN_ROE}% minimum threshold",
@@ -682,7 +694,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if rev_growth is not None and rev_growth < MIN_YOY_REVENUE_GROWTH and not is_quality_cat:
+    if rev_growth is not None and rev_growth < MIN_YOY_REVENUE_GROWTH:
         return {
             "passed": False,
             "reject_reason": f"YoY Revenue Growth {rev_growth:.1f}% < {MIN_YOY_REVENUE_GROWTH}% minimum threshold",
@@ -723,7 +735,6 @@ def _evaluate_candidate(
     bars_since_trough = (len(df) - 1 - df.index.get_loc(trough_idx)) if trough_idx in df.index else 99
     rsi_recovery = current_rsi - past_rsi_min
 
-    MAX_TROUGH_AGE = 25
     if current_rsi < RSI_CURL_MIN or past_rsi_min > RSI_OVERSOLD_THRESHOLD or rsi_recovery < MIN_RSI_RECOVERY or bars_since_trough > MAX_TROUGH_AGE:
         return {
             "passed": False,
@@ -760,17 +771,17 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    effective_vol_ratio = vol_ratio if vol_ratio is not None else vol_ratio_max
-    if effective_vol_ratio < MIN_VOLUME_RATIO:
-        return {
-            "passed": False,
-            "reject_reason": f"Volume ratio {effective_vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation",
-            "reject_code": "low_volume",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
+    if not is_synthetic_no_vol:
+        if vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
+            return {
+                "passed": False,
+                "reject_reason": f"Current volume ratio {vol_ratio if vol_ratio is not None else 0.0:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation",
+                "reject_code": "low_volume",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
 
     if _is_climax_top(df, close_price, candle_high, candle_low, vol_ratio=vol_ratio):
         return {
@@ -803,25 +814,17 @@ def _evaluate_candidate(
     can_sym = _canonical_symbol(symbol)
     delivery_pct = _lookup(delivery_map, symbol, can_sym)
     today_ist_date = datetime.now(IST).date()
-    age = (today_ist_date - resolved_date).days if resolved_date else 99
+    age = get_trading_days_age(today_ist_date, resolved_date) if resolved_date else 99
     delivery_conf = 1.0 if age == 0 else (0.5 if age == 1 else 0.0)
 
     # ── Normalize AVAILABLE_MAX across all missing optional components ──
     AVAILABLE_MAX = COMPONENT_MAX
-    if vol_ratio is None:
+    if is_synthetic_no_vol:
         AVAILABLE_MAX -= 12
     if delivery_pct is None or delivery_conf == 0.0:
         AVAILABLE_MAX -= 5
     elif delivery_conf < 1.0:
         AVAILABLE_MAX -= 2
-    if pct_below_sma200 is None:
-        AVAILABLE_MAX -= 12
-    if not cat_str or not any(cat_label.lower() in cat_str.lower() for cat_label, _ in _REV_CATEGORY_SCORES_SORTED):
-        AVAILABLE_MAX -= 10
-    if obv_trend is None:
-        AVAILABLE_MAX -= 5
-    if sl_res.get("natural_rr") is None:
-        AVAILABLE_MAX -= 5
 
     AVAILABLE_MAX = max(50, AVAILABLE_MAX)
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
@@ -894,10 +897,16 @@ def _evaluate_candidate(
         }
 
     signals = []
-    if above_sma50:
-        signals.append("🎯 Reclaimed 20 EMA & SMA50")
+    if close_price >= ema20:
+        if above_sma50:
+            signals.append("🎯 Reclaimed 20 EMA & SMA50")
+        else:
+            signals.append("🎯 Reclaimed 20 EMA (below SMA50)")
     else:
-        signals.append("🎯 Reclaimed 20 EMA (below SMA50)")
+        if above_sma50:
+            signals.append("🎯 Holding Near 20 EMA & SMA50")
+        else:
+            signals.append("🎯 Holding Near 20 EMA (below SMA50)")
 
     signals.append(f"📉 Down {drop_pct:.1f}% from 52W High")
     signals.append(f"🔄 RSI Oversold Bounce (RSI={current_rsi:.1f}, min={past_rsi_min:.1f})")
@@ -1007,12 +1016,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         }
 
 
-def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
-    try:
-        from database import is_symbol_in_failed_reversal_cooldown
-        return bool(is_symbol_in_failed_reversal_cooldown(symbol, cooldown_days))
-    except Exception:
-        return False
+
 
 
 def _run_scan(force: bool = False):
@@ -1020,6 +1024,7 @@ def _run_scan(force: bool = False):
     from database import is_scanner_stopped
     if not force and is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
+        upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
 
     ist_now = datetime.now(IST)
@@ -1028,15 +1033,14 @@ def _run_scan(force: bool = False):
     logger.info("=" * 80 + "\n")
 
     try:
-        from macro_utils import MarketRegimeEngine
-        regime_engine = MarketRegimeEngine()
-        regime_ctx = regime_engine.get_market_regime()
+        from macro_utils import MarketRegimeEngine, get_macro_regime
+        regime_ctx = MarketRegimeEngine.get_regime_context()
+        regime_str = get_macro_regime()
+        regime_ctx["current_regime"] = regime_str
+        regime_ctx["trend"] = regime_str
     except Exception as e:
         logger.warning(f"Failed to fetch market regime: {e}. Defaulting to NEUTRAL.")
         regime_ctx = {"current_regime": "NEUTRAL", "trend": "NEUTRAL", "biases": {}}
-
-    if "trend" not in regime_ctx:
-        regime_ctx["trend"] = regime_ctx.get("current_regime", "NEUTRAL")
 
     try:
         from database import get_latest_weights
@@ -1051,10 +1055,12 @@ def _run_scan(force: bool = False):
         watchlist = get_watchlist("REVERSAL")
     except Exception as e:
         logger.exception("Failed to load watchlist for REVERSAL scanner")
-        return 0
+        upsert_scanner_health("REVERSAL", "DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
+        raise RuntimeError(f"Failed to load watchlist for REVERSAL: {e}")
 
     if watchlist.empty:
         logger.warning("REVERSAL watchlist is empty. Nothing to scan.")
+        upsert_scanner_health("REVERSAL", "IDLE", error_msg="Watchlist is empty.")
         return 0
 
     logger.info(f"📊 Loaded {len(watchlist)} symbols for REVERSAL scan.")
@@ -1090,7 +1096,8 @@ def _run_scan(force: bool = False):
     )
     from surveillance import get_live_blacklist
 
-    live_blacklist = get_live_blacklist()
+    live_blacklist_raw = get_live_blacklist()
+    live_blacklist = {_canonical_symbol(s) for s in live_blacklist_raw if s} if live_blacklist_raw else set()
     failed_cooldown_raw = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
     failed_cooldown_syms = {_canonical_symbol(s) for s in failed_cooldown_raw if s} if failed_cooldown_raw else set()
 
@@ -1107,12 +1114,6 @@ def _run_scan(force: bool = False):
             continue
         if sym:
             cooldown_syms.add(_canonical_symbol(sym))
-
-    try:
-        deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
-        logger.info(f"REVERSAL cleanup: removed {deleted_count} existing alerts for {today_str} before run")
-    except Exception as e:
-        logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
 
     import gc
     from memory_profiler import chunk_iterable, MemoryProfiler
@@ -1137,9 +1138,15 @@ def _run_scan(force: bool = False):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             try:
                 all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
-                if all_ticker_data:
-                    total_fetched_count += len(all_ticker_data)
+            except Exception as fetch_err:
+                logger.error(f"❌ [REVERSAL] Batch {batch_num} fetch error: {fetch_err}")
+                rejected["batch_fetch_failed"] += len(chunk_df)
+                continue
 
+            if not all_ticker_data:
+                continue
+
+            try:
                 chunk_symbols = chunk_df["Stock"].tolist()
                 chunk_snapshots = {}
                 for s in chunk_symbols:
@@ -1147,147 +1154,172 @@ def _run_scan(force: bool = False):
                     if snap is not None:
                         chunk_snapshots[_canonical_symbol(s)] = snap
                 
-                if all_ticker_data:
-                    today_date_str = ist_now.strftime("%Y-%m-%d")
-                    for sym, hist_df in list(all_ticker_data.items()):
-                        if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
-                            snap_df = chunk_snapshots.get(_canonical_symbol(sym))
-                            if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
-                                valid_closes = snap_df['Close'].dropna()
-                                if not valid_closes.empty:
-                                    live_price = float(valid_closes.iloc[-1])
-                                    snap_open = float(snap_df['Open'].iloc[0])
-                                    snap_high = float(snap_df['High'].max())
-                                    snap_low = float(snap_df['Low'].min())
-                                    snap_vol = float(snap_df['Volume'].sum())
+                today_date_str = ist_now.strftime("%Y-%m-%d")
+                for sym, hist_df in list(all_ticker_data.items()):
+                    if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
+                        snap_df = chunk_snapshots.get(_canonical_symbol(sym))
+                        if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
+                            valid_closes = snap_df['Close'].dropna()
+                            if not valid_closes.empty:
+                                live_price = float(valid_closes.iloc[-1])
+                                snap_open = float(snap_df['Open'].iloc[0])
+                                snap_high = float(snap_df['High'].max())
+                                snap_low = float(snap_df['Low'].min())
+                                snap_vol = float(snap_df['Volume'].sum())
 
-                                    hist_df = hist_df.copy()
-                                    last_dt = hist_df.index[-1] if not hist_df.index.empty else None
-                                    t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
-                                    if t_col:
-                                        last_dt = hist_df[t_col].iloc[-1]
-                                    last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
-                                    can_sym = _canonical_symbol(sym)
+                                hist_df = hist_df.copy()
+                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
+                                if t_col:
+                                    last_dt = hist_df[t_col].iloc[-1]
+                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                can_sym = _canonical_symbol(sym)
 
-                                    if last_dt_str == today_date_str:
-                                        hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
-                                        if snap_vol > 0: hist_df.iloc[-1, hist_df.columns.get_loc('Volume')] = snap_vol
-                                        hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(float(hist_df['High'].iloc[-1]), snap_high)
-                                        hist_df.iloc[-1, hist_df.columns.get_loc('Low')] = min(float(hist_df['Low'].iloc[-1]), snap_low)
-                                        try:
-                                            recomputed = apply_indicators(hist_df, timeframe="1d")
-                                            if recomputed is None or recomputed.empty:
-                                                all_ticker_data.pop(sym, None)
-                                                continue
-                                            hist_df = recomputed
-                                        except Exception:
+                                if last_dt_str == today_date_str:
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                    if snap_vol > 0: hist_df.iloc[-1, hist_df.columns.get_loc('Volume')] = snap_vol
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(float(hist_df['High'].iloc[-1]), snap_high)
+                                    hist_df.iloc[-1, hist_df.columns.get_loc('Low')] = min(float(hist_df['Low'].iloc[-1]), snap_low)
+                                    try:
+                                        recomputed = apply_indicators(hist_df, timeframe="1d")
+                                        if recomputed is None or recomputed.empty:
                                             all_ticker_data.pop(sym, None)
                                             continue
-                                        synthetic_bar_symbols.discard(can_sym)
-                                        synthetic_vol_missing.discard(can_sym)
-                                    else:
-                                        new_row = hist_df.iloc[-1:].copy()
-                                        new_dt = pd.to_datetime(today_date_str)
-                                        if t_col: new_row[t_col] = new_dt
-                                        else: new_row.index = [new_dt]
-                                        new_row['Open'] = snap_open
-                                        new_row['High'] = snap_high
-                                        new_row['Low'] = snap_low
-                                        new_row['Close'] = live_price
-                                        new_row['Volume'] = snap_vol
-                                        hist_df = pd.concat([hist_df, new_row])
-                                        try:
-                                            recomputed = apply_indicators(hist_df, timeframe="1d")
-                                            if recomputed is None or recomputed.empty:
-                                                all_ticker_data.pop(sym, None)
-                                                continue
-                                            hist_df = recomputed
-                                        except Exception:
+                                        hist_df = recomputed
+                                    except Exception:
+                                        all_ticker_data.pop(sym, None)
+                                        continue
+                                    synthetic_bar_symbols.discard(can_sym)
+                                    synthetic_vol_missing.discard(can_sym)
+                                else:
+                                    new_row = hist_df.iloc[-1:].copy()
+                                    new_dt = pd.to_datetime(today_date_str)
+                                    if t_col: new_row[t_col] = new_dt
+                                    else: new_row.index = [new_dt]
+                                    new_row['Open'] = snap_open
+                                    new_row['High'] = snap_high
+                                    new_row['Low'] = snap_low
+                                    new_row['Close'] = live_price
+                                    new_row['Volume'] = snap_vol
+                                    hist_df = pd.concat([hist_df, new_row])
+                                    try:
+                                        recomputed = apply_indicators(hist_df, timeframe="1d")
+                                        if recomputed is None or recomputed.empty:
                                             all_ticker_data.pop(sym, None)
                                             continue
-                                        synthetic_bar_symbols.add(can_sym)
-                                        if snap_vol <= 0: synthetic_vol_missing.add(can_sym)
-                                        else: synthetic_vol_missing.discard(can_sym)
+                                        hist_df = recomputed
+                                    except Exception:
+                                        all_ticker_data.pop(sym, None)
+                                        continue
+                                    synthetic_bar_symbols.add(can_sym)
+                                    if snap_vol <= 0: synthetic_vol_missing.add(can_sym)
+                                    else: synthetic_vol_missing.discard(can_sym)
 
-                                    all_ticker_data[sym] = hist_df
-                                
+                                all_ticker_data[sym] = hist_df
+                            
                 for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
                     symbol = row["Stock"]
                     category = row["Category"]
                     can_sym  = _canonical_symbol(symbol)
                     
-                    # [FIX C1] Enforce surveillance / blacklist filtering (using pre-fetched set)
-                    if symbol in live_blacklist or can_sym in live_blacklist:
-                        rejected["blacklist"] += 1
-                        logger.info(f"🚫 [REVERSAL] {symbol} skipped — active surveillance/blacklist")
-                        continue
-
-                    # [FIX C8] Respect force parameter for cooldowns (using pre-fetched sets)
-                    if not force:
-                        if can_sym in cooldown_syms or can_sym in failed_cooldown_syms:
-                            rejected["cooldown"] += 1
+                    try:
+                        # [FIX C1] Enforce surveillance / blacklist filtering (using pre-fetched set)
+                        if symbol in live_blacklist or can_sym in live_blacklist:
+                            rejected["blacklist"] += 1
+                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — active surveillance/blacklist")
                             continue
 
-                    ticker_data = all_ticker_data.get(symbol) if all_ticker_data else None
-                    if ticker_data is None:
-                        rejected["no_data"] += 1
-                        continue
-            
-                    ticker = ticker_data.copy()
-                    verdict = _evaluate_candidate(
-                        symbol=symbol,
-                        df=ticker,
-                        fund_data=row.to_dict(),
-                        regime_ctx=regime_ctx,
-                        weights=bayesian_weights,
-                        pledge_map=pledge_map,
-                        delivery_map=prev_delivery_map,
-                        is_synthetic_bar=(can_sym in synthetic_bar_symbols),
-                        is_synthetic_no_vol=(can_sym in synthetic_vol_missing),
-                        resolved_date=resolved_date,
-                    )
+                        # [FIX C8] Respect force parameter for cooldowns (using pre-fetched sets)
+                        if not force:
+                            if can_sym in cooldown_syms or can_sym in failed_cooldown_syms:
+                                rejected["cooldown"] += 1
+                                continue
 
-                    if not verdict["passed"]:
-                        rejected[verdict.get("reject_code", "failed_pattern")] += 1
-                        continue
+                        ticker_data = all_ticker_data.get(symbol) if all_ticker_data else None
+                        if ticker_data is None:
+                            rejected["no_data"] += 1
+                            continue
+                
+                        # Only count a fetch as successful when data is verified, non-empty, and indicators compute cleanly.
+                        total_fetched_count += 1
+                        ticker = ticker_data.copy()
+                        verdict = _evaluate_candidate(
+                            symbol=symbol,
+                            df=ticker,
+                            fund_data=row.to_dict(),
+                            regime_ctx=regime_ctx,
+                            weights=bayesian_weights,
+                            pledge_map=pledge_map,
+                            delivery_map=prev_delivery_map,
+                            is_synthetic_bar=(can_sym in synthetic_bar_symbols),
+                            is_synthetic_no_vol=(can_sym in synthetic_vol_missing),
+                            resolved_date=resolved_date,
+                        )
 
-                    ctx = verdict["context"]
-                    target_val = verdict["sl_result"].get("target_1") or verdict["sl_result"].get("target")
-                    shortlisted_alerts.append({
-                        "symbol": symbol,
-                        "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                        "category": category,
-                        "entry_price": round(ctx["entry_price"], 2),
-                        "signals": ", ".join(ctx["signals"]),
-                        "score": verdict["score"],
-                        "raw_score": verdict.get("raw_score", verdict["score"]),
-                        "rsi": round(ctx["technicals"]["rsi"], 1),
-                        "volume_ratio": ctx["technicals"]["volume_ratio"],
-                        "stop_loss": verdict["sl_result"].get("stop_loss"),
-                        "target_1": target_val,
-                        "target_price": target_val,
-                        "context": ctx,
-                        "structural_failure_stop": verdict["sl_result"].get("structural_failure_stop"),
-                        "target_quality_score": verdict["sl_result"].get("target_quality")
-                    })
+                        if not verdict["passed"]:
+                            rejected[verdict.get("reject_code", "failed_pattern")] += 1
+                            continue
+
+                        ctx = verdict["context"]
+                        target_val = verdict["sl_result"].get("target_1") or verdict["sl_result"].get("target")
+                        shortlisted_alerts.append({
+                            "symbol": symbol,
+                            "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                            "category": category,
+                            "entry_price": round(ctx["entry_price"], 2),
+                            "signals": ", ".join(ctx["signals"]),
+                            "score": verdict["score"],
+                            "raw_score": verdict.get("raw_score", verdict["score"]),
+                            "rsi": round(ctx["technicals"]["rsi"], 1),
+                            "volume_ratio": ctx["technicals"]["volume_ratio"],
+                            "stop_loss": verdict["sl_result"].get("stop_loss"),
+                            "target_1": target_val,
+                            "target_price": target_val,
+                            "context": ctx,
+                            "structural_failure_stop": verdict["sl_result"].get("structural_failure_stop"),
+                            "target_quality_score": verdict["sl_result"].get("target_quality")
+                        })
+                    except Exception as sym_err:
+                        logger.error(f"❌ [REVERSAL] Error processing symbol {symbol} in batch {batch_num}: {sym_err}")
+                        rejected["processing_error"] += 1
             except Exception as batch_err:
-                logger.error(f"❌ [REVERSAL] Batch {batch_num} error: {batch_err}")
+                logger.error(f"❌ [REVERSAL] Batch {batch_num} execution error: {batch_err}")
                 rejected["batch_fetch_failed"] += len(chunk_df)
             finally:
                 gc.collect()
 
         total_symbols = len(watchlist)
+        fetch_ratio = 0.0
         if total_symbols > 0:
             fetch_ratio = total_fetched_count / total_symbols
             logger.info(f"📊 [REVERSAL] Batch Fetch Completed: {total_fetched_count}/{total_symbols} fetched ({fetch_ratio*100:.1f}%)")
-            if fetch_ratio < MIN_FETCH_RATIO:
-                logger.warning(f"⚠️ [REVERSAL] Fetch ratio {fetch_ratio*100:.1f}% < {MIN_FETCH_RATIO*100:.0f}% minimum health threshold")
+
+        if fetch_ratio < MIN_FETCH_RATIO:
+            logger.warning(f"⚠️ [REVERSAL] Low fetch coverage ({fetch_ratio*100:.1f}% < {MIN_FETCH_RATIO*100:.0f}%). Blocking persistence and preserving existing alerts.")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DEGRADED", 
+                error_msg=f"Low fetch coverage: {total_fetched_count}/{total_symbols} symbols fetched ({fetch_ratio*100:.1f}%)",
+                processed_count=len(shortlisted_alerts),
+                total_count=total_symbols,
+                outcome="PARTIAL"
+            )
+            return 0
+
+        # Try to delete today's existing alerts only after fetch coverage check passes!
+        try:
+            from database import delete_todays_alerts_for_scanner
+            deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
+            logger.info(f"REVERSAL cleanup: removed {deleted_count} existing alerts for {today_str} before persistence")
+        except Exception as e:
+            logger.warning(f"Failed to delete today's alerts for REVERSAL: {e}")
 
         if total_symbols > 0 and rejected.get("fundamental_filter", 0) / total_symbols > FUNDAMENTAL_REJECT_ALARM_PCT:
             logger.critical(f"🚨 CRITICAL ALARM: fundamental_filter rejected {rejected['fundamental_filter']}/{total_symbols} symbols (>{FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%) — potential fundamental data outage!")
 
         if shortlisted_alerts:
-            shortlisted_alerts.sort(key=lambda x: (x.get("raw_score", x["score"]), x.get("context", {}).get("risk_reward") or 0), reverse=True)
+            # Sort primarily by clamped normalized score, then by risk-reward ratio
+            shortlisted_alerts.sort(key=lambda x: (x["score"], x.get("context", {}).get("risk_reward") or 0.0), reverse=True)
             from config import SCANNER_MAX_ALERTS
             shortlisted_alerts = shortlisted_alerts[:SCANNER_MAX_ALERTS.get("REVERSAL", 10)]
 
@@ -1305,8 +1337,16 @@ def _run_scan(force: bool = False):
             )
             if inserted: total_alerts += 1
 
-        # [FIX C3] Update scanner health to OK on successful completion
-        upsert_scanner_health("REVERSAL", "OK", error_msg=None)
+        # Update scanner health to OK on successful completion
+        upsert_scanner_health(
+            "REVERSAL", 
+            "OK", 
+            error_msg=None, 
+            today_alerts=total_alerts, 
+            processed_count=len(shortlisted_alerts), 
+            total_count=total_symbols, 
+            outcome="SUCCESS"
+        )
         logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
         return total_alerts
 
@@ -1325,11 +1365,13 @@ def _validate_config():
         fatal.append(f"RSI_CURL_MIN ({RSI_CURL_MIN}) must exceed RSI_OVERSOLD_THRESHOLD ({RSI_OVERSOLD_THRESHOLD})")
     
     _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 0))
+    _MIN_VOL_PTS = 15 if MIN_VOLUME_RATIO >= 5.0 else (12 if MIN_VOLUME_RATIO >= 3.5 else (9 if MIN_VOLUME_RATIO >= 2.5 else (5 if MIN_VOLUME_RATIO >= 2.0 else 0)))
     if MIN_RSI_RECOVERY < 8.0:
         fatal.append(f"MIN_RSI_RECOVERY ({MIN_RSI_RECOVERY}) < lowest scorer tier (8): rsi_pts can be 0, collapsing core below CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR})")
-    BEAR_CORE_REALISTIC = 14 + 5 + 5 + _MIN_RSI_PTS  # 32 pts (or 30 pts window)
+    
+    BEAR_CORE_REALISTIC = 14 + _MIN_VOL_PTS + 0 + _MIN_RSI_PTS
     if CORE_SCORE_FLOOR > BEAR_CORE_REALISTIC:
-        fatal.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({BEAR_CORE_REALISTIC}) -> blackout")
+        warn.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({BEAR_CORE_REALISTIC}) — setups with absolute minimum parameters will be filtered by the core floor")
     if CORE_SCORE_FLOOR >= CORE_SCORE_MAX:
         fatal.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) >= MAX ({CORE_SCORE_MAX}) is unreachable")
 
@@ -1348,6 +1390,8 @@ def _validate_config():
         warn.append(f"MIN_RSI_RECOVERY ({MIN_RSI_RECOVERY}) dominates curl/oversold gates (spread={_spread}); those two gates are decorative")
     if RSI_TROUGH_LOOKBACK < 30:
         warn.append(f"RSI_TROUGH_LOOKBACK={RSI_TROUGH_LOOKBACK} is narrow for rounding bases")
+    if MAX_TROUGH_AGE > RSI_TROUGH_LOOKBACK:
+        fatal.append(f"MAX_TROUGH_AGE ({MAX_TROUGH_AGE}) cannot exceed RSI_TROUGH_LOOKBACK ({RSI_TROUGH_LOOKBACK})")
 
     if MIN_YOY_REVENUE_GROWTH > 0 and MIN_DROP_FROM_52W_HIGH >= 20:
         warn.append(f"MIN_YOY_REVENUE_GROWTH={MIN_YOY_REVENUE_GROWTH}% with a {MIN_DROP_FROM_52W_HIGH}%+ drop requirement excludes most genuine mean-reversion candidates")

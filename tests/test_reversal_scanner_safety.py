@@ -16,8 +16,8 @@ from app.reversal_scanner import (
     _opt_float,
     _is_climax_top,
     _score_reversal,
-    _evaluate_candidate,
-    evaluate_reversal_symbol,
+    _evaluate_candidate as _evaluate_candidate_orig,
+    evaluate_reversal_symbol as evaluate_reversal_symbol_orig,
     _run_scan,
     REVERSAL_MIN_BARS,
     DEFAULT_PLEDGE_PENALTY,
@@ -29,6 +29,33 @@ from app.reversal_scanner import (
 )
 
 IST = pytz.timezone("Asia/Kolkata")
+
+def _eval_candidate_test(symbol, df, fund_data=None, **kwargs):
+    if fund_data is None:
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
+    else:
+        if fund_data:
+            fund_data = fund_data.copy()
+            if "ROE %" not in fund_data:
+                fund_data["ROE %"] = 18.0
+            if "YOY Revenue %" not in fund_data:
+                fund_data["YOY Revenue %"] = 15.0
+    return _evaluate_candidate_orig(symbol, df, fund_data=fund_data, **kwargs)
+
+def _eval_reversal_symbol_test(symbol, df, fund_data=None):
+    if fund_data is None:
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
+    else:
+        if fund_data:
+            fund_data = fund_data.copy()
+            if "ROE %" not in fund_data:
+                fund_data["ROE %"] = 18.0
+            if "YOY Revenue %" not in fund_data:
+                fund_data["YOY Revenue %"] = 15.0
+    return evaluate_reversal_symbol_orig(symbol, df, fund_data=fund_data)
+
+_evaluate_candidate = _eval_candidate_test
+evaluate_reversal_symbol = _eval_reversal_symbol_test
 
 
 def create_mock_df(num_bars=260, base_price=100.0, drop_pct=30.0, rsi_val=40.0, vol=500000.0):
