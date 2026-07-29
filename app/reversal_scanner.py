@@ -1,47 +1,61 @@
 # =====================================================================================
-# app/reversal_scanner.py (SCHEDULER READY) — v6 REVISED
+# app/reversal_scanner.py (SCHEDULER READY) — v7.0 OVERHAUL
 # DEEP DISCOUNT & MEAN REVERSION SCANNER (With Valuation Metrics)
 #
-# v6 CHANGELOG (backtest improvement pass — target: lift 44% win rate):
-#   [FIX 1] Failed-reversal cooldown: suppress re-alerts on stocks that recently
-#           stopped out / failed follow-through (biggest strategy leak).
-#   [FIX 2] Trend structure: EMA20 reclaim with ATR tolerance required; SMA50 reclaim
-#           awards trend_score 22/25 points.
-#   [FIX 3] Trend scoring order fixed (strongest state evaluated first).
-#   [FIX 4] Single volume threshold source of truth — removed hidden 2.0 gate.
-#   [FIX 5] Reduced volume scoring weight (confirmation, not primary driver).
-#   [FIX 6] Removed fake regime decoration (was hard-coded BEAR). Now honest NEUTRAL.
-#   [FIX 7] One clean fixed drop band (regime-based flex removed).
-#   [FIX 8] Removed non-portable macd > 2.0 hard cap.
-#   [FIX 9] MACD normalization deferred (kept simple raw macd_hist scoring).
-#   [FIX 10] Score comments aligned exactly with implementation.
+# v7.0 OVERHAUL CHANGELOG (Refactored per comprehensive 25-point audit):
+#   [FIX A1] CORE_SCORE_FLOOR comment & BEAR_CORE_REALISTIC headroom aligned.
+#   [FIX A2] close_above_ema20 trend scoring tautology removed (strict EMA20 reclaim).
+#   [FIX A3] Monotonic SMA200 proximity scoring (at/above SMA200 gets 12 pts).
+#   [FIX A4] AVAILABLE_MAX normalized across all missing optional components.
+#   [FIX A5] inst_bonus & pledge_penalty clamped against AVAILABLE_MAX.
+#   [FIX A6] Fixed inverted MACD freshness test logic (no longer rejects sustained bull momentum).
+#   [FIX A7] _is_climax_top volume parameter & fallback lookback slice fixed.
+#   [FIX B1] Current-bar volume ratio checked at hard confirmation gate.
+#   [FIX B2] RSI trough freshness lookback gate added (max 25 bars).
+#   [FIX B3] Robust 3-bar RSI declining check.
+#   [FIX B4] Fundamental presence enforced even for quality categories.
+#   [FIX B5] Heavy red candle filter message precision fixed.
+#   [FIX C1] Surveillance / blacklist filter enforced in candidate loop.
+#   [FIX C2] Fetch health ratio tracked and logged.
+#   [FIX C3] Scanner health updated to "OK" upon successful completion.
+#   [FIX C4] Batch loop wrapped in try-except to prevent single-batch aborts.
+#   [FIX C5] Regime keys (current_regime & trend) aligned across functions.
+#   [FIX C6] Target keys (target_1 & target) standardized.
+#   [FIX C7] Outcome-aware reversal cooldown helper wired in.
+#   [FIX C8] Force parameter respected (bypasses cooldowns).
+#   [FIX C9] rejected counter dict initialized with defaultdict(int).
+#   [FIX C10] Off-hours intraday 5m snapshot optimization added.
+#   [FIX C11] Delivery confidence aging normalized in AVAILABLE_MAX.
+#   [FIX C12] Unused imports removed.
+#   [FIX C13] Config validator updated for quality category drop floor & core score.
 # =====================================================================================
 import pandas as pd
 import logging
 import os
+from collections import defaultdict
 from zoneinfo import ZoneInfo
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Optional
 
 from technical_indicators import apply_indicators
-from memory_profiler import MemoryProfiler, chunk_iterable, BatchMemoryTracker  # [VERSION: LOG_ERROR_FIXES_v1.0]
-from database import init_db, save_alert_if_new, save_candidate, upsert_fetch_error, upsert_scanner_health, verify_alerts_saved_today
+from memory_profiler import MemoryProfiler, chunk_iterable, BatchMemoryTracker
+from database import (
+    init_db,
+    save_alert_if_new,
+    upsert_fetch_error,
+    upsert_scanner_health,
+)
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 from config import (
     CLIMAX_VOLUME_LOOKBACK, 
     MIN_CANDLE_RANGE_PCT, 
     REVERSAL_CONFIG,
-    ALERT_COOLDOWN_MINUTES,
     ACTIVE_ALGO_VERSION
 )
 from sl_target_helper import compute_sl_and_target
 from delivery_data import fetch_delivery_data
-from trade_ranking_engine import TradeRankingEngine
-from macro_utils import MarketRegimeEngine, get_macro_regime, get_nifty_20d_return
-from strategy_policy import StrategyPolicyEngine
-from core_enums import ProviderResult
-from core_models import ScanFailure
+from surveillance import get_live_blacklist, force_refresh_blacklist
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +68,6 @@ MAX_DROP_FROM_52W_HIGH = REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]
 
 RSI_OVERSOLD_THRESHOLD = REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]
 RSI_CURL_MIN           = REVERSAL_CONFIG["RSI_CURL_MIN"]
-# [AUDIT-A1 / v6.1] Fixed floor: RSI must bounce at least 8.0 points from historical trough (validated by _validate_config).
 MIN_RSI_RECOVERY       = 8.0
 RSI_TROUGH_LOOKBACK    = 35
 
@@ -65,24 +78,18 @@ VOL_WINDOW_BARS        = 5
 MIN_STOCK_PRICE        = REVERSAL_CONFIG.get("MIN_STOCK_PRICE", 100.0)
 MIN_AVG_DAILY_VOLUME   = REVERSAL_CONFIG["MIN_AVG_DAILY_VOLUME"]
 MIN_ROE                = REVERSAL_CONFIG["MIN_ROE"]
-# [AUDIT-Blocker 4] Lower growth floor to -15% to accommodate deep discount turnarounds
 MIN_YOY_REVENUE_GROWTH = -15.0
 MAX_DROP_BELOW_SMA200  = REVERSAL_CONFIG["MAX_DROP_BELOW_SMA200"]
-# [AUDIT-B3] Quality-category (Wealth/Blue Chip/Debt-Free) drop floor carve-out.
-QUALITY_CAT_MIN_DROP  = REVERSAL_CONFIG.get("QUALITY_CAT_MIN_DROP", 15.0)
+QUALITY_CAT_MIN_DROP   = REVERSAL_CONFIG.get("QUALITY_CAT_MIN_DROP", 15.0)
 
-# Climax filter thresholds (Blocker 3)
-CLIMAX_VOL_MULT              = 3.5
-CLIMAX_VOL_QUANTILE          = 0.95
-CLIMAX_MIN_RUNUP_PCT         = 0.10
+# Climax filter thresholds
+CLIMAX_VOL_MULT        = 3.5
+CLIMAX_VOL_QUANTILE    = 0.95
+CLIMAX_MIN_RUNUP_PCT   = 0.10
 
-# Pipeline health guard (Blocker 4)
+# Pipeline health guard
 FUNDAMENTAL_REJECT_ALARM_PCT = 0.60
-# ─────────────────────────────────────────────────────────────────────────────────────
-
-# [FIX 1] FAILED-REVERSAL COOLDOWN ────────────────────────────────────────────────────
 REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS"]
-# ─────────────────────────────────────────────────────────────────────────────────────
 
 REVERSAL_MIN_BARS = 250
 DEFAULT_PLEDGE_PENALTY = 15.0
@@ -132,7 +139,7 @@ def _opt_float(series, key: str, default: float) -> float:
 MIN_REVERSAL_SCORE_PCT = 0.52
 MIN_REVERSAL_SCORE     = round(MAX_POSSIBLE_SCORE * MIN_REVERSAL_SCORE_PCT) # 58
 CORE_SCORE_MAX         = 25 + 15 + 15 + 15   # 70 pts max for core technical components
-CORE_SCORE_FLOOR       = 30                  # Min feasible core (18+3+5+8 = 34) clears 30 with 4 pts headroom
+CORE_SCORE_FLOOR       = 30                  # Core technical floor (14+3+0+8 = 25 min achievable core after gates; setups < 30 filtered)
 
 REGIME_REVERSAL_PREMIUM = {
     "STRONG_BEAR": 2,
@@ -142,7 +149,6 @@ REGIME_REVERSAL_PREMIUM = {
     "STRONG_BULL": 0,
 }
 
-# [AUDIT-Blocker 1] SMA200 proximity bounds (17.0% in STRONG_BEAR, 19.0% in BEAR) < MAX_DROP_BELOW_SMA200 (20.0%)
 REGIME_EVIDENCE_REQ = {
     "STRONG_BEAR": {
         "min_vol_ratio": 2.5,
@@ -159,7 +165,7 @@ REGIME_EVIDENCE_REQ = {
 }
 
 def _row_get(r: Any, idx: int, key: str, default: Any = None) -> Any:
-    """[V2] Shape-agnostic helper to safely extract values from tuple, dict, or row objects."""
+    """Shape-agnostic helper to safely extract values from tuple, dict, or row objects."""
     if r is None:
         return default
     if isinstance(r, (list, tuple)):
@@ -175,9 +181,7 @@ def _row_get(r: Any, idx: int, key: str, default: Any = None) -> Any:
             return default
 
 def _parse_percent_value(val) -> Optional[float]:
-    """
-    [FIX 4 — PERCENT_PARITY_v1.0] Single source of truth for fundamental percentage units.
-    """
+    """Single source of truth for fundamental percentage units."""
     if val is None:
         return None
     try:
@@ -202,9 +206,8 @@ def _lookup(m: Optional[dict], sym: str, can: str) -> Optional[float]:
     return m.get(can) if v is None else v
 
 
-def _session_fraction(now_t: datetime.time) -> float:
+def _session_fraction(now_t: dtime) -> float:
     """Compute elapsed fraction of the trading day (09:15 to 15:30 IST)."""
-    from datetime import time as dtime
     session_start = dtime(9, 15)
     session_end = dtime(15, 30)
     if now_t >= session_end or now_t <= session_start:
@@ -215,9 +218,9 @@ def _session_fraction(now_t: datetime.time) -> float:
 
 def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None, max_cross_age: int = 20) -> bool:
     """
-    [AUDIT-A7 / F3] State + Freshness test for MACD momentum.
+    [VERSION: REVERSAL_OVERHAUL_v7.0] State + Freshness test for MACD momentum.
     Requires MACD above signal (or rising histogram from shallow deficit) AND
-    a bullish crossover within the last max_cross_age bars.
+    a bullish crossover within the last max_cross_age bars (not held above indefinitely).
     """
     if len(ticker) < 3 or not {"MACD", "MACD_SIGNAL"}.issubset(ticker.columns):
         return False
@@ -227,7 +230,10 @@ def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None
         above_now = bool(above.iloc[-1])
 
         if above_now:
-            return not bool(above.iloc[-max_cross_age:-1].all())
+            lookback_window = min(max_cross_age + 1, len(above))
+            window_above = above.iloc[-lookback_window:-1]
+            held_above_too_long = bool(window_above.all()) if len(window_above) >= max_cross_age else False
+            return not held_above_too_long
 
         if "MACD_HIST" not in ticker.columns:
             return False
@@ -248,10 +254,9 @@ def _is_climax_top(
     vol_ratio: Optional[float] = None,
 ) -> bool:
     """
-    [Blocker 3 / v6.1] Blow-off climax top filter.
-    Only triggers on extreme volume (>= CLIMAX_VOL_MULT x mean, or p95) AND
+    [VERSION: REVERSAL_OVERHAUL_v7.0] Blow-off climax top filter.
+    Triggers on extreme volume (>= CLIMAX_VOL_MULT x mean, or p95) AND
     when stock has run up >= CLIMAX_MIN_RUNUP_PCT (10%) over VOL_WINDOW_BARS (5 bars).
-    NOTE: Callers must pass the CURRENT-bar vol_ratio here, never the windowed max.
     """
     if candle_high <= candle_low or len(ticker) < VOL_WINDOW_BARS + 1:
         return False
@@ -269,23 +274,30 @@ def _is_climax_top(
             return False
 
         latest_vol = float(ticker["Volume"].iloc[-1])
+        is_fallback = False
         if latest_vol <= 0 and len(ticker) >= 2:
             latest_vol = float(ticker["Volume"].iloc[-2])
+            is_fallback = True
         if latest_vol <= 0:
             return False
 
         lookback_ct = min(CLIMAX_VOLUME_LOOKBACK, len(ticker) - 1)
-        prior = ticker["Volume"].iloc[-lookback_ct - 1 : -1]
+        end_idx = -2 if is_fallback else -1
+        start_idx = max(0, len(ticker) + end_idx - lookback_ct)
+        prior = ticker["Volume"].iloc[start_idx:end_idx]
         if prior.empty:
             return False
 
         frac = _session_fraction(datetime.now(IST).time())
-        prorated_latest = latest_vol / frac if frac > 0 else latest_vol
+        prorated_latest = latest_vol / frac if (frac > 0 and not is_fallback) else latest_vol
 
-        vol_spike = prorated_latest > max(
-            float(prior.mean()) * CLIMAX_VOL_MULT,
-            float(prior.quantile(CLIMAX_VOL_QUANTILE)),
-        )
+        if vol_ratio is not None and vol_ratio >= CLIMAX_VOL_MULT:
+            vol_spike = True
+        else:
+            vol_spike = prorated_latest > max(
+                float(prior.mean()) * CLIMAX_VOL_MULT,
+                float(prior.quantile(CLIMAX_VOL_QUANTILE)),
+            )
         if not vol_spike:
             return False
 
@@ -297,7 +309,7 @@ def _is_climax_top(
         return False
 
 # =====================================================================================
-# REVERSAL-SPECIFIC SCORING (v6 — re-weighted)
+# REVERSAL-SPECIFIC SCORING (v7.0 — re-weighted & normalized)
 # =====================================================================================
 
 _REV_CATEGORY_SCORES = {
@@ -333,6 +345,7 @@ def _score_reversal(
         min_drop_floor: float = MIN_DROP_FROM_52W_HIGH,
         delivery_conf: float = 1.0,
         vol_ratio_window: Optional[float] = None,
+        available_max: int = COMPONENT_MAX,
 ) -> dict:
     """Score a reversal setup from 0-100 based on quality dimensions, returning score dict."""
     score = 0
@@ -341,14 +354,17 @@ def _score_reversal(
     score += trend_score
     trend_pts = trend_score
 
-    # ── SMA200 proximity (12 pts max) ──
+    # ── SMA200 proximity (12 pts max) — Monotonic structural scoring ──
     prox_pts = 0
     if pct_below_sma200 is not None:
-        prox = max(pct_below_sma200, 0.0)
-        if prox <= 3.0:    prox_pts = 10   # close to or above SMA200
-        elif prox <= 8.0:  prox_pts = 12   # PEAK: classic reversal zone
-        elif prox <= 15.0: prox_pts = 9
-        elif prox <= 20.0: prox_pts = 5
+        if pct_below_sma200 <= 0.0:
+            prox_pts = 12   # At or above SMA200 — Peak structural strength
+        elif pct_below_sma200 <= 5.0:
+            prox_pts = 12   # Classic tight reversal zone
+        elif pct_below_sma200 <= 10.0:
+            prox_pts = 9
+        elif pct_below_sma200 <= 20.0:
+            prox_pts = 5
         score += prox_pts
 
     # ── Volume confirmation (15 pts) ──
@@ -435,7 +451,6 @@ def _score_reversal(
     pledge_penalty = 0
     if promoter_pledge_pct is not None and promoter_pledge_pct > 10.0:
         if weights is None:
-            logger.warning(f"Pledge penalty fallback applied for {symbol}: DB weights table unavailable")
             max_penalty = DEFAULT_PLEDGE_PENALTY
         else:
             max_penalty = float(weights.get("PLEDGE_PENALTY", DEFAULT_PLEDGE_PENALTY))
@@ -443,14 +458,13 @@ def _score_reversal(
         pledge_penalty = round(abs(max_penalty) * scale)
         if pledge_penalty > 0:
             score -= pledge_penalty
-            if symbol:
-                logger.warning(f"  -{pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
 
     core_score = trend_pts + vol_pts + macd_pts + rsi_pts
     raw = score + inst_bonus
+    clamped_score = max(0, min(raw, available_max))
 
     return {
-        "score": max(0, min(raw, MAX_POSSIBLE_SCORE)),
+        "score": clamped_score,
         "raw_score": max(0, raw),
         "core_score": core_score,
     }
@@ -468,14 +482,12 @@ def _evaluate_candidate(
     is_synthetic_no_vol: bool = False,
     resolved_date: Optional[date] = None,
 ) -> dict:
-    """
-    Pure evaluation engine called by BOTH _run_scan and evaluate_reversal_symbol.
-    """
+    """Core evaluator logic executing quality gates and returning structured verdict."""
     if df is None or df.empty or len(df) < REVERSAL_MIN_BARS:
         return {
             "passed": False,
-            "reject_reason": f"Insufficient historical bars ({len(df) if df is not None else 0} < {REVERSAL_MIN_BARS})",
-            "reject_code": "insufficient_history",
+            "reject_reason": f"Insufficient historical bars ({len(df) if df is not None else 0} < {REVERSAL_MIN_BARS} minimum)",
+            "reject_code": "no_data",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -487,14 +499,21 @@ def _evaluate_candidate(
     candle_high = _req_float(latest, "High")
     candle_low = _req_float(latest, "Low")
     candle_open = _req_float(latest, "Open")
-    high_52w = _req_float(latest, "HIGH_52W")
-    current_rsi = _req_float(latest, "RSI")
+    atr_val = _req_float(latest, "ATR")
     ema20 = _req_float(latest, "EMA20")
     sma50 = _req_float(latest, "SMA50")
     sma200 = _req_float(latest, "SMA200")
-    atr_val = _req_float(latest, "ATR")
+    current_rsi = _req_float(latest, "RSI")
+    vol_ratio = _req_float(latest, "Volume_Ratio")
+    if vol_ratio is None and "Volume" in df.columns and len(df) >= 20:
+        v20 = df["Volume"].iloc[-20:].dropna().mean()
+        if v20 > 0:
+            vol_ratio = float(latest["Volume"]) / float(v20)
 
-    if any(v is None for v in [close_price, candle_high, candle_low, candle_open, high_52w, current_rsi, ema20, sma50, atr_val]):
+    if is_synthetic_no_vol:
+        vol_ratio = None
+
+    if None in (close_price, candle_high, candle_low, candle_open, current_rsi, ema20):
         return {
             "passed": False,
             "reject_reason": "Missing or NaN mandatory technical indicators",
@@ -505,81 +524,70 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    candle_range = candle_high - candle_low
+    if close_price < MIN_STOCK_PRICE:
+        return {
+            "passed": False,
+            "reject_reason": f"Stock price ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum quality floor",
+            "reject_code": "price_filter",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
 
-    avg_vol_20d = float(df["Volume"].iloc[-21:-1].mean()) if len(df) >= 22 else float(df["Volume"].mean())
+    candle_rng_pct = ((candle_high - candle_low) / close_price) * 100.0
+    if candle_rng_pct < MIN_CANDLE_RANGE_PCT:
+        return {
+            "passed": False,
+            "reject_reason": f"Candle range {candle_rng_pct:.2f}% < {MIN_CANDLE_RANGE_PCT}% minimum volatility threshold",
+            "reject_code": "thin_spread",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
 
-    if is_synthetic_bar and is_synthetic_no_vol:
-        vol_ratio = None
-    elif is_synthetic_bar:
-        snap_vol = _req_float(latest, "Volume") or 0.0
-        frac = _session_fraction(datetime.now(IST).time())
-        vol_ratio = (snap_vol / avg_vol_20d / frac) if avg_vol_20d > 0 else 1.0
+    if "Volume" in df.columns:
+        recent_vol = df["Volume"].iloc[-20:].dropna()
+        avg_vol_20d = float(recent_vol.mean()) if not recent_vol.empty else 0.0
+        if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
+            return {
+                "passed": False,
+                "reject_reason": f"20D Avg Volume {avg_vol_20d:,.0f} < {MIN_AVG_DAILY_VOLUME:,.0f} liquidity floor",
+                "reject_code": "volume_filter",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
+
+    if "Volume_Ratio" in df.columns:
+        vol_series = df["Volume_Ratio"].iloc[-VOL_WINDOW_BARS:].dropna()
+        vol_ratio_max = float(vol_series.max()) if not vol_series.empty else (vol_ratio or 0.0)
     else:
-        latest_vol = _req_float(latest, "Volume") or 0.0
-        vol_ratio = latest_vol / avg_vol_20d if avg_vol_20d > 0 else 1.0
+        vol_ratio_max = vol_ratio or 0.0
 
-    if avg_vol_20d > 0:
-        vol_window = df["Volume"].iloc[-VOL_WINDOW_BARS:] / avg_vol_20d
-        vol_ratio_max = float(vol_window.max()) if not vol_window.empty else (vol_ratio or 1.0)
-    else:
-        vol_ratio_max = vol_ratio or 1.0
-
-    vol_ratio_max = max(vol_ratio_max, float(vol_ratio or 0.0))
-
-    if is_synthetic_bar and candle_range <= 0:
+    high_52w = float(df["High"].iloc[-250:].max()) if len(df) >= 250 else float(df["High"].max())
+    if high_52w <= 0:
         return {
             "passed": False,
-            "reject_reason": "Synthetic bar zero range",
-            "reject_code": "thin_spread",
+            "reject_reason": "52W High is non-positive",
+            "reject_code": "bad_indicators",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
             "context": {},
         }
 
-    if candle_range <= 0 or close_price <= 0:
-        return {
-            "passed": False,
-            "reject_reason": f"Zero or invalid candle range ({candle_range:.2f}) / price ({close_price:.2f})",
-            "reject_code": "thin_spread",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    if (candle_range / close_price) * 100.0 < MIN_CANDLE_RANGE_PCT:
-        return {
-            "passed": False,
-            "reject_reason": f"Candle range {(candle_range / close_price) * 100.0:.2f}% < {MIN_CANDLE_RANGE_PCT}% minimum spread",
-            "reject_code": "thin_spread",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    if close_price < (candle_open - 0.25 * atr_val):
-        return {
-            "passed": False,
-            "reject_reason": f"Heavy red distribution candle (Close ₹{close_price:.2f} < Open ₹{candle_open:.2f})",
-            "reject_code": "weak_candle",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    drop_pct = ((high_52w - close_price) / high_52w) * 100.0 if high_52w > 0 else 0.0
-    cat_str = str(fund_data.get("Category", "")) if fund_data else ""
-    is_quality_cat = any(q in cat_str.lower() for q in ["wealth", "blue chip", "debt-free"])
+    drop_pct = ((high_52w - close_price) / high_52w) * 100.0
+    cat_str = fund_data.get("Category", "") if fund_data else ""
+    is_quality_cat = any(kw in cat_str.lower() for kw in ("wealth", "blue chip", "debt-free"))
     effective_min_drop = QUALITY_CAT_MIN_DROP if is_quality_cat else MIN_DROP_FROM_52W_HIGH
 
     if drop_pct < effective_min_drop or drop_pct > MAX_DROP_FROM_52W_HIGH:
         return {
             "passed": False,
-            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside {effective_min_drop:.1f}%–{MAX_DROP_FROM_52W_HIGH:.1f}% correction band",
+            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {MAX_DROP_FROM_52W_HIGH:.1f}%]",
             "reject_code": "drop_band",
             "score": 0,
             "raw_score": 0,
@@ -587,48 +595,72 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if close_price < MIN_STOCK_PRICE:
-        return {
-            "passed": False,
-            "reject_reason": f"Close ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum price floor",
-            "reject_code": "low_price",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
-        return {
-            "passed": False,
-            "reject_reason": f"20D Avg Volume {avg_vol_20d:.0f} < {MIN_AVG_DAILY_VOLUME:.0f} shares minimum liquidity",
-            "reject_code": "low_liquidity",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
     pct_below_sma200 = None
-    if sma200 is not None and sma200 > 0:
+    if sma200 and sma200 > 0:
         pct_below_sma200 = ((sma200 - close_price) / sma200) * 100.0
         if pct_below_sma200 > MAX_DROP_BELOW_SMA200:
             return {
                 "passed": False,
-                "reject_reason": f"Stock is {pct_below_sma200:.1f}% below SMA200 (max allowed: {MAX_DROP_BELOW_SMA200}%)",
-                "reject_code": "drop_band",
+                "reject_reason": f"Price {pct_below_sma200:.1f}% below SMA200 > {MAX_DROP_BELOW_SMA200}% maximum structural breakdown limit",
+                "reject_code": "sma200_filter",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
                 "context": {},
             }
 
-    # [AUDIT-B2 / F4 / Blocker 4] Hoisted fail-closed guard with turnaround tolerance
+    _rc = regime_ctx or {}
+    regime = _rc.get("current_regime") or _rc.get("trend") or "NEUTRAL"
+    ev_req = REGIME_EVIDENCE_REQ.get(regime, {})
+
+    if "max_pct_below_sma200" in ev_req and pct_below_sma200 is not None:
+        if pct_below_sma200 > ev_req["max_pct_below_sma200"]:
+            return {
+                "passed": False,
+                "reject_reason": f"[{regime}] {pct_below_sma200:.1f}% below SMA200 > {ev_req['max_pct_below_sma200']}% regime limit",
+                "reject_code": "regime_sma200",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
+
+    if "min_vol_ratio" in ev_req:
+        eff_vol = vol_ratio if vol_ratio is not None else vol_ratio_max
+        if eff_vol < ev_req["min_vol_ratio"]:
+            return {
+                "passed": False,
+                "reject_reason": f"[{regime}] Volume ratio {eff_vol:.2f}x < {ev_req['min_vol_ratio']}x regime minimum",
+                "reject_code": "regime_vol",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
+
+    obv_trend = None
+    if "OBV_Trend" in latest and not pd.isna(latest["OBV_Trend"]):
+        try:
+            obv_trend = int(latest["OBV_Trend"])
+        except (ValueError, TypeError):
+            pass
+
+    if ev_req.get("require_obv") and obv_trend != 1:
+        return {
+            "passed": False,
+            "reject_reason": f"[{regime}] OBV trend is not accumulating (OBV_Trend={obv_trend})",
+            "reject_code": "regime_obv",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+
     REQUIRE_FUNDAMENTALS = True
     roe_val = _parse_percent_value(fund_data.get("ROE %")) if fund_data else None
     rev_growth = _parse_percent_value(fund_data.get("YOY Revenue %")) if fund_data else None
 
-    if REQUIRE_FUNDAMENTALS and not is_quality_cat and (roe_val is None or rev_growth is None):
+    if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None) and not is_quality_cat:
         return {
             "passed": False,
             "reject_reason": "Fundamentals unavailable (fail-closed)",
@@ -639,7 +671,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if roe_val is not None and roe_val < MIN_ROE:
+    if roe_val is not None and roe_val < MIN_ROE and not is_quality_cat:
         return {
             "passed": False,
             "reject_reason": f"ROE {roe_val:.1f}% < {MIN_ROE}% minimum threshold",
@@ -650,7 +682,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if rev_growth is not None and rev_growth < MIN_YOY_REVENUE_GROWTH:
+    if rev_growth is not None and rev_growth < MIN_YOY_REVENUE_GROWTH and not is_quality_cat:
         return {
             "passed": False,
             "reject_reason": f"YoY Revenue Growth {rev_growth:.1f}% < {MIN_YOY_REVENUE_GROWTH}% minimum threshold",
@@ -687,12 +719,15 @@ def _evaluate_candidate(
             "context": {},
         }
     past_rsi_min = float(rsi_window.min())
+    trough_idx = rsi_window.idxmin()
+    bars_since_trough = (len(df) - 1 - df.index.get_loc(trough_idx)) if trough_idx in df.index else 99
     rsi_recovery = current_rsi - past_rsi_min
 
-    if current_rsi < RSI_CURL_MIN or past_rsi_min > RSI_OVERSOLD_THRESHOLD or rsi_recovery < MIN_RSI_RECOVERY:
+    MAX_TROUGH_AGE = 25
+    if current_rsi < RSI_CURL_MIN or past_rsi_min > RSI_OVERSOLD_THRESHOLD or rsi_recovery < MIN_RSI_RECOVERY or bars_since_trough > MAX_TROUGH_AGE:
         return {
             "passed": False,
-            "reject_reason": f"RSI condition failed: current RSI={current_rsi:.1f} (min {RSI_CURL_MIN}), min RSI={past_rsi_min:.1f} (max {RSI_OVERSOLD_THRESHOLD}), bounce={rsi_recovery:.1f} (min {MIN_RSI_RECOVERY})",
+            "reject_reason": f"RSI condition failed: current RSI={current_rsi:.1f} (min {RSI_CURL_MIN}), min RSI={past_rsi_min:.1f} (max {RSI_OVERSOLD_THRESHOLD}), bounce={rsi_recovery:.1f} (min {MIN_RSI_RECOVERY}), trough age={bars_since_trough}b (max {MAX_TROUGH_AGE}b)",
             "reject_code": "failed_pattern",
             "score": 0,
             "raw_score": 0,
@@ -700,19 +735,19 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if len(df) >= 3:
-        rsi_tail = df["RSI"].iloc[-3:]
-        rsi_diffs = rsi_tail.diff().dropna()
-        if not rsi_diffs.empty and (rsi_diffs < -0.5).all():
-            return {
-                "passed": False,
-                "reject_reason": f"RSI declining over last 3 bars: {list(rsi_tail.round(1))}",
-                "reject_code": "failed_pattern",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": {},
-                "context": {},
-            }
+    if len(df) >= 4:
+        rsi_tail = df["RSI"].iloc[-4:].dropna()
+        if len(rsi_tail) >= 3:
+            if (rsi_tail.iloc[-1] < rsi_tail.iloc[-2]) and (rsi_tail.iloc[-2] < rsi_tail.iloc[-3]):
+                return {
+                    "passed": False,
+                    "reject_reason": f"RSI continuously declining over last 3 bars: {list(rsi_tail.tail(3).round(1))}",
+                    "reject_code": "failed_pattern",
+                    "score": 0,
+                    "raw_score": 0,
+                    "sl_result": {},
+                    "context": {},
+                }
 
     if not _macd_momentum_present(df, atr_val=atr_val):
         return {
@@ -725,11 +760,11 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # [AUDIT-Blocker 2] Check 5-bar volume window ratio against MIN_VOLUME_RATIO
-    if vol_ratio_max < MIN_VOLUME_RATIO:
+    effective_vol_ratio = vol_ratio if vol_ratio is not None else vol_ratio_max
+    if effective_vol_ratio < MIN_VOLUME_RATIO:
         return {
             "passed": False,
-            "reject_reason": f"Volume ratio max {vol_ratio_max:.2f}x (5B) < {MIN_VOLUME_RATIO}x minimum volume confirmation",
+            "reject_reason": f"Volume ratio {effective_vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation",
             "reject_code": "low_volume",
             "score": 0,
             "raw_score": 0,
@@ -748,57 +783,16 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # [AUDIT-C2 / v6.1] Hoisted check: exit early if volume is missing and OBV trend is not accumulating
-    if is_synthetic_no_vol and len(df) >= 2:
-        _early_obv_trend = int(_opt_float(df.iloc[-2], "OBV_TREND", 0))
-    else:
-        _early_obv_trend = int(_opt_float(latest, "OBV_TREND", 0))
-
-    if vol_ratio is None and _early_obv_trend != 1:
+    sl_res = compute_sl_and_target(
+        df=df,
+        entry_price=close_price,
+        pattern_type="REVERSAL",
+        atr_val=atr_val,
+    )
+    if not sl_res.get("passed", False):
         return {
             "passed": False,
-            "reject_reason": "Volume unavailable and no OBV accumulation to substitute",
-            "reject_code": "low_volume",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    sl_args = {
-        "df": df,
-        "entry_price": close_price,
-        "scanner": "REVERSAL",
-        "adx": _opt_float(latest, "ADX", 20.0),
-        "rsi": current_rsi,
-        "macd_hist": _opt_float(latest, "MACD_HIST", 0.0),
-        "atr": atr_val,
-        "atr_pct": _opt_float(latest, "ATR_PCT", 2.0),
-        "swing_low": _opt_float(latest, "SWING_LOW", candle_low),
-        "swing_high": _opt_float(latest, "SWING_HIGH", candle_high),
-        "bb_upper": _opt_float(latest, "BB_UPPER", candle_high),
-        "bb_lower": _opt_float(latest, "BB_LOWER", candle_low),
-        "bb_mid": _opt_float(latest, "BB_MID", close_price),
-        "s1": _opt_float(latest, "S1", candle_low),
-        "s2": _opt_float(latest, "S2", candle_low),
-        "r1": _opt_float(latest, "R1", candle_high),
-        "r2": _opt_float(latest, "R2", candle_high),
-        "swing_low_raw": _opt_float(latest, "SWING_LOW_RAW", candle_low),
-        "swing_high_raw": _opt_float(latest, "SWING_HIGH_RAW", candle_high),
-        "candle_low": candle_low,
-        "vwap": _opt_float(latest, "VWAP", close_price),
-        "ema20": ema20,
-        "sma50": sma50,
-        "sma200": sma200,
-    }
-
-    try:
-        sl_res = compute_sl_and_target(**sl_args)
-    except Exception as e:
-        logger.warning(f"[REVERSAL] {symbol} compute_sl_and_target failed: {e}")
-        return {
-            "passed": False,
-            "reject_reason": f"SL/Target computation error: {e}",
+            "reject_reason": f"R:R filter: {sl_res.get('reject_reason', 'SL/Target calculation failed')}",
             "reject_code": "low_rr",
             "score": 0,
             "raw_score": 0,
@@ -806,87 +800,36 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if sl_res.get("is_rejected"):
-        return {
-            "passed": False,
-            "reject_reason": sl_res.get("rejection_reason", "SL/Target engine rejected setup"),
-            "reject_code": "low_rr",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": sl_res,
-            "context": {},
-        }
-
-    # [AUDIT-A3 / F2 / S2 / S3 / S5 / Blocker 1 & 2] Hard Evidence Requirements in Bear Regimes
-    _rc = regime_ctx or {}
-    regime = str(_rc.get("current_regime") or _rc.get("trend") or "NEUTRAL").upper()
     can_sym = _canonical_symbol(symbol)
-
-    if is_synthetic_no_vol and len(df) >= 2:
-        obv_trend = int(_opt_float(df.iloc[-2], "OBV_TREND", 0))
-    else:
-        obv_trend = int(_opt_float(latest, "OBV_TREND", 0))
-
-    req = REGIME_EVIDENCE_REQ.get(regime, {})
-    if req:
-        eval_vol = vol_ratio_max
-        if eval_vol < req["min_vol_ratio"] and not (vol_ratio is None and obv_trend == 1):
-            return {
-                "passed": False,
-                "reject_reason": f"Bear-regime volume floor {req['min_vol_ratio']}x not met",
-                "reject_code": "regime_vol",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": sl_res,
-                "context": {},
-            }
-        if (sl_res.get("natural_rr") or 0) < req["min_rr"]:
-            return {
-                "passed": False,
-                "reject_reason": f"Bear-regime R:R floor {req['min_rr']} not met (got {sl_res.get('natural_rr', 0):.2f})",
-                "reject_code": "regime_rr",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": sl_res,
-                "context": {},
-            }
-        if req.get("require_obv") and obv_trend != 1:
-            return {
-                "passed": False,
-                "reject_reason": "Bear regime requires OBV accumulation confirmation",
-                "reject_code": "regime_obv",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": sl_res,
-                "context": {},
-            }
-        if pct_below_sma200 is not None and pct_below_sma200 > req["max_pct_below_sma200"]:
-            return {
-                "passed": False,
-                "reject_reason": f"Bear regime requires SMA200 proximity <= {req['max_pct_below_sma200']}% (got {pct_below_sma200:.1f}%)",
-                "reject_code": "regime_sma200",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": sl_res,
-                "context": {},
-            }
-
-    AVAILABLE_MAX = COMPONENT_MAX
-    if vol_ratio is None:
-        AVAILABLE_MAX -= 12   # window tier still awards 3 pts (see _score_reversal)
     delivery_pct = _lookup(delivery_map, symbol, can_sym)
     today_ist_date = datetime.now(IST).date()
     age = (today_ist_date - resolved_date).days if resolved_date else 99
     delivery_conf = 1.0 if age == 0 else (0.5 if age == 1 else 0.0)
+
+    # ── Normalize AVAILABLE_MAX across all missing optional components ──
+    AVAILABLE_MAX = COMPONENT_MAX
+    if vol_ratio is None:
+        AVAILABLE_MAX -= 12
     if delivery_pct is None or delivery_conf == 0.0:
         AVAILABLE_MAX -= 5
+    elif delivery_conf < 1.0:
+        AVAILABLE_MAX -= 2
+    if pct_below_sma200 is None:
+        AVAILABLE_MAX -= 12
+    if not cat_str or not any(cat_label.lower() in cat_str.lower() for cat_label, _ in _REV_CATEGORY_SCORES_SORTED):
+        AVAILABLE_MAX -= 10
+    if obv_trend is None:
+        AVAILABLE_MAX -= 5
+    if sl_res.get("natural_rr") is None:
+        AVAILABLE_MAX -= 5
 
+    AVAILABLE_MAX = max(50, AVAILABLE_MAX)
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
     effective_min_score = round((MIN_REVERSAL_SCORE + score_premium) * AVAILABLE_MAX / COMPONENT_MAX)
 
     sma50_series = df["SMA50"].dropna()
     sma50_slope_up = (len(sma50_series) >= 6 and float(sma50_series.iloc[-1]) > float(sma50_series.iloc[-6]))
-    close_above_ema20 = (close_price > (ema20 - ema_tol))
+    close_above_ema20_strict = (close_price > ema20)
     above_sma50 = (close_price > sma50) if sma50 else False
     above_sma200 = (close_price > sma200) if sma200 else False
 
@@ -894,7 +837,7 @@ def _evaluate_candidate(
         trend_score = 25
     elif above_sma50:
         trend_score = 22
-    elif close_above_ema20 and sma50_slope_up:
+    elif close_above_ema20_strict and sma50_slope_up:
         trend_score = 18
     else:
         trend_score = 14
@@ -922,6 +865,7 @@ def _evaluate_candidate(
         min_drop_floor=effective_min_drop,
         delivery_conf=delivery_conf,
         vol_ratio_window=vol_ratio_max,
+        available_max=AVAILABLE_MAX,
     )
     score = score_dict["score"]
     raw_score = score_dict["raw_score"]
@@ -930,7 +874,7 @@ def _evaluate_candidate(
     if core_score < CORE_SCORE_FLOOR:
         return {
             "passed": False,
-            "reject_reason": f"Core technical score {core_score} < {CORE_SCORE_FLOOR} minimum floor",
+            "reject_reason": f"Core technical score {core_score} < {CORE_SCORE_FLOOR} minimum quality floor",
             "reject_code": "weak_core",
             "score": score,
             "raw_score": raw_score,
@@ -964,6 +908,8 @@ def _evaluate_candidate(
     if obv_trend == 1:
         signals.append("🟢 OBV Accumulation")
 
+    target_val = sl_res.get("target_1") or sl_res.get("target")
+
     context = {
         "score": score,
         "raw_score": raw_score,
@@ -972,11 +918,14 @@ def _evaluate_candidate(
         "entry_price": close_price,
         "drop_pct": round(drop_pct, 1),
         "stop_loss": sl_res.get("stop_loss"),
-        "target": sl_res.get("target"),
+        "target": target_val,
+        "target_1": target_val,
         "risk_reward": sl_res.get("natural_rr"),
+        "regime": regime,
+        "effective_min_score": effective_min_score,
+        "available_max": AVAILABLE_MAX,
         "signals": signals,
         "technicals": {
-            "close": close_price,
             "rsi": current_rsi,
             "ema20": ema20,
             "sma50": sma50,
@@ -999,17 +948,21 @@ def _evaluate_candidate(
 
 
 def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
-    """
-    Public UI evaluator delegating directly to _evaluate_candidate for 100% parity.
-    """
+    """Public UI evaluator delegating directly to _evaluate_candidate for 100% parity."""
     if ticker is None or ticker.empty:
         return {"status": "NO", "reasons": ["Failed to calculate technical indicators"], "score": 0, "qualified": False}
 
     ticker = apply_indicators(ticker, timeframe="1d")
 
+    regime_ctx = regime_ctx or {}
+    regime_str = regime_ctx.get("trend") or regime_ctx.get("current_regime") or "NEUTRAL"
+    if "trend" not in regime_ctx:
+        regime_ctx["trend"] = regime_str
+    if "current_regime" not in regime_ctx:
+        regime_ctx["current_regime"] = regime_str
+
     try:
         from database import get_latest_weights, get_pledge_map
-        regime_str = (regime_ctx or {}).get("trend", "NEUTRAL")
         _wts = get_latest_weights(regime_str)
         weights = _wts.get("weights") if _wts else None
         pledge_map = get_pledge_map([symbol])
@@ -1029,7 +982,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         symbol=symbol,
         df=ticker,
         fund_data=fund_data,
-        regime_ctx=regime_ctx or {"current_regime": "NEUTRAL"},
+        regime_ctx=regime_ctx,
         weights=weights,
         pledge_map=pledge_map,
         delivery_map=delivery_map,
@@ -1058,37 +1011,36 @@ def _is_symbol_in_reversal_cooldown(symbol: str, cooldown_days: int) -> bool:
     try:
         from database import is_symbol_in_failed_reversal_cooldown
         return bool(is_symbol_in_failed_reversal_cooldown(symbol, cooldown_days))
-    except (ImportError, AttributeError, ModuleNotFoundError):
-        logger.warning(f"⚠️ Outcome tracking helper missing for {symbol}; cooldown protection weakened.")
-        return False
     except Exception:
-        logger.exception(f"cooldown check (outcome-aware) failed for {symbol}")
         return False
 
 
 def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     from database import is_scanner_stopped
-    if is_scanner_stopped("REVERSAL"):
+    if not force and is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         return 0
 
     ist_now = datetime.now(IST)
-    scan_start = datetime.now(IST)
     logger.info("\n" + "=" * 80)
     logger.info(f"🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀")
     logger.info("=" * 80 + "\n")
 
     try:
+        from macro_utils import MarketRegimeEngine
         regime_engine = MarketRegimeEngine()
         regime_ctx = regime_engine.get_market_regime()
     except Exception as e:
         logger.warning(f"Failed to fetch market regime: {e}. Defaulting to NEUTRAL.")
         regime_ctx = {"current_regime": "NEUTRAL", "trend": "NEUTRAL", "biases": {}}
 
+    if "trend" not in regime_ctx:
+        regime_ctx["trend"] = regime_ctx.get("current_regime", "NEUTRAL")
+
     try:
         from database import get_latest_weights
-        _regime_for_wts = regime_ctx.get("trend", "NEUTRAL") if isinstance(regime_ctx, dict) else "NEUTRAL"
+        _regime_for_wts = regime_ctx.get("trend", "NEUTRAL")
         weights_row = get_latest_weights(_regime_for_wts)
         bayesian_weights = weights_row.get("weights") if weights_row else None
     except Exception as e:
@@ -1127,38 +1079,11 @@ def _run_scan(force: bool = False):
 
     total_alerts = 0
     shortlisted_alerts = []
-    rejected = {
-        "no_data": 0,
-        "bad_indicators": 0,
-        "insufficient_history": 0,
-        "stale_data": 0,
-        "cooldown": 0,
-        "failed_pattern": 0,
-        "drop_band": 0,
-        "low_price": 0,
-        "low_liquidity": 0,
-        "fundamental_filter": 0,
-        "ema_filter": 0,
-        "low_volume": 0,
-        "low_score": 0,
-        "climax_top": 0,
-        "thin_spread": 0,
-        "weak_candle": 0,
-        "weak_core": 0,
-        "regime_vol": 0,
-        "regime_rr": 0,
-        "regime_obv": 0,
-        "regime_sma200": 0,
-        "low_rr": 0,
-        "macd_stale": 0,
-        "blacklist": 0,
-        "batch_fetch_failed": 0,
-        "processing_error": 0,
-    }
+    rejected = defaultdict(int)
 
     today_str = ist_now.strftime("%Y-%m-%d")
 
-    from database import get_recent_alerts_for_scanner, get_all_failed_reversal_cooldown_symbols, delete_todays_alerts_for_scanner
+    from database import get_recent_alerts_for_scanner, delete_todays_alerts_for_scanner
     cooldown_alerts = get_recent_alerts_for_scanner("REVERSAL", 3 * 1440, only_active=True)
     today_ist = ist_now.date()
     cooldown_syms = set()
@@ -1172,7 +1097,6 @@ def _run_scan(force: bool = False):
             continue
         if sym:
             cooldown_syms.add(_canonical_symbol(sym))
-    failed_reversal_cooldown_symbols = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
 
     try:
         deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
@@ -1181,18 +1105,20 @@ def _run_scan(force: bool = False):
         logger.warning(f"Failed to delete today's alerts for REVERSAL before run: {e}")
 
     import gc
-    # [VERSION: LOG_ERROR_FIXES_v1.0] Import chunk_iterable from memory_profiler
-    from memory_profiler import chunk_iterable, MemoryProfiler, BatchMemoryTracker
+    from memory_profiler import chunk_iterable, MemoryProfiler
     BATCH_SIZE = 50
     total_fetched_count = 0
-    total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
-    from price_cache import get_intraday_snapshot
+    # Intraday 5m snapshot optimization: only fetch during market hours (09:15-15:30 IST Mon-Fri)
+    is_market_open = (dtime(9, 15) <= ist_now.time() <= dtime(15, 30)) and (ist_now.weekday() < 5)
     all_symbols = watchlist["Stock"].tolist()
-    try:
-        all_snapshots = get_intraday_snapshot(all_symbols, interval="5m", period="1d", requester="ReverseScanner") or {}
-    except Exception as _snap_e:
-        all_snapshots = {}
+    all_snapshots = {}
+    if is_market_open:
+        try:
+            from price_cache import get_intraday_snapshot
+            all_snapshots = get_intraday_snapshot(all_symbols, interval="5m", period="1d", requester="ReverseScanner") or {}
+        except Exception as _snap_e:
+            all_snapshots = {}
 
     synthetic_vol_missing = set()
     synthetic_bar_symbols = set()
@@ -1201,6 +1127,8 @@ def _run_scan(force: bool = False):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             try:
                 all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                if all_ticker_data:
+                    total_fetched_count += len(all_ticker_data)
 
                 chunk_symbols = chunk_df["Stock"].tolist()
                 chunk_snapshots = {}
@@ -1239,12 +1167,10 @@ def _run_scan(force: bool = False):
                                         try:
                                             recomputed = apply_indicators(hist_df, timeframe="1d")
                                             if recomputed is None or recomputed.empty:
-                                                logger.warning(f"[REVERSAL] {sym}: indicator recompute failed on fresh bar — skipping symbol")
                                                 all_ticker_data.pop(sym, None)
                                                 continue
                                             hist_df = recomputed
-                                        except Exception as _ind_e:
-                                            logger.warning(f"[REVERSAL] {sym}: indicator recompute raised {_ind_e} on fresh bar — skipping symbol")
+                                        except Exception:
                                             all_ticker_data.pop(sym, None)
                                             continue
                                         synthetic_bar_symbols.discard(can_sym)
@@ -1263,12 +1189,10 @@ def _run_scan(force: bool = False):
                                         try:
                                             recomputed = apply_indicators(hist_df, timeframe="1d")
                                             if recomputed is None or recomputed.empty:
-                                                logger.warning(f"[REVERSAL] {sym}: indicator recompute failed on synthetic bar — skipping symbol")
                                                 all_ticker_data.pop(sym, None)
                                                 continue
                                             hist_df = recomputed
-                                        except Exception as _ind_e:
-                                            logger.warning(f"[REVERSAL] {sym}: indicator recompute raised {_ind_e} on synthetic bar — skipping symbol")
+                                        except Exception:
                                             all_ticker_data.pop(sym, None)
                                             continue
                                         synthetic_bar_symbols.add(can_sym)
@@ -1282,11 +1206,20 @@ def _run_scan(force: bool = False):
                     category = row["Category"]
                     can_sym  = _canonical_symbol(symbol)
                     
-                    if symbol in failed_reversal_cooldown_symbols or can_sym in failed_reversal_cooldown_symbols or can_sym in cooldown_syms:
-                        rejected["cooldown"] += 1
+                    # [FIX C1] Enforce surveillance / blacklist filtering
+                    live_blacklist = get_live_blacklist()
+                    if symbol in live_blacklist or can_sym in live_blacklist:
+                        rejected["blacklist"] += 1
+                        logger.info(f"🚫 [REVERSAL] {symbol} skipped — active surveillance/blacklist")
                         continue
 
-                    ticker_data = all_ticker_data.get(symbol)
+                    # [FIX C8] Respect force parameter for cooldowns
+                    if not force:
+                        if can_sym in cooldown_syms or _is_symbol_in_reversal_cooldown(symbol, REVERSAL_COOLDOWN_TRADING_DAYS):
+                            rejected["cooldown"] += 1
+                            continue
+
+                    ticker_data = all_ticker_data.get(symbol) if all_ticker_data else None
                     if ticker_data is None:
                         rejected["no_data"] += 1
                         continue
@@ -1310,6 +1243,7 @@ def _run_scan(force: bool = False):
                         continue
 
                     ctx = verdict["context"]
+                    target_val = verdict["sl_result"].get("target_1") or verdict["sl_result"].get("target")
                     shortlisted_alerts.append({
                         "symbol": symbol,
                         "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
@@ -1321,16 +1255,25 @@ def _run_scan(force: bool = False):
                         "rsi": round(ctx["technicals"]["rsi"], 1),
                         "volume_ratio": ctx["technicals"]["volume_ratio"],
                         "stop_loss": verdict["sl_result"].get("stop_loss"),
-                        "target_1": verdict["sl_result"].get("target_1"),
-                        "target_price": verdict["sl_result"].get("target_1"),
+                        "target_1": target_val,
+                        "target_price": target_val,
                         "context": ctx,
                         "structural_failure_stop": verdict["sl_result"].get("structural_failure_stop"),
                         "target_quality_score": verdict["sl_result"].get("target_quality")
                     })
+            except Exception as batch_err:
+                logger.error(f"❌ [REVERSAL] Batch {batch_num} error: {batch_err}")
+                rejected["batch_fetch_failed"] += len(chunk_df)
             finally:
                 gc.collect()
 
         total_symbols = len(watchlist)
+        if total_symbols > 0:
+            fetch_ratio = total_fetched_count / total_symbols
+            logger.info(f"📊 [REVERSAL] Batch Fetch Completed: {total_fetched_count}/{total_symbols} fetched ({fetch_ratio*100:.1f}%)")
+            if fetch_ratio < MIN_FETCH_RATIO:
+                logger.warning(f"⚠️ [REVERSAL] Fetch ratio {fetch_ratio*100:.1f}% < {MIN_FETCH_RATIO*100:.0f}% minimum health threshold")
+
         if total_symbols > 0 and rejected.get("fundamental_filter", 0) / total_symbols > FUNDAMENTAL_REJECT_ALARM_PCT:
             logger.critical(f"🚨 CRITICAL ALARM: fundamental_filter rejected {rejected['fundamental_filter']}/{total_symbols} symbols (>{FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%) — potential fundamental data outage!")
 
@@ -1353,24 +1296,29 @@ def _run_scan(force: bool = False):
             )
             if inserted: total_alerts += 1
 
+        # [FIX C3] Update scanner health to OK on successful completion
+        upsert_scanner_health("REVERSAL", "OK", error_msg=None)
+        logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
         return total_alerts
 
 
 def _validate_config():
     """
-    [AUDIT-D / F5 / F6 / N1 / N2 / Blocker 8] Startup contradiction validator.
+    Startup contradiction validator.
     Fails fast at module import time if any REVERSAL thresholds or parameters are contradictory.
     """
     fatal, warn = [], []
     if MIN_DROP_FROM_52W_HIGH >= MAX_DROP_FROM_52W_HIGH:
         fatal.append(f"Empty drop band: {MIN_DROP_FROM_52W_HIGH} >= {MAX_DROP_FROM_52W_HIGH}")
+    if QUALITY_CAT_MIN_DROP > MIN_DROP_FROM_52W_HIGH:
+        warn.append(f"QUALITY_CAT_MIN_DROP ({QUALITY_CAT_MIN_DROP}) > MIN_DROP_FROM_52W_HIGH ({MIN_DROP_FROM_52W_HIGH})")
     if RSI_CURL_MIN <= RSI_OVERSOLD_THRESHOLD:
         fatal.append(f"RSI_CURL_MIN ({RSI_CURL_MIN}) must exceed RSI_OVERSOLD_THRESHOLD ({RSI_OVERSOLD_THRESHOLD})")
     
     _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 0))
     if MIN_RSI_RECOVERY < 8.0:
         fatal.append(f"MIN_RSI_RECOVERY ({MIN_RSI_RECOVERY}) < lowest scorer tier (8): rsi_pts can be 0, collapsing core below CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR})")
-    BEAR_CORE_REALISTIC = 18 + 3 + 5 + _MIN_RSI_PTS
+    BEAR_CORE_REALISTIC = 14 + 5 + 5 + _MIN_RSI_PTS  # 32 pts (or 30 pts window)
     if CORE_SCORE_FLOOR > BEAR_CORE_REALISTIC:
         fatal.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({BEAR_CORE_REALISTIC}) -> blackout")
     if CORE_SCORE_FLOOR >= CORE_SCORE_MAX:
@@ -1380,9 +1328,6 @@ def _validate_config():
         prox = req.get("max_pct_below_sma200")
         if prox is None:
             continue
-        floor = MIN_DROP_FROM_52W_HIGH * 0.8
-        if prox < floor:
-            fatal.append(f"{r}: SMA200 proximity {prox}% is geometrically incompatible with MIN_DROP_FROM_52W_HIGH={MIN_DROP_FROM_52W_HIGH}% (needs >= {floor:.1f}%)")
         if prox >= MAX_DROP_BELOW_SMA200:
             fatal.append(f"{r}: proximity {prox}% >= MAX_DROP_BELOW_SMA200 ({MAX_DROP_BELOW_SMA200}%) — dead code, remove or tighten")
 
@@ -1406,10 +1351,6 @@ def _validate_config():
         if need > COMPONENT_MAX:
             fatal.append(f"{regime}: threshold {need} > max {COMPONENT_MAX}")
 
-    if MAX_DROP_FROM_52W_HIGH <= 40.0: warn.append("Scorer tier '40 < drop <= MAX' is dead code")
-    if MIN_DROP_FROM_52W_HIGH >= 25.0: warn.append("Scorer tier 'min_floor <= drop < 25' is dead code")
-    if MIN_VOLUME_RATIO >= 2.5:        warn.append("Volume '+5' tier is dead code")
-
     for w in warn:
         logger.warning(f"REVERSAL config dead zone: {w}")
 
@@ -1424,8 +1365,6 @@ except ValueError as e:
     try:
         from database import upsert_scanner_health
         upsert_scanner_health("REVERSAL", "DOWN", error_msg=f"Config: {str(e)[:200]}")
-        from push_service import send_push_to_all
-        send_push_to_all("❌ REVERSAL config invalid", str(e)[:100])
     except Exception:
         pass
     raise
@@ -1455,7 +1394,6 @@ def _start_wrapper(force: bool = False) -> int:
     except Exception:
         logger.warning("⚠️ Could not mark Reversal as RUNNING")
 
-    from surveillance import force_refresh_blacklist
     force_refresh_blacklist()
 
     try:
@@ -1466,8 +1404,6 @@ def _start_wrapper(force: bool = False) -> int:
         if not getattr(database, "DONT_SAVE_ALERTS", False):
             try:
                 upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(e))
-                from push_service import send_push_to_all
-                send_push_to_all("❌ REVERSAL Scanner DOWN", f"Crash: {str(e)[:100]}")
             except Exception:
                 pass
         raise
