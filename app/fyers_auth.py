@@ -81,23 +81,17 @@ def is_direct_access_token(token_str: str) -> bool:
     return False
 
 def save_access_token(auth_code: str) -> str:
-    """Exchanges auth_code for access_token, saves to Postgres DB and locally."""
+    """Exchanges auth_code for access_token via SessionModel.generate_token(), saves to Postgres DB and locally."""
     try:
         if not auth_code:
             return None
-            
-        # 1. Fast Path: If auth_code is ALREADY a direct access token JWT (sub == 'access_token'), save directly
-        if is_direct_access_token(auth_code):
-            logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
-            return save_access_token_direct(auth_code)
 
-        # 2. Exchange auth_code with Fyers SessionModel to obtain real access_token
         logger.info("Fyers login Step 5: Exchanging authorization code for access token via SessionModel...")
         session = get_session_model()
         session.set_token(auth_code)
         
         response = None
-        for exchange_attempt in range(2):
+        for exchange_attempt in range(3):
             try:
                 response = session.generate_token()
                 if response and isinstance(response, dict) and "access_token" in response:
@@ -111,7 +105,7 @@ def save_access_token(auth_code: str) -> str:
             logger.info("✅ Fyers authorization code successfully exchanged for access token.")
             return save_access_token_direct(access_token)
         else:
-            logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
+            logger.error(f"❌ Fyers token exchange failed. Response payload: {response}")
             return None
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")
@@ -198,8 +192,8 @@ def auto_login() -> Optional[str]:
                 res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
                 if isinstance(res2, dict) and 'request_key' in res2:
                     break
-                logger.warning(f"Fyers Step 2 TOTP attempt {totp_attempt + 1} failed: {res2}. Retrying in 1s...")
-                time.sleep(1.0)
+                logger.warning(f"Fyers Step 2 TOTP attempt {totp_attempt + 1} failed: {res2}. Retrying in 2.5s...")
+                time.sleep(2.5)
             
             if not res2 or 'request_key' not in res2:
                 logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
