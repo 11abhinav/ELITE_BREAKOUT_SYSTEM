@@ -61,16 +61,19 @@ def save_access_token_direct(access_token: str) -> str:
         return None
 
 def is_direct_access_token(token_str: str) -> bool:
-    """Inspects unverified JWT payload to check if sub == 'access_token'."""
-    if not token_str or not token_str.startswith("eyJ"):
+    """Inspects unverified JWT payload to check if sub == 'access_token' or iss == 'api.fyers.in'."""
+    if not token_str or not isinstance(token_str, str) or not token_str.startswith("eyJ"):
         return False
     try:
         import base64, json
         parts = token_str.split(".")
-        if len(parts) == 3:
-            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-            return payload.get("sub") == "access_token"
+        if len(parts) >= 2:
+            payload_b64 = parts[1]
+            rem = len(payload_b64) % 4
+            if rem > 0:
+                payload_b64 += "=" * (4 - rem)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            return payload.get("sub") == "access_token" or payload.get("iss") == "api.fyers.in"
     except Exception:
         pass
     return False
