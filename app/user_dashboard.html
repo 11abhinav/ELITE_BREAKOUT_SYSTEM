@@ -1835,14 +1835,9 @@ async function initDashboard() {
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
 
-  if (!data.trades || !data.trades.length) {
-    document.getElementById('kpis').innerHTML = '<div style="padding:48px;text-align:center;color:var(--muted)">No alert history found.</div>';
-    return;
-  }
-
-  const s = data.summary;
+  const s = data.summary || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
   document.getElementById('header-stats').textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
-  ALL_TRADES = data.trades;
+  ALL_TRADES = data.trades || [];
   populateFilters(ALL_TRADES);
   renderKPIs(s);
   // Fire secondary data loads in parallel (non-blocking)

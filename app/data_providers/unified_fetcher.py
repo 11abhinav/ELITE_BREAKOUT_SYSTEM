@@ -171,10 +171,22 @@ class UnifiedFetcher:
 
                         try:
                             from fyers_auth import get_fyers_client
+                            import time
                             fyers_client = get_fyers_client()
                             if fyers_client:
                                 fyers_symbols_str = ",".join(fyers_map.keys())
                                 resp = fyers_client.quotes({"symbols": fyers_symbols_str})
+
+                                # [FYERS PROPAGATION RETRY] If token was freshly generated within 1-2s,
+                                # Fyers data servers return code -15 ("Please provide valid token").
+                                # Wait 1.5s and retry once with fresh client.
+                                if resp and isinstance(resp, dict) and resp.get("code") in (-15, -16, 401, -401):
+                                    logger.info(f"⏳ [Fyers] Fresh token propagation wait (code {resp.get('code')}). Retrying in 1.5s...")
+                                    time.sleep(1.5)
+                                    fyers_client = get_fyers_client()
+                                    if fyers_client:
+                                        resp = fyers_client.quotes({"symbols": fyers_symbols_str})
+
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
                                     success_count = 0
                                     for item in resp.get("d", []):

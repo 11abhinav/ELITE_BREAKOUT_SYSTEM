@@ -4778,16 +4778,12 @@ async function initDashboard() {
   document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
 
-  if (!data.trades || !data.trades.length) {
-    document.getElementById('kpis').innerHTML = '<div style="padding:48px;text-align:center;color:var(--muted)">No alert history found.</div>';
-    renderScannerGrid(data.scanner_stats);
-    loadNonCriticalErrors();
-    return;
-  }
-  ALL_TRADES = data.trades;
+  ALL_TRADES = data.trades || [];
   EXIT_HISTORY_CACHE.clear();
   populateFilters(ALL_TRADES);
   renderTradeTable();
+  renderScannerGrid(data.scanner_stats);
+  loadNonCriticalErrors();
 
   // Load secondary dashboard components concurrently
   Promise.all([
