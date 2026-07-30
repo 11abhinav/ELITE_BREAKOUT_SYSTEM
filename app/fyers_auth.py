@@ -95,7 +95,16 @@ def save_access_token(auth_code: str) -> str:
         logger.info("Fyers login Step 5: Exchanging authorization code for access token via SessionModel...")
         session = get_session_model()
         session.set_token(auth_code)
-        response = session.generate_token()
+        
+        response = None
+        for exchange_attempt in range(2):
+            try:
+                response = session.generate_token()
+                if response and isinstance(response, dict) and "access_token" in response:
+                    break
+            except Exception as ex_err:
+                logger.warning(f"Fyers token exchange attempt {exchange_attempt + 1} exception: {ex_err}")
+            time.sleep(1.0)
         
         if response and isinstance(response, dict) and "access_token" in response:
             access_token = response["access_token"]
@@ -177,16 +186,22 @@ def auto_login() -> Optional[str]:
             request_key = res["request_key"]
             
             logger.info("Fyers login Step 2: Verifying TOTP...")
-            try:
-                totp = pyotp.TOTP(totp_secret).now()
-            except Exception as e:
-                logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
-                return None
-                
-            payload2 = {"request_key": request_key, "otp": totp}
-            res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
+            res2 = None
+            for totp_attempt in range(2):
+                try:
+                    totp = pyotp.TOTP(totp_secret).now()
+                except Exception as e:
+                    logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
+                    return None
+                    
+                payload2 = {"request_key": request_key, "otp": totp}
+                res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
+                if isinstance(res2, dict) and 'request_key' in res2:
+                    break
+                logger.warning(f"Fyers Step 2 TOTP attempt {totp_attempt + 1} failed: {res2}. Retrying in 1s...")
+                time.sleep(1.0)
             
-            if 'request_key' not in res2:
+            if not res2 or 'request_key' not in res2:
                 logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
                 return None
             request_key = res2["request_key"]
