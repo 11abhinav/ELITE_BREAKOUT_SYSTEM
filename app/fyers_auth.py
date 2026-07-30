@@ -61,7 +61,7 @@ def save_access_token_direct(access_token: str) -> str:
         return None
 
 def is_direct_access_token(token_str: str) -> bool:
-    """Inspects unverified JWT payload to check if sub == 'access_token' or iss == 'api.fyers.in'."""
+    """Inspects unverified JWT payload to check if sub == 'access_token'."""
     if not token_str or not isinstance(token_str, str) or not token_str.startswith("eyJ"):
         return False
     try:
@@ -73,7 +73,8 @@ def is_direct_access_token(token_str: str) -> bool:
             if rem > 0:
                 payload_b64 += "=" * (4 - rem)
             payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-            return payload.get("sub") == "access_token" or payload.get("iss") == "api.fyers.in"
+            sub = str(payload.get("sub", ""))
+            return sub == "access_token" or payload.get("token_type") == "access_token"
     except Exception:
         pass
     return False
@@ -89,27 +90,19 @@ def save_access_token(auth_code: str) -> str:
             logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
             return save_access_token_direct(auth_code)
 
-        # 2. Otherwise, exchange auth_code with Fyers SessionModel
-        try:
-            session = get_session_model()
-            session.set_token(auth_code)
-            response = session.generate_token()
-            
-            if response and isinstance(response, dict) and "access_token" in response:
-                access_token = response["access_token"]
-                logger.info("✅ Fyers authorization code successfully exchanged for access token.")
-                return save_access_token_direct(access_token)
-            else:
-                logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
-        except Exception as exchange_err:
-            logger.info(f"Fyers auth code exchange attempt skipped ({exchange_err}). Checking fallback...")
-
-        # 3. Fallback: if auth_code starts with eyJ (even if sub check failed)
-        if auth_code.startswith("eyJ"):
-            logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
-            return save_access_token_direct(auth_code)
-
-        return None
+        # 2. Exchange auth_code with Fyers SessionModel to obtain real access_token
+        logger.info("Fyers login Step 5: Exchanging authorization code for access token via SessionModel...")
+        session = get_session_model()
+        session.set_token(auth_code)
+        response = session.generate_token()
+        
+        if response and isinstance(response, dict) and "access_token" in response:
+            access_token = response["access_token"]
+            logger.info("✅ Fyers authorization code successfully exchanged for access token.")
+            return save_access_token_direct(access_token)
+        else:
+            logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
+            return None
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
