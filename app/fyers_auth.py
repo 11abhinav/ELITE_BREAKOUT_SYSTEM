@@ -215,39 +215,48 @@ def auto_login() -> Optional[str]:
                 return None
             auth_token = res3["data"]["access_token"]
             
-            app_id_clean = client_id.split("-")[0] if "-" in client_id else client_id
-            logger.info(f"Fyers login Step 4: Requesting auth code for App ID '{app_id_clean}' (original: '{client_id}')...")
-            headers = {"Authorization": f"Bearer {auth_token}"}
-            payload4 = {
-                "fyers_id": user_id.strip(),
-                "app_id": app_id_clean,
-                "redirect_uri": redirect_uri,
-                "appType": "100",
-                "code_challenge": "",
-                "state": "abcdefg",
-                "scope": "",
-                "nonce": "",
-                "response_type": "code",
-                "create_cookie": True
-            }
-            res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
-            logger.info(f"Fyers Step 4 raw response: {res4}")
-            
-            url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
-            auth_code = None
-            if url:
-                parsed = urllib.parse.urlparse(url)
-                qs = urllib.parse.parse_qs(parsed.query)
-                if 'auth_code' in qs:
-                    auth_code = qs['auth_code'][0]
-                elif 'auth' in qs:
-                    auth_code = qs['auth'][0]
+            target_app_id = client_id.strip()
+            if not target_app_id.endswith("-100"):
+                target_app_id = f"{target_app_id}-100"
 
-            if not auth_code and isinstance(res4.get('data'), dict):
-                auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
+            app_id_clean = client_id.split("-")[0] if "-" in client_id else client_id
+            
+            headers = {"Authorization": f"Bearer {auth_token}"}
+            auth_code = None
+            
+            # Try full client_id first (e.g. M0SD1EXNYU-100) so token app_id claim matches FyersModel client_id
+            for cand_app_id in (target_app_id, app_id_clean):
+                logger.info(f"Fyers login Step 4: Requesting auth code for App ID '{cand_app_id}'...")
+                payload4 = {
+                    "fyers_id": user_id.strip(),
+                    "app_id": cand_app_id,
+                    "redirect_uri": redirect_uri,
+                    "appType": "100",
+                    "code_challenge": "",
+                    "state": "abcdefg",
+                    "scope": "",
+                    "nonce": "",
+                    "response_type": "code",
+                    "create_cookie": True
+                }
+                res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
+                logger.info(f"Fyers Step 4 raw response for '{cand_app_id}': {res4}")
+                
+                url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
+                if url:
+                    parsed = urllib.parse.urlparse(url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    auth_code = qs.get('auth_code', [None])[0] or qs.get('auth', [None])[0]
+
+                if not auth_code and isinstance(res4.get('data'), dict):
+                    auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
+
+                if auth_code:
+                    logger.info(f"Fyers Step 4 obtained token/code for App ID '{cand_app_id}'. Proceeding to Step 5...")
+                    break
 
             if not auth_code:
-                logger.error(f"Fyers Step 4 auth code failed. Payload response: {res4}")
+                logger.error("Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
             logger.info("Fyers login Step 5: Generating access token...")
