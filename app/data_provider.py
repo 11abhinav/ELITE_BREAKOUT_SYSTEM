@@ -454,16 +454,19 @@ class AutoSwitchingFetcher(DataFetcher):
 
     def _should_use_fyers(self) -> bool:
         if not self.fyers_fetcher:
+            logger.warning("Fyers API skipped: FyersFetcher module is not initialized.")
             return False
         try:
             import fyers_auth
             import config
             import os
             if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
+                logger.warning("Fyers API skipped: FYERS_CLIENT_ID or FYERS_SECRET_KEY missing in environment/config.")
                 return False
             token = fyers_auth.get_access_token()
             
             if not token:
+                logger.warning("Fyers API skipped: No valid access token for today (auto-login failed or credentials missing). Falling back to YFinance.")
                 # Debounce logic for Telegram ping (once per day)
                 from datetime import datetime
                 from zoneinfo import ZoneInfo
@@ -487,13 +490,12 @@ class AutoSwitchingFetcher(DataFetcher):
                     )
                     send_telegram_message(msg)
                     
-                    logger.warning("Fyers Auth Failed: Token expired. System fell back to Yahoo.")
-                        
                     with open(ping_file, "w") as f:
                         f.write(today_str)
                         
             return token is not None
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Fyers API availability check failed with exception: {e}")
             return False
 
     # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Delegate provider selection to ProviderSelector
