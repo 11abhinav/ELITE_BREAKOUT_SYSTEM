@@ -508,10 +508,10 @@ class AutoSwitchingFetcher(DataFetcher):
                 name = "yfinance" if p in ("yahoo", "bse") else p
                 if name not in mapped:
                     mapped.append(name)
-            return mapped if mapped else ["yfinance", "fyers"]
+            return mapped if mapped else ["fyers", "yfinance"]
         except Exception as e:
             logger.warning(f"Error resolving ProviderSelector route: {e}")
-            return ["yfinance", "fyers"]
+            return ["fyers", "yfinance"]
 
     def _get_fetcher_by_name(self, name: str) -> DataFetcher:
         if name in ("yfinance", "yahoo", "bse"):
