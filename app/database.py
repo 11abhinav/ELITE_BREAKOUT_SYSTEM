@@ -1014,13 +1014,20 @@ def init_db():
                 # 40. Seed reference data & admin user
                 bootstrap_admin(cur=cur)
 
-                # [MIGRATION] scanner_health.scheduled_for: TIMESTAMPTZ → TEXT
-                # Callers always pass human-readable strings (e.g. "Every 15min (market hours)").
-                # Postgres rejects non-ISO strings into TIMESTAMPTZ, causing InvalidDatetimeFormat on every scan.
+                # [MIGRATIONS & SCHEMA SYNCHRONIZATION] Ensure all table columns, types, and constraints match latest schema
                 try:
                     cur.execute("""
                         DO $$
                         BEGIN
+                            -- 1. Ensure all scanner_health columns exist
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS scheduled_for TEXT DEFAULT NULL;
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS processed_count INTEGER DEFAULT NULL;
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS total_count INTEGER DEFAULT NULL;
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS outcome TEXT DEFAULT NULL;
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS provider_stats JSONB DEFAULT NULL;
+                            ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS duration_seconds REAL DEFAULT 0.0;
+
+                            -- 2. Migration for scheduled_for column type (TIMESTAMPTZ → TEXT)
                             IF EXISTS (
                                 SELECT 1 FROM information_schema.columns
                                 WHERE table_name = 'scanner_health'
@@ -1029,10 +1036,20 @@ def init_db():
                             ) THEN
                                 ALTER TABLE scanner_health ALTER COLUMN scheduled_for TYPE TEXT USING scheduled_for::TEXT;
                             END IF;
+
+                            -- 3. Update status check constraint to support PAUSED, STOPPED, QUEUED%
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.table_constraints
+                                WHERE table_name = 'scanner_health'
+                                AND constraint_name = 'chk_scanner_status'
+                            ) THEN
+                                ALTER TABLE scanner_health DROP CONSTRAINT chk_scanner_status;
+                                ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;
+                            END IF;
                         END$$;
                     """)
                 except Exception as mig_err:
-                    logger.warning(f"[MIGRATION] scanner_health.scheduled_for type migration failed (non-critical): {mig_err}")
+                    logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
 
                 # [STARTUP RESET] Clear old/unexchanged Fyers token on boot to force fresh token generation
                 try:
