@@ -1465,9 +1465,9 @@ def start(debug_limit: int = None, is_test_mode: bool = False):
     if is_scanner_stopped("MULTIBAGGER"):
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
-    if not _global_lock.acquire(blocking=False):
-        logger.warning("🛑 Multibagger Scanner skipped: Another scanner is currently running!")
-        return {}
+    logger.info("⏳ [MULTIBAGGER] Waiting for global scanner lock (waiting for any active scanner to finish)...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Multibagger Scanner is already actively running!")
