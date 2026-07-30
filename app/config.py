@@ -450,15 +450,15 @@ STRUCTURAL_STOP = {
 # =====================================================================================
 
 # ── DATA PROVIDER SETTINGS ──────────────────────────────────────────────────────────
-DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")  # auto, yfinance, fyers, or kite
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
 
 # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Provider routing policy and capabilities configuration
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
-    "price_1d": ["yahoo", "fyers", "bse"],
-    "price_1wk": ["yahoo", "fyers", "bse"],
-    "price_1mo": ["yahoo", "fyers", "bse"],
+    "price_1d": ["fyers", "yahoo", "bse"],
+    "price_1wk": ["fyers", "yahoo", "bse"],
+    "price_1mo": ["fyers", "yahoo", "bse"],
     "price_1h": ["fyers", "yahoo", "bse"],
     "price_30m": ["fyers", "yahoo", "bse"],
     "price_15m": ["fyers", "yahoo", "bse"],
