@@ -27,7 +27,7 @@ def test_upsert_scanner_health_ok_status(mocker):
     target_params = None
     for call in execute_calls:
         sql = call[0][0]
-        if "INSERT INTO scanner_health" in sql or "UPDATE scanner_health" in sql:
+        if "INSERT INTO scanner_health" in sql:
             target_sql = sql
             target_params = call[0][1] if len(call[0]) > 1 else []
             break
@@ -270,7 +270,7 @@ def test_upsert_scanner_health_update(mocker):
     target_params = None
     for call in execute_calls:
         sql = call[0][0]
-        if "UPDATE" in sql and "SET" in sql:
+        if "INSERT INTO scanner_health" in sql or ("UPDATE" in sql and "ON CONFLICT" in sql):
             target_sql = sql
             target_params = call[0][1]
             break
