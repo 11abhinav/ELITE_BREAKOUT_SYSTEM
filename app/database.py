@@ -474,7 +474,7 @@ def init_db():
                         error_count INTEGER DEFAULT 0,
                         first_error_at TIMESTAMPTZ DEFAULT NULL,
                         retry_count INTEGER DEFAULT 0,
-                        scheduled_for TIMESTAMPTZ DEFAULT NULL,
+                        scheduled_for TEXT DEFAULT NULL,
                         processed_count INTEGER DEFAULT NULL,
                         total_count INTEGER DEFAULT NULL,
                         outcome TEXT DEFAULT NULL,
@@ -1013,6 +1013,26 @@ def init_db():
 
                 # 40. Seed reference data & admin user
                 bootstrap_admin(cur=cur)
+
+                # [MIGRATION] scanner_health.scheduled_for: TIMESTAMPTZ → TEXT
+                # Callers always pass human-readable strings (e.g. "Every 15min (market hours)").
+                # Postgres rejects non-ISO strings into TIMESTAMPTZ, causing InvalidDatetimeFormat on every scan.
+                try:
+                    cur.execute("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'scanner_health'
+                                AND column_name = 'scheduled_for'
+                                AND data_type = 'timestamp with time zone'
+                            ) THEN
+                                ALTER TABLE scanner_health ALTER COLUMN scheduled_for TYPE TEXT USING scheduled_for::TEXT;
+                            END IF;
+                        END$$;
+                    """)
+                except Exception as mig_err:
+                    logger.warning(f"[MIGRATION] scanner_health.scheduled_for type migration failed (non-critical): {mig_err}")
 
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
