@@ -1051,11 +1051,12 @@ def init_db():
                 except Exception as mig_err:
                     logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
 
-                # [STARTUP RESET] Clear old/unexchanged Fyers token on boot to force fresh token generation
+                # [STARTUP RESET] Clear old/unexchanged Fyers token & reset stuck RUNNING/QUEUED scanner statuses on boot
                 try:
                     cur.execute("DELETE FROM system_state WHERE key IN ('fyers_access_token', 'fyers_access_token_date')")
+                    cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, updated_at = NOW() WHERE status = 'RUNNING' OR status LIKE 'QUEUED%'")
                 except Exception as t_err:
-                    logger.warning(f"[STARTUP] Fyers token reset non-critical failure: {t_err}")
+                    logger.warning(f"[STARTUP] Scanner state reset non-critical failure: {t_err}")
 
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):

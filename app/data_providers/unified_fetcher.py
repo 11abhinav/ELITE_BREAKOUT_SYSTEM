@@ -160,28 +160,36 @@ class UnifiedFetcher:
                     import concurrent.futures
 
                     def fetch_fyers_chunk(chunk):
-                        fyers_symbols = [self.fyers._normalize_symbol(s) for s in chunk if self.fyers._normalize_symbol(s)]
-                        if not fyers_symbols: return
-                    
+                        fyers_map = {}
+                        for orig in chunk:
+                            norm = self.fyers._normalize_symbol(orig)
+                            if norm and norm.startswith("NSE:"):
+                                fyers_map[norm] = orig
+
+                        if not fyers_map:
+                            return
+
                         try:
                             from fyers_auth import get_fyers_client
                             fyers_client = get_fyers_client()
                             if fyers_client:
-                                resp = fyers_client.quotes({"symbols": ",".join(fyers_symbols)})
+                                fyers_symbols_str = ",".join(fyers_map.keys())
+                                resp = fyers_client.quotes({"symbols": fyers_symbols_str})
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
                                     success_count = 0
                                     for item in resp.get("d", []):
                                         if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                            for orig in chunk:
-                                                if self.fyers._normalize_symbol(orig) == item["n"]:
-                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
-                                                    # Change to debug to reduce log spam and speed up
-                                                    logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig}: ₹{item['v']['lp']:.2f}")
-                                                    pending.discard(orig)
-                                                    success_count += 1
-                                                    break
+                                            sym_name = item.get("n")
+                                            orig = fyers_map.get(sym_name)
+                                            if orig:
+                                                results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{item['v']['lp']:.2f}")
+                                                pending.discard(orig)
+                                                success_count += 1
                                     if success_count > 0:
-                                        logger.info(f"✅ [Fyers] Fetched a batch of {success_count} quotes successfully.")
+                                        logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
+                                else:
+                                    logger.warning(f"⚠️ [Fyers] Quote batch response not ok for {len(fyers_map)} symbols: {resp}")
                         except Exception as e:
                             logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
 

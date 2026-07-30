@@ -381,12 +381,6 @@ class FyersFetcher(DataFetcher):
                 start_date = end_date - timedelta(days=99)
                 range_from = start_date.strftime("%Y-%m-%d")
 
-        client = fyers_auth.get_fyers_client()
-        if not client:
-            logger.error("Fyers API client is uninitialized. Generate a token via /fyers/login.")
-            from core_exceptions import ProviderError
-            raise ProviderError("Fyers Authentication Required")
-
         # Multi-series & multi-exchange candidate resolution loop
         candidates = self._generate_fyers_candidate_symbols(orig_sym)
         if ns_symbol not in candidates:
@@ -407,6 +401,12 @@ class FyersFetcher(DataFetcher):
             
             for attempt in range(retries):
                 try:
+                    client = fyers_auth.get_fyers_client()
+                    if not client:
+                        logger.error("Fyers API client is uninitialized. Generate a token via /fyers/login.")
+                        from core_exceptions import ProviderError
+                        raise ProviderError("Fyers Authentication Required")
+
                     self.rate_limiter.wait()
                     response = client.history(data=data)
                     
