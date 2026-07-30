@@ -939,8 +939,10 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     # Reversal Cooldown Gate
     if scanner_type == "REVERSAL":
         try:
-            from reversal_scanner import _is_symbol_in_reversal_cooldown
-            if _is_symbol_in_reversal_cooldown(sym_clean, 40):
+            from database import get_all_failed_reversal_cooldown_symbols
+            failed_cooldown_raw = get_all_failed_reversal_cooldown_symbols(40)
+            failed_cooldown_syms = {s.upper().replace('.NS', '').replace('.BO', '').strip() for s in failed_cooldown_raw if s}
+            if sym_clean in failed_cooldown_syms:
                 return {"success": False, "error": f"Symbol '{sym_clean}' is under a 40-day fallen-knife reversal cooldown and cannot be promoted to an active alert."}
         except Exception:
             pass

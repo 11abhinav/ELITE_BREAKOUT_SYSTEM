@@ -506,7 +506,7 @@ STAGE_PERFORMANCE_BUDGETS = {
 # ── FYERS CONFIGURATION ──────────────────────────────────────────────────────────
 FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
-FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", os.getenv("APP_URL", "http://127.0.0.1:8080").rstrip("/") + "/fyers/callback")
+FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", os.getenv("FYERS_REDIRECT_URI", os.getenv("APP_URL", "http://127.0.0.1:8080").rstrip("/") + "/fyers/callback"))
 FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
 

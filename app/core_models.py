@@ -124,6 +124,7 @@ class TriggerSignal:
     volume_mult: float
     valid: bool
     rejection_reason: Optional[RejectionReason]
+    close_position: float = 0.5
 
 @dataclass
 class PullbackCandidate:

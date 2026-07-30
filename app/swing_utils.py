@@ -379,7 +379,8 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
         gap_pct=float(gap_pct),
         volume_mult=float(vol_mult),
         valid=True,
-        rejection_reason=None
+        rejection_reason=None,
+        close_position=float(close_loc)
     )
     
     gates = []
@@ -419,7 +420,8 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
                 gap_pct=trig.gap_pct,
                 volume_mult=trig.volume_mult,
                 valid=False,
-                rejection_reason=RejectionReason[g.gate]
+                rejection_reason=RejectionReason[g.gate],
+                close_position=trig.close_position
             )
             
     return trig

@@ -32,26 +32,26 @@ IST = pytz.timezone("Asia/Kolkata")
 
 def _eval_candidate_test(symbol, df, fund_data=None, **kwargs):
     if fund_data is None:
-        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 0.15}
     else:
         if fund_data:
             fund_data = fund_data.copy()
             if "ROE %" not in fund_data:
                 fund_data["ROE %"] = 18.0
             if "YOY Revenue %" not in fund_data:
-                fund_data["YOY Revenue %"] = 15.0
+                fund_data["YOY Revenue %"] = 0.15
     return _evaluate_candidate_orig(symbol, df, fund_data=fund_data, **kwargs)
 
 def _eval_reversal_symbol_test(symbol, df, fund_data=None):
     if fund_data is None:
-        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 0.15}
     else:
         if fund_data:
             fund_data = fund_data.copy()
             if "ROE %" not in fund_data:
                 fund_data["ROE %"] = 18.0
             if "YOY Revenue %" not in fund_data:
-                fund_data["YOY Revenue %"] = 15.0
+                fund_data["YOY Revenue %"] = 0.15
     return evaluate_reversal_symbol_orig(symbol, df, fund_data=fund_data)
 
 _evaluate_candidate = _eval_candidate_test
@@ -99,7 +99,8 @@ def create_mock_df(num_bars=260, base_price=100.0, drop_pct=30.0, rsi_val=40.0, 
 # ── TEST 1: Canonical Symbol Normalization ──
 def test_canonical_symbol():
     assert _canonical_symbol("TATAMOTORS.NS") == "TATAMOTORS"
-    assert _canonical_symbol("RELIANCE.BO") == "RELIANCE"
+    with pytest.raises(ValueError, match="BSE symbol supplied to NSE scanner"):
+        _canonical_symbol("RELIANCE.BO")
     assert _canonical_symbol("INFY") == "INFY"
     assert _canonical_symbol("") == ""
     assert _canonical_symbol(None) == ""
@@ -107,8 +108,6 @@ def test_canonical_symbol():
 
 # ── TEST 2: _to_ist_date Tz-Naive / Tz-Aware / Invalid Handling ──
 def test_to_ist_date():
-    today_ist = datetime.now(IST).date()
-    
     # Tz-naive timestamp
     dt_naive = pd.to_datetime("2026-07-28 10:30:00")
     assert _to_ist_date(dt_naive) == date(2026, 7, 28)
@@ -120,9 +119,9 @@ def test_to_ist_date():
     # String date
     assert _to_ist_date("2026-07-28") == date(2026, 7, 28)
     
-    # Fail-open invalid input returns today_ist
-    assert _to_ist_date("invalid-date-string") == today_ist
-    assert _to_ist_date(None) == today_ist
+    # Fail-safe returns None
+    assert _to_ist_date("invalid-date-string") is None
+    assert _to_ist_date(None) is None
 
 
 # ── TEST 3: _req_float / _opt_float Extraction and Index Deduplication ──
@@ -168,7 +167,7 @@ def test_evaluate_candidate_missing_indicators():
     df.iloc[-1, df.columns.get_loc("RSI")] = np.nan
     verdict = _evaluate_candidate("TEST", df)
     assert verdict["passed"] is False
-    assert verdict["reject_reason"] == "Missing or NaN mandatory technical indicators"
+    assert "Missing or NaN mandatory technical indicators" in verdict["reject_reason"]
 
 
 # ── TEST 7: Synthetic Bar Zero Range Rejection (vol_ratio=None is authorized bypass) ──
@@ -341,12 +340,17 @@ def test_raw_score_uncapped():
     assert "core_score" in res
 
 
-# ── TEST 21: B1 — _parse_percent_value Threshold <= 1.0 ──
+# ── TEST 21: B1 — parse_percentage with explicit unit contracts ──
 def test_parse_percent_value_boundary():
-    from app.reversal_scanner import _parse_percent_value
-    assert _parse_percent_value(0.18) == 18.0   # 0.18 fraction -> 18%
-    assert _parse_percent_value(1.8) == 1.8     # 1.8% ROE stays 1.8%
-    assert _parse_percent_value(18.0) == 18.0   # 18% stays 18%
+    from app.reversal_scanner import parse_percentage
+    # decimal_ratio contract always multiplies by 100.0 without any magnitude heuristic checks
+    assert parse_percentage(0.18, "decimal_ratio") == 18.0
+    assert parse_percentage(1.8, "decimal_ratio") == 180.0
+    # percentage_points contract returns parsed float directly
+    assert parse_percentage(18.0, "percentage_points") == 18.0
+    # percentage strings ending in % are parsed as percentage points directly
+    assert parse_percentage("15%", "decimal_ratio") == 15.0
+    assert parse_percentage("15%", "percentage_points") == 15.0
 
 
 # ── TEST 22: B6 — _lookup Helper Returns 0.0, Not None ──

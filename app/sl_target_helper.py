@@ -410,20 +410,34 @@ class TrendExtensionStrategy(TargetStrategy):
         if not clusters: return {}
         # MULTI_TF uses CONFIDENCE policy
         ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
-        t1 = ranked[0]
-        t2 = ranked[1] if len(ranked) > 1 else t1
-        t3 = ranked[2] if len(ranked) > 2 else t2
-        return {"t1": t1.consensus_price, "t2": t2.consensus_price, "t3": t3.consensus_price, "t1_cluster": t1, "t2_cluster": t2, "t3_cluster": t3}
+        t1_c = ranked[0]
+        t2_c = ranked[1] if len(ranked) > 1 else t1_c
+        t3_c = ranked[2] if len(ranked) > 2 else t2_c
+        
+        # Sort targets in ascending order of price to ensure t1 <= t2 <= t3
+        sorted_pairs = sorted([(t1_c.consensus_price, t1_c), (t2_c.consensus_price, t2_c), (t3_c.consensus_price, t3_c)], key=lambda x: x[0])
+        
+        return {
+            "t1": sorted_pairs[0][0], "t2": sorted_pairs[1][0], "t3": sorted_pairs[2][0],
+            "t1_cluster": sorted_pairs[0][1], "t2_cluster": sorted_pairs[1][1], "t3_cluster": sorted_pairs[2][1]
+        }
 
 class ClusterConsensusStrategy(TargetStrategy):
     def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
         if not clusters: return {}
-        # EOD uses REGIME policy - for simplicity we rank by score + distance
+        # EOD uses REGIME policy
         ranked = sorted(clusters, key=lambda c: c.score, reverse=True)
-        t1 = ranked[0]
-        t2 = ranked[1] if len(ranked) > 1 else t1
-        t3 = ranked[2] if len(ranked) > 2 else t2
-        return {"t1": t1.consensus_price, "t2": t2.consensus_price, "t3": t3.consensus_price, "t1_cluster": t1, "t2_cluster": t2, "t3_cluster": t3}
+        t1_c = ranked[0]
+        t2_c = ranked[1] if len(ranked) > 1 else t1_c
+        t3_c = ranked[2] if len(ranked) > 2 else t2_c
+        
+        # Sort targets in ascending order of price to ensure t1 <= t2 <= t3
+        sorted_pairs = sorted([(t1_c.consensus_price, t1_c), (t2_c.consensus_price, t2_c), (t3_c.consensus_price, t3_c)], key=lambda x: x[0])
+        
+        return {
+            "t1": sorted_pairs[0][0], "t2": sorted_pairs[1][0], "t3": sorted_pairs[2][0],
+            "t1_cluster": sorted_pairs[0][1], "t2_cluster": sorted_pairs[1][1], "t3_cluster": sorted_pairs[2][1]
+        }
 
 class MeanReversionStrategy(TargetStrategy):
     def select_targets(self, clusters: List[ClusteredTarget], entry: float, risk: float, context: dict) -> dict:
@@ -997,21 +1011,15 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
     risk_amount = entry - sl_data["raw_sl"]
     
-    valid_target = None
-    valid_t_src = "UNKNOWN"
-    valid_rr = 0.0
-    
+    valid_targets = []
     for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
         cand_t = targets.get(t_cand_key)
         if cand_t and cand_t > entry and risk_amount > 0:
             rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
             if rr_candidate >= min_rr:
-                valid_target = cand_t
-                valid_rr = rr_candidate
-                valid_t_src = targets.get(t_clust_key).candidates[0].source.name if targets.get(t_clust_key) else "UNKNOWN"
-                break
+                valid_targets.append((cand_t, targets.get(t_clust_key)))
 
-    if not valid_target:
+    if not valid_targets:
         t1_fallback = targets.get("t1", entry)
         natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
@@ -1020,9 +1028,16 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
 
-    t1 = valid_target
-    t1_src = valid_t_src
-    natural_rr_val = valid_rr
+    # Sort valid targets in ascending order of price to guarantee t1 <= t2 <= t3
+    valid_targets.sort(key=lambda x: x[0])
+    
+    t1 = valid_targets[0][0]
+    t1_clust = valid_targets[0][1]
+    t1_src = t1_clust.candidates[0].source.name if t1_clust and t1_clust.candidates else "UNKNOWN"
+    natural_rr_val = round(abs(t1 - entry) / risk_amount, 2)
+    
+    t2 = valid_targets[1][0] if len(valid_targets) > 1 else None
+    t3 = valid_targets[2][0] if len(valid_targets) > 2 else None
         
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1033,7 +1048,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"), "target_4": targets.get("t4"),
+        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": targets.get("t4"),
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1042,11 +1057,12 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     }
 
 def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
+    mode = kwargs.get("mode", "EOD")
     supports = [
         (swing_low, "True Swing Low", 40), (s1, "S1 Pivot", 20), (s2, "S2 Pivot", 15),
         (swing_low_raw, "Rolling Low", 20), (kwargs.get("sma50"), "SMA50", 15), (kwargs.get("sma200"), "SMA200", 30)
     ]
-    sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": "EOD"})
+    sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": mode})
     if not sl_data.get("is_valid", True):
         return {
             "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
@@ -1087,24 +1103,18 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
             "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    min_rr = MIN_NATURAL_RR.get("EOD", 2.5)
+    min_rr = MIN_NATURAL_RR.get(mode, 2.5)
     risk_amount = entry - sl_data["raw_sl"]
     
-    valid_target = None
-    valid_t_src = "UNKNOWN"
-    valid_rr = 0.0
-    
+    valid_targets = []
     for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
         cand_t = targets.get(t_cand_key)
         if cand_t and cand_t > entry and risk_amount > 0:
             rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
             if rr_candidate >= min_rr:
-                valid_target = cand_t
-                valid_rr = rr_candidate
-                valid_t_src = targets.get(t_clust_key).candidates[0].source.name if targets.get(t_clust_key) else "UNKNOWN"
-                break
+                valid_targets.append((cand_t, targets.get(t_clust_key)))
 
-    if not valid_target:
+    if not valid_targets:
         t1_fallback = targets.get("t1", entry)
         natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
@@ -1113,9 +1123,16 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
 
-    t1 = valid_target
-    t1_src = valid_t_src
-    natural_rr_val = valid_rr
+    # Sort valid targets in ascending order of price to guarantee t1 <= t2 <= t3
+    valid_targets.sort(key=lambda x: x[0])
+    
+    t1 = valid_targets[0][0]
+    t1_clust = valid_targets[0][1]
+    t1_src = t1_clust.candidates[0].source.name if t1_clust and t1_clust.candidates else "UNKNOWN"
+    natural_rr_val = round(abs(t1 - entry) / risk_amount, 2)
+    
+    t2 = valid_targets[1][0] if len(valid_targets) > 1 else None
+    t3 = valid_targets[2][0] if len(valid_targets) > 2 else None
 
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1126,7 +1143,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": targets.get("t2"), "target_3": targets.get("t3"), "target_4": targets.get("t4"),
+        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": targets.get("t4"),
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1205,7 +1222,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": getattr(targets, 't4', None),
+        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": None,
         "structural_failure_stop": s_f_s,
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
@@ -1271,8 +1288,9 @@ def _legacy_compute_sl_and_target(
     # Priority: mode > timeframe > "EOD" default
     _TIMEFRAME_MAP = {
         "EOD": "EOD", "1d": "EOD",
-
         "REVERSAL": "REVERSAL",
+        "MULTI_TF": "MULTI_TF",
+        "PULLBACK": "PULLBACK",
     }
     effective_mode = (
         _TIMEFRAME_MAP.get(mode or "", "")
@@ -1303,10 +1321,11 @@ def _legacy_compute_sl_and_target(
         swing_low_raw=swing_low_raw, swing_high_raw=swing_high_raw,
         swing_low_cluster=swing_low_cluster,
         ticker=ticker,
+        mode=effective_mode,
     )
     kwargs.update(kwargs_extra)
 
-    if effective_mode == "EOD":
+    if effective_mode in ("EOD", "PULLBACK"):
         return _compute_eod(**kwargs)
     elif effective_mode == "MULTI_TF":
         return _compute_multi_tf(**kwargs)

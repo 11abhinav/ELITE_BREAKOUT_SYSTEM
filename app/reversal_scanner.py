@@ -32,6 +32,7 @@
 import pandas as pd
 import logging
 import os
+import math
 from collections import defaultdict
 from zoneinfo import ZoneInfo
 from datetime import date, datetime, time as dtime, timedelta
@@ -98,34 +99,57 @@ COMPONENT_MAX = 25 + 12 + 15 + 15 + 15 + 10 + 5 + 5 + 5 + 5   # = 112 max score 
 MAX_POSSIBLE_SCORE = COMPONENT_MAX
 
 
-def get_trading_days_age(start_date: date, end_date: date) -> int:
-    """Computes the number of trading days (excluding weekends) between start_date and end_date."""
-    if not start_date or not end_date or start_date <= end_date:
+EXCHANGE_HOLIDAYS = {
+    # 2025
+    date(2025, 1, 26), date(2025, 3, 13), date(2025, 3, 31), date(2025, 4, 10),
+    date(2025, 4, 11), date(2025, 4, 14), date(2025, 5, 1), date(2025, 6, 6),
+    date(2025, 8, 15), date(2025, 9, 5), date(2025, 10, 2), date(2025, 10, 24),
+    date(2025, 11, 20), date(2025, 12, 25),
+    # 2026
+    date(2026, 1, 26), date(2026, 3, 6), date(2026, 3, 27), date(2026, 4, 2),
+    date(2026, 4, 3), date(2026, 4, 14), date(2026, 5, 1), date(2026, 5, 26),
+    date(2026, 9, 4), date(2026, 9, 15), date(2026, 10, 2), date(2026, 10, 21),
+    date(2026, 11, 5), date(2026, 11, 6), date(2026, 11, 23), date(2026, 12, 25),
+}
+
+def trading_days_between(newer_date: date, older_date: date) -> int:
+    """Computes the number of trading days (excluding weekends and exchange holidays) between newer_date and older_date."""
+    if not newer_date or not older_date:
+        return 999
+    if older_date > newer_date:
+        return -1
+    if newer_date == older_date:
         return 0
     days = 0
-    curr = end_date
-    while curr < start_date:
+    curr = older_date
+    while curr < newer_date:
         curr += timedelta(days=1)
-        if curr.weekday() < 5:
+        if curr.weekday() < 5 and curr not in EXCHANGE_HOLIDAYS:
             days += 1
     return days
 
-def _canonical_symbol(s: str) -> str:
-    if not s:
-        return ""
-    return str(s).split('.')[0].upper()
+def _canonical_symbol(symbol: str) -> str:
+    value = str(symbol or "").strip().upper()
+    if value.endswith(".NS"):
+        return value[:-3]
+    if value.endswith(".BO"):
+        raise ValueError("BSE symbol supplied to NSE scanner")
+    # Backwards compatibility: strip any suffix after dot
+    return value.split('.')[0]
 
-def _to_ist_date(v: Any) -> date:
+def _to_ist_date(v: Any) -> Optional[date]:
     if v is None:
-        return datetime.now(IST).date()
+        return None
     try:
         ts = pd.to_datetime(v)
         if ts.tzinfo is None:
-            ts = ts.tz_localize("UTC")
-        return ts.tz_convert(IST).date()
+            ts = ts.tz_localize(IST)
+        else:
+            ts = ts.tz_convert(IST)
+        return ts.date()
     except Exception as e:
-        logger.warning(f"Failed to parse timestamp '{v}': {e}. Defaulting to today IST.")
-        return datetime.now(IST).date()
+        logger.warning(f"Failed to parse timestamp '{v}': {e}. Returning None.")
+        return None
 
 def _req_float(series, key: str) -> Optional[float]:
     if isinstance(series, pd.DataFrame):
@@ -192,22 +216,58 @@ def _row_get(r: Any, idx: int, key: str, default: Any = None) -> Any:
         except (IndexError, TypeError):
             return default
 
-def _parse_percent_value(val) -> Optional[float]:
-    """Single source of truth for fundamental percentage units."""
-    if val is None:
+
+
+def _is_positive_finite(value: object) -> bool:
+    try:
+        number = float(value)
+        return math.isfinite(number) and number > 0
+    except (TypeError, ValueError):
+        return False
+
+def _is_finite(value: object) -> bool:
+    try:
+        number = float(value)
+        return math.isfinite(number)
+    except (TypeError, ValueError):
+        return False
+
+def _latest_bar_timestamp(df: pd.DataFrame) -> Optional[pd.Timestamp]:
+    for column in ("Datetime", "Date", "Timestamp"):
+        if column in df.columns:
+            values = pd.to_datetime(df[column], errors="coerce")
+            if values.notna().any():
+                return values.dropna().iloc[-1]
+    if isinstance(df.index, pd.DatetimeIndex):
+        return df.index[-1]
+    return None
+
+def parse_percentage(value: object, unit: str) -> Optional[float]:
+    if value is None:
         return None
     try:
-        if pd.isna(val):
+        if pd.isna(value):
             return None
     except (TypeError, ValueError):
         pass
+    
+    text = str(value).strip()
+    if text.endswith("%"):
+        try:
+            return float(text[:-1].strip())
+        except (ValueError, TypeError):
+            return None
+
     try:
-        f_val = float(val)
-    except (ValueError, TypeError):
+        parsed = float(value)
+    except (TypeError, ValueError):
         return None
-    if 0.0 < abs(f_val) <= 1.0:
-        return f_val * 100.0
-    return f_val
+
+    if unit == "decimal_ratio":
+        return parsed * 100.0
+    elif unit == "percentage_points":
+        return parsed
+    raise ValueError(f"Unsupported percentage unit: {unit}")
 
 
 def _lookup(m: Optional[dict], sym: str, can: str) -> Optional[float]:
@@ -218,21 +278,32 @@ def _lookup(m: Optional[dict], sym: str, can: str) -> Optional[float]:
     return m.get(can) if v is None else v
 
 
-def _session_fraction(now_t: dtime) -> float:
-    """Compute elapsed fraction of the trading day (09:15 to 15:30 IST)."""
+def _actual_session_fraction(now_t: dtime) -> float:
+    """Compute exact unclamped elapsed fraction of the trading day (09:15 to 15:30 IST)."""
     session_start = dtime(9, 15)
     session_end = dtime(15, 30)
-    if now_t >= session_end or now_t <= session_start:
+    if now_t < session_start or now_t >= session_end:
         return 1.0
     elapsed = (datetime.combine(date.today(), now_t) - datetime.combine(date.today(), session_start)).seconds
-    return max(0.15, elapsed / 22500.0)
+    return elapsed / 22500.0
 
 
-def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None, max_cross_age: int = 20) -> bool:
+def _session_fraction(now_t: dtime) -> float:
+    """Compute clamped elapsed fraction for volume projection."""
+    session_start = dtime(9, 15)
+    session_end = dtime(15, 30)
+    if now_t < session_start or now_t >= session_end:
+        return 1.0
+    actual = _actual_session_fraction(now_t)
+    return max(0.15, actual)
+
+
+def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None) -> bool:
     """
-    [VERSION: REVERSAL_OVERHAUL_v7.0] State + Freshness test for MACD momentum.
-    Requires MACD above signal (or rising histogram from shallow deficit) AND
-    a bullish crossover within the last max_cross_age bars (not held above indefinitely).
+    State + Freshness test for MACD momentum.
+    Allows:
+    1. MACD currently above signal (sustained bullish momentum accepted).
+    2. MACD currently below signal but with improving histogram (rising) close to crossover.
     """
     if len(ticker) < 3 or not {"MACD", "MACD_SIGNAL"}.issubset(ticker.columns):
         return False
@@ -242,18 +313,23 @@ def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None
         above_now = bool(above.iloc[-1])
 
         if above_now:
-            lookback_window = min(max_cross_age + 1, len(above))
-            window_above = above.iloc[-lookback_window:-1]
-            held_above_too_long = bool(window_above.all()) if len(window_above) >= max_cross_age else False
-            return not held_above_too_long
+            return True
 
-        if "MACD_HIST" not in ticker.columns:
-            return False
-
-        h_now = float(ticker["MACD_HIST"].iloc[-1])
-        h_prev = float(ticker["MACD_HIST"].iloc[-2])
-        floor = -0.10 * float(atr_val) if atr_val else -0.002 * float(ticker["Close"].iloc[-1])
-        return (h_now > h_prev) and (h_now > floor) and not bool(above.iloc[-5:].any())
+        # Fallback for negative but improving histogram near crossover
+        hist = macd - sig
+        improving = hist.iloc[-1] > hist.iloc[-2] > hist.iloc[-3]
+        
+        # Normalized improvement by ATR
+        hist_improvement = float(hist.iloc[-1] - hist.iloc[-3])
+        norm_denominator = float(atr_val) if (atr_val and atr_val > 0) else 0.02 * float(ticker["Close"].iloc[-1])
+        
+        meaningful_improvement = (hist_improvement / norm_denominator) >= 0.01
+        near_cross = (abs(hist.iloc[-1]) / norm_denominator) <= 0.05
+        
+        if improving and meaningful_improvement and near_cross:
+            return True
+            
+        return False
     except (TypeError, ValueError, KeyError, IndexError):
         return False
 
@@ -263,7 +339,8 @@ def _is_climax_top(
     close_price: float,
     candle_high: float,
     candle_low: float,
-    vol_ratio: Optional[float] = None,
+    vol_ratio: float,
+    session_fraction: float = 1.0,
 ) -> bool:
     """
     [VERSION: REVERSAL_OVERHAUL_v7.0] Blow-off climax top filter.
@@ -271,8 +348,6 @@ def _is_climax_top(
     when stock has run up >= CLIMAX_MIN_RUNUP_PCT (10%) over VOL_WINDOW_BARS (5 bars).
     """
     if candle_high <= candle_low or len(ticker) < VOL_WINDOW_BARS + 1:
-        return False
-    if vol_ratio is None and (ticker is None or "Volume" not in ticker.columns or ticker.empty):
         return False
     try:
         close_nb_ago = float(ticker["Close"].iloc[-(VOL_WINDOW_BARS + 1)])
@@ -282,34 +357,21 @@ def _is_climax_top(
         if runup < CLIMAX_MIN_RUNUP_PCT:
             return False
 
-        if vol_ratio is not None and vol_ratio <= 0:
+        if vol_ratio <= 0:
             return False
 
         latest_vol = float(ticker["Volume"].iloc[-1])
-        is_fallback = False
-        if latest_vol <= 0 and len(ticker) >= 2:
-            latest_vol = float(ticker["Volume"].iloc[-2])
-            is_fallback = True
         if latest_vol <= 0:
             return False
 
         lookback_ct = min(CLIMAX_VOLUME_LOOKBACK, len(ticker) - 1)
-        end_idx = -2 if is_fallback else -1
-        start_idx = max(0, len(ticker) + end_idx - lookback_ct)
-        prior = ticker["Volume"].iloc[start_idx:end_idx]
+        prior = ticker["Volume"].iloc[-lookback_ct-1:-1]
         if prior.empty:
             return False
 
-        frac = _session_fraction(datetime.now(IST).time())
-        prorated_latest = latest_vol / frac if (frac > 0 and not is_fallback) else latest_vol
+        prorated_latest = latest_vol / session_fraction
 
-        if vol_ratio is not None and vol_ratio >= CLIMAX_VOL_MULT:
-            vol_spike = True
-        else:
-            vol_spike = prorated_latest > max(
-                float(prior.mean()) * CLIMAX_VOL_MULT,
-                float(prior.quantile(CLIMAX_VOL_QUANTILE)),
-            )
+        vol_spike = (vol_ratio >= CLIMAX_VOL_MULT) or (prorated_latest > float(prior.quantile(CLIMAX_VOL_QUANTILE)))
         if not vol_spike:
             return False
 
@@ -334,7 +396,9 @@ _REV_CATEGORY_SCORES = {
     "Blue Chip Stable": 5, "Blue Chip Financial": 5,
     "Recovery Play": 3, "Financial Recovery": 3,
 }
+_REV_CATEGORY_SCORES_CASEFOLDED = {k.strip().casefold(): v for k, v in _REV_CATEGORY_SCORES.items()}
 _REV_CATEGORY_SCORES_SORTED = sorted(_REV_CATEGORY_SCORES.items(), key=lambda kv: (-len(kv[0]), kv[0]))
+
 
 
 def _score_reversal(
@@ -358,6 +422,7 @@ def _score_reversal(
         delivery_conf: float = 1.0,
         vol_ratio_window: Optional[float] = None,
         available_max: int = COMPONENT_MAX,
+        macd_recovery_passed: bool = False,
 ) -> dict:
     """Score a reversal setup from 0-100 based on quality dimensions, returning score dict."""
     score = 0
@@ -407,6 +472,9 @@ def _score_reversal(
             elif mh_norm > 0:    macd_pts = 5
         except (TypeError, ValueError):
             pass
+
+    if macd_pts == 0 and macd_recovery_passed:
+        macd_pts = 3
     score += macd_pts
 
     # ── RSI curl quality (15 pts) — Measured off historical trough ──
@@ -418,37 +486,43 @@ def _score_reversal(
     score += rsi_pts
 
     # ── Category quality (10 pts) ──
-    cat_lower = category.lower() if category else ""
-    for cat_label, cat_pts in _REV_CATEGORY_SCORES_SORTED:
-        if cat_label.lower() in cat_lower:
-            score += cat_pts
-            break
+    category_key = category.strip().casefold() if category else ""
+    cat_pts = _REV_CATEGORY_SCORES_CASEFOLDED.get(category_key, 0)
+    score += cat_pts
 
     # ── Drop sweet spot / penalty (5 pts) ──
+    drop_score = 0
     if 25.0 <= drop_pct <= 40.0:
-        score += 5
+        drop_score = 5
     elif min_drop_floor <= drop_pct < 25.0:
-        score += 3
+        drop_score = 3
     elif 40.0 < drop_pct <= MAX_DROP_FROM_52W_HIGH:
-        score += 3
+        drop_score = 3
+    score += drop_score
 
     # ── R:R quality (5 pts) ──
+    rr_score = 0
     if rr_ratio is not None:
-        if rr_ratio >= 3.5:   score += 5
-        elif rr_ratio >= 2.5: score += 3
-        elif rr_ratio >= 2.0: score += 1
+        if rr_ratio >= 3.5:   rr_score = 5
+        elif rr_ratio >= 2.5: rr_score = 3
+        elif rr_ratio >= 2.0: rr_score = 1
+        score += rr_score
 
     # ── OBV confirmation bonus (5 pts) ──
+    obv_score = 0
     if obv_trend is not None and obv_trend == 1:
-        score += 5
+        obv_score = 5
+        score += obv_score
 
     # ── Delivery conviction bonus (5 pts) ──
+    deliv_score = 0
     if delivery_pct is not None and delivery_conf > 0:
         deliv_pts = 0
         if delivery_pct >= 50.0:   deliv_pts = 5
         elif delivery_pct >= 35.0: deliv_pts = 3
         elif delivery_pct >= 25.0: deliv_pts = 1
-        score += round(deliv_pts * delivery_conf)
+        deliv_score = round(deliv_pts * delivery_conf)
+        score += deliv_score
 
     inst_bonus = 0
     if symbol is not None:
@@ -468,17 +542,37 @@ def _score_reversal(
             max_penalty = float(weights.get("PLEDGE_PENALTY", DEFAULT_PLEDGE_PENALTY))
         scale = min(1.0, (promoter_pledge_pct - 10.0) / 40.0)
         pledge_penalty = round(abs(max_penalty) * scale)
-        if pledge_penalty > 0:
-            score -= pledge_penalty
 
     core_score = trend_pts + vol_pts + macd_pts + rsi_pts
-    raw = score + inst_bonus
-    clamped_score = max(0, min(raw, available_max))
+    evidence_score = score
+    raw_score = evidence_score + inst_bonus - pledge_penalty
+    clamped_score = max(0, min(evidence_score + inst_bonus, available_max))
+    final_score = max(0, clamped_score - pledge_penalty)
+
+    score_breakdown = {
+        "trend_score": trend_pts,
+        "volume_score": vol_pts,
+        "macd_score": macd_pts,
+        "rsi_score": rsi_pts,
+        "structure_score": prox_pts,
+        "quality_score": cat_pts,
+        "delivery_score": deliv_score,
+        "rr_score": rr_score,
+        "drop_score": drop_score,
+        "obv_score": obv_score,
+        "evidence_score": evidence_score,
+        "institutional_bonus": inst_bonus,
+        "pledge_penalty": pledge_penalty,
+        "final_score": final_score,
+        "available_max": available_max,
+    }
 
     return {
-        "score": clamped_score,
-        "raw_score": max(0, raw),
+        "score": final_score,
+        "raw_score": max(0, raw_score),
         "core_score": core_score,
+        "evidence_score": evidence_score,
+        "score_breakdown": score_breakdown,
     }
 
 
@@ -493,6 +587,8 @@ def _evaluate_candidate(
     is_synthetic_bar: bool = False,
     is_synthetic_no_vol: bool = False,
     resolved_date: Optional[date] = None,
+    is_intraday: bool = False,
+    session_fraction: float = 1.0,
 ) -> dict:
     """Core evaluator logic executing quality gates and returning structured verdict."""
     if df is None or df.empty or len(df) < REVERSAL_MIN_BARS:
@@ -516,19 +612,60 @@ def _evaluate_candidate(
     sma50 = _req_float(latest, "SMA50")
     sma200 = _req_float(latest, "SMA200")
     current_rsi = _req_float(latest, "RSI")
-    vol_ratio = _req_float(latest, "Volume_Ratio")
-    if vol_ratio is None and "Volume" in df.columns and len(df) >= 20:
-        v20 = df["Volume"].iloc[-20:].dropna().mean()
-        if v20 > 0:
-            vol_ratio = float(latest["Volume"]) / float(v20)
+
+    # Extract latest bar timestamp and date safely supporting RangeIndex
+    latest_bar_dt = _latest_bar_timestamp(df)
+    if latest_bar_dt is None:
+        return {
+            "passed": False,
+            "reject_reason": "DataFrame timestamp is missing or untrustworthy",
+            "reject_code": "invalid_timestamp",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+    latest_bar_date = latest_bar_dt.date()
+
+    # Calculate canonical volume ratio
+    vol_ratio = None
+    if "Volume" in df.columns and len(df) >= 2:
+        lookback = min(20, len(df) - 1)
+        prior_vol = df["Volume"].iloc[-lookback - 1:-1].dropna()
+        avg_vol = prior_vol.mean() if not prior_vol.empty else 0.0
+        
+        if avg_vol > 0:
+            current_volume = float(latest["Volume"])
+            if is_intraday:
+                adjusted_volume = current_volume / session_fraction
+            else:
+                adjusted_volume = current_volume
+            vol_ratio = adjusted_volume / avg_vol
 
     if is_synthetic_no_vol:
         vol_ratio = None
 
-    if None in (close_price, candle_high, candle_low, candle_open, current_rsi, ema20):
+    # Validate all mandatory indicators are present and finite, including ATR
+    mandatory_indicators = {
+        "Close": close_price,
+        "High": candle_high,
+        "Low": candle_low,
+        "Open": candle_open,
+        "RSI": current_rsi,
+        "EMA20": ema20,
+        "SMA50": sma50,
+        "SMA200": sma200,
+    }
+    missing_ind = [name for name, val in mandatory_indicators.items() if val is None or not _is_finite(val)]
+    if missing_ind or not _is_positive_finite(atr_val):
+        reasons = []
+        if missing_ind:
+            reasons.append(f"Missing indicators: {', '.join(missing_ind)}")
+        if not _is_positive_finite(atr_val):
+            reasons.append("ATR is missing, non-finite, or non-positive")
         return {
             "passed": False,
-            "reject_reason": "Missing or NaN mandatory technical indicators",
+            "reject_reason": f"Missing or NaN mandatory technical indicators ({'; '.join(reasons)})",
             "reject_code": "bad_indicators",
             "score": 0,
             "raw_score": 0,
@@ -560,8 +697,22 @@ def _evaluate_candidate(
         }
 
     if "Volume" in df.columns:
-        recent_vol = df["Volume"].iloc[-20:].dropna()
-        avg_vol_20d = float(recent_vol.mean()) if not recent_vol.empty else 0.0
+        volume_series = pd.to_numeric(df["Volume"], errors="coerce")
+        today_date = datetime.now(IST).date()
+        if is_intraday and latest_bar_date == today_date:
+            volume_series = volume_series.iloc[:-1]
+        recent_volume = volume_series.tail(20).dropna()
+        if len(recent_volume) < 15:
+            return {
+                "passed": False,
+                "reject_reason": f"Insufficient volume history ({len(recent_volume)} < 15 bars)",
+                "reject_code": "volume_filter",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
+        avg_vol_20d = float(recent_volume.mean())
         if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
             return {
                 "passed": False,
@@ -574,8 +725,8 @@ def _evaluate_candidate(
             }
 
     if "Volume_Ratio" in df.columns:
-        vol_series = df["Volume_Ratio"].iloc[-VOL_WINDOW_BARS:].dropna()
-        vol_ratio_max = float(vol_series.max()) if not vol_series.empty else (vol_ratio or 0.0)
+        historical_ratios = pd.to_numeric(df["Volume_Ratio"], errors="coerce").iloc[-(VOL_WINDOW_BARS + 1):-1].dropna()
+        vol_ratio_max = max([vol_ratio] + historical_ratios.tolist()) if vol_ratio is not None else (float(historical_ratios.max()) if not historical_ratios.empty else 0.0)
     else:
         vol_ratio_max = vol_ratio or 0.0
 
@@ -638,11 +789,10 @@ def _evaluate_candidate(
             }
 
     if "min_vol_ratio" in ev_req:
-        eff_vol = vol_ratio if vol_ratio is not None else vol_ratio_max
-        if eff_vol < ev_req["min_vol_ratio"]:
+        if vol_ratio is None or vol_ratio < ev_req["min_vol_ratio"]:
             return {
                 "passed": False,
-                "reject_reason": f"[{regime}] Volume ratio {eff_vol:.2f}x < {ev_req['min_vol_ratio']}x regime minimum",
+                "reject_reason": f"[{regime}] Volume ratio {vol_ratio if vol_ratio is not None else 0.0:.2f}x < {ev_req['min_vol_ratio']}x regime minimum",
                 "reject_code": "regime_vol",
                 "score": 0,
                 "raw_score": 0,
@@ -669,8 +819,8 @@ def _evaluate_candidate(
         }
 
     REQUIRE_FUNDAMENTALS = True
-    roe_val = _parse_percent_value(fund_data.get("ROE %")) if fund_data else None
-    rev_growth = _parse_percent_value(fund_data.get("YOY Revenue %")) if fund_data else None
+    roe_val = parse_percentage(fund_data.get("ROE %"), "percentage_points") if fund_data else None
+    rev_growth = parse_percentage(fund_data.get("YOY Revenue %"), "decimal_ratio") if fund_data else None
 
     if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None):
         return {
@@ -683,10 +833,12 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if roe_val is not None and roe_val < MIN_ROE:
+    # Plausibility boundary validations
+    if roe_val is not None and (roe_val < MIN_ROE or not -100.0 <= roe_val <= 500.0):
+        reason = f"ROE {roe_val:.1f}% < {MIN_ROE}% minimum threshold" if roe_val < MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
         return {
             "passed": False,
-            "reject_reason": f"ROE {roe_val:.1f}% < {MIN_ROE}% minimum threshold",
+            "reject_reason": reason,
             "reject_code": "fundamental_filter",
             "score": 0,
             "raw_score": 0,
@@ -694,10 +846,11 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if rev_growth is not None and rev_growth < MIN_YOY_REVENUE_GROWTH:
+    if rev_growth is not None and (rev_growth < MIN_YOY_REVENUE_GROWTH or not -100.0 <= rev_growth <= 1000.0):
+        reason = f"YoY Revenue Growth {rev_growth:.1f}% < {MIN_YOY_REVENUE_GROWTH}% minimum threshold" if rev_growth < MIN_YOY_REVENUE_GROWTH else f"YoY Revenue Growth {rev_growth:.1f}% out of plausible range"
         return {
             "passed": False,
-            "reject_reason": f"YoY Revenue Growth {rev_growth:.1f}% < {MIN_YOY_REVENUE_GROWTH}% minimum threshold",
+            "reject_reason": reason,
             "reject_code": "fundamental_filter",
             "score": 0,
             "raw_score": 0,
@@ -746,13 +899,17 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if len(df) >= 4:
+    if len(df) >= 5:
         rsi_tail = df["RSI"].iloc[-4:].dropna()
-        if len(rsi_tail) >= 3:
-            if (rsi_tail.iloc[-1] < rsi_tail.iloc[-2]) and (rsi_tail.iloc[-2] < rsi_tail.iloc[-3]):
+        if len(rsi_tail) >= 4:
+            d1 = float(rsi_tail.iloc[-1] - rsi_tail.iloc[-2])
+            d2 = float(rsi_tail.iloc[-2] - rsi_tail.iloc[-3])
+            d3 = float(rsi_tail.iloc[-3] - rsi_tail.iloc[-4])
+            agg_decline = float(rsi_tail.iloc[-4] - rsi_tail.iloc[-1])
+            if d1 < 0 and d2 < 0 and d3 < 0 and agg_decline >= 1.5:
                 return {
                     "passed": False,
-                    "reject_reason": f"RSI continuously declining over last 3 bars: {list(rsi_tail.tail(3).round(1))}",
+                    "reject_reason": f"RSI continuously declining over last 4 bars (agg decline={agg_decline:.2f}): {list(rsi_tail.tail(4).round(2))}",
                     "reject_code": "failed_pattern",
                     "score": 0,
                     "raw_score": 0,
@@ -760,10 +917,11 @@ def _evaluate_candidate(
                     "context": {},
                 }
 
-    if not _macd_momentum_present(df, atr_val=atr_val):
+    macd_passed = _macd_momentum_present(df, atr_val=atr_val)
+    if not macd_passed:
         return {
             "passed": False,
-            "reject_reason": "MACD momentum absent (MACD < SIGNAL and MACD_HIST not rising, or cross > 20 bars ago)",
+            "reject_reason": "MACD below signal without a sufficiently strong improving histogram",
             "reject_code": "macd_stale",
             "score": 0,
             "raw_score": 0,
@@ -771,19 +929,27 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if not is_synthetic_no_vol:
-        if vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
-            return {
-                "passed": False,
-                "reject_reason": f"Current volume ratio {vol_ratio if vol_ratio is not None else 0.0:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation",
-                "reject_code": "low_volume",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": {},
-                "context": {},
-            }
+    if is_synthetic_no_vol or vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
+        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Current volume ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation"
+        return {
+            "passed": False,
+            "reject_reason": reason,
+            "reject_code": "low_volume",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
 
-    if _is_climax_top(df, close_price, candle_high, candle_low, vol_ratio=vol_ratio):
+    # Defer climax check during early market hours using the raw unclamped fraction
+    actual_frac = _actual_session_fraction(datetime.now(IST).time())
+    climax_check_available = not (is_intraday and actual_frac < 0.25)
+    
+    is_climax = False
+    if climax_check_available:
+        is_climax = _is_climax_top(df, close_price, candle_high, candle_low, vol_ratio=vol_ratio, session_fraction=session_fraction)
+
+    if is_climax:
         return {
             "passed": False,
             "reject_reason": "Climax top detected (record volume with upper wick dump)",
@@ -795,10 +961,10 @@ def _evaluate_candidate(
         }
 
     sl_res = compute_sl_and_target(
-        df=df,
         entry_price=close_price,
-        pattern_type="REVERSAL",
-        atr_val=atr_val,
+        atr=atr_val,
+        mode="REVERSAL",
+        ticker=df,
     )
     if not sl_res.get("passed", False):
         return {
@@ -813,22 +979,26 @@ def _evaluate_candidate(
 
     can_sym = _canonical_symbol(symbol)
     delivery_pct = _lookup(delivery_map, symbol, can_sym)
-    today_ist_date = datetime.now(IST).date()
-    age = get_trading_days_age(today_ist_date, resolved_date) if resolved_date else 99
-    delivery_conf = 1.0 if age == 0 else (0.5 if age == 1 else 0.0)
+    scan_date = datetime.now(IST).date()
+    delivery_age = trading_days_between(scan_date, resolved_date) if resolved_date else 99
+    if delivery_age < 0:
+        delivery_conf = 0.0
+        delivery_pct = None
+    else:
+        delivery_conf = 1.0 if delivery_age == 0 else (0.5 if delivery_age == 1 else 0.0)
 
-    # ── Normalize AVAILABLE_MAX across all missing optional components ──
-    AVAILABLE_MAX = COMPONENT_MAX
-    if is_synthetic_no_vol:
-        AVAILABLE_MAX -= 12
+    # Normalize maximum for unavailable optional delivery evidence
+    available_max = COMPONENT_MAX
     if delivery_pct is None or delivery_conf == 0.0:
-        AVAILABLE_MAX -= 5
+        available_max -= 5
     elif delivery_conf < 1.0:
-        AVAILABLE_MAX -= 2
+        available_max -= 2
 
-    AVAILABLE_MAX = max(50, AVAILABLE_MAX)
+    available_max = max(50, available_max)
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
-    effective_min_score = round((MIN_REVERSAL_SCORE + score_premium) * AVAILABLE_MAX / COMPONENT_MAX)
+    effective_min_score = round((MIN_REVERSAL_SCORE + score_premium) * available_max / COMPONENT_MAX)
+    # Ensure minimum score requirements do not become overly lenient
+    effective_min_score = max(55, effective_min_score)
 
     sma50_series = df["SMA50"].dropna()
     sma50_slope_up = (len(sma50_series) >= 6 and float(sma50_series.iloc[-1]) > float(sma50_series.iloc[-6]))
@@ -846,7 +1016,15 @@ def _evaluate_candidate(
         trend_score = 14
 
     pledge_pct = _lookup(pledge_map, symbol, can_sym)
-    macd_hist = _req_float(latest, "MACD_HIST")
+
+    # Evaluate whether MACD is currently above signal using a single calculated hist definition
+    macd_val = _req_float(latest, "MACD")
+    sig_val = _req_float(latest, "MACD_SIGNAL")
+    macd_hist = None
+    if macd_val is not None and sig_val is not None:
+        macd_hist = macd_val - sig_val
+    macd_above_now = (macd_val > sig_val) if (macd_val is not None and sig_val is not None) else False
+    macd_recovery_passed = macd_passed and not macd_above_now
 
     score_dict = _score_reversal(
         vol_ratio=vol_ratio,
@@ -868,11 +1046,13 @@ def _evaluate_candidate(
         min_drop_floor=effective_min_drop,
         delivery_conf=delivery_conf,
         vol_ratio_window=vol_ratio_max,
-        available_max=AVAILABLE_MAX,
+        available_max=available_max,
+        macd_recovery_passed=macd_recovery_passed,
     )
     score = score_dict["score"]
     raw_score = score_dict["raw_score"]
     core_score = score_dict["core_score"]
+    evidence_score = score_dict["evidence_score"]
 
     if core_score < CORE_SCORE_FLOOR:
         return {
@@ -885,11 +1065,24 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if score < effective_min_score:
+    if evidence_score < effective_min_score:
         return {
             "passed": False,
-            "reject_reason": f"Score {score} < {effective_min_score} minimum threshold (regime: {regime})",
+            "reject_reason": f"Evidence score {evidence_score} < {effective_min_score} minimum threshold (regime: {regime})",
             "reject_code": "low_score",
+            "score": score,
+            "raw_score": raw_score,
+            "sl_result": sl_res,
+            "context": {},
+        }
+
+    pledge_penalty = score_dict["score_breakdown"]["pledge_penalty"]
+    governance_score = evidence_score - pledge_penalty
+    if governance_score < effective_min_score:
+        return {
+            "passed": False,
+            "reject_reason": f"Governance-adjusted score {governance_score} < {effective_min_score} minimum threshold due to promoter pledge risk",
+            "reject_code": "governance_adjusted_score",
             "score": score,
             "raw_score": raw_score,
             "sl_result": sl_res,
@@ -932,7 +1125,8 @@ def _evaluate_candidate(
         "risk_reward": sl_res.get("natural_rr"),
         "regime": regime,
         "effective_min_score": effective_min_score,
-        "available_max": AVAILABLE_MAX,
+        "available_max": available_max,
+        "score_breakdown": score_dict["score_breakdown"],
         "signals": signals,
         "technicals": {
             "rsi": current_rsi,
@@ -940,7 +1134,7 @@ def _evaluate_candidate(
             "sma50": sma50,
             "sma200": sma200,
             "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
-            "volume_bypassed": True if vol_ratio is None else False,
+            "volume_ratio_session_adjusted": is_intraday,
             "drop_from_52w_high": round(drop_pct, 1),
             "pct_below_sma200": round(pct_below_sma200, 1) if pct_below_sma200 is not None else None,
         }
@@ -958,10 +1152,17 @@ def _evaluate_candidate(
 
 def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
     """Public UI evaluator delegating directly to _evaluate_candidate for 100% parity."""
-    if ticker is None or ticker.empty:
-        return {"status": "NO", "reasons": ["Failed to calculate technical indicators"], "score": 0, "qualified": False}
-
-    ticker = apply_indicators(ticker, timeframe="1d")
+    try:
+        ticker = apply_indicators(ticker, timeframe="1d")
+        if ticker is None or ticker.empty:
+            return {"status": "NO", "reasons": ["Failed to calculate technical indicators"], "score": 0, "qualified": False}
+    except Exception as exc:
+        return {
+            "status": "ERROR",
+            "reasons": [f"Indicator calculation failed: {exc}"],
+            "score": 0,
+            "qualified": False,
+        }
 
     regime_ctx = regime_ctx or {}
     regime_str = regime_ctx.get("trend") or regime_ctx.get("current_regime") or "NEUTRAL"
@@ -1021,8 +1222,15 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
 
 def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
-    from database import is_scanner_stopped
-    if not force and is_scanner_stopped("REVERSAL"):
+    from database import (
+        is_scanner_stopped,
+        get_latest_weights,
+        get_recent_alerts_for_scanner,
+        delete_todays_alerts_for_scanner,
+        get_all_failed_reversal_cooldown_symbols,
+        get_connection,
+    )
+    if is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
@@ -1043,7 +1251,6 @@ def _run_scan(force: bool = False):
         regime_ctx = {"current_regime": "NEUTRAL", "trend": "NEUTRAL", "biases": {}}
 
     try:
-        from database import get_latest_weights
         _regime_for_wts = regime_ctx.get("trend", "NEUTRAL")
         weights_row = get_latest_weights(_regime_for_wts)
         bayesian_weights = weights_row.get("weights") if weights_row else None
@@ -1089,13 +1296,6 @@ def _run_scan(force: bool = False):
 
     today_str = ist_now.strftime("%Y-%m-%d")
 
-    from database import (
-        get_recent_alerts_for_scanner,
-        delete_todays_alerts_for_scanner,
-        get_all_failed_reversal_cooldown_symbols,
-    )
-    from surveillance import get_live_blacklist
-
     live_blacklist_raw = get_live_blacklist()
     live_blacklist = {_canonical_symbol(s) for s in live_blacklist_raw if s} if live_blacklist_raw else set()
     failed_cooldown_raw = get_all_failed_reversal_cooldown_symbols(REVERSAL_COOLDOWN_TRADING_DAYS)
@@ -1110,32 +1310,89 @@ def _run_scan(force: bool = False):
         sym = _row_get(a, 0, "symbol")
         created_str = _row_get(a, 1, "created_at")
         d = _to_ist_date(created_str)
+        if d is None:
+            logger.warning(f"Invalid cooldown timestamp for {sym}. Failing conservatively by adding to cooldown.")
+            if sym:
+                cooldown_syms.add(_canonical_symbol(sym))
+            continue
         if d == today_ist:
             continue
         if sym:
             cooldown_syms.add(_canonical_symbol(sym))
 
-    import gc
-    from memory_profiler import chunk_iterable, MemoryProfiler
-    BATCH_SIZE = 50
-    total_fetched_count = 0
+    # Pre-filter blacklist/cooldown symbols from watchlist before chunking and fetching
+    excluded_symbols = set(live_blacklist)
+    if not force:
+        excluded_symbols.update(cooldown_syms)
+        excluded_symbols.update(failed_cooldown_syms)
 
-    # Intraday 5m snapshot optimization: only fetch during market hours (09:15-15:30 IST Mon-Fri)
-    is_market_open = (dtime(9, 15) <= ist_now.time() <= dtime(15, 30)) and (ist_now.weekday() < 5)
-    all_symbols = watchlist["Stock"].tolist()
-    all_snapshots = {}
+    scan_watchlist = watchlist[
+        ~watchlist["Stock"].map(_canonical_symbol).isin(excluded_symbols)
+    ].copy()
+
+    pre_filtered_count = len(watchlist) - len(scan_watchlist)
+    rejected["blacklist_or_cooldown_pre_filtered"] = pre_filtered_count
+    
+    logger.info(f"📊 Pre-filtered {pre_filtered_count} symbols by blacklist/cooldown policy. Remaining watchlist for scan: {len(scan_watchlist)}")
+
+    if scan_watchlist.empty:
+        logger.info("REVERSAL scan watchlist is empty after pre-filtering policy exclusions. Skipping execution.")
+        upsert_scanner_health("REVERSAL", "IDLE", outcome="SUCCESS", today_alerts=0, error_msg="Watchlist empty after policy exclusions.")
+        return 0
+
+    import gc
+    BATCH_SIZE = 50
+
+    # Intraday 5m snapshot optimization: only fetch during market hours Mon-Fri (excluding holidays)
+    is_market_open = (
+        ist_now.weekday() < 5
+        and ist_now.date() not in EXCHANGE_HOLIDAYS
+        and dtime(9, 15) <= ist_now.time() <= dtime(15, 30)
+    )
+    requested_symbols = {_canonical_symbol(s) for s in scan_watchlist["Stock"]}
+    
+    # Intraday 5m snapshot optimization: only fetch during market hours Mon-Fri (excluding holidays)
+    is_market_open = (
+        ist_now.weekday() < 5
+        and ist_now.date() not in EXCHANGE_HOLIDAYS
+        and dtime(9, 15) <= ist_now.time() <= dtime(15, 30)
+    )
+    all_symbols = scan_watchlist["Stock"].tolist()
+    snapshot_by_symbol = {}
+    snapshot_fetch_failed = False
     if is_market_open:
         try:
             from price_cache import get_intraday_snapshot
-            all_snapshots = get_intraday_snapshot(all_symbols, interval="5m", period="1d", requester="ReverseScanner") or {}
+            raw_snapshots = get_intraday_snapshot(all_symbols, interval="5m", period="1d", requester="ReverseScanner") or {}
+            for provider_symbol, snapshot in raw_snapshots.items():
+                canonical = _canonical_symbol(provider_symbol)
+                if canonical in snapshot_by_symbol:
+                    logger.warning(f"Duplicate snapshot symbol: {canonical}")
+                    continue
+                snapshot_by_symbol[canonical] = snapshot
         except Exception as _snap_e:
-            all_snapshots = {}
+            logger.warning(f"Intraday snapshot fetch failed: {_snap_e}")
+            snapshot_fetch_failed = True
+            snapshot_by_symbol = {}
 
     synthetic_vol_missing = set()
     synthetic_bar_symbols = set()
+    valid_fetched_symbols = set()
+    valid_snapshot_symbols = set()
+    
+    # Track distinct populations for stale and fundamental ratios
+    timestamp_checked = 0
+    invalid_timestamp_count = 0
+    date_checkable = 0
+    stale_count = 0
+
+    fundamental_checked = 0
+    fundamental_missing = 0
+    fundamental_invalid = 0
+    fundamental_valid = 0
 
     with MemoryProfiler("Process Symbols"):
-        for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
+        for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
             try:
                 all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
             except Exception as fetch_err:
@@ -1147,75 +1404,123 @@ def _run_scan(force: bool = False):
                 continue
 
             try:
-                chunk_symbols = chunk_df["Stock"].tolist()
-                chunk_snapshots = {}
-                for s in chunk_symbols:
-                    snap = all_snapshots.get(s) or all_snapshots.get(_canonical_symbol(s))
-                    if snap is not None:
-                        chunk_snapshots[_canonical_symbol(s)] = snap
+                # Create a canonicalized dictionary of provider results to avoid suffix differences
+                ticker_data_by_symbol = {}
+                for provider_symbol, frame in all_ticker_data.items():
+                    canonical = _canonical_symbol(provider_symbol)
+                    if canonical in ticker_data_by_symbol:
+                        logger.warning(f"⚠️ [REVERSAL] Duplicate canonical provider key: {canonical} (from {provider_symbol})")
+                    else:
+                        ticker_data_by_symbol[canonical] = frame
                 
                 today_date_str = ist_now.strftime("%Y-%m-%d")
-                for sym, hist_df in list(all_ticker_data.items()):
+                for can_sym, hist_df in list(ticker_data_by_symbol.items()):
                     if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
-                        snap_df = chunk_snapshots.get(_canonical_symbol(sym))
+                        # Fetch ratio tracking: only count requested symbols
+                        if can_sym in requested_symbols:
+                            valid_fetched_symbols.add(can_sym)
+
+                        snap_df = snapshot_by_symbol.get(can_sym)
+                        
+                        # During active market hours, reject symbols lacking current snapshot
+                        if is_market_open:
+                            if snap_df is None or snap_df.empty:
+                                rejected["missing_snapshot"] += 1
+                                ticker_data_by_symbol.pop(can_sym, None)
+                                valid_fetched_symbols.discard(can_sym)
+                                continue
+
                         if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
-                            valid_closes = snap_df['Close'].dropna()
-                            if not valid_closes.empty:
-                                live_price = float(valid_closes.iloc[-1])
-                                snap_open = float(snap_df['Open'].iloc[0])
-                                snap_high = float(snap_df['High'].max())
-                                snap_low = float(snap_df['Low'].min())
-                                snap_vol = float(snap_df['Volume'].sum())
+                            try:
+                                numeric = snap_df[["Open", "High", "Low", "Close", "Volume"]].apply(
+                                    pd.to_numeric,
+                                    errors="coerce",
+                                )
+                                if numeric[["Open", "High", "Low", "Close"]].dropna().empty:
+                                    rejected["invalid_snapshot"] += 1
+                                    ticker_data_by_symbol.pop(can_sym, None)
+                                    valid_fetched_symbols.discard(can_sym)
+                                    continue
+                                
+                                live_price = float(numeric["Close"].dropna().iloc[-1])
+                                snap_open = float(numeric["Open"].dropna().iloc[0])
+                                snap_high = float(numeric["High"].max())
+                                snap_low = float(numeric["Low"].min())
+                                snap_vol = float(numeric["Volume"].fillna(0).sum())
 
-                                hist_df = hist_df.copy()
-                                last_dt = hist_df.index[-1] if not hist_df.index.empty else None
-                                t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
-                                if t_col:
-                                    last_dt = hist_df[t_col].iloc[-1]
-                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
-                                can_sym = _canonical_symbol(sym)
+                                # Logic validation checks
+                                if not (snap_low <= live_price <= snap_high) or not (snap_low <= snap_open <= snap_high):
+                                    rejected["invalid_snapshot_bounds"] += 1
+                                    ticker_data_by_symbol.pop(can_sym, None)
+                                    valid_fetched_symbols.discard(can_sym)
+                                    continue
+                                
+                                valid_snapshot_symbols.add(can_sym)
+                            except Exception as parse_e:
+                                logger.warning(f"Failed to parse snapshot row for {can_sym}: {parse_e}")
+                                rejected["invalid_snapshot"] += 1
+                                ticker_data_by_symbol.pop(can_sym, None)
+                                valid_fetched_symbols.discard(can_sym)
+                                continue
 
-                                if last_dt_str == today_date_str:
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
-                                    if snap_vol > 0: hist_df.iloc[-1, hist_df.columns.get_loc('Volume')] = snap_vol
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(float(hist_df['High'].iloc[-1]), snap_high)
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('Low')] = min(float(hist_df['Low'].iloc[-1]), snap_low)
-                                    try:
-                                        recomputed = apply_indicators(hist_df, timeframe="1d")
-                                        if recomputed is None or recomputed.empty:
-                                            all_ticker_data.pop(sym, None)
-                                            continue
-                                        hist_df = recomputed
-                                    except Exception:
-                                        all_ticker_data.pop(sym, None)
+                            hist_df = hist_df.copy()
+                            last_dt = hist_df.index[-1] if not hist_df.index.empty else None
+                            t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
+                            if t_col:
+                                last_dt = hist_df[t_col].iloc[-1]
+                            last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+
+                            if last_dt_str == today_date_str:
+                                hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                if snap_vol > 0: hist_df.iloc[-1, hist_df.columns.get_loc('Volume')] = snap_vol
+                                hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(float(hist_df['High'].iloc[-1]), snap_high)
+                                hist_df.iloc[-1, hist_df.columns.get_loc('Low')] = min(float(hist_df['Low'].iloc[-1]), snap_low)
+                                try:
+                                    recomputed = apply_indicators(hist_df, timeframe="1d")
+                                    if recomputed is None or recomputed.empty:
+                                        ticker_data_by_symbol.pop(can_sym, None)
+                                        valid_fetched_symbols.discard(can_sym)
+                                        rejected["indicator_failure"] += 1
                                         continue
-                                    synthetic_bar_symbols.discard(can_sym)
-                                    synthetic_vol_missing.discard(can_sym)
-                                else:
-                                    new_row = hist_df.iloc[-1:].copy()
-                                    new_dt = pd.to_datetime(today_date_str)
-                                    if t_col: new_row[t_col] = new_dt
-                                    else: new_row.index = [new_dt]
-                                    new_row['Open'] = snap_open
-                                    new_row['High'] = snap_high
-                                    new_row['Low'] = snap_low
-                                    new_row['Close'] = live_price
-                                    new_row['Volume'] = snap_vol
-                                    hist_df = pd.concat([hist_df, new_row])
-                                    try:
-                                        recomputed = apply_indicators(hist_df, timeframe="1d")
-                                        if recomputed is None or recomputed.empty:
-                                            all_ticker_data.pop(sym, None)
-                                            continue
-                                        hist_df = recomputed
-                                    except Exception:
-                                        all_ticker_data.pop(sym, None)
+                                    hist_df = recomputed
+                                except Exception as exc:
+                                    logger.warning(f"Indicator calculation failed for {can_sym}: {exc}")
+                                    ticker_data_by_symbol.pop(can_sym, None)
+                                    valid_fetched_symbols.discard(can_sym)
+                                    rejected["indicator_failure"] += 1
+                                    continue
+                                synthetic_bar_symbols.discard(can_sym)
+                                synthetic_vol_missing.discard(can_sym)
+                            else:
+                                new_row = hist_df.iloc[-1:].copy()
+                                new_dt = pd.to_datetime(today_date_str)
+                                if t_col: new_row[t_col] = new_dt
+                                else: new_row.index = [new_dt]
+                                new_row['Open'] = snap_open
+                                new_row['High'] = snap_high
+                                new_row['Low'] = snap_low
+                                new_row['Close'] = live_price
+                                new_row['Volume'] = snap_vol
+                                hist_df = pd.concat([hist_df, new_row])
+                                try:
+                                    recomputed = apply_indicators(hist_df, timeframe="1d")
+                                    if recomputed is None or recomputed.empty:
+                                        ticker_data_by_symbol.pop(can_sym, None)
+                                        valid_fetched_symbols.discard(can_sym)
+                                        rejected["indicator_failure"] += 1
                                         continue
-                                    synthetic_bar_symbols.add(can_sym)
-                                    if snap_vol <= 0: synthetic_vol_missing.add(can_sym)
-                                    else: synthetic_vol_missing.discard(can_sym)
+                                    hist_df = recomputed
+                                except Exception as exc:
+                                    logger.warning(f"Indicator calculation failed for {can_sym}: {exc}")
+                                    ticker_data_by_symbol.pop(can_sym, None)
+                                    valid_fetched_symbols.discard(can_sym)
+                                    rejected["indicator_failure"] += 1
+                                    continue
+                                synthetic_bar_symbols.add(can_sym)
+                                if snap_vol <= 0: synthetic_vol_missing.add(can_sym)
+                                else: synthetic_vol_missing.discard(can_sym)
 
-                                all_ticker_data[sym] = hist_df
+                            ticker_data_by_symbol[can_sym] = hist_df
                             
                 for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
                     symbol = row["Stock"]
@@ -1223,25 +1528,43 @@ def _run_scan(force: bool = False):
                     can_sym  = _canonical_symbol(symbol)
                     
                     try:
-                        # [FIX C1] Enforce surveillance / blacklist filtering (using pre-fetched set)
-                        if symbol in live_blacklist or can_sym in live_blacklist:
-                            rejected["blacklist"] += 1
-                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — active surveillance/blacklist")
-                            continue
-
-                        # [FIX C8] Respect force parameter for cooldowns (using pre-fetched sets)
-                        if not force:
-                            if can_sym in cooldown_syms or can_sym in failed_cooldown_syms:
-                                rejected["cooldown"] += 1
-                                continue
-
-                        ticker_data = all_ticker_data.get(symbol) if all_ticker_data else None
+                        ticker_data = ticker_data_by_symbol.get(can_sym)
                         if ticker_data is None:
                             rejected["no_data"] += 1
                             continue
-                
-                        # Only count a fetch as successful when data is verified, non-empty, and indicators compute cleanly.
-                        total_fetched_count += 1
+
+                        timestamp_checked += 1
+
+                        # Check and reject stale data individually using Date/Datetime supporting helper
+                        latest_bar_dt = _latest_bar_timestamp(ticker_data)
+                        if latest_bar_dt is None:
+                            invalid_timestamp_count += 1
+                            rejected["invalid_timestamp"] += 1
+                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — invalid/missing timestamp")
+                            continue
+
+                        date_checkable += 1
+
+                        stale_age = trading_days_between(today_ist, latest_bar_dt.date())
+                        if stale_age > 0 or stale_age < 0:
+                            stale_count += 1
+                            rejected["stale_data"] += 1
+                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — stale or future data (age={stale_age}b)")
+                            continue
+
+                        # Check fundamental presence
+                        fundamental_checked += 1
+                        fund_dict = row.to_dict() if hasattr(row, "to_dict") else row
+                        roe_val = parse_percentage(fund_dict.get("ROE %"), "percentage_points") if fund_dict else None
+                        rev_growth = parse_percentage(fund_dict.get("YOY Revenue %"), "decimal_ratio") if fund_dict else None
+                        
+                        if roe_val is None or rev_growth is None:
+                            fundamental_missing += 1
+                        elif not (-100.0 <= roe_val <= 500.0) or not (-100.0 <= rev_growth <= 1000.0):
+                            fundamental_invalid += 1
+                        else:
+                            fundamental_valid += 1
+
                         ticker = ticker_data.copy()
                         verdict = _evaluate_candidate(
                             symbol=symbol,
@@ -1254,6 +1577,8 @@ def _run_scan(force: bool = False):
                             is_synthetic_bar=(can_sym in synthetic_bar_symbols),
                             is_synthetic_no_vol=(can_sym in synthetic_vol_missing),
                             resolved_date=resolved_date,
+                            is_intraday=is_market_open,
+                            session_fraction=session_fraction,
                         )
 
                         if not verdict["passed"]:
@@ -1289,66 +1614,153 @@ def _run_scan(force: bool = False):
                 gc.collect()
 
         total_symbols = len(watchlist)
-        fetch_ratio = 0.0
-        if total_symbols > 0:
-            fetch_ratio = total_fetched_count / total_symbols
-            logger.info(f"📊 [REVERSAL] Batch Fetch Completed: {total_fetched_count}/{total_symbols} fetched ({fetch_ratio*100:.1f}%)")
+        total_fetched_count = len(valid_fetched_symbols)
+        total_requested = len(scan_watchlist)
+        fetch_ratio = total_fetched_count / total_requested if total_requested > 0 else 1.0
+        
+        stale_ratio = stale_count / max(date_checkable, 1)
+        invalid_timestamp_ratio = invalid_timestamp_count / max(timestamp_checked, 1)
+        fundamental_failure_ratio = (fundamental_missing + fundamental_invalid) / max(fundamental_checked, 1)
 
-        if fetch_ratio < MIN_FETCH_RATIO:
-            logger.warning(f"⚠️ [REVERSAL] Low fetch coverage ({fetch_ratio*100:.1f}% < {MIN_FETCH_RATIO*100:.0f}%). Blocking persistence and preserving existing alerts.")
+        logger.info(f"📊 [REVERSAL] Batch Fetch Completed: {total_fetched_count}/{total_requested} requested symbols fetched ({fetch_ratio*100:.1f}%)")
+        logger.info(f"📊 [REVERSAL] Stale Ratio: {stale_count}/{date_checkable} checkable symbols stale ({stale_ratio*100:.1f}%)")
+        logger.info(f"📊 [REVERSAL] Invalid Timestamp Ratio: {invalid_timestamp_count}/{timestamp_checked} ({invalid_timestamp_ratio*100:.1f}%)")
+        logger.info(f"📊 [REVERSAL] Fundamental Outage/Failure Ratio: {fundamental_missing + fundamental_invalid}/{fundamental_checked} checkable symbols missing/invalid fundamentals ({fundamental_failure_ratio*100:.1f}%)")
+
+        if is_market_open and snapshot_fetch_failed:
+            logger.warning("⚠️ [REVERSAL] Intraday snapshot fetch failed during market hours. Blocking persistence to prevent stale alerts.")
             upsert_scanner_health(
                 "REVERSAL", 
                 "DEGRADED", 
-                error_msg=f"Low fetch coverage: {total_fetched_count}/{total_symbols} symbols fetched ({fetch_ratio*100:.1f}%)",
+                error_msg="Intraday snapshot fetch failed during market hours",
                 processed_count=len(shortlisted_alerts),
                 total_count=total_symbols,
                 outcome="PARTIAL"
             )
             return 0
 
-        # Try to delete today's existing alerts only after fetch coverage check passes!
-        try:
-            from database import delete_todays_alerts_for_scanner
-            deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str)
-            logger.info(f"REVERSAL cleanup: removed {deleted_count} existing alerts for {today_str} before persistence")
-        except Exception as e:
-            logger.warning(f"Failed to delete today's alerts for REVERSAL: {e}")
-
-        if total_symbols > 0 and rejected.get("fundamental_filter", 0) / total_symbols > FUNDAMENTAL_REJECT_ALARM_PCT:
-            logger.critical(f"🚨 CRITICAL ALARM: fundamental_filter rejected {rejected['fundamental_filter']}/{total_symbols} symbols (>{FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%) — potential fundamental data outage!")
-
-        if shortlisted_alerts:
-            # Sort primarily by clamped normalized score, then by risk-reward ratio
-            shortlisted_alerts.sort(key=lambda x: (x["score"], x.get("context", {}).get("risk_reward") or 0.0), reverse=True)
-            from config import SCANNER_MAX_ALERTS
-            shortlisted_alerts = shortlisted_alerts[:SCANNER_MAX_ALERTS.get("REVERSAL", 10)]
-
-        for alert in shortlisted_alerts:
-            inserted, _, _, _ = save_alert_if_new(
-                alert["symbol"], "REVERSAL", alert["alert_time"], scanner="REVERSAL",
-                category=alert["category"], entry_price=alert["entry_price"],
-                signals=alert["signals"], score=alert["score"], rsi=alert["rsi"],
-                volume_ratio=alert["volume_ratio"], stop_loss=alert["stop_loss"],
-                target_1=alert.get("target_1"), target_price=alert["target_price"],
-                context=alert["context"], model_version=ACTIVE_ALGO_VERSION,
-                bayesian_regime=regime_ctx.get("trend", "NEUTRAL"), bayesian_weights=bayesian_weights,
-                structural_failure_stop=alert.get("structural_failure_stop"),
-                target_quality_score=alert.get("target_quality_score")
+        if fetch_ratio < MIN_FETCH_RATIO:
+            logger.warning(f"⚠️ [REVERSAL] Low fetch coverage ({fetch_ratio*100:.1f}% < {MIN_FETCH_RATIO*100:.0f}%). Blocking persistence and preserving existing alerts.")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DEGRADED", 
+                error_msg=f"Low fetch coverage: {total_fetched_count}/{total_requested} symbols fetched ({fetch_ratio*100:.1f}%)",
+                processed_count=len(shortlisted_alerts),
+                total_count=total_symbols,
+                outcome="PARTIAL"
             )
-            if inserted: total_alerts += 1
+            return 0
 
-        # Update scanner health to OK on successful completion
-        upsert_scanner_health(
-            "REVERSAL", 
-            "OK", 
-            error_msg=None, 
-            today_alerts=total_alerts, 
-            processed_count=len(shortlisted_alerts), 
-            total_count=total_symbols, 
-            outcome="SUCCESS"
-        )
-        logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
-        return total_alerts
+        if stale_ratio > STALE_DEGRADED_RATIO:
+            logger.warning(f"⚠️ [REVERSAL] High stale data ratio ({stale_ratio*100:.1f}% > {STALE_DEGRADED_RATIO*100:.0f}%). Blocking persistence and preserving existing alerts.")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DEGRADED", 
+                error_msg=f"High stale data ratio: {stale_count}/{date_checkable} fetched symbols stale ({stale_ratio*100:.1f}%)",
+                processed_count=len(shortlisted_alerts),
+                total_count=total_symbols,
+                outcome="PARTIAL"
+            )
+            return 0
+
+        if invalid_timestamp_ratio > 0.15:
+            logger.warning(f"⚠️ [REVERSAL] High invalid timestamp ratio ({invalid_timestamp_ratio*100:.1f}% > 15%). Blocking persistence and preserving existing alerts.")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DEGRADED", 
+                error_msg=f"High invalid timestamp ratio: {invalid_timestamp_count}/{timestamp_checked} symbols ({invalid_timestamp_ratio*100:.1f}%)",
+                processed_count=len(shortlisted_alerts),
+                total_count=total_symbols,
+                outcome="PARTIAL"
+            )
+            return 0
+
+        if fundamental_failure_ratio > FUNDAMENTAL_REJECT_ALARM_PCT:
+            logger.warning(f"⚠️ [REVERSAL] High fundamental outage/failure ratio ({fundamental_failure_ratio*100:.1f}% > {FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%). Blocking persistence and preserving existing alerts.")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DEGRADED", 
+                error_msg=f"Potential fundamental data outage: {fundamental_missing} missing, {fundamental_invalid} invalid out of {fundamental_checked} checked symbols ({fundamental_failure_ratio*100:.1f}%)",
+                processed_count=len(shortlisted_alerts),
+                total_count=total_symbols,
+                outcome="PARTIAL"
+            )
+            return 0
+
+        if is_market_open:
+            snapshot_ratio = len(valid_snapshot_symbols) / max(len(scan_watchlist), 1)
+            logger.info(f"📊 [REVERSAL] Snapshot Coverage: {len(valid_snapshot_symbols)}/{len(scan_watchlist)} ({snapshot_ratio*100:.1f}%)")
+            if snapshot_ratio < 0.85:
+                logger.warning(f"⚠️ [REVERSAL] Low snapshot coverage ({snapshot_ratio*100:.1f}% < 85%). Blocking persistence and preserving existing alerts.")
+                upsert_scanner_health(
+                    "REVERSAL", 
+                    "DEGRADED", 
+                    error_msg=f"Low snapshot coverage: {len(valid_snapshot_symbols)}/{len(scan_watchlist)} snapshots ({snapshot_ratio*100:.1f}%)",
+                    processed_count=len(shortlisted_alerts),
+                    total_count=total_symbols,
+                    outcome="PARTIAL"
+                )
+                return 0
+
+        # Database transaction commit block
+        db_success = False
+        try:
+            with _DB_WRITE_LOCK:
+                with get_connection() as conn:
+                    try:
+                        # Cleanup today's existing alerts transactionally
+                        deleted_count = delete_todays_alerts_for_scanner("REVERSAL", today_str, conn=conn)
+                        logger.info(f"REVERSAL cleanup: removed {deleted_count} existing alerts for {today_str} transactionally before persistence")
+                        
+                        if shortlisted_alerts:
+                            # Sort primarily by clamped normalized score, then by risk-reward ratio
+                            shortlisted_alerts.sort(key=lambda x: (x["score"], x.get("context", {}).get("risk_reward") or 0.0), reverse=True)
+                            from config import SCANNER_MAX_ALERTS
+                            shortlisted_alerts = shortlisted_alerts[:SCANNER_MAX_ALERTS.get("REVERSAL", 10)]
+
+                        for alert in shortlisted_alerts:
+                            inserted, _, _, _ = save_alert_if_new(
+                                alert["symbol"], "REVERSAL", alert["alert_time"], scanner="REVERSAL",
+                                category=alert["category"], entry_price=alert["entry_price"],
+                                signals=alert["signals"], score=alert["score"], rsi=alert["rsi"],
+                                volume_ratio=alert["volume_ratio"], stop_loss=alert["stop_loss"],
+                                target_1=alert.get("target_1"), target_price=alert["target_price"],
+                                context=alert["context"], model_version=ACTIVE_ALGO_VERSION,
+                                bayesian_regime=regime_ctx.get("trend", "NEUTRAL"), bayesian_weights=bayesian_weights,
+                                structural_failure_stop=alert.get("structural_failure_stop"),
+                                target_quality_score=alert.get("target_quality_score"),
+                                conn=conn
+                            )
+                            if inserted:
+                                total_alerts += 1
+                        
+                        conn.commit()
+                        db_success = True
+                    except Exception:
+                        conn.rollback()
+                        raise
+        except Exception as db_err:
+            logger.exception(f"❌ [REVERSAL] Transactional db operations failed: {db_err}")
+            upsert_scanner_health(
+                "REVERSAL", 
+                "DOWN", 
+                error_msg=f"Database transaction error: {str(db_err)[:200]}"
+            )
+            return 0
+
+        if db_success:
+            # Update scanner health to OK on successful completion
+            upsert_scanner_health(
+                "REVERSAL", 
+                "OK", 
+                error_msg=None, 
+                today_alerts=total_alerts, 
+                processed_count=len(shortlisted_alerts), 
+                total_count=total_symbols, 
+                outcome="SUCCESS"
+            )
+            logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
+            return total_alerts
 
 
 def _validate_config():
@@ -1365,13 +1777,13 @@ def _validate_config():
         fatal.append(f"RSI_CURL_MIN ({RSI_CURL_MIN}) must exceed RSI_OVERSOLD_THRESHOLD ({RSI_OVERSOLD_THRESHOLD})")
     
     _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 0))
-    _MIN_VOL_PTS = 15 if MIN_VOLUME_RATIO >= 5.0 else (12 if MIN_VOLUME_RATIO >= 3.5 else (9 if MIN_VOLUME_RATIO >= 2.5 else (5 if MIN_VOLUME_RATIO >= 2.0 else 0)))
-    if MIN_RSI_RECOVERY < 8.0:
-        fatal.append(f"MIN_RSI_RECOVERY ({MIN_RSI_RECOVERY}) < lowest scorer tier (8): rsi_pts can be 0, collapsing core below CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR})")
-    
-    BEAR_CORE_REALISTIC = 14 + _MIN_VOL_PTS + 0 + _MIN_RSI_PTS
-    if CORE_SCORE_FLOOR > BEAR_CORE_REALISTIC:
-        warn.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({BEAR_CORE_REALISTIC}) — setups with absolute minimum parameters will be filtered by the core floor")
+    for r, req in REGIME_EVIDENCE_REQ.items():
+        min_v = req.get("min_vol_ratio", MIN_VOLUME_RATIO)
+        v_pts = 15 if min_v >= 5.0 else (12 if min_v >= 3.5 else (9 if min_v >= 2.5 else (5 if min_v >= 2.0 else 0)))
+        # True minimum MACD score after the gate is 3 points
+        r_min_core = 14 + v_pts + 3 + _MIN_RSI_PTS
+        if CORE_SCORE_FLOOR > r_min_core:
+            warn.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) > min feasible core ({r_min_core}) under regime {r} (min_vol_ratio={min_v}) — setups with absolute minimum parameters will be filtered by the core floor")
     if CORE_SCORE_FLOOR >= CORE_SCORE_MAX:
         fatal.append(f"CORE_SCORE_FLOOR ({CORE_SCORE_FLOOR}) >= MAX ({CORE_SCORE_MAX}) is unreachable")
 
@@ -1380,10 +1792,10 @@ def _validate_config():
         if prox is None:
             continue
         if prox >= MAX_DROP_BELOW_SMA200:
-            fatal.append(f"{r}: proximity {prox}% >= MAX_DROP_BELOW_SMA200 ({MAX_DROP_BELOW_SMA200}%) — dead code, remove or tighten")
+            warn.append(f"{r}: proximity {prox}% >= MAX_DROP_BELOW_SMA200 ({MAX_DROP_BELOW_SMA200}%) — regime limit is redundant behind global limit")
 
     if MIN_VOLUME_RATIO >= CLIMAX_VOL_MULT:
-        fatal.append(f"MIN_VOLUME_RATIO ({MIN_VOLUME_RATIO}) >= CLIMAX_VOL_MULT ({CLIMAX_VOL_MULT}): climax filter degenerates into an unconditional close-position gate")
+        warn.append(f"MIN_VOLUME_RATIO ({MIN_VOLUME_RATIO}) >= CLIMAX_VOL_MULT ({CLIMAX_VOL_MULT}): every volume-qualified candidate satisfies the climax-volume leg")
 
     _spread = RSI_CURL_MIN - RSI_OVERSOLD_THRESHOLD
     if MIN_RSI_RECOVERY > _spread + 2.0:
@@ -1403,6 +1815,11 @@ def _validate_config():
         need = MIN_REVERSAL_SCORE + prem
         if need > COMPONENT_MAX:
             fatal.append(f"{regime}: threshold {need} > max {COMPONENT_MAX}")
+
+    # Check if exchange holiday calendar is outdated / expired
+    max_holiday_year = max(d.year for d in EXCHANGE_HOLIDAYS)
+    if max_holiday_year < datetime.now(IST).year:
+        fatal.append(f"Exchange holiday calendar is expired (max year: {max_holiday_year})")
 
     for w in warn:
         logger.warning(f"REVERSAL config dead zone: {w}")
@@ -1427,6 +1844,11 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("reversal_scanner")
 
 def start(force: bool = False) -> int:
+    from database import is_scanner_stopped
+    if is_scanner_stopped("REVERSAL"):
+        logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
+        upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
+        return 0
     if not _scan_lock.acquire(blocking=False):
         raise RuntimeError("Scanner is already actively running!")
     try:
@@ -1459,4 +1881,4 @@ def _start_wrapper(force: bool = False) -> int:
                 upsert_scanner_health(scanner_name="REVERSAL", status="DOWN", error_msg=str(e))
             except Exception:
                 pass
-        raise
+        return 0

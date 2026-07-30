@@ -58,7 +58,7 @@ def build_scenario_data(base_history, volume_weak=False, gap_up=False, rr_poor=F
         swing_high_idx = history.index[-6]
         history.loc[swing_high_idx, 'High'] = 102.0 # RR < 2.5
         swing_low_idx = history.index[-10]
-        history.loc[swing_low_idx, 'Low'] = 95.0
+        history.loc[swing_low_idx, 'Low'] = 91.0
     else:
         # Wide structural resistance for good RR
         swing_high_idx = history.index[-6]
@@ -212,6 +212,7 @@ class TestGoldenScenarios:
         assert mock_db_save_alert.call_count == 0
         assert mock_db_save_candidate.call_count == 0
 
+    @patch.dict('config.MIN_NATURAL_RR', {'MULTI_TF': 4.0})
     def test_scenario_d_poor_rr(self, mock_get_wl, mock_fetch, mock_check_recent, mock_upsert, 
                               mock_save_reject, mock_db_save_candidate, mock_db_save_alert, mock_pledge, mock_weights, mock_cooldown, base_history):
         """

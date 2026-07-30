@@ -953,6 +953,26 @@ def init_db():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+                # 39. watchlist (Multibagger Watchlist)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS watchlist (
+                        symbol TEXT PRIMARY KEY,
+                        buy_zone_low NUMERIC,
+                        buy_zone_high NUMERIC,
+                        latest_price NUMERIC,
+                        growth_score NUMERIC,
+                        value_score NUMERIC,
+                        trend_score NUMERIC,
+                        total_score NUMERIC,
+                        bucket TEXT,
+                        status TEXT,
+                        notes TEXT,
+                        last_alert_price NUMERIC,
+                        last_alert_at TIMESTAMPTZ,
+                        last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
                 # 39. Trade analytics view mapping JSONB context to columns
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
                 cur.execute("""
@@ -1036,7 +1056,7 @@ def validate_schema(cur):
         "build_manifest", "telegram_queue", "earnings_calendar",
         "alert_outcomes", "sector_rankings", "wealth_buy_alert",
         "users", "user_sessions", "user_messages", "capital_history",
-        "user_watchlists", "stock_analysis_master"
+        "user_watchlists", "stock_analysis_master", "watchlist"
     ]
 
     missing_tables = [t for t in REQUIRED_TABLES if t not in existing_tables]
@@ -1227,20 +1247,40 @@ def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 40) -> set:
         logger.exception("❌ get_all_failed_reversal_cooldown_symbols failed")
         return set()
 
-def delete_todays_alerts_for_scanner(scanner_name: str, trade_date: str) -> int:
+def delete_todays_alerts_for_scanner(scanner_name: str, trade_date: str, conn = None) -> int:
     """Idempotently delete today's alerts for a specific scanner before saving new ones."""
+    success = False
+    deleted = 0
+    
+    def _execute(cur, commit_cb):
+        nonlocal success, deleted
+        cur.execute("""
+            DELETE FROM alerts
+            WHERE scanner = %s
+              AND alert_date = %s
+        """, (scanner_name, trade_date))
+        deleted = cur.rowcount
+        commit_cb()
+        success = True
+        return deleted
+
     try:
         init_db()
-        with get_connection() as conn:
+        if conn is None:
+            with _DB_WRITE_LOCK:
+                with get_connection() as local_conn:
+                    try:
+                        with local_conn.cursor() as cur:
+                            return _execute(cur, local_conn.commit)
+                    except Exception:
+                        logger.exception(f"❌ Failed to delete today's alerts for {scanner_name}")
+                        return 0
+                    finally:
+                        if not success:
+                            local_conn.rollback()
+        else:
             with conn.cursor() as cur:
-                cur.execute("""
-                    DELETE FROM alerts
-                    WHERE scanner = %s
-                      AND alert_date = %s
-                """, (scanner_name, trade_date))
-                deleted = cur.rowcount
-            conn.commit()
-        return deleted
+                return _execute(cur, lambda: None)
     except Exception as e:
         logger.exception(f"❌ Failed to delete today's alerts for {scanner_name}")
         return 0
@@ -1324,6 +1364,7 @@ def save_alert_if_new(
     cash_in_hand: float = None,
     structural_failure_stop: float = None,
     target_quality_score: float = None,
+    conn = None,
     **kwargs
 ) -> tuple[bool, str, float, int]:
     """
@@ -1392,122 +1433,128 @@ def save_alert_if_new(
         logger.info(f"🧪 DONT_SAVE_ALERTS enabled — not saving alert for {symbol} ({breakout_type})")
         return False, "Stale/fallback data or DB constraint", 0.0, 0
 
-    with _DB_WRITE_LOCK:
-        with get_connection() as conn:
-            success = False
+    success = False
+    
+    def _execute(cur, commit_cb):
+        nonlocal success
+        # Prevent cross-day duplicates: if the stock already has an OPEN alert from this scanner, skip it.
+        cur.execute("""
+            SELECT 1 FROM alerts 
+            WHERE symbol = %s AND scanner = %s AND status = 'OPEN' AND is_rejected = FALSE
+        """, (symbol, scanner))
+        if cur.fetchone():
+            logger.info(f"⏭️  Alert skipped for {symbol}: Already has an OPEN {scanner} alert.")
+            return False, "Already OPEN", 0.0, 0
+
+        cur.execute("""
+            INSERT INTO alerts
+                (symbol, breakout_type, alert_time, alert_date, scanner, category,
+                entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
+                signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
+                model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
+                structural_failure_stop, target_quality_score, execution_state)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
+            ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
+            RETURNING id;
+        """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
+            entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
+            signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
+            model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
+            structural_failure_stop, target_quality_score))
+        row = cur.fetchone()
+        inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
+        commit_cb()
+        success = True
+        if inserted:
+            alert_id = row[0] if row else 0
+            base_score_val = kwargs.get('base_score', score or 80)
+
+            rs_bonus_val = kwargs.get('rs_bonus', 0)
+            sector_bonus_val = kwargs.get('sector_bonus', 0)
+            rs_pct_val = kwargs.get('rs_percentile', 0.0)
+            sector_name_val = kwargs.get('sector_name', '')
+            regime_score_val = kwargs.get('regime_score', 80.0)
+            
+            risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0))
+            rr_val = round((float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist, 2) if entry_price and target_1 else 1.5
+            atr_pct_val = round((risk_dist / float(entry_price or 1.0)) * 100.0, 2) if entry_price else 2.0
+            
+            # Fetch earnings info for snapshot
             try:
-                with conn.cursor() as cur:
-                    # Prevent cross-day duplicates: if the stock already has an OPEN alert from this scanner, skip it.
-                    cur.execute("""
-                        SELECT 1 FROM alerts 
-                        WHERE symbol = %s AND scanner = %s AND status = 'OPEN' AND is_rejected = FALSE
-                    """, (symbol, scanner))
-                    if cur.fetchone():
-                        logger.info(f"⏭️  Alert skipped for {symbol}: Already has an OPEN {scanner} alert.")
-                        return False, "Already OPEN", 0.0, 0
-
-                    cur.execute("""
-                        INSERT INTO alerts
-                            (symbol, breakout_type, alert_time, alert_date, scanner, category,
-                            entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
-                            signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
-                            model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
-                            structural_failure_stop, target_quality_score, execution_state)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
-                        ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
-                        RETURNING id;
-                    """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
-                        entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
-                        signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
-                        model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
-                        structural_failure_stop, target_quality_score))
-                    row = cur.fetchone()
-                    inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
-                    conn.commit()
-                    success = True
-                    if inserted:
-                        alert_id = row[0] if row else 0
-                        base_score_val = kwargs.get('base_score', score or 80)
-
-                        rs_bonus_val = kwargs.get('rs_bonus', 0)
-                        sector_bonus_val = kwargs.get('sector_bonus', 0)
-                        rs_pct_val = kwargs.get('rs_percentile', 0.0)
-                        sector_name_val = kwargs.get('sector_name', '')
-                        regime_score_val = kwargs.get('regime_score', 80.0)
-                        
-                        risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0))
-                        rr_val = round((float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist, 2) if entry_price and target_1 else 1.5
-                        atr_pct_val = round((risk_dist / float(entry_price or 1.0)) * 100.0, 2) if entry_price else 2.0
-                        
-                        # Fetch earnings info for snapshot
-                        try:
-                            from earnings_calendar import earnings_calendar_service
-                            ed_info = earnings_calendar_service.get_earnings_info(symbol)
-                        except Exception:
-                            ed_info = {"earnings_flag": False, "days_to_earnings": 999, "earnings_date": None, "earnings_severity": "NONE", "date_status": "UNKNOWN", "warning_msg": ""}
-
-                        # Update alert table with earnings warning and metadata
-                        try:
-                            cur.execute("""
-                                UPDATE alerts
-                                SET earnings_flag = %s, days_to_earnings = %s, earnings_date = %s,
-                                    earnings_severity = %s, date_status = %s, warning_msg = %s
-                                WHERE id = %s
-                            """, (ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
-                                  ed_info["earnings_severity"], ed_info["date_status"], ed_info["warning_msg"], alert_id))
-                        except Exception:
-                            pass
-
-                        try:
-                            cur.execute("""
-                                INSERT INTO alert_outcomes
-                                    (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
-                                     rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2, target_3, target_4,
-                                     earnings_flag, days_to_earnings, earnings_date, earnings_severity, date_status,
-                                     alert_timestamp)
-                                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                                ON CONFLICT (alert_id, leg) DO NOTHING
-                            """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
-                                  base_score_val, rs_bonus_val, sector_bonus_val, rs_pct_val, sector_name_val,
-                                  rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2, target_3, target_4,
-                                  ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
-                                  ed_info["earnings_severity"], ed_info["date_status"]))
-                            conn.commit()
-                        except Exception as oe:
-                            logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
-
-                        
-                        msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
-                        insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
-
-                        
-                        # Trigger web push notification
-                        try:
-                            import push_service
-                            title = f"🚨 {symbol} Breakout"
-                            body = f"Buy Alert at ₹{entry_price} ({category})"
-                            threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
-                        except Exception as e:
-                            logger.exception(f"Failed to start push thread")
-                        
-                        # RCA & DESIGN DECISION (2026-07-15):
-                        # - Trigger performance rebuild immediately on a new alert insertion
-                        # - Why: This ensures that when the admin gets the push notification and clicks it,
-                        #   the newly generated trade is already loaded in /data/performance_data.json and
-                        #   shows up on the dashboard "All Trades" table instantly.
-                        try:
-                            from performance_tracker import trigger_performance_rebuild
-                            trigger_performance_rebuild()
-                        except Exception as pe:
-                            logger.error(f"Failed to trigger performance rebuild on new alert: {pe}")
-                            
-                    return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
+                from earnings_calendar import earnings_calendar_service
+                ed_info = earnings_calendar_service.get_earnings_info(symbol)
             except Exception:
-                logger.exception(f"❌ save_alert_if_new failed for {symbol}")
-                return False, "Stale/fallback data or DB constraint", 0.0, 0
-            finally:
-                if not success:
-                    conn.rollback()
+                ed_info = {"earnings_flag": False, "days_to_earnings": 999, "earnings_date": None, "earnings_severity": "NONE", "date_status": "UNKNOWN", "warning_msg": ""}
+
+            # Update alert table with earnings warning and metadata
+            try:
+                cur.execute("""
+                    UPDATE alerts
+                    SET earnings_flag = %s, days_to_earnings = %s, earnings_date = %s,
+                        earnings_severity = %s, date_status = %s, warning_msg = %s
+                    WHERE id = %s
+                """, (ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
+                      ed_info["earnings_severity"], ed_info["date_status"], ed_info["warning_msg"], alert_id))
+            except Exception:
+                pass
+
+            try:
+                cur.execute("""
+                    INSERT INTO alert_outcomes
+                        (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
+                         rs_percentile, sector_name, rr_at_alert, atr_pct_at_alert, entry_price, stop_loss, target_1, target_2, target_3, target_4,
+                         earnings_flag, days_to_earnings, earnings_date, earnings_severity, date_status,
+                         alert_timestamp)
+                    VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (alert_id, leg) DO NOTHING
+                """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
+                      base_score_val, rs_bonus_val, sector_bonus_val, rs_pct_val, sector_name_val,
+                      rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2, target_3, target_4,
+                      ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
+                      ed_info["earnings_severity"], ed_info["date_status"]))
+                commit_cb()
+            except Exception as oe:
+                logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
+
+            msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
+            insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
+
+            # Trigger web push notification
+            try:
+                import push_service
+                title = f"🚨 {symbol} Breakout"
+                body = f"Buy Alert at ₹{entry_price} ({category})"
+                threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
+            except Exception as e:
+                logger.exception(f"Failed to start push thread")
+            
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild on new alert: {pe}")
+                
+        return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
+
+    if conn is None:
+        with _DB_WRITE_LOCK:
+            with get_connection() as local_conn:
+                try:
+                    with local_conn.cursor() as cur:
+                        return _execute(cur, local_conn.commit)
+                except Exception:
+                    logger.exception(f"❌ save_alert_if_new failed for {symbol}")
+                    return False, "Database insertion failed", 0.0, 0
+                finally:
+                    if not success:
+                        local_conn.rollback()
+    else:
+        try:
+            with conn.cursor() as cur:
+                return _execute(cur, lambda: None)
+        except Exception:
+            logger.exception(f"❌ save_alert_if_new failed for {symbol}")
+            return False, "Database insertion failed", 0.0, 0
 
 def save_rejected_alert(
     symbol: str,
