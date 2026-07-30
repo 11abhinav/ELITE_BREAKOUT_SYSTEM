@@ -75,11 +75,12 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
                 return False, "HIGH_LESS_THAN_LOW"
                 
         if "Close" in df.columns and "High" in df.columns and "Low" in df.columns:
-            if (df["Close"] > df["High"] * 1.002).any() or (df["Close"] < df["Low"] * 0.998).any():
+            # Allow 1.5% tolerance for corporate action / dividend / split adjustments from YFinance historical data
+            if (df["Close"] > df["High"] * 1.015).any() or (df["Close"] < df["Low"] * 0.985).any():
                 return False, "CLOSE_OUT_OF_BOUNDS"
                 
         if "Open" in df.columns and "High" in df.columns and "Low" in df.columns:
-            if (df["Open"] > df["High"] * 1.002).any() or (df["Open"] < df["Low"] * 0.998).any():
+            if (df["Open"] > df["High"] * 1.015).any() or (df["Open"] < df["Low"] * 0.985).any():
                 return False, "OPEN_OUT_OF_BOUNDS"
                 
         if "Volume" in df.columns:
