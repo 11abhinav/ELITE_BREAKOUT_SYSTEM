@@ -1034,6 +1034,12 @@ def init_db():
                 except Exception as mig_err:
                     logger.warning(f"[MIGRATION] scanner_health.scheduled_for type migration failed (non-critical): {mig_err}")
 
+                # [STARTUP RESET] Clear old/unexchanged Fyers token on boot to force fresh token generation
+                try:
+                    cur.execute("DELETE FROM system_state WHERE key IN ('fyers_access_token', 'fyers_access_token_date')")
+                except Exception as t_err:
+                    logger.warning(f"[STARTUP] Fyers token reset non-critical failure: {t_err}")
+
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
                     validate_schema(cur)
