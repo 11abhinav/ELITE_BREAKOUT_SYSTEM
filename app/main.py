@@ -1719,8 +1719,16 @@ def start_thread(name, target):
 
 def run_watchdog():
     """Watchdog loop — background daemon thread; Flask owns the main thread."""
-    # Telegram functionality removed as requested
-    pass
+    logger.info("🔐 [BOOT] Initializing Fyers API session on startup...")
+    try:
+        from fyers_auth import get_access_token
+        boot_token = get_access_token()
+        if boot_token:
+            logger.info("✅ [BOOT] Fyers API session authenticated & ready on startup!")
+        else:
+            logger.warning("⚠️ [BOOT] Fyers API auto-login skipped or incomplete on startup.")
+    except Exception as boot_fyers_err:
+        logger.warning(f"⚠️ [BOOT] Fyers API boot initialization warning: {boot_fyers_err}")
 
     for name, target in ALL_THREADS.items():
         start_thread(name, target)
