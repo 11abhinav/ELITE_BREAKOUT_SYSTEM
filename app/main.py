@@ -1721,9 +1721,9 @@ def run_watchdog():
     """Watchdog loop — background daemon thread; Flask owns the main thread."""
     logger.info("🔐 [BOOT] Initializing Fyers API session on startup...")
     try:
-        from fyers_auth import get_access_token
-        boot_token = get_access_token()
-        if boot_token:
+        from data_provider import get_fetcher
+        fetcher = get_fetcher()
+        if getattr(fetcher, "_should_use_fyers", lambda: False)():
             logger.info("✅ [BOOT] Fyers API session authenticated & ready on startup!")
         else:
             logger.warning("⚠️ [BOOT] Fyers API auto-login skipped or incomplete on startup.")
