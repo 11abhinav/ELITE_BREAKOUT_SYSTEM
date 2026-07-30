@@ -32,18 +32,12 @@ def get_login_url() -> str:
         logger.exception(f"Error generating Fyers login URL")
         raise
 
-def save_access_token(auth_code: str) -> str:
-    """Exchanges auth_code for access_token, saves to Postgres DB and locally."""
+def save_access_token_direct(access_token: str) -> str:
+    """Saves access_token to Postgres DB and locally without exchanging."""
     try:
-        session = get_session_model()
-        session.set_token(auth_code)
-        response = session.generate_token()
-        
-        if not response or "access_token" not in response:
-            raise ValueError(f"Failed to generate access token from response: {response}")
+        if not access_token:
+            return None
             
-        access_token = response["access_token"]
-        
         # Save token to database to persist across container redeployments
         try:
             from database import save_system_state
@@ -59,8 +53,32 @@ def save_access_token(auth_code: str) -> str:
         with open(token_path, "w") as f:
             f.write(access_token)
             
-        logger.info(f"Fyers access token updated and saved to DB and {token_path}")
+        logger.info(f"✅ Fyers access token updated and saved to DB and {token_path}")
         return access_token
+    except Exception as e:
+        logger.warning(f"Error saving Fyers access token: {e}")
+        return None
+
+def save_access_token(auth_code: str) -> str:
+    """Exchanges auth_code for access_token, saves to Postgres DB and locally."""
+    try:
+        if not auth_code:
+            return None
+            
+        # If the code passed is already an access token JWT (starts with eyJ), save directly
+        if auth_code.startswith("eyJ"):
+            logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
+            return save_access_token_direct(auth_code)
+
+        session = get_session_model()
+        session.set_token(auth_code)
+        response = session.generate_token()
+        
+        if not response or "access_token" not in response:
+            raise ValueError(f"Failed to generate access token from response: {response}")
+            
+        access_token = response["access_token"]
+        return save_access_token_direct(access_token)
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
