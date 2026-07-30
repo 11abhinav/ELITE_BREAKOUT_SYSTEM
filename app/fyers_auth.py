@@ -82,6 +82,7 @@ def is_direct_access_token(token_str: str) -> bool:
 
 def save_access_token(auth_code: str) -> str:
     """Exchanges auth_code for access_token via SessionModel.generate_token(), saves to Postgres DB and locally."""
+    import time
     try:
         if not auth_code:
             logger.error("❌ save_access_token called with empty auth_code.")
@@ -252,7 +253,11 @@ def auto_login() -> Optional[str]:
                 return None
             
             logger.info("Fyers login Step 5: Generating access token...")
-            return save_access_token(auth_code)
+            token = save_access_token(auth_code)
+            if not token and auth_token:
+                logger.warning("Fyers Step 5 token exchange failed. Falling back to direct vagator auth_token from Step 3...")
+                token = save_access_token_direct(auth_token)
+            return token
             
         except Exception as e:
             import traceback
