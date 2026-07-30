@@ -17,12 +17,8 @@ def get_session_model() -> fyersModel.SessionModel:
     if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
         raise ValueError("FYERS_CLIENT_ID or FYERS_SECRET_KEY is not configured in environment/config.")
     
-    cid = config.FYERS_CLIENT_ID.strip()
-    if not cid.endswith("-100"):
-        cid = f"{cid}-100"
-
     return fyersModel.SessionModel(
-        client_id=cid,
+        client_id=config.FYERS_CLIENT_ID,
         secret_key=config.FYERS_SECRET_KEY,
         redirect_uri=config.FYERS_REDIRECT_URL,
         response_type="code",
@@ -85,42 +81,31 @@ def is_direct_access_token(token_str: str) -> bool:
     return False
 
 def save_access_token(auth_code: str) -> str:
-    """Exchanges auth_code for access_token via SessionModel.generate_token(), saves to Postgres DB and locally."""
-    import time
+    """Exchanges auth_code for access_token, saves to Postgres DB and locally."""
     try:
         if not auth_code:
-            logger.error("❌ save_access_token called with empty auth_code.")
             return None
+            
+        # 1. Fast Path: If auth_code is ALREADY a direct access token JWT (sub == 'access_token'), save directly
+        if is_direct_access_token(auth_code):
+            logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
+            return save_access_token_direct(auth_code)
 
-        auth_code_preview = f"{auth_code[:10]}...{auth_code[-6:]}" if len(auth_code) > 16 else auth_code
-        logger.info(f"Fyers login Step 5: Exchanging authorization code ({auth_code_preview}) via SessionModel.generate_token()...")
+        # 2. Exchange auth_code with Fyers SessionModel to obtain real access_token
+        logger.info("Fyers login Step 5: Exchanging authorization code for access token via SessionModel...")
         session = get_session_model()
         session.set_token(auth_code)
-        
-        response = None
-        for exchange_attempt in range(3):
-            try:
-                response = session.generate_token()
-                s_val = response.get("s") if isinstance(response, dict) else "N/A"
-                c_val = response.get("code") if isinstance(response, dict) else "N/A"
-                m_val = response.get("message") if isinstance(response, dict) else "N/A"
-                logger.info(f"Fyers token exchange attempt {exchange_attempt + 1} response: s='{s_val}', code='{c_val}', msg='{m_val}'")
-                if response and isinstance(response, dict) and "access_token" in response:
-                    break
-            except Exception as ex_err:
-                logger.warning(f"Fyers token exchange attempt {exchange_attempt + 1} exception: {ex_err}")
-            time.sleep(1.0)
+        response = session.generate_token()
         
         if response and isinstance(response, dict) and "access_token" in response:
             access_token = response["access_token"]
-            token_preview = f"{access_token[:10]}...{access_token[-6:]}"
-            logger.info(f"✅ Fyers auth code successfully exchanged for access_token ({token_preview}, len={len(access_token)}).")
+            logger.info("✅ Fyers authorization code successfully exchanged for access token.")
             return save_access_token_direct(access_token)
         else:
-            logger.error(f"❌ Fyers token exchange failed completely. Raw response payload: {response}")
+            logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
             return None
     except Exception as e:
-        logger.warning(f"Error in save_access_token: {e}")
+        logger.warning(f"Error saving Fyers access token: {e}")
         return None
 
 _auto_login_lock = threading.Lock()
@@ -156,58 +141,34 @@ def auto_login() -> Optional[str]:
             
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
-            session.headers.update({
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Origin": "https://mweb.fyers.in",
-                "Referer": "https://mweb.fyers.in/"
-            })
             payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
+            res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
+            try:
+                res = res_obj.json()
+            except ValueError:
+                error_text = res_obj.text
+                if "CF-1" in error_text or "Anomaly Detection" in error_text:
+                    logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
+                else:
+                    logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
+                return None
             
-            res = None
-            for step1_attempt in range(3):
-                res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
-                try:
-                    res = res_obj.json()
-                except ValueError:
-                    error_text = res_obj.text
-                    if "CF-1" in error_text or "Anomaly Detection" in error_text:
-                        logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
-                    else:
-                        logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
-                    return None
-                
-                # Check for Cloudflare Error 1015 (rate limit)
-                if isinstance(res, dict) and (res.get("error_code") == 1015 or res.get("status") == 429 or "rate limit" in str(res.get("title", "")).lower()):
-                    retry_wait = int(res.get("retry_after", 30))
-                    logger.warning(f"⏳ [Cloudflare Error 1015] Fyers Step 1 rate-limited. Waiting {retry_wait}s before retry (attempt {step1_attempt + 1}/3)...")
-                    time.sleep(retry_wait)
-                    continue
-                break
-            
-            if not res or 'request_key' not in res:
+            if 'request_key' not in res:
                 logger.error(f"Fyers Step 1 failed: {res}")
                 return None
             request_key = res["request_key"]
             
             logger.info("Fyers login Step 2: Verifying TOTP...")
-            res2 = None
-            for totp_attempt in range(2):
-                try:
-                    totp = pyotp.TOTP(totp_secret).now()
-                except Exception as e:
-                    logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
-                    return None
-                    
-                payload2 = {"request_key": request_key, "otp": totp}
-                res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
-                if isinstance(res2, dict) and 'request_key' in res2:
-                    break
-                logger.warning(f"Fyers Step 2 TOTP attempt {totp_attempt + 1} failed: {res2}. Retrying in 2.5s...")
-                time.sleep(2.5)
+            try:
+                totp = pyotp.TOTP(totp_secret).now()
+            except Exception as e:
+                logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
+                return None
+                
+            payload2 = {"request_key": request_key, "otp": totp}
+            res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
             
-            if not res2 or 'request_key' not in res2:
+            if 'request_key' not in res2:
                 logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
                 return None
             request_key = res2["request_key"]
@@ -257,11 +218,7 @@ def auto_login() -> Optional[str]:
                 return None
             
             logger.info("Fyers login Step 5: Generating access token...")
-            token = save_access_token(auth_code)
-            if not token and auth_token:
-                logger.warning("Fyers Step 5 token exchange failed. Falling back to direct vagator auth_token from Step 3...")
-                token = save_access_token_direct(auth_token)
-            return token
+            return save_access_token(auth_code)
             
         except Exception as e:
             import traceback
