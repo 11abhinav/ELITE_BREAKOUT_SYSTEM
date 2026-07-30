@@ -149,18 +149,29 @@ def auto_login() -> Optional[str]:
                 "Referer": "https://mweb.fyers.in/"
             })
             payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
-            res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
-            try:
-                res = res_obj.json()
-            except ValueError:
-                error_text = res_obj.text
-                if "CF-1" in error_text or "Anomaly Detection" in error_text:
-                    logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
-                else:
-                    logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
-                return None
             
-            if 'request_key' not in res:
+            res = None
+            for step1_attempt in range(3):
+                res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
+                try:
+                    res = res_obj.json()
+                except ValueError:
+                    error_text = res_obj.text
+                    if "CF-1" in error_text or "Anomaly Detection" in error_text:
+                        logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
+                    else:
+                        logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
+                    return None
+                
+                # Check for Cloudflare Error 1015 (rate limit)
+                if isinstance(res, dict) and (res.get("error_code") == 1015 or res.get("status") == 429 or "rate limit" in str(res.get("title", "")).lower()):
+                    retry_wait = int(res.get("retry_after", 30))
+                    logger.warning(f"⏳ [Cloudflare Error 1015] Fyers Step 1 rate-limited. Waiting {retry_wait}s before retry (attempt {step1_attempt + 1}/3)...")
+                    time.sleep(retry_wait)
+                    continue
+                break
+            
+            if not res or 'request_key' not in res:
                 logger.error(f"Fyers Step 1 failed: {res}")
                 return None
             request_key = res["request_key"]
