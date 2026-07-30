@@ -60,13 +60,33 @@ def save_access_token_direct(access_token: str) -> str:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
 
+def is_direct_access_token(token_str: str) -> bool:
+    """Inspects unverified JWT payload to check if sub == 'access_token'."""
+    if not token_str or not token_str.startswith("eyJ"):
+        return False
+    try:
+        import base64, json
+        parts = token_str.split(".")
+        if len(parts) == 3:
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+            return payload.get("sub") == "access_token"
+    except Exception:
+        pass
+    return False
+
 def save_access_token(auth_code: str) -> str:
     """Exchanges auth_code for access_token, saves to Postgres DB and locally."""
     try:
         if not auth_code:
             return None
             
-        # Try exchanging auth_code with Fyers SessionModel first
+        # 1. Fast Path: If auth_code is ALREADY a direct access token JWT (sub == 'access_token'), save directly
+        if is_direct_access_token(auth_code):
+            logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
+            return save_access_token_direct(auth_code)
+
+        # 2. Otherwise, exchange auth_code with Fyers SessionModel
         try:
             session = get_session_model()
             session.set_token(auth_code)
@@ -79,9 +99,9 @@ def save_access_token(auth_code: str) -> str:
             else:
                 logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
         except Exception as exchange_err:
-            logger.info(f"Fyers auth code exchange attempt skipped ({exchange_err}). Checking if code is direct JWT...")
+            logger.info(f"Fyers auth code exchange attempt skipped ({exchange_err}). Checking fallback...")
 
-        # Fallback: if auth_code itself is already a direct access token JWT
+        # 3. Fallback: if auth_code starts with eyJ (even if sub check failed)
         if auth_code.startswith("eyJ"):
             logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
             return save_access_token_direct(auth_code)
