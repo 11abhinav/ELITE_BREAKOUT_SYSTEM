@@ -463,7 +463,7 @@ def compute_nifty_rs_rating_with_hysteresis(symbols: list = None) -> dict:
 
 SECTOR_MAP = {
     "^CNXAUTO": "NIFTY AUTO",
-    "^CNXBANK": "NIFTY BANK",
+    "^NSEBANK": "NIFTY BANK",
     "^CNXIT": "NIFTY IT",
     "^CNXREALTY": "NIFTY REALTY",
     "^CNXPHARMA": "NIFTY PHARMA",
@@ -473,8 +473,8 @@ SECTOR_MAP = {
     "^CNXINFRA": "NIFTY INFRA",
     "^CNXFIN": "NIFTY FINANCIAL SERVICES",
     "^CNXMEDIA": "NIFTY MEDIA",
-    "^CNXPSU": "NIFTY PSU BANK",
-    "^CNXCOMM": "NIFTY COMMODITIES"
+    "^CNXPSUBANK": "NIFTY PSU BANK",
+    "^CNXCMDT": "NIFTY COMMODITIES"
 }
 
 def compute_sector_regime_rankings() -> dict:

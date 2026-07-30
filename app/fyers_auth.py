@@ -141,6 +141,13 @@ def auto_login() -> Optional[str]:
             
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://mweb.fyers.in",
+                "Referer": "https://mweb.fyers.in/"
+            })
             payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
             res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
             try:
