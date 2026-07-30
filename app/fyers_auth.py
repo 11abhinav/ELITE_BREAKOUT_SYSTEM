@@ -2,6 +2,7 @@ import os
 import threading
 import logging
 from datetime import datetime
+from typing import Optional
 from fyers_apiv3 import fyersModel
 import config
 
