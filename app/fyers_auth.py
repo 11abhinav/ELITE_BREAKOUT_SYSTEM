@@ -143,17 +143,22 @@ def auto_login() -> str:
         }
         res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
         
-        if 'Url' not in res4:
+        url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
+        auth_code = None
+        if url:
+            parsed = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if 'auth_code' in qs:
+                auth_code = qs['auth_code'][0]
+            elif 'auth' in qs:
+                auth_code = qs['auth'][0]
+
+        if not auth_code and isinstance(res4.get('data'), dict):
+            auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
+
+        if not auth_code:
             logger.error(f"Fyers Step 4 auth code failed: {res4}")
             return None
-            
-        parsed = urllib.parse.urlparse(res4['Url'])
-        qs = urllib.parse.parse_qs(parsed.query)
-        if 'auth_code' not in qs:
-            logger.error(f"Fyers Step 4 failed: No auth_code in redirect URL. URL was: {res4['Url']}")
-            return None
-            
-        auth_code = qs['auth_code'][0]
         
         logger.info("Fyers login Step 5: Generating access token...")
         return save_access_token(auth_code)
