@@ -2818,10 +2818,11 @@ def api_concall_ai(symbol):
 @login_required
 def get_multibagger_watchlist():
     """Returns all watchlist entries for the Multibagger Watchlist tab."""
-    from database import get_connection
+    from database import get_connection, init_db
     from psycopg2.extras import RealDictCursor
-    try:
-        status_filter = request.args.get("status")
+    status_filter = request.args.get("status")
+    
+    def _fetch_rows():
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if status_filter:
@@ -2829,7 +2830,6 @@ def get_multibagger_watchlist():
                         SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
                                growth_score, value_score, trend_score, total_score,
                                bucket, status, notes, last_alert_price, last_alert_at, last_updated
-
                         FROM watchlist
                         WHERE status = %s
                         ORDER BY total_score DESC NULLS LAST
@@ -2842,21 +2842,36 @@ def get_multibagger_watchlist():
                         FROM watchlist
                         ORDER BY total_score DESC NULLS LAST
                     """)
-                rows = cur.fetchall()
-        # Convert Decimal/datetime to JSON-safe types
-        import decimal, datetime as _dt
-        def safe(row):
-            d = dict(row)
-            for k, v in d.items():
-                if isinstance(v, decimal.Decimal):
-                    d[k] = float(v)
-                elif isinstance(v, (_dt.datetime, _dt.date)):
-                    d[k] = v.isoformat()
-            return d
-        return jsonify([safe(r) for r in rows])
+                return cur.fetchall()
+
+    try:
+        rows = _fetch_rows()
     except Exception as e:
-        logger.exception(f"Failed to fetch multibagger watchlist")
-        return jsonify([])
+        msg = str(e).lower()
+        if "watchlist" in msg or "undefinedtable" in msg or "does not exist" in msg:
+            logger.warning("⚠️ Table 'watchlist' missing when fetching multibagger watchlist. Executing auto-healing table creation...")
+            try:
+                import database
+                database._DB_INITIALIZED = False
+                init_db()
+                rows = _fetch_rows()
+            except Exception as init_err:
+                logger.error(f"❌ Auto-healing watchlist table failed: {init_err}")
+                return jsonify([])
+        else:
+            logger.exception("Failed to fetch multibagger watchlist")
+            return jsonify([])
+
+    import decimal, datetime as _dt
+    def safe(row):
+        d = dict(row)
+        for k, v in d.items():
+            if isinstance(v, decimal.Decimal):
+                d[k] = float(v)
+            elif isinstance(v, (_dt.datetime, _dt.date)):
+                d[k] = v.isoformat()
+        return d
+    return jsonify([safe(r) for r in rows])
 
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
 
