@@ -1458,18 +1458,24 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
+_global_lock = ProcessLock("global_scanner_lock")
 
 def start(debug_limit: int = None, is_test_mode: bool = False):
     from database import is_scanner_stopped
     if is_scanner_stopped("MULTIBAGGER"):
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
+    if not _global_lock.acquire(blocking=False):
+        logger.warning("🛑 Multibagger Scanner skipped: Another scanner is currently running!")
+        return {}
     if not _scan_lock.acquire(blocking=False):
-        raise RuntimeError("Scanner is already actively running!")
+        _global_lock.release()
+        raise RuntimeError("Multibagger Scanner is already actively running!")
     try:
         return run_scanner(debug_limit, is_test_mode)
     finally:
         _scan_lock.release()
+        _global_lock.release()
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     """Main scanning wrapper."""
