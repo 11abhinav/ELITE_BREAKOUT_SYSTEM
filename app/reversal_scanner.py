@@ -1843,6 +1843,7 @@ except ValueError as e:
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("reversal_scanner")
+_global_lock = ProcessLock("global_scanner_lock")
 
 def start(force: bool = False) -> int:
     from database import is_scanner_stopped
@@ -1850,12 +1851,17 @@ def start(force: bool = False) -> int:
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
+    logger.info("⏳ [REVERSAL] Waiting for global scanner lock...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
     if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
         raise RuntimeError("Scanner is already actively running!")
     try:
         return _start_wrapper(force)
     finally:
         _scan_lock.release()
+        _global_lock.release()
 
 def _start_wrapper(force: bool = False) -> int:
     """

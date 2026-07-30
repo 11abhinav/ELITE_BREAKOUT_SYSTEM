@@ -23,6 +23,7 @@ from lock_utils import ProcessLock
 logger = logging.getLogger("pullback_scanner")
 IST = ZoneInfo("Asia/Kolkata")
 _scan_lock = ProcessLock("pullback_scanner")
+_global_lock = ProcessLock("global_scanner_lock")
 
 def compute_pullback_score(
     pullback_count_in_trend: int,
@@ -258,12 +259,17 @@ def start(force: bool = False):
     if is_scanner_stopped("PULLBACK"):
         logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
         return 0
+    logger.info("⏳ [PULLBACK] Waiting for global scanner lock...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
     if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
         raise RuntimeError("Pullback Scanner is already actively running!")
     try:
         return run_pullback_pipeline(force=force)
     finally:
         _scan_lock.release()
+        _global_lock.release()
 
 def _determine_dataset_date(sample_data: dict) -> Optional[str]:
     if not sample_data:

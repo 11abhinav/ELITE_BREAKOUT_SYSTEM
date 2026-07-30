@@ -72,6 +72,24 @@ MAX_DISTANCE_FROM_52W_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
+_global_lock = ProcessLock("global_scanner_lock")
+
+def start(force: bool = False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("EOD"):
+        logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
+        return 0
+    logger.info("⏳ [EOD] Waiting for global scanner lock...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
+    if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
+        raise RuntimeError("Scanner is already actively running!")
+    try:
+        return _start_wrapper(force)
+    finally:
+        _scan_lock.release()
+        _global_lock.release()
 
 
 def _safe_float(val, default=0.0):
@@ -400,17 +418,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         "atr_20": atr20
     }
 
-def start(force: bool = False):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("EOD"):
-        logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
-        return 0
-    if not _scan_lock.acquire(blocking=False):
-        raise RuntimeError("Scanner is already actively running!")
-    try:
-        return _start_wrapper(force)
-    finally:
-        _scan_lock.release()
+
 
 def _start_wrapper(force: bool = False):
     from datetime import datetime

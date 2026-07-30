@@ -1273,14 +1273,19 @@ def run_sweeper(is_test_mode=False):
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multi_tf_scanner")
+_global_lock = ProcessLock("global_scanner_lock")
 
 def start(run_once=False, is_test_mode=False):
     from database import is_scanner_stopped
     if is_scanner_stopped("MULTI_TF"):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         return
+    logger.info("⏳ [MULTI_TF] Waiting for global scanner lock...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
     if run_once:
         if not _scan_lock.acquire(blocking=False):
+            _global_lock.release()
             raise RuntimeError("Scanner is already actively running!")
     else:
         while not _scan_lock.acquire(blocking=False):
@@ -1290,6 +1295,7 @@ def start(run_once=False, is_test_mode=False):
         return _start_wrapper(run_once, is_test_mode=is_test_mode)
     finally:
         _scan_lock.release()
+        _global_lock.release()
 
 def _start_wrapper(run_once=False, is_test_mode=False):
     from datetime import time as dt_time

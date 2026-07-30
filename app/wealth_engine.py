@@ -712,6 +712,28 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("wealth_engine")
+_global_lock = ProcessLock("global_scanner_lock")
+
+# =====================================================================================
+# MAIN PIPELINE WRAPPERS
+# =====================================================================================
+def run_wealth_scan(is_test_mode=False):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("Wealth Engine"):
+        logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
+        return None
+    logger.info("⏳ [WEALTH ENGINE] Waiting for global scanner lock...")
+    if not _global_lock.acquire(blocking=True):
+        raise RuntimeError("Failed to acquire global scanner lock.")
+    if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
+        logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
+        return None
+    try:
+        return _run_wealth_scan_wrapper(is_test_mode)
+    finally:
+        _scan_lock.release()
+        _global_lock.release()
 
 import pandas as pd
 from datetime import datetime
@@ -1050,21 +1072,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # =====================================================================================
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
-def run_wealth_scan(is_test_mode=False):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("Wealth Engine"):
-        logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
-        return None
-    # [VERSION: SYMBOL_FIX_v1.0] Graceful skip instead of RuntimeError when prior scan
-    # is still running. The 5-min scheduler can overlap if a scan takes >5 min;
-    # crashing pollutes the error log unnecessarily.
-    if not _scan_lock.acquire(blocking=False):
-        logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
-        return None
-    try:
-        return _run_wealth_scan_wrapper(is_test_mode)
-    finally:
-        _scan_lock.release()
+
 
 def _run_wealth_scan_wrapper(is_test_mode=False):
     import time
