@@ -2451,8 +2451,8 @@
       const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / losers.length) : 0;
       const expectancy = (winRate / 100 * avgWin) + ((1 - winRate / 100) * avgLoss);
 
-      const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100);
-      const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) <min ? (t.pnl_pct || 0) : min, 100);
+      const bestTrade = filteredTrades.length > 0 ? filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100) : 0;
+      const worstTrade = filteredTrades.length > 0 ? filteredTrades.reduce((min, t) => (t.pnl_pct || 0) < min ? (t.pnl_pct || 0) : min, 100) : 0;
       const openPositions = filteredTrades.filter(t => t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))).length;
 
       const defs = [
