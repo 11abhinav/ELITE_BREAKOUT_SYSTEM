@@ -84,9 +84,11 @@ def save_access_token(auth_code: str) -> str:
     """Exchanges auth_code for access_token via SessionModel.generate_token(), saves to Postgres DB and locally."""
     try:
         if not auth_code:
+            logger.error("❌ save_access_token called with empty auth_code.")
             return None
 
-        logger.info("Fyers login Step 5: Exchanging authorization code for access token via SessionModel...")
+        auth_code_preview = f"{auth_code[:10]}...{auth_code[-6:]}" if len(auth_code) > 16 else auth_code
+        logger.info(f"Fyers login Step 5: Exchanging authorization code ({auth_code_preview}) via SessionModel.generate_token()...")
         session = get_session_model()
         session.set_token(auth_code)
         
@@ -94,6 +96,10 @@ def save_access_token(auth_code: str) -> str:
         for exchange_attempt in range(3):
             try:
                 response = session.generate_token()
+                s_val = response.get("s") if isinstance(response, dict) else "N/A"
+                c_val = response.get("code") if isinstance(response, dict) else "N/A"
+                m_val = response.get("message") if isinstance(response, dict) else "N/A"
+                logger.info(f"Fyers token exchange attempt {exchange_attempt + 1} response: s='{s_val}', code='{c_val}', msg='{m_val}'")
                 if response and isinstance(response, dict) and "access_token" in response:
                     break
             except Exception as ex_err:
@@ -102,13 +108,14 @@ def save_access_token(auth_code: str) -> str:
         
         if response and isinstance(response, dict) and "access_token" in response:
             access_token = response["access_token"]
-            logger.info("✅ Fyers authorization code successfully exchanged for access token.")
+            token_preview = f"{access_token[:10]}...{access_token[-6:]}"
+            logger.info(f"✅ Fyers auth code successfully exchanged for access_token ({token_preview}, len={len(access_token)}).")
             return save_access_token_direct(access_token)
         else:
-            logger.error(f"❌ Fyers token exchange failed. Response payload: {response}")
+            logger.error(f"❌ Fyers token exchange failed completely. Raw response payload: {response}")
             return None
     except Exception as e:
-        logger.warning(f"Error saving Fyers access token: {e}")
+        logger.warning(f"Error in save_access_token: {e}")
         return None
 
 _auto_login_lock = threading.Lock()
