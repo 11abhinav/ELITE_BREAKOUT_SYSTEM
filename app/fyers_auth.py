@@ -17,8 +17,12 @@ def get_session_model() -> fyersModel.SessionModel:
     if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
         raise ValueError("FYERS_CLIENT_ID or FYERS_SECRET_KEY is not configured in environment/config.")
     
+    cid = config.FYERS_CLIENT_ID.strip()
+    if not cid.endswith("-100"):
+        cid = f"{cid}-100"
+
     return fyersModel.SessionModel(
-        client_id=config.FYERS_CLIENT_ID,
+        client_id=cid,
         secret_key=config.FYERS_SECRET_KEY,
         redirect_uri=config.FYERS_REDIRECT_URL,
         response_type="code",
