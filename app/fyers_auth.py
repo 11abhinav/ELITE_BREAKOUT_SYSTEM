@@ -107,108 +107,122 @@ def save_access_token(auth_code: str) -> str:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
 
-def auto_login() -> str:
-    """Attempts headless login using TOTP and PIN."""
-    try:
-        client_id = config.FYERS_CLIENT_ID
-        secret_key = config.FYERS_SECRET_KEY
-        totp_secret = os.environ.get("FYERS_TOTP_SECRET")
-        pin = os.environ.get("FYERS_PIN")
-        user_id = os.environ.get("FYERS_USER_ID")
-        redirect_uri = config.FYERS_REDIRECT_URL
-        
-        if not all([client_id, secret_key, totp_secret, pin, user_id]):
-            logger.error(f"Skipping headless Fyers login due to missing credentials. Check env vars: CLIENT_ID={bool(client_id)}, SECRET={bool(secret_key)}, TOTP={bool(totp_secret)}, PIN={bool(pin)}, USER_ID={bool(user_id)}")
-            return None
+_auto_login_lock = threading.Lock()
+_last_auto_login_time = 0.0
+
+def auto_login() -> Optional[str]:
+    """Automates headless login to Fyers using stored credentials."""
+    global _last_auto_login_time, _cached_token
+    import time
+    with _auto_login_lock:
+        now_ts = time.time()
+        if now_ts - _last_auto_login_time < 60.0 and _cached_token:
+            logger.info("⏳ Skipping duplicate Fyers auto-login (ran within 60s cooldown). Returning active cached token.")
+            return _cached_token
+
+        _last_auto_login_time = now_ts
+        try:
+            client_id = config.FYERS_CLIENT_ID
+            secret_key = config.FYERS_SECRET_KEY
+            totp_secret = os.environ.get("FYERS_TOTP_SECRET")
+            pin = os.environ.get("FYERS_PIN")
+            user_id = os.environ.get("FYERS_USER_ID")
+            redirect_uri = config.FYERS_REDIRECT_URL
             
-        import pyotp
-        import base64
-        import requests
-        import urllib.parse
-        
-        logger.info("Fyers login Step 1: Sending login OTP request...")
-        session = requests.Session()
-        payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
-        res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
-        try:
-            res = res_obj.json()
-        except ValueError:
-            error_text = res_obj.text
-            if "CF-1" in error_text or "Anomaly Detection" in error_text:
-                logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
-            else:
-                logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
-            return None
-        
-        if 'request_key' not in res:
-            logger.error(f"Fyers Step 1 failed: {res}")
-            return None
-        request_key = res["request_key"]
-        
-        logger.info("Fyers login Step 2: Verifying TOTP...")
-        try:
-            totp = pyotp.TOTP(totp_secret).now()
+            if not all([client_id, secret_key, totp_secret, pin, user_id]):
+                logger.error(f"Skipping headless Fyers login due to missing credentials. Check env vars: CLIENT_ID={bool(client_id)}, SECRET={bool(secret_key)}, TOTP={bool(totp_secret)}, PIN={bool(pin)}, USER_ID={bool(user_id)}")
+                return None
+                
+            import pyotp
+            import base64
+            import requests
+            import urllib.parse
+            
+            logger.info("Fyers login Step 1: Sending login OTP request...")
+            session = requests.Session()
+            payload = {"fy_id": base64.b64encode(f"{user_id}".encode()).decode(), "app_id": "2"}
+            res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
+            try:
+                res = res_obj.json()
+            except ValueError:
+                error_text = res_obj.text
+                if "CF-1" in error_text or "Anomaly Detection" in error_text:
+                    logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
+                else:
+                    logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
+                return None
+            
+            if 'request_key' not in res:
+                logger.error(f"Fyers Step 1 failed: {res}")
+                return None
+            request_key = res["request_key"]
+            
+            logger.info("Fyers login Step 2: Verifying TOTP...")
+            try:
+                totp = pyotp.TOTP(totp_secret).now()
+            except Exception as e:
+                logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
+                return None
+                
+            payload2 = {"request_key": request_key, "otp": totp}
+            res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
+            
+            if 'request_key' not in res2:
+                logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
+                return None
+            request_key = res2["request_key"]
+            
+            logger.info("Fyers login Step 3: Verifying PIN...")
+            payload3 = {"request_key": request_key, "identity_type": "pin", "identifier": base64.b64encode(f"{pin}".encode()).decode()}
+            res3 = session.post("https://api-t2.fyers.in/vagator/v2/verify_pin_v2", json=payload3).json()
+            
+            if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
+                logger.error(f"Fyers Step 3 PIN verification failed: {res3}")
+                return None
+            auth_token = res3["data"]["access_token"]
+            
+            app_id_clean = client_id.split("-")[0] if "-" in client_id else client_id
+            logger.info(f"Fyers login Step 4: Requesting auth code for App ID '{app_id_clean}' (original: '{client_id}')...")
+            headers = {"Authorization": f"Bearer {auth_token}"}
+            payload4 = {
+                "fyers_id": user_id,
+                "app_id": app_id_clean,
+                "redirect_uri": redirect_uri,
+                "appType": "100",
+                "code_challenge": "",
+                "state": "abcdefg",
+                "scope": "",
+                "nonce": "",
+                "response_type": "code",
+                "create_cookie": True
+            }
+            res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
+            logger.info(f"Fyers Step 4 raw response status: {res4.get('s')}, code: {res4.get('code')}")
+            
+            url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
+            auth_code = None
+            if url:
+                parsed = urllib.parse.urlparse(url)
+                qs = urllib.parse.parse_qs(parsed.query)
+                if 'auth_code' in qs:
+                    auth_code = qs['auth_code'][0]
+                elif 'auth' in qs:
+                    auth_code = qs['auth'][0]
+
+            if not auth_code and isinstance(res4.get('data'), dict):
+                auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
+
+            if not auth_code:
+                logger.error(f"Fyers Step 4 auth code failed. Payload response: {res4}")
+                return None
+            
+            logger.info("Fyers login Step 5: Generating access token...")
+            return save_access_token(auth_code)
+            
         except Exception as e:
-            logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
+            import traceback
+            logger.error(f"Fyers headless login failed with exception: {e}\n{traceback.format_exc()}")
             return None
-            
-        payload2 = {"request_key": request_key, "otp": totp}
-        res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
-        
-        if 'request_key' not in res2:
-            logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
-            return None
-        request_key = res2["request_key"]
-        
-        logger.info("Fyers login Step 3: Verifying PIN...")
-        payload3 = {"request_key": request_key, "identity_type": "pin", "identifier": base64.b64encode(f"{pin}".encode()).decode()}
-        res3 = session.post("https://api-t2.fyers.in/vagator/v2/verify_pin_v2", json=payload3).json()
-        
-        if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
-            logger.error(f"Fyers Step 3 PIN verification failed: {res3}")
-            return None
-        auth_token = res3["data"]["access_token"]
-        
-        logger.info("Fyers login Step 4: Getting auth code...")
-        headers = {"Authorization": f"Bearer {auth_token}"}
-        payload4 = {
-            "fyers_id": user_id,
-            "app_id": client_id[:-4],
-            "redirect_uri": redirect_uri,
-            "appType": "100",
-            "code_challenge": "",
-            "state": "abcdefg",
-            "scope": "",
-            "nonce": "",
-            "response_type": "code",
-            "create_cookie": True
-        }
-        res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
-        
-        url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
-        auth_code = None
-        if url:
-            parsed = urllib.parse.urlparse(url)
-            qs = urllib.parse.parse_qs(parsed.query)
-            if 'auth_code' in qs:
-                auth_code = qs['auth_code'][0]
-            elif 'auth' in qs:
-                auth_code = qs['auth'][0]
-
-        if not auth_code and isinstance(res4.get('data'), dict):
-            auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
-
-        if not auth_code:
-            logger.error(f"Fyers Step 4 auth code failed: {res4}")
-            return None
-        
-        logger.info("Fyers login Step 5: Generating access token...")
-        return save_access_token(auth_code)
-        
-    except Exception as e:
-        import traceback
-        logger.error(f"Fyers headless login failed with exception: {e}\n{traceback.format_exc()}")
-        return None
 
 
 _token_lock = threading.Lock()
