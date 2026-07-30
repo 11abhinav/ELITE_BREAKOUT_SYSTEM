@@ -3827,9 +3827,13 @@
         if (va == null) return 1; if (vb == null) return -1;
         return sortDir * (va > vb ? 1 : va <vb ? -1 : 0);
       });
+      
+      renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
+      renderCategoryStats();
       const maxAbs = Math.max(...ALL_TRADES.map(t => Math.abs(t.pnl_pct || 0)), 1);
       const tc = document.getElementById('tradeCount');
       if (tc) tc.textContent = `${filtered.length} trade${filtered.length !== 1 ? 's' : ''}`;
+      
       const body = document.getElementById('tradeBody');
       if (!filtered.length) {
         body.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
