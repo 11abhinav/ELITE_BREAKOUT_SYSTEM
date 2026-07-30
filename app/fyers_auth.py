@@ -66,20 +66,27 @@ def save_access_token(auth_code: str) -> str:
         if not auth_code:
             return None
             
-        # If the code passed is already an access token JWT (starts with eyJ), save directly
+        # Try exchanging auth_code with Fyers SessionModel first
+        try:
+            session = get_session_model()
+            session.set_token(auth_code)
+            response = session.generate_token()
+            
+            if response and isinstance(response, dict) and "access_token" in response:
+                access_token = response["access_token"]
+                logger.info("✅ Fyers authorization code successfully exchanged for access token.")
+                return save_access_token_direct(access_token)
+            else:
+                logger.warning(f"Fyers token exchange returned unexpected payload: {response}")
+        except Exception as exchange_err:
+            logger.info(f"Fyers auth code exchange attempt skipped ({exchange_err}). Checking if code is direct JWT...")
+
+        # Fallback: if auth_code itself is already a direct access token JWT
         if auth_code.startswith("eyJ"):
             logger.info("Fyers login Step 5: Direct access token JWT detected, saving directly...")
             return save_access_token_direct(auth_code)
 
-        session = get_session_model()
-        session.set_token(auth_code)
-        response = session.generate_token()
-        
-        if not response or "access_token" not in response:
-            raise ValueError(f"Failed to generate access token from response: {response}")
-            
-        access_token = response["access_token"]
-        return save_access_token_direct(access_token)
+        return None
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
