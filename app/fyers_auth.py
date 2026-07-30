@@ -187,6 +187,8 @@ def auto_login() -> str:
         return None
 
 
+_token_lock = threading.Lock()
+
 def get_access_token() -> str:
     """Retrieves the access token prioritizing DB, then local file, then auto-login."""
     from zoneinfo import ZoneInfo
@@ -197,47 +199,51 @@ def get_access_token() -> str:
     if _cached_token and _token_date == now_date:
         return _cached_token
 
-    token = None
-    token_path = config.FYERS_TOKEN_PATH
-    
-    # 1. Try reading from the database first (survives restarts)
-    try:
-        from database import get_system_state
-        db_token = get_system_state("fyers_access_token")
-        db_token_date = get_system_state("fyers_access_token_date")
+    with _token_lock:
+        if _cached_token and _token_date == now_date:
+            return _cached_token
+
+        token = None
+        token_path = config.FYERS_TOKEN_PATH
         
-        # If we have a token and its date is today's date
-        if db_token and db_token_date == now_str:
-            # Sync to local file cache if missing or empty
-            if not os.path.exists(token_path) or os.path.getsize(token_path) == 0:
-                os.makedirs(os.path.dirname(token_path), exist_ok=True)
-                with open(token_path, "w") as f:
-                    f.write(db_token)
+        # 1. Try reading from the database first (survives restarts)
+        try:
+            from database import get_system_state
+            db_token = get_system_state("fyers_access_token")
+            db_token_date = get_system_state("fyers_access_token_date")
             
-            _cached_token = db_token
-            _token_date = now_date
-            return db_token
-    except Exception as db_err:
-        logger.warning(f"Failed to load Fyers token from database: {db_err}")
+            # If we have a token and its date is today's date
+            if db_token and db_token_date == now_str:
+                # Sync to local file cache if missing or empty
+                if not os.path.exists(token_path) or os.path.getsize(token_path) == 0:
+                    os.makedirs(os.path.dirname(token_path), exist_ok=True)
+                    with open(token_path, "w") as f:
+                        f.write(db_token)
+                
+                _cached_token = db_token
+                _token_date = now_date
+                return db_token
+        except Exception as db_err:
+            logger.warning(f"Failed to load Fyers token from database: {db_err}")
 
-    # 2. Check if local file exists and was modified today (fallback if DB fails)
-    if os.path.exists(token_path) and os.path.getsize(token_path) > 0:
-        mtime = os.path.getmtime(token_path)
-        file_date = datetime.fromtimestamp(mtime).date()
-        if file_date == now_date:
-            try:
-                with open(token_path, "r") as f:
-                    token = f.read().strip()
-                if token:
-                    _cached_token = token
-                    _token_date = now_date
-                    return token
-            except Exception as e:
-                logger.warning(f"Error reading Fyers access token file: {e}")
+        # 2. Check if local file exists and was modified today (fallback if DB fails)
+        if os.path.exists(token_path) and os.path.getsize(token_path) > 0:
+            mtime = os.path.getmtime(token_path)
+            file_date = datetime.fromtimestamp(mtime).date()
+            if file_date == now_date:
+                try:
+                    with open(token_path, "r") as f:
+                        token = f.read().strip()
+                    if token:
+                        _cached_token = token
+                        _token_date = now_date
+                        return token
+                except Exception as e:
+                    logger.warning(f"Error reading Fyers access token file: {e}")
 
-    # 3. Try auto_login if no valid token for today
-    logger.info("No valid Fyers token for today found in DB or locally. Attempting headless auto-login...")
-    token = auto_login()
+        # 3. Try auto_login if no valid token for today
+        logger.info("No valid Fyers token for today found in DB or locally. Attempting headless auto-login...")
+        token = auto_login()
     if token:
         _cached_token = token
         _token_date = now_date
