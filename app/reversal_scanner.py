@@ -1349,7 +1349,8 @@ def _run_scan(force: bool = False):
         and ist_now.date() not in EXCHANGE_HOLIDAYS
         and dtime(9, 15) <= ist_now.time() <= dtime(15, 30)
     )
-    requested_symbols = {_canonical_symbol(s) for s in scan_watchlist["Stock"]}
+    # Calculate market session fraction for intraday proration
+    session_fraction = _session_fraction(ist_now.time())
     
     # Intraday 5m snapshot optimization: only fetch during market hours Mon-Fri (excluding holidays)
     is_market_open = (
