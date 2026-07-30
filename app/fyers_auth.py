@@ -377,11 +377,9 @@ def get_fyers_client() -> fyersModel.FyersModel:
     log_path = os.path.join(config.DATA_DIR, "fyers_logs")
     os.makedirs(log_path, exist_ok=True)
     
-    # Strip -100 suffix for Authorization header parity with Fyers access token app_id claim
-    app_id_clean = config.FYERS_CLIENT_ID.split("-")[0] if "-" in config.FYERS_CLIENT_ID else config.FYERS_CLIENT_ID
-
+    # Use config.FYERS_CLIENT_ID (M0SD1EXNYU-100) required by Fyers API v3 SDK
     client = fyersModel.FyersModel(
-        client_id=app_id_clean,
+        client_id=config.FYERS_CLIENT_ID,
         token=token,
         log_path=log_path,
         is_async=False

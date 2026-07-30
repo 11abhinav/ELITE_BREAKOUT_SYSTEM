@@ -177,17 +177,6 @@ class UnifiedFetcher:
                                 fyers_symbols_str = ",".join(fyers_map.keys())
                                 resp = fyers_client.quotes({"symbols": fyers_symbols_str})
 
-                                # [FYERS PROPAGATION & EXPIRED TOKEN RETRY]
-                                # If token is invalid or expired (code -15, -16, 401), clear token cache & retry
-                                if resp and isinstance(resp, dict) and (resp.get("code") in (-15, -16, 401, -401) or "authenticate" in str(resp.get("message", "")).lower()):
-                                    logger.warning(f"⚠️ [Fyers] Received token error (code {resp.get('code')}: {resp.get('message')}). Clearing token cache & retrying...")
-                                    from fyers_auth import clear_token
-                                    clear_token()
-                                    time.sleep(1.5)
-                                    fyers_client = get_fyers_client()
-                                    if fyers_client:
-                                        resp = fyers_client.quotes({"symbols": fyers_symbols_str})
-
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
                                     success_count = 0
                                     for item in resp.get("d", []):
