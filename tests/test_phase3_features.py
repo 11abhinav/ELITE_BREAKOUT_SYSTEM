@@ -36,7 +36,8 @@ def test_confluence_recalibrated_threshold(mocker, tmp_path):
     watchlist_df.to_parquet(parquet_path)
     
     mocker.patch("confluence_engine.WATCHLIST_PATH", str(parquet_path))
-    mocker.patch("confluence_engine.compute_nifty_rs_rating", return_value={"TCS": 85.0})
+    mocker.patch("macro_utils.compute_nifty_rs_rating_with_hysteresis", return_value={"TCS": 85.0})
+    mocker.patch("macro_utils.compute_nifty_rs_rating", return_value={"TCS": 85.0})
     
     mock_alert = (1, "TCS", "EOD", "Breakout", 3000.0, 2900.0, 3200.0, 3400.0, 85, "BULL")
     mock_cursor = mocker.MagicMock()
