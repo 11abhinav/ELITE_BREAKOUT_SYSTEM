@@ -2499,7 +2499,7 @@ def mark_alert_seen(alert_id: int, role: str = "user") -> bool:
                 return False
 
 
-def save_system_state(key: str, value_str: Any) -> None:
+def save_system_state(key: str, value_str) -> None:
     """Save/update a value (string or dict/JSON payload) for a specific key."""
     init_db()
     try:
