@@ -274,7 +274,22 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"BSE:{base}-B")
             candidates.append(f"BSE:{base}-T")
 
-            # [VERSION: FYERS_NUMERIC_BSE_FIX_v1.0] Strip .BO / BSE: prefixes so mapped scrip codes pass isdigit()
+            # Known BSE scrip code map for stocks with custom Fyers BSE tickers
+            _KNOWN_BSE_SCRIP_CODES = {
+                "POONAWALLA": "524000",
+                "PFC": "532648",
+                "SENORES": "544256",
+                "MRF": "500290",
+                "TORNTPHARM": "500420",
+                "HINDUNILVR": "500696",
+                "HAL": "541154",
+                "AADHARHFC": "544175",
+            }
+            if base in _KNOWN_BSE_SCRIP_CODES:
+                bse_code = _KNOWN_BSE_SCRIP_CODES[base]
+                candidates.append(f"BSE:{bse_code}-EQ")
+                candidates.append(f"BSE:{bse_code}")
+
             try:
                 from bse_mapping_utils import load_bse_mappings
                 bse_map = load_bse_mappings()
