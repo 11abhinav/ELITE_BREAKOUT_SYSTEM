@@ -70,3 +70,10 @@ def test_fyers_permission_error_triggers_token_invalidation():
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
     assert 'permission required' in source and 'save_system_state' in source, "Fyers permission errors MUST invalidate fyers_access_token in DB"
+
+def test_fyers_client_id_always_ends_with_100():
+    # Verify that get_fyers_client enforces -100 suffix for History API compatibility
+    import inspect
+    import fyers_auth
+    source = inspect.getsource(fyers_auth.get_fyers_client)
+    assert 'endswith("-100")' in source, "get_fyers_client MUST enforce -100 suffix for Fyers History API"

@@ -286,7 +286,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v32.0_UNIFIED_FETCHER_YFINANCE_CLEAN_STABLE] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v33.0_CLIENT_ID_100_SUFFIX_ENFORCED_STABLE] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -645,6 +645,10 @@ def get_fyers_client() -> fyersModel.FyersModel:
             target_client_id = config.FYERS_CLIENT_ID
         else:
             target_client_id = token_app
+
+    # CRITICAL FIX: Fyers History API v3 requires client_id to strictly end with '-100' suffix
+    if target_client_id and not target_client_id.endswith("-100"):
+        target_client_id = f"{target_client_id}-100"
 
     client = fyersModel.FyersModel(
         client_id=target_client_id,
