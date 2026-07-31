@@ -12,9 +12,18 @@ logger = logging.getLogger(__name__)
 _cached_token = None
 _token_date = None
 
+def normalize_fyers_app_id(app_id: str) -> str:
+    """Auto-corrects common typos in Fyers App IDs (e.g. letter 'O' -> digit '0' in 'MO...')."""
+    if not app_id:
+        return ""
+    clean = str(app_id).strip()
+    if clean.startswith("MO") and len(clean) >= 4 and clean[2:4].isalpha():
+        clean = "M0" + clean[2:]
+    return clean
+
 def get_session_model(client_id: str = None) -> fyersModel.SessionModel:
     """Helper to initialize SessionModel using client credentials."""
-    cid = (client_id or config.FYERS_CLIENT_ID or "").strip()
+    cid = normalize_fyers_app_id(client_id or config.FYERS_CLIENT_ID or "")
     if not cid or not config.FYERS_SECRET_KEY:
         raise ValueError("FYERS_CLIENT_ID or FYERS_SECRET_KEY is not configured in environment/config.")
     
