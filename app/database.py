@@ -2073,12 +2073,9 @@ def upsert_scanner_health(
 ) -> None:
     """
     Insert or update a scanner's health record in the scanner_health table.
-    
-    Auto-recovery logic:
-    • When status='OK': Auto-clear error fields + set is_acknowledged=TRUE (recovery)
-    • When status='DOWN': Classify error severity + set is_acknowledged=FALSE
-    • When status='DOWN' with IGNORABLE error: Still set DOWN but error_severity=IGNORABLE
+    Canonicalizes scanner names and auto-recovers.
     """
+    scanner_name = normalize_scanner_name(scanner_name)
     init_db()
     now_str = datetime.now(IST).isoformat()
 
@@ -2098,14 +2095,6 @@ def upsert_scanner_health(
         error_severity = classify_error_severity(error_msg)
         is_ack = False  # NEW ERROR: mark unacknowledged
     elif status == 'OK':
-        # AUTO-RECOVERY: Clear errors and mark as acknowledged
-        # NOTE:
-        # error_msg serves two purposes:
-        # 1. Error description when status != OK
-        # 2. Live progress/status text when explicitly supplied by the caller.
-        #
-        # Therefore, do not automatically clear it simply because status == "OK".
-        # Only clear it when the caller did not provide a replacement.
         error_severity = None
         is_ack = True
         if last_success is None:
@@ -2131,13 +2120,11 @@ def upsert_scanner_health(
                     set_clauses.append("error_msg = %s")
                     params.append(error_msg)
                 elif error_msg is None and status == 'OK':
-                    # Explicitly clear error_msg on recovery
                     set_clauses.append("error_msg = NULL")
                 if error_severity is not None:
                     set_clauses.append("error_severity = %s")
                     params.append(error_severity)
                 elif status == 'OK':
-                    # Clear error_severity on recovery
                     set_clauses.append("error_severity = NULL")
                 if is_ack is not None:
                     set_clauses.append("is_acknowledged = %s")
@@ -2170,12 +2157,9 @@ def upsert_scanner_health(
                 set_clauses.append("updated_at = %s")
                 params.append(now_str)
                 
-                # We need to construct the INSERT clause dynamically so we can insert new columns on initial row creation
                 insert_cols = ["scanner_name", "status", "updated_at"]
-                
                 if status is None:
                     status = 'IDLE'
-                
                 insert_vals = [scanner_name, status, now_str]
                 
                 if last_success is not None:
@@ -2196,7 +2180,6 @@ def upsert_scanner_health(
                 if scheduled_for is not None:
                     insert_cols.append("scheduled_for")
                     insert_vals.append(scheduled_for)
-                
                 if processed_count is not None:
                     insert_cols.append("processed_count")
                     insert_vals.append(processed_count)
@@ -2220,11 +2203,9 @@ def upsert_scanner_health(
                 
                 insert_placeholders = ", ".join(["%s"] * len(insert_cols))
                 insert_cols_str = ", ".join(insert_cols)
-                
-                # Combine insert_vals and params
                 final_params = insert_vals + params
-                
                 set_sql = ", ".join(set_clauses)
+                
                 cur.execute(f"""
                     INSERT INTO scanner_health
                         ({insert_cols_str})
@@ -2235,7 +2216,6 @@ def upsert_scanner_health(
                 conn.commit()
             except Exception as exc:
                 conn.rollback()
-                # [VERSION: SCANNER_HEALTH_STATUS_PAUSED_FIX_v1.0] Self-healing for constraint violation on status
                 if "chk_scanner_status" in str(exc) or "violates check constraint" in str(exc):
                     try:
                         with conn.cursor() as fix_cur:
@@ -2258,8 +2238,42 @@ def upsert_scanner_health(
 
 
 def get_all_scanner_health() -> list[dict]:
-    """Return all scanner health rows from the scanner_health table."""
+    """Return all scanner health rows, auto-seeding any missing standard scanners so cards never disappear."""
     init_db()
+    schedule_map = {
+        "DAILY_BUILDER": "01:00 AM IST",
+        "EOD": "18:00 IST",
+        "REVERSAL": "18:00 IST",
+        "PULLBACK": "18:00 IST",
+        "MULTIBAGGER": "19:00 IST",
+        "MULTI_TF": "Every 5min (9:15 AM - 2:55 PM)",
+        "Wealth Engine": "Every 15min (9:15 AM - 3:30 PM)",
+        "PERFORMANCE_TRACKER": "Every 5min (9:15 AM - 3:30 PM)",
+        "MULTIBAGGER_EXIT": "Every 15min (9:15 AM - 3:30 PM)",
+        "WEALTH_EXIT": "Every 5min (9:15 AM - 3:30 PM)",
+        "Pledge Worker": "Every 6h",
+        "AI Worker": "Every 1h"
+    }
+
+    # Auto-seed any missing standard scanner records so DB table always has all 12 entries
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT scanner_name FROM scanner_health")
+                existing = {row[0] for row in cur.fetchall()}
+                missing = [s for s in ALL_KNOWN_SCANNERS if s not in existing]
+                if missing:
+                    now_str = datetime.now(IST).isoformat()
+                    for m_sc in missing:
+                        cur.execute("""
+                            INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
+                            VALUES (%s, 'IDLE', %s, %s)
+                            ON CONFLICT (scanner_name) DO NOTHING
+                        """, (m_sc, schedule_map.get(m_sc, "Scheduled"), now_str))
+                    conn.commit()
+    except Exception as seed_err:
+        logger.warning(f"Scanner health auto-seed non-critical warning: {seed_err}")
+
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
@@ -2269,23 +2283,9 @@ def get_all_scanner_health() -> list[dict]:
                     ORDER BY scanner_name
                 """)
                 rows = [dict(row) for row in cur.fetchall()]
-                
-                schedule_map = {
-                    "DAILY_BUILDER": "01:00 AM IST",
-                    "EOD": "18:00 IST",
-                    "REVERSAL": "18:00 IST",
-                    "PULLBACK": "18:00 IST",
-                    "MULTIBAGGER": "19:00 IST",
-                    "MULTI_TF": "Every 5min (9:15 AM - 2:55 PM)",
-                    "Wealth Engine": "Every 15min (9:15 AM - 3:30 PM)",
-                    "PERFORMANCE_TRACKER": "Every 5min (9:15 AM - 3:30 PM)",
-                    "MULTIBAGGER_EXIT": "Every 15min (9:15 AM - 3:30 PM)",
-                    "WEALTH_EXIT": "Every 5min (9:15 AM - 3:30 PM)"
-                }
                 for r in rows:
                     if r.get("scanner_name") in schedule_map:
                         r["scheduled_for"] = schedule_map[r["scanner_name"]]
-                        
                 return rows
             except Exception:
                 logger.exception("❌ get_all_scanner_health failed")
