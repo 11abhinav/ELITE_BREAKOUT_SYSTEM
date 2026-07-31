@@ -272,7 +272,13 @@ def auto_login() -> Optional[str]:
                     step4_jwt = isinstance(res4.get('data'), dict) and res4['data'].get('auth')
                     auth_headers = {"Authorization": f"Bearer {step4_jwt}"} if step4_jwt else headers
                     
-                    authcode_url = f"https://api-t1.fyers.in/api/v3/generate-authcode?client_id={cand_app_id}&redirect_uri={urllib.parse.quote(redirect_uri)}&response_type=code&state=abcdefg"
+                    auth_params = {
+                        "client_id": cand_app_id,
+                        "redirect_uri": redirect_uri,
+                        "response_type": "code",
+                        "state": "abcdefg"
+                    }
+                    authcode_url = f"https://api-t1.fyers.in/api/v3/generate-authcode?{urllib.parse.urlencode(auth_params)}"
                     logger.info(f"Fyers Step 4b: Requesting OAuth authorize redirect via GET {authcode_url}...")
                     
                     res_redirect = session.get(authcode_url, headers=auth_headers, allow_redirects=False)
@@ -286,13 +292,15 @@ def auto_login() -> Optional[str]:
                         qs_loc = urllib.parse.parse_qs(parsed_loc.query)
                         qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
                         
-                        logger.info(f"Fyers Step 4b Location Trace: Host={parsed_loc.netloc} | QueryKeys={list(qs_loc.keys())} | FragKeys={list(qs_frag.keys())}")
+                        logger.info(f"Fyers Step 4b Location breakdown: host={parsed_loc.netloc}, path={parsed_loc.path}, query_keys={list(qs_loc.keys())}, frag_keys={list(qs_frag.keys())}")
                         
                         codes = (qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code') or
                                  qs_frag.get('auth_code') or qs_frag.get('auth') or qs_frag.get('code'))
                         if codes:
                             auth_code = codes[0]
                             logger.info(f"Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | ParamMatched=YES")
+                        else:
+                            logger.error(f"Fyers Step 4b Location missing auth_code. Full query='{parsed_loc.query}', fragment='{parsed_loc.fragment}'")
 
                 if auth_code:
                     successful_app_id = cand_app_id
