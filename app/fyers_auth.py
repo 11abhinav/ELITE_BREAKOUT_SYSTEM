@@ -264,23 +264,37 @@ def auto_login() -> Optional[str]:
                 if url:
                     parsed = urllib.parse.urlparse(url)
                     qs = urllib.parse.parse_qs(parsed.query)
-                    auth_code = qs.get('auth_code', [None])[0] or qs.get('auth', [None])[0]
+                    auth_code = qs.get('auth_code', [None])[0]
 
-                if not auth_code and isinstance(res4.get('data'), dict):
-                    auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
+                # Step 4b: If direct token response did NOT return ?auth_code= in redirectUrl,
+                # follow the standard OAuth 2.0 authorize redirect endpoint to get the real auth_code
+                if not auth_code:
+                    step4_jwt = isinstance(res4.get('data'), dict) and res4['data'].get('auth')
+                    auth_headers = {"Authorization": f"Bearer {step4_jwt}"} if step4_jwt else headers
+                    
+                    authcode_url = f"https://api-t1.fyers.in/api/v3/generate-authcode?client_id={cand_app_id}&redirect_uri={urllib.parse.quote(redirect_uri)}&response_type=code&state=abcdefg"
+                    logger.info(f"Fyers Step 4b: Requesting OAuth authorize redirect via GET {authcode_url}...")
+                    
+                    res_redirect = session.get(authcode_url, headers=auth_headers, allow_redirects=False)
+                    logger.info(f"Fyers Step 4b redirect status: {res_redirect.status_code}, headers: {dict(res_redirect.headers)}")
+                    
+                    redirect_location = res_redirect.headers.get('Location') or res_redirect.headers.get('location')
+                    if redirect_location:
+                        parsed_loc = urllib.parse.urlparse(redirect_location)
+                        qs_loc = urllib.parse.parse_qs(parsed_loc.query)
+                        auth_code = qs_loc.get('auth_code', [None])[0]
 
                 if auth_code:
                     successful_app_id = cand_app_id
-                    logger.info(f"Fyers Step 4 obtained token/code for App ID '{cand_app_id}'. Proceeding to Step 5...")
+                    logger.info(f"✅ Fyers Step 4 successfully obtained real OAuth auth_code for App ID '{cand_app_id}'. Proceeding to Step 5...")
                     break
 
             if not auth_code:
-                logger.error("Fyers Step 4 auth code failed for all App ID variants.")
+                logger.error("❌ Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
-            logger.info(f"Fyers login Step 5: Exchanging Step 4 auth code for real long-lived access token via generate_token() (client_id='{successful_app_id}')...")
+            logger.info(f"Fyers login Step 5: Exchanging Step 4 OAuth auth_code for real long-lived access token via generate_token() (client_id='{successful_app_id}')...")
             try:
-                # Use successful_app_id matching Step 4 to prevent -437 invalid auth code error
                 session_m = get_session_model(client_id=successful_app_id)
                 session_m.set_token(auth_code)
                 response = session_m.generate_token()
