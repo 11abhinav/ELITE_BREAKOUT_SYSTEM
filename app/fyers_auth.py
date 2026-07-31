@@ -57,12 +57,18 @@ def save_access_token_direct(access_token: str) -> str:
         if not access_token:
             return None
             
+        now_date_str = str(datetime.now(ZoneInfo('Asia/Kolkata')).date())
+        token_payload = {
+            "token": access_token,
+            "date": now_date_str,
+            "updated_at": datetime.now(ZoneInfo('Asia/Kolkata')).isoformat()
+        }
+        
         # Save token to database to persist across container redeployments
         try:
             from database import save_system_state
-            from zoneinfo import ZoneInfo
-            save_system_state("fyers_access_token", access_token)
-            save_system_state("fyers_access_token_date", str(datetime.now(ZoneInfo('Asia/Kolkata')).date()))
+            save_system_state("fyers_access_token", token_payload)
+            save_system_state("fyers_access_token_date", now_date_str)
         except Exception as db_err:
             logger.warning(f"Failed to save Fyers token to database: {db_err}")
         
@@ -72,7 +78,7 @@ def save_access_token_direct(access_token: str) -> str:
         with open(token_path, "w") as f:
             f.write(access_token)
             
-        logger.info(f"✅ Fyers access token updated and saved to DB and {token_path}")
+        logger.info(f"✅ Fyers access token updated and saved to DB (date={now_date_str}) and {token_path}")
         return access_token
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")
@@ -271,7 +277,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v10.0_PROJECT_WIDE_DEAD_KEY_REGISTRY] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v12.0_PERSISTENT_DB_TOKEN_RESTORE] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -504,12 +510,20 @@ def get_access_token() -> str:
         # 1. Try fetching from DB
         try:
             from database import get_system_state
-            db_token = get_system_state("fyers_access_token")
+            db_state = get_system_state("fyers_access_token")
             saved_date = get_system_state("fyers_access_token_date")
-            if db_token and saved_date == now_date:
-                _cached_token = db_token
+            token = None
+            if isinstance(db_state, dict):
+                token = db_state.get("token")
+                saved_date = db_state.get("date", saved_date)
+            elif isinstance(db_state, str) and db_state.strip():
+                token = db_state.strip()
+
+            if token and saved_date == now_date:
+                logger.info(f"⚡ [DB CACHE HIT] Loaded active Fyers access token for today ({now_date}) from PostgreSQL!")
+                _cached_token = token
                 _token_date = now_date
-                return db_token
+                return token
         except Exception as e:
             logger.warning(f"Error fetching Fyers token from DB: {e}")
 
