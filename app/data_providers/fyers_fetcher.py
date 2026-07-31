@@ -273,6 +273,8 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"BSE:{base}-EQ")
 
             # Known BSE scrip code map for stocks with custom Fyers BSE tickers
+            # CRITICAL: Always use BSE:CODE-EQ (with -EQ suffix). Bare BSE:CODE
+            # is rejected by Fyers API v3 with code -403.
             _KNOWN_BSE_SCRIP_CODES = {
                 "POONAWALLA": "524000",
                 "PFC": "532648",
@@ -286,7 +288,6 @@ class FyersFetcher(DataFetcher):
             if base in _KNOWN_BSE_SCRIP_CODES:
                 bse_code = _KNOWN_BSE_SCRIP_CODES[base]
                 candidates.append(f"BSE:{bse_code}-EQ")
-                candidates.append(f"BSE:{bse_code}")
 
             try:
                 from bse_mapping_utils import load_bse_mappings
@@ -295,9 +296,16 @@ class FyersFetcher(DataFetcher):
                     clean_code = str(bse_map[base]).upper().replace(".BO", "").replace("BSE:", "").strip()
                     if clean_code.isdigit():
                         candidates.append(f"BSE:{clean_code}-EQ")
-                        candidates.append(f"BSE:{clean_code}")
             except Exception:
                 pass
+
+        # ── FORMAT GATE: validate every candidate against Fyers API v3 rules ──────
+        # Strips -BE and bare BSE (auto-fixed) and logs any format violations.
+        try:
+            from symbol_format_validator import sanitize_fyers_candidate_list
+            candidates = sanitize_fyers_candidate_list(candidates)
+        except Exception:
+            pass
 
         # Deduplicate preserving order
         seen = set()

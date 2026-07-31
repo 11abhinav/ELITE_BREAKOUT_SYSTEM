@@ -316,7 +316,15 @@ class PriceProvider:
 
         if base_sym.startswith("^"):
             return base_sym
-        return f"{base_sym}.BO" if is_bse else f"{base_sym}.NS"
+        yf_sym = f"{base_sym}.BO" if is_bse else f"{base_sym}.NS"
+
+        # ── FORMAT GATE: validate Yahoo Finance symbol format before returning ──────────
+        try:
+            from symbol_format_validator import validate_yahoo_symbol
+            yf_sym = validate_yahoo_symbol(yf_sym)
+        except Exception:
+            pass
+        return yf_sym
 
     def fetch_batch(self, tickers: List[str], period: str = "5d", interval: str = "5m", start: str = None, end: str = None) -> Dict[str, object]:
         """Fetch OHLCV data for tickers in batches. Returns ticker->DataFrame mapping.

@@ -58,7 +58,13 @@ class UnifiedFetcher:
             elif provider == "yahoo":
                 try:
                     import yfinance as yf
-                    yf_symbol = symbol + ".NS"
+                    # ── FORMAT GATE: validate Yahoo format before download ──────────────────
+                    try:
+                        from symbol_format_validator import validate_yahoo_symbol
+                        yf_symbol = validate_yahoo_symbol(symbol + ".NS")
+                    except ValueError as fmt_err:
+                        logger.error(f"🚫 [YahooFormat] Skipping fetch_historical — invalid Yahoo symbol: {fmt_err}")
+                        continue
                     logger.info(f"🔄 [Yahoo] Falling back to {yf_symbol}")
                     # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Rate-limited yf.download with strict timeouts & single-threading
                     yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
@@ -216,7 +222,13 @@ class UnifiedFetcher:
                     
                     for i in range(0, len(pending_list), chunk_size):
                         chunk = pending_list[i:i+chunk_size]
-                        yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
+                        # ── FORMAT GATE: ensure every symbol is SYMBOL.NS or ^INDEX for Yahoo ──────────
+                        raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
+                        try:
+                            from symbol_format_validator import sanitize_yahoo_ticker_list
+                            yf_symbols = sanitize_yahoo_ticker_list(raw_yf_symbols)
+                        except Exception:
+                            yf_symbols = raw_yf_symbols
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:
