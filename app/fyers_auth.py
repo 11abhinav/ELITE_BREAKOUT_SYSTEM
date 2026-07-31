@@ -78,6 +78,11 @@ def save_access_token_direct(access_token: str) -> str:
         with open(token_path, "w") as f:
             f.write(access_token)
             
+        global _cached_token, _token_date
+        with _token_lock:
+            _cached_token = access_token
+            _token_date = now_date_str
+
         logger.info(f"✅ Fyers access token updated and saved to DB (date={now_date_str}) and {token_path}")
         return access_token
     except Exception as e:
