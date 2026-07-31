@@ -44,11 +44,11 @@ def test_yfinance_chrome_session_initialization():
     assert provider is not None
 
 def test_fyers_history_payload_cont_flag_is_zero():
-    # Verify that cont_flag in fyers_fetcher is set to '0' for spot equity stock history requests
+    # Verify that cont_flag in fyers_fetcher is restricted to derivatives (-FUT/-OPT)
     import inspect
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
-    assert '"cont_flag": "0"' in source, "Fyers history API cont_flag MUST be '0' for spot equity stocks"
+    assert 'data["cont_flag"] = "0"' in source and '-FUT' in source, "cont_flag MUST be restricted to derivatives to avoid Fyers code -403 permission errors"
 
 def test_database_system_state_dict_serialization():
     # Verify that save_system_state handles dictionary arguments without throwing psycopg2 adapt error
@@ -98,3 +98,10 @@ def test_index_symbol_permission_error_does_not_purge_token():
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
     assert '-INDEX' in source and 'not any' in source, "Fyers index history permission errors MUST NOT purge fyers_access_token in DB"
+
+def test_fyers_cont_flag_omitted_for_equity_spot():
+    # Verify that cont_flag is NOT passed for equity spot history requests
+    import inspect
+    from data_providers.fyers_fetcher import FyersFetcher
+    source = inspect.getsource(FyersFetcher.get_ohlcv)
+    assert '-FUT' in source and '-OPT' in source, "cont_flag MUST be restricted to derivatives to avoid Fyers code -403 permission errors"
