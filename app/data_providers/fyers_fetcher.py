@@ -498,7 +498,7 @@ class FyersFetcher(DataFetcher):
                         logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
                         time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
 
-        logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Marking as permanently invalid.")
+        logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Temporarily caching in 24h negative cache to avoid redundant retries today.")
         try:
             from data_providers.fyers_mapping_utils import mark_fyers_invalid
             mark_fyers_invalid(orig_sym)

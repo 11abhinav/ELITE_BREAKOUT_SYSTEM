@@ -41,9 +41,9 @@ def load_fyers_mappings():
                 rows = cur.fetchall()
                 _fyers_mappings_cache = {row[0]: row[1] for row in rows}
                 
-                # Clean up legacy poisoned invalid entries for 544467 / NSDL
+                # Clean up legacy poisoned invalid entries for valid stocks
                 try:
-                    cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND (original_sym LIKE '%%544467%%' OR original_sym = 'NSDL')")
+                    cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND mapping_state = 'INVALID' AND original_sym IN ('SENORES', 'MRF', 'TORNTPHARM', 'HINDUNILVR', 'HAL', 'AADHARHFC', '544467', 'NSDL')")
                     conn.commit()
                 except Exception:
                     pass
@@ -111,7 +111,7 @@ def mark_fyers_invalid(symbol: str):
         if _fyers_invalid_cache is not None:
             _fyers_invalid_cache.add(symbol)
             
-        logger.warning(f"🚫 Marked Fyers symbol as INVALID (attempt {failures}). Retrying after {days} days: {symbol}")
+        logger.warning(f"🚫 Temporarily caching Fyers symbol as INVALID for 24h (attempt {failures}). Automatic retry on {retry_after[:10]}: {symbol}")
     except Exception as e:
         logger.warning(f"Failed to mark Fyers mapping invalid for {symbol}: {e}")
 
