@@ -112,6 +112,38 @@ class ApplicationContext:
             logger.warning(f"Error during SessionContext destroy: {e}")
         finally:
             self.session_context = None
+
+        # ── MIDNIGHT COMPREHENSIVE MEMORY & CACHE ROTATION (5GB RAM OPTIMIZED) ────
+        try:
+            # 1. Clear PriceProvider in-memory cache
+            from data_provider import _price_provider
+            if hasattr(_price_provider, "cache"):
+                with getattr(_price_provider, "cache_lock", threading.Lock()):
+                    _price_provider.cache.clear()
+                logger.info("🧹 [MIDNIGHT ROTATION] Cleared PriceProvider in-memory cache.")
+        except Exception as e:
+            logger.warning(f"Error clearing PriceProvider cache at midnight: {e}")
+
+        try:
+            # 2. Clear Fyers degradation cache
+            from data_provider import _fyers_degradation_cache
+            _fyers_degradation_cache.clear()
+            logger.info("🧹 [MIDNIGHT ROTATION] Cleared Fyers degradation cache.")
+        except Exception as e:
+            logger.warning(f"Error clearing Fyers degradation cache at midnight: {e}")
+
+        try:
+            # 3. Trigger full garbage collection & native memory arena malloc_trim
+            import gc, ctypes
+            gc.collect()
+            try:
+                ctypes.CDLL('libc.so.6').malloc_trim(0)
+                logger.info("🧹 [MIDNIGHT ROTATION] Reclaimed native memory arena via malloc_trim(0).")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"Error during garbage collection at midnight: {e}")
+
         logger.info(f"🗑️ [SESSION] SessionContext destroyed | instance_id={id(self):#x} (midnight rotation).")
         try:
             self.telemetry.log_session_timeline("SessionContext destroyed (midnight rotation)")

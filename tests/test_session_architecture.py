@@ -85,3 +85,12 @@ def test_cache_policy_validation():
     assert intraday_policy.refresh_policy == RefreshPolicy.EVERY_5_MIN
     assert intraday_policy.expiration_policy == ExpirationPolicy.CONSUMER_DRIVEN
     assert intraday_policy.consumer_count == 0
+
+def test_midnight_session_destroy_clears_price_cache_and_degradation_cache():
+    """Verify ApplicationContext.destroy_session clears PriceProvider cache and Fyers degradation cache."""
+    import inspect
+    from app.application_context import ApplicationContext
+    source = inspect.getsource(ApplicationContext.destroy_session)
+    assert '_price_provider' in source, "destroy_session MUST clear _price_provider in-memory cache"
+    assert '_fyers_degradation_cache' in source, "destroy_session MUST clear _fyers_degradation_cache"
+    assert 'malloc_trim' in source, "destroy_session MUST invoke malloc_trim for native arena reclamation"
