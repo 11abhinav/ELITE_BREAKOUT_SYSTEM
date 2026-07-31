@@ -260,9 +260,6 @@ class FyersFetcher(DataFetcher):
             # Prioritize BSE series for BSE-preference stocks
             candidates.append(f"BSE:{base}-EQ")
             candidates.append(f"BSE:{base}")
-            candidates.append(f"BSE:{base}-A")
-            candidates.append(f"BSE:{base}-B")
-            candidates.append(f"BSE:{base}-T")
             candidates.append(f"NSE:{base}-EQ")
             candidates.append(f"NSE:{base}-BE")
         else:
@@ -270,9 +267,6 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"NSE:{base}-EQ")
             candidates.append(f"BSE:{base}-EQ")
             candidates.append(f"BSE:{base}")
-            candidates.append(f"BSE:{base}-A")
-            candidates.append(f"BSE:{base}-B")
-            candidates.append(f"BSE:{base}-T")
 
             # Known BSE scrip code map for stocks with custom Fyers BSE tickers
             _KNOWN_BSE_SCRIP_CODES = {
