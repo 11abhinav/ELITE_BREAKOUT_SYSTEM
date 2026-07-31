@@ -272,39 +272,44 @@ def auto_login() -> Optional[str]:
                     step4_jwt = isinstance(res4.get('data'), dict) and res4['data'].get('auth')
                     auth_headers = {"Authorization": f"Bearer {step4_jwt}"} if step4_jwt else headers
                     
-                    auth_params = {
-                        "client_id": cand_app_id,
-                        "redirect_uri": redirect_uri,
-                        "response_type": "code",
-                        "state": "abcdefg"
-                    }
-                    authcode_url = f"https://api-t1.fyers.in/api/v3/generate-authcode?{urllib.parse.urlencode(auth_params)}"
-                    logger.info(f"Fyers Step 4b: Requesting OAuth authorize redirect via GET {authcode_url}...")
-                    
-                    res_redirect = session.get(authcode_url, headers=auth_headers, allow_redirects=False)
-                    is_redirect = res_redirect.status_code in (301, 302, 303, 307, 308)
-                    redirect_location = res_redirect.headers.get('Location') or res_redirect.headers.get('location')
-                    
-                    logger.info(f"Fyers Step 4b Trace: Status={res_redirect.status_code} | IsRedirect={is_redirect} | LocationHeader={'YES' if redirect_location else 'NO'}")
-                    
-                    if is_redirect and redirect_location:
-                        parsed_loc = urllib.parse.urlparse(redirect_location)
-                        qs_loc = urllib.parse.parse_qs(parsed_loc.query)
-                        qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
+                    # Try target_app_id (e.g. M0SD1EXNYU-100) first for generate-authcode endpoint
+                    for client_id_for_4b in (target_app_id, cand_app_id):
+                        auth_params = {
+                            "client_id": client_id_for_4b,
+                            "redirect_uri": redirect_uri,
+                            "response_type": "code",
+                            "state": "abcdefg"
+                        }
+                        authcode_url = f"https://api-t1.fyers.in/api/v3/generate-authcode?{urllib.parse.urlencode(auth_params)}"
+                        logger.info(f"Fyers Step 4b: Requesting OAuth authorize redirect via GET (client_id='{client_id_for_4b}')...")
                         
-                        logger.info(f"Fyers Step 4b Location breakdown: host={parsed_loc.netloc}, path={parsed_loc.path}, query_keys={list(qs_loc.keys())}, frag_keys={list(qs_frag.keys())}")
+                        res_redirect = session.get(authcode_url, headers=auth_headers, allow_redirects=False)
+                        is_redirect = res_redirect.status_code in (301, 302, 303, 307, 308)
+                        redirect_location = res_redirect.headers.get('Location') or res_redirect.headers.get('location')
                         
-                        codes = (qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code') or
-                                 qs_frag.get('auth_code') or qs_frag.get('auth') or qs_frag.get('code'))
-                        if codes:
-                            auth_code = codes[0]
-                            logger.info(f"Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | ParamMatched=YES")
-                        else:
-                            logger.error(f"Fyers Step 4b Location missing auth_code. Full query='{parsed_loc.query}', fragment='{parsed_loc.fragment}'")
+                        logger.info(f"Fyers Step 4b Trace ({client_id_for_4b}): Status={res_redirect.status_code} | IsRedirect={is_redirect} | LocationHeader={'YES' if redirect_location else 'NO'}")
+                        
+                        if is_redirect and redirect_location:
+                            parsed_loc = urllib.parse.urlparse(redirect_location)
+                            qs_loc = urllib.parse.parse_qs(parsed_loc.query)
+                            qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
+                            
+                            logger.info(f"Fyers Step 4b Location breakdown ({client_id_for_4b}): host={parsed_loc.netloc}, path={parsed_loc.path}, query_keys={list(qs_loc.keys())}, frag_keys={list(qs_frag.keys())}")
+                            
+                            codes = (qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code') or
+                                     qs_frag.get('auth_code') or qs_frag.get('auth') or qs_frag.get('code'))
+                            if codes:
+                                auth_code = codes[0]
+                                successful_app_id = client_id_for_4b
+                                logger.info(f"✅ Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
+                                break
+                            else:
+                                logger.error(f"Fyers Step 4b Location missing auth_code ({client_id_for_4b}). Full query='{parsed_loc.query}', fragment='{parsed_loc.fragment}'")
 
                 if auth_code:
-                    successful_app_id = cand_app_id
-                    logger.info(f"✅ Fyers Step 4 successfully obtained real OAuth auth_code for App ID '{cand_app_id}'. Proceeding immediately to Step 5 exchange...")
+                    if not successful_app_id:
+                        successful_app_id = cand_app_id
+                    logger.info(f"✅ Fyers Step 4 successfully obtained real OAuth auth_code for App ID '{successful_app_id}'. Proceeding immediately to Step 5 exchange...")
                     break
 
             if not auth_code:
