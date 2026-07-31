@@ -284,10 +284,15 @@ def auto_login() -> Optional[str]:
                     if is_redirect and redirect_location:
                         parsed_loc = urllib.parse.urlparse(redirect_location)
                         qs_loc = urllib.parse.parse_qs(parsed_loc.query)
-                        codes = qs_loc.get('auth_code', [])
+                        qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
+                        
+                        logger.info(f"Fyers Step 4b Location Trace: Host={parsed_loc.netloc} | QueryKeys={list(qs_loc.keys())} | FragKeys={list(qs_frag.keys())}")
+                        
+                        codes = (qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code') or
+                                 qs_frag.get('auth_code') or qs_frag.get('auth') or qs_frag.get('code'))
                         if codes:
                             auth_code = codes[0]
-                            logger.info(f"Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | Host={parsed_loc.netloc}")
+                            logger.info(f"Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | ParamMatched=YES")
 
                 if auth_code:
                     successful_app_id = cand_app_id
