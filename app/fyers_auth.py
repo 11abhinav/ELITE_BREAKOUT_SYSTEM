@@ -125,28 +125,54 @@ def save_access_token(auth_code: str) -> str:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
 
+_dead_scraper_keys = set()
+_active_working_scraper_key = None
+
+def get_valid_scraper_keys():
+    """Returns a list of configured ScraperAPI keys, prioritizing the working key and filtering out dead/exhausted keys."""
+    global _active_working_scraper_key, _dead_scraper_keys
+    scraper_raw = os.environ.get("SCRAPERAPI_KEY", "")
+    if not scraper_raw:
+        return []
+    
+    all_keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
+    valid_keys = [k for k in all_keys if k not in _dead_scraper_keys]
+    
+    if _active_working_scraper_key and _active_working_scraper_key in valid_keys:
+        valid_keys.remove(_active_working_scraper_key)
+        valid_keys.insert(0, _active_working_scraper_key)
+        
+    return valid_keys
+
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
     """Executes a POST request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    global _active_working_scraper_key, _dead_scraper_keys
     import urllib.parse
     headers = headers or {}
 
     # 1. ScraperAPI Proxy Attempt (Primary: Bypasses Cloudflare WAF using residential proxy pool)
-    scraper_raw = os.environ.get("SCRAPERAPI_KEY", "")
-    if scraper_raw:
-        keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
-        for scraper_key in keys:
-            try:
-                # MANDATORY: keep_headers=true is required by ScraperAPI to forward custom Authorization headers
-                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
-                logger.info(f"🌐 Routing POST request via ScraperAPI Proxy (keep_headers=true) to bypass Cloudflare WAF for {target_url}...")
-                res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=30)
-                body_scraper = res_scraper.text.strip()
-                if res_scraper.status_code in (200, 201) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
-                    logger.info(f"✅ ScraperAPI Proxy successfully fetched POST {target_url}!")
-                    return res_scraper
-                logger.warning(f"⚠️ ScraperAPI key attempt returned Status {res_scraper.status_code} / HTML. Response snippet: {body_scraper[:150]}...")
-            except Exception as s_err:
-                logger.warning(f"ScraperAPI proxy key attempt failed: {s_err}")
+    valid_keys = get_valid_scraper_keys()
+    for scraper_key in valid_keys:
+        try:
+            scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
+            logger.info(f"🌐 Routing POST request via ScraperAPI Proxy ({scraper_key[:4]}...) for {target_url}...")
+            res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=25)
+            body_scraper = res_scraper.text.strip()
+            
+            # Blacklist dead / exhausted / invalid keys immediately
+            if res_scraper.status_code in (401, 403, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
+                logger.warning(f"❌ ScraperAPI key ({scraper_key[:4]}...) is EXHAUSTED/DEAD (Status {res_scraper.status_code}). Blacklisting key for today.")
+                _dead_scraper_keys.add(scraper_key)
+                if _active_working_scraper_key == scraper_key:
+                    _active_working_scraper_key = None
+                continue
+                
+            if res_scraper.status_code in (200, 201) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
+                logger.info(f"✅ ScraperAPI Proxy ({scraper_key[:4]}...) successfully fetched POST {target_url}!")
+                _active_working_scraper_key = scraper_key
+                return res_scraper
+        except Exception as s_err:
+            logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:4]}...): {s_err}")
 
     # 2. Direct Connection Fallback (If ScraperAPI key is not configured or all keys failed)
     logger.info(f"Attempting direct POST connection to {target_url}...")
@@ -158,25 +184,32 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
 
 def fyers_get_with_scraper_fallback(session, target_url, headers=None):
     """Executes a GET request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    global _active_working_scraper_key, _dead_scraper_keys
     import urllib.parse
     headers = headers or {}
 
-    scraper_raw = os.environ.get("SCRAPERAPI_KEY", "")
-    if scraper_raw:
-        keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
-        for scraper_key in keys:
-            try:
-                # MANDATORY: keep_headers=true is required by ScraperAPI to forward custom Authorization headers
-                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
-                logger.info(f"🌐 Routing GET request via ScraperAPI Proxy (keep_headers=true) to bypass Cloudflare WAF for {target_url}...")
-                res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=30)
-                body_scraper = res_scraper.text.strip()
-                if res_scraper.status_code in (200, 301, 302, 303, 307, 308) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
-                    logger.info(f"✅ ScraperAPI Proxy successfully fetched GET {target_url}!")
-                    return res_scraper
-                logger.warning(f"⚠️ ScraperAPI key attempt for GET returned Status {res_scraper.status_code} / HTML. Response snippet: {body_scraper[:150]}...")
-            except Exception as s_err:
-                logger.warning(f"ScraperAPI proxy GET key attempt failed: {s_err}")
+    valid_keys = get_valid_scraper_keys()
+    for scraper_key in valid_keys:
+        try:
+            scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
+            logger.info(f"🌐 Routing GET request via ScraperAPI Proxy ({scraper_key[:4]}...) for {target_url}...")
+            res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=25)
+            body_scraper = res_scraper.text.strip()
+            
+            # Blacklist dead / exhausted / invalid keys immediately
+            if res_scraper.status_code in (401, 403, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
+                logger.warning(f"❌ ScraperAPI key ({scraper_key[:4]}...) is EXHAUSTED/DEAD (Status {res_scraper.status_code}). Blacklisting key for today.")
+                _dead_scraper_keys.add(scraper_key)
+                if _active_working_scraper_key == scraper_key:
+                    _active_working_scraper_key = None
+                continue
+                
+            if res_scraper.status_code in (200, 301, 302, 303, 307, 308) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
+                logger.info(f"✅ ScraperAPI Proxy ({scraper_key[:4]}...) successfully fetched GET {target_url}!")
+                _active_working_scraper_key = scraper_key
+                return res_scraper
+        except Exception as s_err:
+            logger.warning(f"ScraperAPI proxy GET key attempt failed ({scraper_key[:4]}...): {s_err}")
 
     logger.info(f"Attempting direct GET connection to {target_url}...")
     try:
@@ -226,7 +259,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v8.0_SCRAPER_KEEP_HEADERS] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v9.0_DEAD_KEY_BLACKLIST] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
