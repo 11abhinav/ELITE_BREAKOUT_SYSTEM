@@ -431,6 +431,7 @@ def auto_login() -> Optional[str]:
 
             if not auth_code:
                 logger.error("❌ Fyers Step 4 auth code failed for all App ID variants.")
+                dispatch_fyers_reauth_notification("Fyers OAuth auto-login failed at Step 4.")
                 return None
             
             logger.info(f"Fyers login Step 5: Exchanging/Validating credential token (len={len(auth_code)}) for all-day access token (client_id='{successful_app_id}')...")
@@ -458,15 +459,33 @@ def auto_login() -> Optional[str]:
                         logger.error(f"Fyers Step 5 profile validation exception: {prof_err}")
 
                     logger.error("❌ Fyers Step 5 token exchange and direct validation failed.")
+                    dispatch_fyers_reauth_notification("Fyers token validation failed.")
                     return None
             except Exception as exc:
                 logger.error(f"❌ Fyers Step 5 token exchange exception: {exc}")
+                dispatch_fyers_reauth_notification(f"Fyers token exchange error: {exc}")
                 return None
             
         except Exception as e:
             import traceback
             logger.error(f"Fyers headless login failed with exception: {e}\n{traceback.format_exc()}")
+            dispatch_fyers_reauth_notification(f"Fyers headless login crash: {e}")
             return None
+
+def dispatch_fyers_reauth_notification(reason: str = "Fyers API access token is missing or expired."):
+    """Dispatches a push notification to all admin devices with a direct 1-tap clickable URL to authenticate."""
+    try:
+        from push_service import send_push_to_all
+        login_url = "/fyers/login"
+        logger.info(f"🔔 Dispatching admin clickable push notification for Fyers re-authentication: {login_url}")
+        send_push_to_all(
+            "🔑 FYERS AUTH REQUIRED", 
+            f"{reason} Tap here to authenticate with 1 click.", 
+            url=login_url, 
+            bypass_throttle=True
+        )
+    except Exception as push_err:
+        logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
 
 
 _token_lock = threading.Lock()
@@ -518,6 +537,7 @@ def get_access_token() -> str:
             _token_date = now_date
             return token
 
+        dispatch_fyers_reauth_notification("Fyers access token is missing or expired for today.")
         return None
 
 def clear_token():

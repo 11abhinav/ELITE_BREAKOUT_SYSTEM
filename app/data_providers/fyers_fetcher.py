@@ -266,11 +266,8 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"NSE:{base}-EQ")
             candidates.append(f"NSE:{base}-BE")
         else:
-            # Standard NSE first, then BSE series
+            # Standard NSE first (Fyers API v3 only supports -EQ series on NSE), then BSE series
             candidates.append(f"NSE:{base}-EQ")
-            candidates.append(f"NSE:{base}-BE")
-            candidates.append(f"NSE:{base}-SM")
-            candidates.append(f"NSE:{base}-ST")
             candidates.append(f"BSE:{base}-EQ")
             candidates.append(f"BSE:{base}")
             candidates.append(f"BSE:{base}-A")
@@ -414,14 +411,16 @@ class FyersFetcher(DataFetcher):
                         raise ValueError("Received empty response from Fyers history API")
                         
                     if response.get("s") != "ok":
-                        error_msg = response.get("message", "Unknown error")
-                        code = response.get("code", "NO_CODE")
-                        if "Invalid symbol provided" in error_msg:
-                            logger.info(f"Fyers API symbol miss for {cand_symbol} - will attempt fallback candidate")
+                        error_msg = str(response.get("message", "Unknown error"))
+                        code = str(response.get("code", "NO_CODE"))
+                        if "Invalid symbol provided" in error_msg or code in ("-403", "403") or "Additional permission required" in error_msg:
+                            logger.info(f"Fyers API symbol miss/unsupported series for {cand_symbol} (code {code}) - trying next candidate")
+                            tried_suffixes.add(cand_symbol)
+                            break
                         else:
                             logger.warning(f"Fyers API warning for {cand_symbol}: code={code}, message={error_msg}, full_response={response}")
                         
-                        if str(code) in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
+                        if code in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
                             logger.warning(f"Fyers auth response warning for {cand_symbol} (code {code}): {error_msg}")
                             raise ValueError("Could not authenticate the user")
                             
@@ -471,9 +470,9 @@ class FyersFetcher(DataFetcher):
                 except Exception as e:
                     error_str = str(e)
                     
-                    # Record failure for circuit breaker, but ignore expected validation errors
+                    # Record failure for circuit breaker, but ignore expected symbol mismatches or unsupported series errors
                     if "Bad request" in error_str or "error" in error_str.lower():
-                        if "invalid symbol" not in error_str.lower() and "invalid input" not in error_str.lower():
+                        if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403")):
                             _fyers_circuit_breaker.record_failure()
 
                     if "Could not authenticate the user" in error_str:
