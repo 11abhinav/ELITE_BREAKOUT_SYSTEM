@@ -77,3 +77,10 @@ def test_fyers_client_id_always_ends_with_100():
     import fyers_auth
     source = inspect.getsource(fyers_auth.get_fyers_client)
     assert 'endswith("-100")' in source, "get_fyers_client MUST enforce -100 suffix for Fyers History API"
+
+def test_scraperapi_key_order_preserved(monkeypatch):
+    # Verify that get_valid_scraper_keys preserves exact order of keys in SCRAPERAPI_KEY env var
+    import fyers_auth
+    monkeypatch.setenv("SCRAPERAPI_KEY", "new_key_123, old_key_456, old_key_789")
+    keys = fyers_auth.get_valid_scraper_keys()
+    assert keys == ["new_key_123", "old_key_456", "old_key_789"], "ScraperAPI key order MUST be strictly preserved from env var"

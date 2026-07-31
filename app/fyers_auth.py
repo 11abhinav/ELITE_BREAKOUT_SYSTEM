@@ -143,8 +143,7 @@ def save_access_token(auth_code: str) -> str:
 _active_working_scraper_key = None
 
 def get_valid_scraper_keys():
-    """Returns a list of configured ScraperAPI keys, prioritizing the active working key and filtering out keys blacklisted project-wide for today."""
-    global _active_working_scraper_key
+    """Returns a list of configured ScraperAPI keys, strictly preserving the exact order specified in SCRAPERAPI_KEY env var, filtering out keys blacklisted project-wide for today."""
     try:
         from pledge_scraper import _is_key_exhausted_today
     except Exception:
@@ -156,11 +155,6 @@ def get_valid_scraper_keys():
     
     all_keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
     valid_keys = [k for k in all_keys if not _is_key_exhausted_today(k)]
-    
-    if _active_working_scraper_key and _active_working_scraper_key in valid_keys:
-        valid_keys.remove(_active_working_scraper_key)
-        valid_keys.insert(0, _active_working_scraper_key)
-        
     return valid_keys
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
@@ -286,7 +280,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v33.0_CLIENT_ID_100_SUFFIX_ENFORCED_STABLE] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v34.0_SCRAPER_KEY_ENV_ORDER_PRESERVED_STABLE] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
