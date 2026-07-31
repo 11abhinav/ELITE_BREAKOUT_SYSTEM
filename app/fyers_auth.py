@@ -185,7 +185,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v3.5_824aca8e] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v3.6_918a04b] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -290,7 +290,26 @@ def auto_login() -> Optional[str]:
                         
                         logger.info(f"Fyers Step 4b Trace ({client_id_for_4b}): Status={res_redirect.status_code} | IsRedirect={is_redirect} | LocationHeader={'YES' if redirect_location else 'NO'}")
                         
-                        if is_redirect and redirect_location:
+                        if res_redirect.status_code == 200:
+                            try:
+                                json_200 = res_redirect.json()
+                                logger.info(f"Fyers Step 4b HTTP 200 JSON payload ({client_id_for_4b}): {json_200}")
+                                target_url_200 = (json_200.get('Url') or json_200.get('redirectUrl') or 
+                                                 (isinstance(json_200.get('data'), dict) and (json_200['data'].get('redirectUrl') or json_200['data'].get('Url'))))
+                                if target_url_200:
+                                    parsed_200 = urllib.parse.urlparse(target_url_200)
+                                    qs_200 = urllib.parse.parse_qs(parsed_200.query)
+                                    qs_frag_200 = urllib.parse.parse_qs(parsed_200.fragment)
+                                    codes = (qs_200.get('auth_code') or qs_200.get('auth') or qs_200.get('code') or
+                                             qs_frag_200.get('auth_code') or qs_frag_200.get('auth') or qs_frag_200.get('code'))
+                                    if codes:
+                                        auth_code = codes[0]
+                                        successful_app_id = client_id_for_4b
+                                        logger.info(f"✅ Fyers Step 4b Trace (HTTP 200 JSON): auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
+                                        break
+                            except Exception as json_err:
+                                logger.warning(f"Fyers Step 4b HTTP 200 non-JSON text ({client_id_for_4b}): {res_redirect.text[:200]}")
+                        elif is_redirect and redirect_location:
                             parsed_loc = urllib.parse.urlparse(redirect_location)
                             qs_loc = urllib.parse.parse_qs(parsed_loc.query)
                             qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
@@ -302,7 +321,7 @@ def auto_login() -> Optional[str]:
                             if codes:
                                 auth_code = codes[0]
                                 successful_app_id = client_id_for_4b
-                                logger.info(f"✅ Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
+                                logger.info(f"✅ Fyers Step 4b Trace (302 Location): auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
                                 break
                             else:
                                 logger.error(f"Fyers Step 4b Location missing auth_code ({client_id_for_4b}). Full query='{parsed_loc.query}', fragment='{parsed_loc.fragment}'")
