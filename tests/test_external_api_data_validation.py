@@ -73,7 +73,7 @@ class TestExternalApiDataValidation:
     def test_provider_selector_routing_policies(self):
         """Validate ProviderSelector routing policies for daily, intraday, and live data."""
         assert selector.get_providers("price_1d", fetch_type="historical") == ["yahoo", "fyers", "bse"]
-        assert selector.get_providers("price_15m", fetch_type="historical") == ["fyers", "yahoo", "bse"]
+        assert selector.get_providers("price_15m", fetch_type="historical") == ["yahoo", "fyers", "bse"]
         assert selector.get_providers("live_quotes", fetch_type="live_quotes") == ["fyers", "yahoo", "bse"]
 
     @patch("yfinance.download")

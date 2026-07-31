@@ -24,7 +24,7 @@ def test_provider_selector_routing():
     assert daily_providers[0] == "yahoo"
 
     intraday_providers = selector.get_providers("price_15m")
-    assert intraday_providers[0] == "fyers"
+    assert intraday_providers[0] == "yahoo"
 
     live_providers = selector.get_providers("live_quotes", fetch_type="live_quotes")
     assert live_providers[0] == "fyers"
