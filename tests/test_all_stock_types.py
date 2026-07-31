@@ -42,3 +42,10 @@ def test_yfinance_chrome_session_initialization():
     from price_provider import PriceProvider
     provider = PriceProvider()
     assert provider is not None
+
+def test_fyers_history_payload_cont_flag_is_zero():
+    # Verify that cont_flag in fyers_fetcher is set to '0' for spot equity stock history requests
+    import inspect
+    from data_providers.fyers_fetcher import FyersFetcher
+    source = inspect.getsource(FyersFetcher.get_ohlcv)
+    assert '"cont_flag": "0"' in source, "Fyers history API cont_flag MUST be '0' for spot equity stocks"

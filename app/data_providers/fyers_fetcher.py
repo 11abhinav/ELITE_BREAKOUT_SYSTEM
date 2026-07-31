@@ -411,7 +411,7 @@ class FyersFetcher(DataFetcher):
                 "date_format": "1",
                 "range_from": range_from,
                 "range_to": range_to,
-                "cont_flag": "1"
+                "cont_flag": "0"
             }
             
             for attempt in range(retries):
