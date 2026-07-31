@@ -41,23 +41,14 @@ def load_fyers_mappings():
                 rows = cur.fetchall()
                 _fyers_mappings_cache = {row[0]: row[1] for row in rows}
                 
-                # Clean up legacy poisoned invalid entries for valid stocks
+                # Clean up legacy/stale invalid mappings so valid equities like POONAWALLA are retried via Fyers
                 try:
-                    cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND mapping_state = 'INVALID' AND original_sym IN ('SENORES', 'MRF', 'TORNTPHARM', 'HINDUNILVR', 'HAL', 'AADHARHFC', '544467', 'NSDL')")
+                    cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND (mapping_state = 'INVALID' OR is_invalid = TRUE)")
                     conn.commit()
                 except Exception:
                     pass
 
-                # Load INVALID mappings (Active invalid symbols whose retry_after is still in the future)
-                current_time = datetime.now(IST).isoformat()
-                cur.execute("""
-                    SELECT original_sym FROM symbol_mappings 
-                    WHERE mapping_type = 'FYERS' 
-                    AND (mapping_state = 'INVALID' OR is_invalid = TRUE)
-                    AND (retry_after IS NULL OR retry_after > %s)
-                """, (current_time,))
-                inv_rows = cur.fetchall()
-                _fyers_invalid_cache = {row[0] for row in inv_rows}
+                _fyers_invalid_cache = set()
                 
         _last_mappings_fetch_time = now
     except Exception as e:
