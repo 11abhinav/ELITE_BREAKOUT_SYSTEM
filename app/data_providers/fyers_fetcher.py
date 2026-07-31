@@ -228,6 +228,14 @@ class FyersFetcher(DataFetcher):
             return []
 
         raw = str(symbol).strip().upper()
+        _ampersand_map = {
+            "M_M": "M&M", "M-M": "M&M",
+            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
+            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+        }
+        if raw in _ampersand_map:
+            raw = _ampersand_map[raw]
+
         is_bse_pref = raw.startswith("BSE:") or raw.endswith(".BO")
 
         if raw.endswith(".NS") or raw.endswith(".BO"):
@@ -263,8 +271,9 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"NSE:{base}-EQ")
             candidates.append(f"NSE:{base}-BE")
         else:
-            # Standard NSE first (Fyers API v3 only supports -EQ series on NSE), then BSE series
+            # Standard NSE first (-EQ, -BE series), then BSE series
             candidates.append(f"NSE:{base}-EQ")
+            candidates.append(f"NSE:{base}-BE")
             candidates.append(f"BSE:{base}-EQ")
             candidates.append(f"BSE:{base}")
 
