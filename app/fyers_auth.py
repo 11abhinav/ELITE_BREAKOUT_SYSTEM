@@ -126,38 +126,34 @@ def save_access_token(auth_code: str) -> str:
         return None
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
-    """Executes a POST request to Fyers API. If Cloudflare WAF blocks direct IP, falls back to ScraperAPI residential proxy pool."""
+    """Executes a POST request to Fyers API. Tries ScraperAPI proxy FIRST (if available) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
     import urllib.parse
     headers = headers or {}
-    res = None
-    
-    # 1. Direct Connection Attempt
-    try:
-        res = session.post(target_url, json=payload, headers=headers, timeout=10)
-        body_text = res.text.strip()
-        if res.status_code == 200 and not body_text.startswith("<!doctype") and not body_text.startswith("<html") and "CF-1" not in body_text and "Anomaly Detection" not in body_text:
-            return res
-        logger.warning(f"⚠️ Direct request to {target_url} returned Status {res.status_code} / Cloudflare WAF challenge. Attempting ScraperAPI proxy fallback...")
-    except Exception as direct_err:
-        logger.warning(f"⚠️ Direct connection to {target_url} failed: {direct_err}. Attempting ScraperAPI proxy fallback...")
 
-    # 2. ScraperAPI Proxy Fallback (Bypasses Cloudflare WAF using residential proxy pool)
+    # 1. ScraperAPI Proxy Attempt (Primary: Bypasses Cloudflare WAF using residential proxy pool)
     scraper_raw = os.environ.get("SCRAPERAPI_KEY", "")
     if scraper_raw:
         keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
-        for scraper_key in keys[:3]:
+        for scraper_key in keys:
             try:
                 scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={urllib.parse.quote(target_url)}"
-                logger.info(f"🌐 Routing request via ScraperAPI Proxy pool to bypass Cloudflare WAF for {target_url}...")
+                logger.info(f"🌐 Routing request via ScraperAPI Proxy FIRST to bypass Cloudflare WAF for {target_url}...")
                 res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=25)
                 body_scraper = res_scraper.text.strip()
                 if res_scraper.status_code == 200 and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
-                    logger.info(f"✅ ScraperAPI Proxy successfully bypassed Cloudflare WAF for {target_url}!")
+                    logger.info(f"✅ ScraperAPI Proxy successfully fetched {target_url}!")
                     return res_scraper
+                logger.warning(f"⚠️ ScraperAPI key attempt returned Status {res_scraper.status_code} / HTML. Trying next key or direct fallback...")
             except Exception as s_err:
                 logger.warning(f"ScraperAPI proxy key attempt failed: {s_err}")
-                
-    return res
+
+    # 2. Direct Connection Fallback (If ScraperAPI key is not configured or all keys failed)
+    logger.info(f"Attempting direct connection to {target_url}...")
+    try:
+        return session.post(target_url, json=payload, headers=headers, timeout=10)
+    except Exception as direct_err:
+        logger.error(f"❌ Direct connection to {target_url} failed: {direct_err}")
+        raise
 
 _auto_login_lock = threading.Lock()
 _last_auto_login_time = 0.0
@@ -200,7 +196,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v4.5_SCRAPER_PROXY_BYPASS] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v5.0_SCRAPER_FIRST_BYPASS] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -254,7 +250,6 @@ def auto_login() -> Optional[str]:
                 logger.info(f"Fyers Step 3 response status: {res3.get('s')}, code: {res3.get('code')}")
             except ValueError:
                 logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code}): {res3_obj.text[:250]}...")
-                return None3_obj.text[:250]}...")
                 return None
                 
             if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
