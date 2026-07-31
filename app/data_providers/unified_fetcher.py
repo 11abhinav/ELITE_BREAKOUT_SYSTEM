@@ -163,7 +163,7 @@ class UnifiedFetcher:
                         fyers_map = {}
                         for orig in chunk:
                             norm = self.fyers._normalize_symbol(orig)
-                            if norm and norm.startswith("NSE:"):
+                            if norm and (norm.startswith("NSE:") or norm.startswith("BSE:") or norm.startswith("MCX:")):
                                 fyers_map[norm] = orig
 
                         if not fyers_map:

@@ -84,3 +84,10 @@ def test_scraperapi_key_order_preserved(monkeypatch):
     monkeypatch.setenv("SCRAPERAPI_KEY", "new_key_123, old_key_456, old_key_789")
     keys = fyers_auth.get_valid_scraper_keys()
     assert keys == ["new_key_123", "old_key_456", "old_key_789"], "ScraperAPI key order MUST be strictly preserved from env var"
+
+def test_unified_fetcher_includes_bse_symbols_in_fyers_quotes():
+    # Verify that UnifiedFetcher allows BSE: symbols for Fyers live quote batches
+    import inspect
+    from data_providers.unified_fetcher import UnifiedFetcher
+    source = inspect.getsource(UnifiedFetcher.fetch_live_quotes)
+    assert 'norm.startswith("BSE:")' in source, "UnifiedFetcher MUST include BSE: symbols in Fyers quote batches"
