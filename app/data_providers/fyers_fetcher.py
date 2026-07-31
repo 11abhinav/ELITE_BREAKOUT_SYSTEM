@@ -313,7 +313,7 @@ class FyersFetcher(DataFetcher):
                 deduped.append(c)
         return deduped
 
-    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
+    def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 5, range_from: str = None, range_to: str = None) -> MarketData:
         """Fetch OHLCV data for a single symbol from Fyers."""
         # [VERSION: NULL_POINTER_FIX_v1.0]
         if not symbol:
@@ -509,7 +509,7 @@ class FyersFetcher(DataFetcher):
                     # Exponential backoff for network rate limits or server errors
                     import random
                     if "request limit reached" in error_str.lower() or "429" in error_str or "bad request" in error_str.lower():
-                        backoff_time = random.uniform(0.5, 1.5)
+                        backoff_time = random.uniform(1.0, 2.5)
                         logger.info(f"⏳ Fyers history API rate limit (429) for {cand_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
                         time.sleep(backoff_time)
                     else:
@@ -530,7 +530,7 @@ class FyersFetcher(DataFetcher):
             pass
         return None
 
-    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
+    def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 5, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""
 
         # Check if Fyers circuit breaker is open (too many failures)
@@ -560,8 +560,8 @@ class FyersFetcher(DataFetcher):
         ns_symbols = list(normalized_map.keys())
         results = {}
         
-        # [VERSION: DATA_FETCH_ACCELERATION_v1.0] Scale max workers to 6 for faster batch fetching
-        max_workers = min(6, len(ns_symbols) if ns_symbols else 1)
+        # [VERSION: FYERS_CONCURRENCY_ACCELERATION_v2.0] Cap max workers to 3 for Fyers rate limits
+        max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
                 executor.submit(self.get_ohlcv, normalized_map[ns_sym][0], interval, period, retries, range_from, range_to): ns_sym
