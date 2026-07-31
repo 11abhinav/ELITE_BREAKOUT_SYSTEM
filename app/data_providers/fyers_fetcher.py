@@ -440,8 +440,13 @@ class FyersFetcher(DataFetcher):
                         else:
                             logger.warning(f"Fyers API warning for {cand_symbol}: code={code}, message={error_msg}, full_response={response}")
                         
-                        if code in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
-                            logger.warning(f"Fyers auth response warning for {cand_symbol} (code {code}): {error_msg}")
+                        if code in ["494", "-401", "401", "-16", "-15"] or any(k in error_msg.lower() for k in ("authenticate", "permission required", "regenerate access token")):
+                            logger.error(f"🚫 Fyers auth/permission error for {cand_symbol} (code {code}): {error_msg}")
+                            try:
+                                from database import delete_system_state
+                                delete_system_state("fyers_access_token")
+                            except Exception:
+                                pass
                             raise ValueError("Could not authenticate the user")
                             
                         raise ValueError(f"Fyers history API error (code {code}): {error_msg}")
