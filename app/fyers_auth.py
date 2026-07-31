@@ -126,7 +126,7 @@ def save_access_token(auth_code: str) -> str:
         return None
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
-    """Executes a POST request to Fyers API. Tries ScraperAPI proxy FIRST (if available) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    """Executes a POST request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
     import urllib.parse
     headers = headers or {}
 
@@ -136,14 +136,15 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
         for scraper_key in keys:
             try:
-                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={urllib.parse.quote(target_url)}"
-                logger.info(f"🌐 Routing POST request via ScraperAPI Proxy FIRST to bypass Cloudflare WAF for {target_url}...")
-                res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=25)
+                # MANDATORY: keep_headers=true is required by ScraperAPI to forward custom Authorization headers
+                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
+                logger.info(f"🌐 Routing POST request via ScraperAPI Proxy (keep_headers=true) to bypass Cloudflare WAF for {target_url}...")
+                res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=30)
                 body_scraper = res_scraper.text.strip()
-                if res_scraper.status_code == 200 and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
+                if res_scraper.status_code in (200, 201) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
                     logger.info(f"✅ ScraperAPI Proxy successfully fetched POST {target_url}!")
                     return res_scraper
-                logger.warning(f"⚠️ ScraperAPI key attempt returned Status {res_scraper.status_code} / HTML. Trying next key or direct fallback...")
+                logger.warning(f"⚠️ ScraperAPI key attempt returned Status {res_scraper.status_code} / HTML. Response snippet: {body_scraper[:150]}...")
             except Exception as s_err:
                 logger.warning(f"ScraperAPI proxy key attempt failed: {s_err}")
 
@@ -156,7 +157,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         raise
 
 def fyers_get_with_scraper_fallback(session, target_url, headers=None):
-    """Executes a GET request to Fyers API. Tries ScraperAPI proxy FIRST (if available) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    """Executes a GET request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
     import urllib.parse
     headers = headers or {}
 
@@ -165,14 +166,15 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
         keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
         for scraper_key in keys:
             try:
-                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={urllib.parse.quote(target_url)}"
-                logger.info(f"🌐 Routing GET request via ScraperAPI Proxy FIRST to bypass Cloudflare WAF for {target_url}...")
-                res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=25)
+                # MANDATORY: keep_headers=true is required by ScraperAPI to forward custom Authorization headers
+                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
+                logger.info(f"🌐 Routing GET request via ScraperAPI Proxy (keep_headers=true) to bypass Cloudflare WAF for {target_url}...")
+                res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=30)
                 body_scraper = res_scraper.text.strip()
                 if res_scraper.status_code in (200, 301, 302, 303, 307, 308) and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
                     logger.info(f"✅ ScraperAPI Proxy successfully fetched GET {target_url}!")
                     return res_scraper
-                logger.warning(f"⚠️ ScraperAPI key attempt for GET returned Status {res_scraper.status_code} / HTML. Trying next key or direct fallback...")
+                logger.warning(f"⚠️ ScraperAPI key attempt for GET returned Status {res_scraper.status_code} / HTML. Response snippet: {body_scraper[:150]}...")
             except Exception as s_err:
                 logger.warning(f"ScraperAPI proxy GET key attempt failed: {s_err}")
 
@@ -224,7 +226,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v7.0_ULTIMATE_SCRAPER_END_TO_END] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v8.0_SCRAPER_KEEP_HEADERS] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
