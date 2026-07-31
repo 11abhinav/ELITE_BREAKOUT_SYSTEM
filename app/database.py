@@ -484,6 +484,22 @@ def init_db():
                     )
                 """)
 
+                # 11. wealth_score_history
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS wealth_score_history (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(30) NOT NULL,
+                        evaluation_date DATE NOT NULL,
+                        hold_score REAL,
+                        fm_score REAL,
+                        rs_6m REAL,
+                        cmp REAL,
+                        sma_200 REAL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE (symbol, evaluation_date)
+                    )
+                """)
+
                 # 11. scan_failures
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scan_failures (
