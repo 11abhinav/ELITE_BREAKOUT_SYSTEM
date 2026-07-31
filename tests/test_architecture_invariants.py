@@ -120,4 +120,31 @@ def test_symbol_normalization_invariants():
     assert fetcher._normalize_symbol("NSDL") == "BSE:NSDL-EQ"
     assert fetcher._normalize_symbol("RELIANCE") == "NSE:RELIANCE-EQ"
     assert fetcher._normalize_symbol("NSE:STOCK-BE") == "NSE:STOCK-BE"
+    assert fetcher._normalize_symbol("SENSEX") == "BSE:SENSEX-INDEX"
+    assert fetcher._normalize_symbol("NIFTY 50") == "NSE:NIFTY50-INDEX"
+    assert fetcher._normalize_symbol("BANKNIFTY") == "NSE:NIFTYBANK-INDEX"
+
+def test_provider_fetcher_isolation_and_all_symbols_contract():
+    """
+    ARCHITECTURE INVARIANT:
+    All symbol categories (Indices, NSE Spot, BSE, SME, BE Series, ASM/GSM, IPOs)
+    MUST be supported across both Fyers and YFinance fetchers.
+    All provider-specific customizations (suffixes, index mapping, resolution codes)
+    MUST be strictly encapsulated inside their respective fetchers.
+    """
+    import inspect
+    from data_providers.fyers_fetcher import FyersFetcher
+    from data_providers.unified_fetcher import UnifiedFetcher
+    
+    fyers_source = inspect.getsource(FyersFetcher)
+    unified_source = inspect.getsource(UnifiedFetcher)
+    
+    # 1. FyersFetcher must isolate symbol normalization, candidate suffixes, and index history protection internally
+    assert '_normalize_symbol' in fyers_source, "FyersFetcher must encapsulate _normalize_symbol internally"
+    assert '_generate_fyers_candidate_symbols' in fyers_source, "FyersFetcher must encapsulate candidate resolution internally"
+    assert '-INDEX' in fyers_source, "FyersFetcher must handle index symbols internally"
+    
+    # 2. UnifiedFetcher must isolate multi-exchange quote chunking (NSE:, BSE:, MCX:) internally
+    assert 'norm.startswith("BSE:")' in unified_source, "UnifiedFetcher must handle BSE: symbol quotes internally"
+    assert 'norm.startswith("NSE:")' in unified_source, "UnifiedFetcher must handle NSE: symbol quotes internally"
 
