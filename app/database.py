@@ -1067,11 +1067,8 @@ def init_db():
                 except Exception as mig_err:
                     logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
 
-                # [STARTUP RESET] Clear Fyers token on restart so auto_login() always runs the full
-                # generate_token() exchange (not a stale/expired token from a previous session).
-                # Also reset any stuck RUNNING/QUEUED scanner statuses on boot.
+                # Reset any stuck RUNNING/QUEUED scanner statuses on boot.
                 try:
-                    cur.execute("DELETE FROM system_state WHERE key IN ('fyers_access_token', 'fyers_access_token_date')")
                     cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, updated_at = NOW() WHERE status = 'RUNNING' OR status LIKE 'QUEUED%'")
                 except Exception as t_err:
                     logger.warning(f"[STARTUP] Scanner state reset non-critical failure: {t_err}")

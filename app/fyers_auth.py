@@ -277,7 +277,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v13.0_SINGLE_STARTUP_AUTOLOGIN_LOCK] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v14.0_PERMANENT_DB_TOKEN_PROTECTION] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -562,25 +562,28 @@ def get_access_token() -> str:
         logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed on startup. Lock set for today ({now_date}) — please authenticate via /fyers/login.")
         return None
 
-def clear_token():
-    """Clears cached token locally and from database on authentication failures."""
+def clear_token(force: bool = False):
+    """Clears in-memory token cache. Does NOT delete valid DB token unless force=True."""
     global _cached_token, _token_date
     with _token_lock:
         _cached_token = None
         _token_date = None
-        
-    token_path = config.FYERS_TOKEN_PATH
-    if os.path.exists(token_path):
+
+    if force:
+        token_path = config.FYERS_TOKEN_PATH
+        if os.path.exists(token_path):
+            try:
+                os.remove(token_path)
+            except Exception:
+                pass
+                
         try:
-            os.remove(token_path)
-        except Exception:
-            pass
-            
-    try:
-        from database import save_system_state
-        save_system_state("fyers_access_token", "")
-    except Exception as e:
-        logger.error(f"Failed to clear token from DB: {e}")
+            from database import save_system_state
+            save_system_state("fyers_access_token", "")
+            save_system_state("fyers_access_token_date", "")
+            logger.info("🗑️ Forced deletion of Fyers access token from DB and disk.")
+        except Exception as e:
+            logger.error(f"Failed to clear token from DB: {e}")
         
 def get_fyers_client() -> fyersModel.FyersModel:
     """Initializes and returns an authenticated FyersModel client."""
