@@ -282,7 +282,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v15.0_TOKEN_LOCK_NAMEERROR_FIX] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v16.0_DUAL_DISPATCH_FULL_URL_NOTIF] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -484,19 +484,32 @@ def auto_login() -> Optional[str]:
             return None
 
 def dispatch_fyers_reauth_notification(reason: str = "Fyers API access token is missing or expired."):
-    """Dispatches a push notification to all admin devices with a direct 1-tap clickable URL to authenticate."""
+    """Dispatches both an in-app global notification bell alert AND a WebPush notification with a direct 1-tap clickable URL."""
     try:
-        from push_service import send_push_to_all
-        login_url = "/fyers/login"
-        logger.info(f"🔔 Dispatching admin clickable push notification for Fyers re-authentication: {login_url}")
-        send_push_to_all(
-            "🔑 FYERS AUTH REQUIRED", 
-            f"{reason} Tap here to authenticate with 1 click.", 
-            url=login_url, 
-            bypass_throttle=True
-        )
-    except Exception as push_err:
-        logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
+        login_url = "https://elitebreakout.duckdns.org/fyers/login"
+        msg = f"{reason} Click here to authenticate with 1 tap: {login_url}"
+        
+        # 1. Insert into global_notifications table for the Dashboard UI Bell 🔔
+        try:
+            from database import insert_notification
+            insert_notification("admin", "🔑 FYERS AUTH REQUIRED", msg)
+        except Exception as db_notif_err:
+            logger.warning(f"Failed to insert Fyers re-auth in-app notification: {db_notif_err}")
+
+        # 2. Dispatch WebPush to mobile/desktop browsers
+        try:
+            from push_service import send_push_to_all
+            logger.info(f"🔔 Dispatching admin clickable push notification for Fyers re-authentication: {login_url}")
+            send_push_to_all(
+                "🔑 FYERS AUTH REQUIRED", 
+                f"{reason} Tap here to authenticate with 1 click.", 
+                url=login_url, 
+                bypass_throttle=True
+            )
+        except Exception as push_err:
+            logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
+    except Exception as exc:
+        logger.warning(f"Error in dispatch_fyers_reauth_notification: {exc}")
 
 
 _token_lock = threading.Lock()
