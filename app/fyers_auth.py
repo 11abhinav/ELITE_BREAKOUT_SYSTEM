@@ -196,7 +196,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v5.0_SCRAPER_FIRST_BYPASS] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v5.1_VERIFY_OTP_FIX] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -229,7 +229,7 @@ def auto_login() -> Optional[str]:
                 return None
                 
             payload2 = {"request_key": request_key, "otp": totp}
-            res2_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_totp_v2", payload2)
+            res2_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_otp", payload2)
             try:
                 res2 = res2_obj.json()
                 logger.info(f"Fyers Step 2 response payload: {res2}")
