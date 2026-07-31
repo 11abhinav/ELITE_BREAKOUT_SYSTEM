@@ -711,6 +711,18 @@ def get_fyers_client() -> fyersModel.FyersModel:
     if target_client_id and not target_client_id.endswith("-100"):
         target_client_id = f"{target_client_id}-100"
 
+    # ── Diagnostic log: show exactly what Authorization header history API will receive ──
+    # Format: CLIENT_ID:ACCESS_TOKEN  (set by FyersModel as self.header = "{}:{}".format(client_id, token))
+    # If client_id does not match the app_id in the token JWT, Fyers history returns -403.
+    logger.debug(
+        f"🔍 [FYERS CLIENT] Building FyersModel:\n"
+        f"  config.FYERS_CLIENT_ID : {config.FYERS_CLIENT_ID}\n"
+        f"  token JWT app_id       : {token_app or 'MISSING'}\n"
+        f"  target_client_id used  : {target_client_id}\n"
+        f"  Authorization header   : {target_client_id}:<token_hidden>\n"
+        f"  History endpoint       : https://api-t1.fyers.in/data/history"
+    )
+
     client = fyersModel.FyersModel(
         client_id=target_client_id,
         token=token,
@@ -718,3 +730,4 @@ def get_fyers_client() -> fyersModel.FyersModel:
         is_async=False
     )
     return client
+
