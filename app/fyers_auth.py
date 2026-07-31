@@ -68,8 +68,9 @@ def save_access_token_direct(access_token: str) -> str:
         
         # Save token to database to persist across container redeployments
         try:
+            import json
             from database import save_system_state
-            save_system_state("fyers_access_token", token_payload)
+            save_system_state("fyers_access_token", json.dumps(token_payload))
             save_system_state("fyers_access_token_date", now_date_str)
         except Exception as db_err:
             logger.warning(f"Failed to save Fyers token to database: {db_err}")
@@ -284,7 +285,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v17.0_ZONEINFO_SAVE_TOKEN_FIX] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v18.0_SAFE_JSON_SERIALIZATION] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -538,7 +539,19 @@ def get_access_token() -> str:
                 token = db_state.get("token")
                 saved_date = db_state.get("date", saved_date)
             elif isinstance(db_state, str) and db_state.strip():
-                token = db_state.strip()
+                if db_state.strip().startswith("{"):
+                    try:
+                        import json
+                        parsed = json.loads(db_state)
+                        if isinstance(parsed, dict):
+                            token = parsed.get("token")
+                            saved_date = parsed.get("date", saved_date)
+                        else:
+                            token = db_state.strip()
+                    except Exception:
+                        token = db_state.strip()
+                else:
+                    token = db_state.strip()
 
             if token and saved_date == now_date:
                 logger.info(f"⚡ [DB CACHE HIT] Loaded active Fyers access token for today ({now_date}) from PostgreSQL!")

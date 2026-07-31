@@ -2499,22 +2499,31 @@ def mark_alert_seen(alert_id: int, role: str = "user") -> bool:
                 return False
 
 
-def save_system_state(key: str, value_str: str) -> None:
-    """Save/update a string value (like JSON payload) for a specific key."""
+def save_system_state(key: str, value_str: Any) -> None:
+    """Save/update a value (string or dict/JSON payload) for a specific key."""
     init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute("""
-                    INSERT INTO system_state (key, value)
-                    VALUES (%s, %s)
-                    ON CONFLICT (key) DO UPDATE
-                        SET value = EXCLUDED.value
-                """, (key, value_str))
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                logger.exception(f"❌ save_system_state failed for key={key}")
+    try:
+        if isinstance(value_str, (dict, list)):
+            import json
+            value_str = json.dumps(value_str)
+        elif value_str is not None:
+            value_str = str(value_str)
+            
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("""
+                        INSERT INTO system_state (key, value)
+                        VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE
+                            SET value = EXCLUDED.value
+                    """, (key, value_str))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    logger.exception(f"❌ save_system_state failed for key={key}")
+    except Exception as outer_err:
+        logger.exception(f"❌ save_system_state outer error for key={key}: {outer_err}")
 
 
 def get_system_state(key: str) -> Optional[str]:
