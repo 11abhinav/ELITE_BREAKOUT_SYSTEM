@@ -276,46 +276,43 @@ def auto_login() -> Optional[str]:
                     logger.info(f"Fyers Step 4b: Requesting OAuth authorize redirect via GET {authcode_url}...")
                     
                     res_redirect = session.get(authcode_url, headers=auth_headers, allow_redirects=False)
-                    logger.info(f"Fyers Step 4b redirect status: {res_redirect.status_code}, headers: {dict(res_redirect.headers)}")
-                    
+                    is_redirect = res_redirect.status_code in (301, 302, 303, 307, 308)
                     redirect_location = res_redirect.headers.get('Location') or res_redirect.headers.get('location')
-                    if redirect_location:
+                    
+                    logger.info(f"Fyers Step 4b Trace: Status={res_redirect.status_code} | IsRedirect={is_redirect} | LocationHeader={'YES' if redirect_location else 'NO'}")
+                    
+                    if is_redirect and redirect_location:
                         parsed_loc = urllib.parse.urlparse(redirect_location)
                         qs_loc = urllib.parse.parse_qs(parsed_loc.query)
-                        auth_code = qs_loc.get('auth_code', [None])[0]
+                        codes = qs_loc.get('auth_code', [])
+                        if codes:
+                            auth_code = codes[0]
+                            logger.info(f"Fyers Step 4b Trace: auth_code Present=YES | Length={len(auth_code)} | Host={parsed_loc.netloc}")
 
                 if auth_code:
                     successful_app_id = cand_app_id
-                    logger.info(f"✅ Fyers Step 4 successfully obtained real OAuth auth_code for App ID '{cand_app_id}'. Proceeding to Step 5...")
+                    logger.info(f"✅ Fyers Step 4 successfully obtained real OAuth auth_code for App ID '{cand_app_id}'. Proceeding immediately to Step 5 exchange...")
                     break
 
             if not auth_code:
                 logger.error("❌ Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
-            logger.info(f"Fyers login Step 5: Exchanging Step 4 OAuth auth_code for real long-lived access token via generate_token() (client_id='{successful_app_id}')...")
+            logger.info(f"Fyers login Step 5: Exchanging OAuth auth_code (len={len(auth_code)}) for all-day access token via generate_token() (client_id='{successful_app_id}')...")
             try:
                 session_m = get_session_model(client_id=successful_app_id)
                 session_m.set_token(auth_code)
                 response = session_m.generate_token()
                 
-                # If primary exchange returned invalid auth code, attempt secondary exchange with clean app_id / target_app_id
-                if not response or not isinstance(response, dict) or "access_token" not in response:
-                    alt_app_id = app_id_clean if successful_app_id != app_id_clean else target_app_id
-                    logger.warning(f"Fyers generate_token() primary failed ({response}). Retrying Step 5 with alternate App ID '{alt_app_id}'...")
-                    session_m_alt = get_session_model(client_id=alt_app_id)
-                    session_m_alt.set_token(auth_code)
-                    response = session_m_alt.generate_token()
-
                 if response and isinstance(response, dict) and "access_token" in response:
                     real_token = response["access_token"]
-                    logger.info("✅ Fyers headless login Step 5: generate_token() exchange succeeded. Saving real access token.")
+                    logger.info(f"✅ Fyers Step 5: generate_token() SUCCESS | AccessToken len={len(real_token)} | Saving to DB & local cache.")
                     return save_access_token_direct(real_token)
                 else:
-                    logger.error(f"❌ Fyers generate_token() exchange failed: {response}.")
+                    logger.error(f"❌ Fyers Step 5 generate_token() exchange failed: {response}.")
                     return None
             except Exception as exc:
-                logger.error(f"❌ Fyers generate_token() exchange exception: {exc}")
+                logger.error(f"❌ Fyers Step 5 generate_token() exchange exception: {exc}")
                 return None
             
         except Exception as e:
