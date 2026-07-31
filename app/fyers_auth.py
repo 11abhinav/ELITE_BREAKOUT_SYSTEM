@@ -63,6 +63,42 @@ def get_token_app_id(token: str) -> Optional[str]:
         pass
     return None
 
+def decode_token_payload(token: str) -> dict:
+    """Decodes full JWT payload without verification — used for diagnostics only."""
+    if not token or not token.startswith("eyJ"):
+        return {}
+    try:
+        import base64, json
+        parts = token.split(".")
+        if len(parts) >= 2:
+            padding = "=" * (4 - len(parts[1]) % 4)
+            payload_bytes = base64.urlsafe_b64decode(parts[1] + padding)
+            return json.loads(payload_bytes.decode("utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def log_token_diagnostics(token: str):
+    """Logs full JWT payload claims to help diagnose -403 permission errors."""
+    payload = decode_token_payload(token)
+    if not payload:
+        logger.error("🔍 [TOKEN DIAG] Could not decode token payload — token may be malformed.")
+        return
+    import time
+    exp = payload.get("exp", 0)
+    iat = payload.get("iat", 0)
+    now = time.time()
+    logger.info(
+        f"🔍 [TOKEN DIAG] JWT Claims dump:\n"
+        f"  app_id     : {payload.get('app_id', payload.get('client_id', 'MISSING'))}\n"
+        f"  sub        : {payload.get('sub', 'MISSING')}\n"
+        f"  scope/perms: {payload.get('scope', payload.get('perms', payload.get('permissions', 'MISSING')))}\n"
+        f"  iat (issued): {iat} → {time.strftime('%Y-%m-%d %H:%M:%S IST', time.localtime(iat)) if iat else 'N/A'}\n"
+        f"  exp (expire): {exp} → {time.strftime('%Y-%m-%d %H:%M:%S IST', time.localtime(exp)) if exp else 'N/A'}\n"
+        f"  expired    : {now >= exp if exp else 'unknown'}\n"
+        f"  full_payload: {payload}"
+    )
+
 def get_login_url() -> str:
     """Generates the Fyers authorization URL."""
     try:
@@ -117,6 +153,8 @@ def save_access_token_direct(access_token: str) -> str:
             pass
 
         logger.info(f"✅ Fyers access token updated and saved to DB (date={now_date_str}) and {token_path}")
+        # Log full JWT payload so we can diagnose any -403 permission issues immediately
+        log_token_diagnostics(access_token)
         return access_token
     except Exception as e:
         logger.warning(f"Error saving Fyers access token: {e}")

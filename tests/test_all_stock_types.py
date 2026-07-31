@@ -57,11 +57,15 @@ def test_database_system_state_dict_serialization():
     assert 'isinstance(val_str, (dict, list))' in source or 'json.dumps' in source, "save_system_state must serialize dict/list objects to JSON strings"
 
 def test_fyers_symbol_miss_condition_does_not_break_on_403():
-    # Verify that code -403 does not trigger immediate candidate break on Attempt 1
+    # Verify that code -403 raises _FyersPermissionError (non-retryable sentinel)
+    # and does NOT call mark_fyers_invalid — it's a permission error, not an invalid symbol.
     import inspect
-    from data_providers.fyers_fetcher import FyersFetcher
+    from data_providers.fyers_fetcher import FyersFetcher, _FyersPermissionError
     source = inspect.getsource(FyersFetcher.get_ohlcv)
-    assert 'code in ("-403", "403")' not in source, "code -403 MUST NOT trigger candidate loop break on Attempt 1"
+    # Must have the sentinel exception path for -403
+    assert '_FyersPermissionError' in source, "get_ohlcv MUST raise _FyersPermissionError for code -403 (non-retryable)"
+    # The _FyersPermissionError handler must return None immediately (no mark_fyers_invalid)
+    assert 'except _FyersPermissionError' in source, "get_ohlcv MUST catch _FyersPermissionError and return None without mark_fyers_invalid"
 
 def test_fyers_permission_error_never_wipes_global_token():
     # Verify that single-stock permission errors NEVER wipe the global DB access token

@@ -23,6 +23,44 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 _last_auth_notif_time = 0
 
+# ── Process-lifetime permission error tracker ──────────────────────────────────
+# Tracks consecutive -403 permission errors across symbols. When all stocks fail
+# with -403 (Fyers Historical Data API permission not enabled), open the circuit
+# breaker to route all traffic immediately to Yahoo Finance.
+import threading as _threading
+_perm_error_lock = _threading.Lock()
+_perm_error_count = 0          # consecutive permission errors
+_perm_error_window_start = 0.0 # monotonic timestamp of first error in current window
+_PERM_ERROR_THRESHOLD = 5      # open circuit after this many -403s in 60s
+_PERM_ERROR_WINDOW = 60.0      # seconds
+
+def _record_permission_error():
+    """Records a per-symbol -403 permission error. Opens circuit breaker if all stocks are blocked."""
+    global _perm_error_count, _perm_error_window_start
+    with _perm_error_lock:
+        now = time.monotonic()
+        if now - _perm_error_window_start > _PERM_ERROR_WINDOW:
+            _perm_error_count = 0
+            _perm_error_window_start = now
+        _perm_error_count += 1
+        if _perm_error_count >= _PERM_ERROR_THRESHOLD:
+            # Trip circuit breaker — all Fyers historical data is permission-blocked
+            if _fyers_circuit_breaker.is_available():
+                for _ in range(_fyers_circuit_breaker.failure_threshold):
+                    _fyers_circuit_breaker.record_failure()
+                logger.error(
+                    f"🚫 [FYERS CIRCUIT OPEN] {_perm_error_count} consecutive -403 permission errors detected. "
+                    "Fyers Historical Data API permission is NOT enabled on your Fyers app. "
+                    "Go to developer.fyers.in → App settings → enable 'Historical Data' → regenerate token. "
+                    "Routing ALL traffic to Yahoo Finance fallback for 10 minutes."
+                )
+
+def _reset_permission_error_counter():
+    global _perm_error_count, _perm_error_window_start
+    with _perm_error_lock:
+        _perm_error_count = 0
+        _perm_error_window_start = 0.0
+
 class RateLimiter:
     """Thread-safe rate limiter to space requests and prevent HTTP 429 rate limit errors."""
     def __init__(self, max_per_second: float):
@@ -77,6 +115,18 @@ class FyersCircuitBreaker:
             self.is_open = False
 
 _fyers_circuit_breaker = FyersCircuitBreaker(failure_threshold=15, reset_after_seconds=600)
+
+
+class _FyersPermissionError(Exception):
+    """
+    Sentinel exception for Fyers code -403 (permission not enabled on app).
+    Caught separately to:
+    - Skip all retries immediately (retrying will never succeed)
+    - Skip all candidate variants (all will get same -403)
+    - Skip mark_fyers_invalid (symbol IS valid, it's an app permission issue)
+    - Increment permission error counter for mass-403 circuit breaker detection
+    """
+    pass
 
 
 class FyersFetcher(DataFetcher):
@@ -444,8 +494,18 @@ class FyersFetcher(DataFetcher):
                         else:
                             logger.warning(f"Fyers API warning for {cand_symbol}: code={code}, message={error_msg}, full_response={response}")
                         
-                        if code in ["494", "-401", "401", "-16", "-15"] or any(k in error_msg.lower() for k in ("authenticate", "permission required", "regenerate access token")):
+                        # ── PERMISSION ERROR (-403): Non-retryable. Break immediately. ───────────
+                        # code -403 = Fyers Historical Data API permission not enabled on app.
+                        # Retrying is futile — will never succeed until app permissions are fixed.
+                        # Do NOT mark symbol as INVALID (it IS a valid symbol, just blocked globally).
+                        if code in ("-403", "403") or any(k in error_msg.lower() for k in ("permission required", "regenerate access token")):
                             logger.error(f"🚫 Fyers auth/permission error for {cand_symbol} (code {code}): {error_msg}")
+                            _record_permission_error()
+                            # Raise a sentinel that the outer loop catches to skip mark_fyers_invalid
+                            raise _FyersPermissionError(f"Fyers permission error for {cand_symbol} (code {code})")
+
+                        if code in ["494", "-401", "401", "-16", "-15"] or "authenticate" in error_msg.lower():
+                            logger.error(f"🚫 Fyers auth error for {cand_symbol} (code {code}): {error_msg}")
                             raise ValueError(f"Fyers auth/permission error for {cand_symbol} (code {code}): {error_msg}")
                             
                         raise ValueError(f"Fyers history API error (code {code}): {error_msg}")
@@ -491,6 +551,12 @@ class FyersFetcher(DataFetcher):
                         return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
                     return MarketData(df, "Fyers", report, False, False, None)
                     
+                except _FyersPermissionError as perm_err:
+                    # -403: non-retryable, break entire candidate loop, return None immediately
+                    # Caller (price_cache.py) will route this symbol to Yahoo Finance fallback
+                    logger.debug(f"⏭️ Fyers permission-blocked for {cand_symbol} — skipping all candidates, routing to Yahoo.")
+                    return None
+
                 except Exception as e:
                     error_str = str(e)
                     
@@ -522,6 +588,8 @@ class FyersFetcher(DataFetcher):
                         logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
                         time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
 
+        # Only call mark_fyers_invalid for symbol resolution failures.
+        # Do NOT mark as invalid for -403 permission errors (handled above).
         logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Temporarily caching in 24h negative cache to avoid redundant retries today.")
         try:
             from data_providers.fyers_mapping_utils import mark_fyers_invalid
