@@ -91,3 +91,10 @@ def test_unified_fetcher_includes_bse_symbols_in_fyers_quotes():
     from data_providers.unified_fetcher import UnifiedFetcher
     source = inspect.getsource(UnifiedFetcher.fetch_live_quotes)
     assert 'norm.startswith("BSE:")' in source, "UnifiedFetcher MUST include BSE: symbols in Fyers quote batches"
+
+def test_index_symbol_permission_error_does_not_purge_token():
+    # Verify that index symbol history errors do NOT purge valid DB token
+    import inspect
+    from data_providers.fyers_fetcher import FyersFetcher
+    source = inspect.getsource(FyersFetcher.get_ohlcv)
+    assert '-INDEX' in source and 'not any' in source, "Fyers index history permission errors MUST NOT purge fyers_access_token in DB"

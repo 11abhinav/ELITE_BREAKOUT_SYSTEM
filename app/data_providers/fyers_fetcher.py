@@ -442,11 +442,13 @@ class FyersFetcher(DataFetcher):
                         
                         if code in ["494", "-401", "401", "-16", "-15"] or any(k in error_msg.lower() for k in ("authenticate", "permission required", "regenerate access token")):
                             logger.error(f"🚫 Fyers auth/permission error for {cand_symbol} (code {code}): {error_msg}")
-                            try:
-                                from database import save_system_state
-                                save_system_state("fyers_access_token", "")
-                            except Exception:
-                                pass
+                            # Do NOT wipe valid DB token on index symbols (e.g. NSE:NIFTY50-INDEX) as Fyers API restricts Index History
+                            if not any(cand_symbol.endswith(sfx) or sfx in cand_symbol for sfx in ("-INDEX", "^NSEI", "^NSEBANK", "^BSESN")):
+                                try:
+                                    from database import save_system_state
+                                    save_system_state("fyers_access_token", "")
+                                except Exception:
+                                    pass
                             raise ValueError("Could not authenticate the user")
                             
                         raise ValueError(f"Fyers history API error (code {code}): {error_msg}")
