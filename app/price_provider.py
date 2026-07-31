@@ -253,11 +253,20 @@ class PriceProvider:
         return result
 
     def _normalize_symbol(self, symbol: str) -> str:
+        upper_sym = symbol.strip().upper()
+        
+        # Map index symbols to YFinance ticker format
+        if upper_sym in ("NIFTY 50", "NIFTY", "NIFTY-50", "^NSEI", "NSEI"):
+            return "^NSEI"
+        if upper_sym in ("BANKNIFTY", "^NSEBANK", "NSEBANK"):
+            return "^NSEBANK"
+        if upper_sym in ("SENSEX", "^BSESN", "BSESN", "BSE:SENSEX-INDEX"):
+            return "^BSESN"
+
         # Check DB mappings first
         try:
             from bse_mapping_utils import load_bse_mappings
             mappings = load_bse_mappings()
-            upper_sym = symbol.strip().upper()
             if upper_sym in mappings:
                 return mappings[upper_sym]
             if upper_sym.endswith(".NS") and upper_sym[:-3] in mappings:

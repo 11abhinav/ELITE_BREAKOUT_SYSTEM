@@ -224,10 +224,10 @@ class FyersFetcher(DataFetcher):
         BSE Mainboard (BSE:SYMBOL-EQ, BSE:SYMBOL), and BSE Scrip Codes (BSE:5XXXXX-EQ).
         Prioritizes BSE series for BSE-preference symbols (.BO, BSE:, or BSE-mapped).
         """
-        if not symbol:
-            return []
-
         raw = str(symbol).strip().upper()
+        norm = self._normalize_symbol(raw)
+        if norm and norm.endswith("-INDEX"):
+            return [norm]
         _ampersand_map = {
             "M_M": "M&M", "M-M": "M&M",
             "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",

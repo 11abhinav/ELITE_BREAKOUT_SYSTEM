@@ -54,6 +54,17 @@ TEST_STOCKS = [
     ("M_M", "Special Format (Ampersand M&M)"),
     ("L_TFH", "Special Format (Ampersand L&TFH)"),
     ("500290", "Numeric BSE Scrip Code"),
+
+    # 6. Index Symbols & Market Benchmarks
+    ("NIFTY 50", "Index Symbol"),
+    ("BANKNIFTY", "Index Symbol"),
+    ("SENSEX", "Index Symbol"),
+    ("^NSEI", "Index Symbol"),
+    ("^BSESN", "Index Symbol"),
+
+    # 7. BSE-Only & Special Exchange Symbols
+    ("SIKA", "BSE-Only Equity"),
+    ("NSDL", "BSE-Only Equity (Scrip Override)"),
 ]
 
 def run_proof_audit():
