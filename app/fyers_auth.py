@@ -277,7 +277,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v12.0_PERSISTENT_DB_TOKEN_RESTORE] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v13.0_SINGLE_STARTUP_AUTOLOGIN_LOCK] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -494,13 +494,13 @@ def dispatch_fyers_reauth_notification(reason: str = "Fyers API access token is 
         logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
 
 
-_token_lock = threading.Lock()
+_autologin_attempted_date = None
 
 def get_access_token() -> str:
-    """Retrieves the access token prioritizing DB, then local file, then auto-login."""
+    """Retrieves the access token prioritizing DB, then local file, then ONE-TIME auto-login per day."""
     from zoneinfo import ZoneInfo
     from datetime import datetime as _dt
-    global _cached_token, _token_date
+    global _cached_token, _token_date, _autologin_attempted_date
     now_date = str(_dt.now(ZoneInfo('Asia/Kolkata')).date())
 
     with _token_lock:
@@ -543,15 +543,23 @@ def get_access_token() -> str:
             except Exception as e:
                 logger.warning(f"Error reading Fyers token file: {e}")
 
-        # 3. Try auto_login if no valid token for today
-        logger.info("No valid Fyers token for today found in DB or locally. Attempting headless auto-login...")
+        # 3. Suppress repeat auto-login attempts if already tried today and failed
+        if _autologin_attempted_date == now_date:
+            logger.error(f"❌ [FYERS AUTH ERROR] Fyers token missing for today ({now_date}). Auto-login was already attempted on startup and failed. Please authenticate via /fyers/login.")
+            return None
+
+        # 4. Attempt auto-login ONCE for today
+        _autologin_attempted_date = now_date
+        logger.info(f"No valid Fyers token for today found in DB or locally. Attempting ONE-TIME ScraperAPI auto-login for today ({now_date})...")
         token = auto_login()
         if token:
             _cached_token = token
             _token_date = now_date
             return token
 
-        dispatch_fyers_reauth_notification("Fyers access token is missing or expired for today.")
+        # Dispatch clickable admin notification ONCE and return None
+        dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
+        logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed on startup. Lock set for today ({now_date}) — please authenticate via /fyers/login.")
         return None
 
 def clear_token():
