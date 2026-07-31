@@ -185,6 +185,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
+            logger.info("🔑 [VERSION: FYERS_AUTH_v3.5_824aca8e] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
