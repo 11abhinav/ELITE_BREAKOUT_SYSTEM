@@ -439,7 +439,7 @@ class AutoSwitchingFetcher(DataFetcher):
         if clean.endswith(".BO"): clean = clean[:-3]
         
         ts = _fyers_degradation_cache.get(clean)
-        if ts and (time.time() - ts < 86400):  # 24-hour degradation cooldown
+        if ts and (time.time() - ts < 300):  # 5-minute degradation cooldown for temporary errors
             return True
         elif ts:
             _fyers_degradation_cache.pop(clean, None)

@@ -105,3 +105,10 @@ def test_fyers_cont_flag_omitted_for_equity_spot():
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
     assert '-FUT' in source and '-OPT' in source, "cont_flag MUST be restricted to derivatives to avoid Fyers code -403 permission errors"
+
+def test_fyers_token_db_persistence_and_expiration_check():
+    # Verify that get_access_token checks is_token_expired and loads DB token resiliently
+    import inspect
+    import fyers_auth
+    source = inspect.getsource(fyers_auth.get_access_token)
+    assert 'is_token_expired' in source and 'saved_date == now_date' in source, "get_access_token MUST check token expiration to ensure DB token loading on redeployment"

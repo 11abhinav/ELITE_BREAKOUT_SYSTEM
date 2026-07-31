@@ -27,6 +27,26 @@ def get_session_model(client_id: str = None) -> fyersModel.SessionModel:
         grant_type="authorization_code"
     )
 
+def is_token_expired(token: str) -> bool:
+    """Decodes JWT payload without verification to check if token is expired."""
+    if not token or not token.startswith("eyJ"):
+        return True
+    try:
+        import base64, json, time
+        parts = token.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1]
+            rem = len(payload_b64) % 4
+            if rem > 0:
+                payload_b64 += "=" * (4 - rem)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            exp = payload.get("exp")
+            if exp and isinstance(exp, (int, float)):
+                return time.time() >= (exp - 60)
+    except Exception:
+        pass
+    return False
+
 def get_token_app_id(token: str) -> Optional[str]:
     """Helper to decode JWT payload without verification to extract app_id or client_id claim."""
     if not token or not token.startswith("eyJ"):
@@ -86,6 +106,13 @@ def save_access_token_direct(access_token: str) -> str:
             _cached_token = access_token
             _token_date = now_date_str
             _autologin_attempted_date = None
+
+        try:
+            from data_provider import _fyers_degradation_cache
+            _fyers_degradation_cache.clear()
+            logger.info("🧹 Cleared Fyers degradation cache on token update.")
+        except Exception:
+            pass
 
         logger.info(f"✅ Fyers access token updated and saved to DB (date={now_date_str}) and {token_path}")
         return access_token
@@ -280,7 +307,7 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v40.0_PERMANENT_DB_TOKEN_PERISTENCE_STABLE] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v41.0_JWT_EXPIRATION_VALIDATED_DB_PERSISTENCE_STABLE] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
@@ -548,7 +575,7 @@ def get_access_token() -> str:
                 else:
                     token = db_state.strip()
 
-            if token and saved_date == now_date:
+            if token and (saved_date == now_date or not is_token_expired(token)):
                 logger.info(f"⚡ [DB CACHE HIT] Loaded active Fyers access token for today ({now_date}) from PostgreSQL!")
                 _cached_token = token
                 _token_date = now_date
