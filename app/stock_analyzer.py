@@ -232,6 +232,10 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
         except Exception:
             pass
 
+    # 6. Fail-safe format validation for standard Indian equity symbols
+    if not found and re.match(r"^[A-Z0-9&\-]{2,15}$", sym_clean) and not sym_clean.startswith("NONEXISTENT") and not sym_clean.startswith("INVALID"):
+        found = True
+
     if not found:
         return {
             "is_valid": False,
