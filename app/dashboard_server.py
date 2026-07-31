@@ -893,7 +893,9 @@ def fyers_callback():
         
     try:
         from fyers_auth import save_access_token
-        save_access_token(auth_code)
+        saved_token = save_access_token(auth_code)
+        if not saved_token:
+            return "❌ Fyers token exchange failed. Please verify your Fyers API key and secret in environment settings.", 400
         
         # Display elegant responsive confirmation page
         return """
