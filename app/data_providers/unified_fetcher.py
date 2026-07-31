@@ -63,7 +63,13 @@ class UnifiedFetcher:
                     # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Rate-limited yf.download with strict timeouts & single-threading
                     yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
                     try:
-                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
+                        session_kwargs = {}
+                        try:
+                            from curl_cffi import requests as cffi_requests
+                            session_kwargs["session"] = cffi_requests.Session(impersonate="chrome")
+                        except Exception:
+                            pass
+                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60, **session_kwargs)
                     finally:
                         yf_release()
                         
@@ -99,7 +105,13 @@ class UnifiedFetcher:
                     logger.info(f"🔄 [BSE] Falling back to {yf_symbol}")
                     yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
                     try:
-                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
+                        session_kwargs = {}
+                        try:
+                            from curl_cffi import requests as cffi_requests
+                            session_kwargs["session"] = cffi_requests.Session(impersonate="chrome")
+                        except Exception:
+                            pass
+                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60, **session_kwargs)
                     finally:
                         yf_release()
 
@@ -220,7 +232,13 @@ class UnifiedFetcher:
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:
-                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
+                                session_kwargs = {}
+                                try:
+                                    from curl_cffi import requests as cffi_requests
+                                    session_kwargs["session"] = cffi_requests.Session(impersonate="chrome")
+                                except Exception:
+                                    pass
+                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60, **session_kwargs)
                             finally:
                                 yf_release()
                                 
@@ -273,7 +291,13 @@ class UnifiedFetcher:
                             try:
                                 yf_acquire(context="UnifiedFetcher.fetch_live_quotes | BSE")
                                 try:
-                                    df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
+                                    session_kwargs = {}
+                                    try:
+                                        from curl_cffi import requests as cffi_requests
+                                        session_kwargs["session"] = cffi_requests.Session(impersonate="chrome")
+                                    except Exception:
+                                        pass
+                                    df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60, **session_kwargs)
                                 finally:
                                     yf_release()
 

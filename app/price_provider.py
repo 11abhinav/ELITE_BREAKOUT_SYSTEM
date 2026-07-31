@@ -161,11 +161,18 @@ class PriceProvider:
 
             tickers_arg = " ".join(tickers)
             try:
+                session_kwargs = {}
+                try:
+                    from curl_cffi import requests as cffi_requests
+                    session_kwargs["session"] = cffi_requests.Session(impersonate="chrome")
+                except Exception:
+                    pass
+
                 start_time = time.monotonic()
                 if start and end:
-                    df = yf.download(tickers=tickers_arg, start=start, end=end, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True)
+                    df = yf.download(tickers=tickers_arg, start=start, end=end, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True, **session_kwargs)
                 else:
-                    df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True)
+                    df = yf.download(tickers=tickers_arg, period=period, interval=interval, group_by='ticker', threads=self.yf_threads, progress=False, timeout=60, auto_adjust=True, **session_kwargs)
                 
                 duration = time.monotonic() - start_time
                 bytes_dl = df.memory_usage(deep=False).sum() if (pd is not None and hasattr(df, 'memory_usage')) else 0
