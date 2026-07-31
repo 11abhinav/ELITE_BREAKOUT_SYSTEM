@@ -431,8 +431,10 @@ class FyersFetcher(DataFetcher):
                     if response.get("s") != "ok":
                         error_msg = str(response.get("message", "Unknown error"))
                         code = str(response.get("code", "NO_CODE"))
-                        if "Invalid symbol provided" in error_msg or code in ("-403", "403") or "Additional permission required" in error_msg:
-                            logger.info(f"Fyers API symbol miss/unsupported series for {cand_symbol} (code {code}) - trying next candidate")
+                        
+                        # Only break candidate loop if Fyers explicitly returns non-existent symbol error
+                        if "invalid symbol" in error_msg.lower() or "invalid input" in error_msg.lower():
+                            logger.info(f"Fyers API symbol miss for {cand_symbol} ({error_msg}) - trying next candidate")
                             tried_suffixes.add(cand_symbol)
                             break
                         else:
@@ -442,7 +444,7 @@ class FyersFetcher(DataFetcher):
                             logger.warning(f"Fyers auth response warning for {cand_symbol} (code {code}): {error_msg}")
                             raise ValueError("Could not authenticate the user")
                             
-                        raise ValueError(f"Fyers history API error: {error_msg}")
+                        raise ValueError(f"Fyers history API error (code {code}): {error_msg}")
                         
                     candles = response.get("candles", [])
                     if not candles:

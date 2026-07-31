@@ -56,3 +56,10 @@ def test_database_system_state_dict_serialization():
     import database
     source = inspect.getsource(database.save_system_state)
     assert 'isinstance(val_str, (dict, list))' in source or 'json.dumps' in source, "save_system_state must serialize dict/list objects to JSON strings"
+
+def test_fyers_symbol_miss_condition_does_not_break_on_403():
+    # Verify that code -403 does not trigger immediate candidate break on Attempt 1
+    import inspect
+    from data_providers.fyers_fetcher import FyersFetcher
+    source = inspect.getsource(FyersFetcher.get_ohlcv)
+    assert 'code in ("-403", "403")' not in source, "code -403 MUST NOT trigger candidate loop break on Attempt 1"
