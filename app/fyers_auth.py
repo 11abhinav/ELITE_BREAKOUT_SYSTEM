@@ -259,8 +259,26 @@ def auto_login() -> Optional[str]:
                 logger.error("Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
-            logger.info("Fyers login Step 5: Generating access token...")
-            return save_access_token(auth_code)
+            logger.info("Fyers login Step 5: Exchanging Step 4 auth code for real long-lived access token via generate_token()...")
+            # CRITICAL: Do NOT call save_access_token(auth_code) here.
+            # The Step 4 'auth' JWT from Fyers has sub='access_token' which fools is_direct_access_token()
+            # into saving it directly — but this JWT expires in only 5 MINUTES (exp - iat = 300s).
+            # It is an OAuth exchange token, not the final trading access token.
+            # We MUST call generate_token() to exchange it for the real all-day access token.
+            try:
+                session = get_session_model()
+                session.set_token(auth_code)
+                response = session.generate_token()
+                if response and isinstance(response, dict) and "access_token" in response:
+                    real_token = response["access_token"]
+                    logger.info("✅ Fyers headless login Step 5: generate_token() exchange succeeded. Saving real access token.")
+                    return save_access_token_direct(real_token)
+                else:
+                    logger.warning(f"Fyers generate_token() returned unexpected response: {response}. Saving auth_code directly as fallback.")
+                    return save_access_token_direct(auth_code)
+            except Exception as exc:
+                logger.error(f"Fyers generate_token() exchange failed: {exc}. Saving auth_code directly as fallback.")
+                return save_access_token_direct(auth_code)
             
         except Exception as e:
             import traceback
