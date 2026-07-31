@@ -148,6 +148,12 @@ def save_access_token_direct(access_token: str) -> str:
             _fyers_degradation_cache.clear()
             from data_providers.fyers_mapping_utils import clear_all_fyers_invalid
             clear_all_fyers_invalid()
+            try:
+                from data_providers.fyers_fetcher import _fyers_circuit_breaker, _reset_permission_error_counter
+                _fyers_circuit_breaker.reset()
+                _reset_permission_error_counter()
+            except ImportError:
+                pass
             logger.info("🧹 Cleared Fyers degradation & invalid symbol blacklists on token update.")
         except Exception:
             pass
