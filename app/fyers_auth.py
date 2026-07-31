@@ -125,6 +125,40 @@ def save_access_token(auth_code: str) -> str:
         logger.warning(f"Error saving Fyers access token: {e}")
         return None
 
+def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
+    """Executes a POST request to Fyers API. If Cloudflare WAF blocks direct IP, falls back to ScraperAPI residential proxy pool."""
+    import urllib.parse
+    headers = headers or {}
+    res = None
+    
+    # 1. Direct Connection Attempt
+    try:
+        res = session.post(target_url, json=payload, headers=headers, timeout=10)
+        body_text = res.text.strip()
+        if res.status_code == 200 and not body_text.startswith("<!doctype") and not body_text.startswith("<html") and "CF-1" not in body_text and "Anomaly Detection" not in body_text:
+            return res
+        logger.warning(f"⚠️ Direct request to {target_url} returned Status {res.status_code} / Cloudflare WAF challenge. Attempting ScraperAPI proxy fallback...")
+    except Exception as direct_err:
+        logger.warning(f"⚠️ Direct connection to {target_url} failed: {direct_err}. Attempting ScraperAPI proxy fallback...")
+
+    # 2. ScraperAPI Proxy Fallback (Bypasses Cloudflare WAF using residential proxy pool)
+    scraper_raw = os.environ.get("SCRAPERAPI_KEY", "")
+    if scraper_raw:
+        keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
+        for scraper_key in keys[:3]:
+            try:
+                scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={urllib.parse.quote(target_url)}"
+                logger.info(f"🌐 Routing request via ScraperAPI Proxy pool to bypass Cloudflare WAF for {target_url}...")
+                res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=25)
+                body_scraper = res_scraper.text.strip()
+                if res_scraper.status_code == 200 and not body_scraper.startswith("<!doctype") and not body_scraper.startswith("<html"):
+                    logger.info(f"✅ ScraperAPI Proxy successfully bypassed Cloudflare WAF for {target_url}!")
+                    return res_scraper
+            except Exception as s_err:
+                logger.warning(f"ScraperAPI proxy key attempt failed: {s_err}")
+                
+    return res
+
 _auto_login_lock = threading.Lock()
 _last_auto_login_time = 0.0
 
@@ -134,8 +168,9 @@ def auto_login() -> Optional[str]:
     import time
     with _auto_login_lock:
         now_ts = time.time()
-        if now_ts - _last_auto_login_time < 60.0 and _cached_token:
-            logger.info("⏳ Skipping duplicate Fyers auto-login (ran within 60s cooldown). Returning active cached token.")
+        # Cooldown guard: Prevent sending repeated automated OTP requests within 300 seconds (5 mins)
+        if now_ts - _last_auto_login_time < 300.0 and _last_auto_login_time > 0.0:
+            logger.warning(f"⏳ Fyers auto-login attempted within 5-minute cooldown ({int(now_ts - _last_auto_login_time)}s ago). Skipping to prevent Cloudflare IP block.")
             return _cached_token
 
         _last_auto_login_time = now_ts
@@ -147,37 +182,17 @@ def auto_login() -> Optional[str]:
             user_id = os.environ.get("FYERS_USER_ID")
             redirect_uri = config.FYERS_REDIRECT_URL
             
-            # Diagnostic parameter validation logs (masking sensitive values for security)
-            def _mask(val):
-                if not val:
-                    return "❌ MISSING"
-                val_str = str(val).strip()
-                if len(val_str) <= 4:
-                    return f"✅ SET (len={len(val_str)})"
-                return f"✅ SET (prefix='{val_str[:2]}...', suffix='...{val_str[-2:]}', len={len(val_str)})"
-
+            # Diagnostic parameter validation logs
             logger.info("🔍 [FYERS ENV PARAMETER DIAGNOSTIC]:")
-            logger.info(f"  • FYERS_CLIENT_ID: {_mask(client_id)}")
-            logger.info(f"  • FYERS_SECRET_KEY: {_mask(secret_key)}")
-            logger.info(f"  • FYERS_USER_ID: {_mask(user_id)}")
-            logger.info(f"  • FYERS_PIN: {_mask(pin)}")
-            logger.info(f"  • FYERS_TOTP_SECRET: {_mask(totp_secret)}")
-            logger.info(f"  • FYERS_REDIRECT_URL: {redirect_uri or '❌ MISSING'}")
-
-            if totp_secret:
-                try:
-                    import pyotp
-                    _test_totp = pyotp.TOTP(totp_secret.strip()).now()
-                    logger.info(f"  ✅ FYERS_TOTP_SECRET valid base32 key (generated test TOTP len={len(_test_totp)})")
-                except Exception as totp_err:
-                    logger.error(f"  ❌ FYERS_TOTP_SECRET IS INVALID BASE32 KEY: {totp_err}")
-
-            if client_id:
-                if not client_id.strip().endswith("-100"):
-                    logger.warning(f"  ⚠️ FYERS_CLIENT_ID ('{client_id}') does NOT end with '-100' suffix required by Fyers API v3.")
+            logger.info(f"  • FYERS_CLIENT_ID: {'✅ SET' if client_id else '❌ MISSING'} (prefix='{client_id[:2] if client_id else ''}...', suffix='...{client_id[-2:] if client_id else ''}', len={len(client_id) if client_id else 0})")
+            logger.info(f"  • FYERS_SECRET_KEY: {'✅ SET' if secret_key else '❌ MISSING'} (prefix='{secret_key[:2] if secret_key else ''}...', suffix='...{secret_key[-2:] if secret_key else ''}', len={len(secret_key) if secret_key else 0})")
+            logger.info(f"  • FYERS_USER_ID: {'✅ SET' if user_id else '❌ MISSING'} (prefix='{user_id[:2] if user_id else ''}...', suffix='...{user_id[-2:] if user_id else ''}', len={len(user_id) if user_id else 0})")
+            logger.info(f"  • FYERS_PIN: {'✅ SET' if pin else '❌ MISSING'} (len={len(pin) if pin else 0})")
+            logger.info(f"  • FYERS_TOTP_SECRET: {'✅ SET' if totp_secret else '❌ MISSING'} (prefix='{totp_secret[:2] if totp_secret else ''}...', suffix='...{totp_secret[-2:] if totp_secret else ''}', len={len(totp_secret) if totp_secret else 0})")
+            logger.info(f"  • FYERS_REDIRECT_URL: {redirect_uri}")
 
             if not all([client_id, secret_key, totp_secret, pin, user_id]):
-                logger.error(f"Skipping headless Fyers login due to missing credentials. Check env vars: CLIENT_ID={bool(client_id)}, SECRET={bool(secret_key)}, TOTP={bool(totp_secret)}, PIN={bool(pin)}, USER_ID={bool(user_id)}")
+                logger.error("Skipping headless Fyers login due to missing credentials. Check env vars.")
                 return None
                 
             import pyotp
@@ -185,20 +200,23 @@ def auto_login() -> Optional[str]:
             import requests
             import urllib.parse
             
-            logger.info("🔑 [VERSION: FYERS_AUTH_v3.8_b94741c] Starting Fyers headless OAuth auto-login flow...")
+            logger.info("🔑 [VERSION: FYERS_AUTH_v4.5_SCRAPER_PROXY_BYPASS] Starting Fyers headless OAuth auto-login flow...")
             logger.info("Fyers login Step 1: Sending login OTP request...")
             session = requests.Session()
             payload = {"fy_id": base64.b64encode(f"{user_id.strip()}".encode()).decode(), "app_id": "2"}
-            res_obj = session.post("https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", json=payload)
+            res_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2", payload)
+            
+            error_text = res_obj.text.strip()
+            if res_obj.status_code != 200 or error_text.startswith("<!doctype") or error_text.startswith("<html") or "CF-1" in error_text or "Anomaly Detection" in error_text:
+                logger.error(f"🚫 Fyers Step 1 blocked by Cloudflare WAF / IP Rate-Limit (Status {res_obj.status_code}). Response: {error_text[:250]}...")
+                logger.error("👉 ACTION REQUIRED: Authenticate manually via Dashboard UI at https://elitebreakout.duckdns.org/fyers/login or wait 15 mins for Cloudflare IP reset.")
+                return None
+
             try:
                 res = res_obj.json()
                 logger.info(f"Fyers Step 1 response payload: {res}")
             except ValueError:
-                error_text = res_obj.text
-                if "CF-1" in error_text or "Anomaly Detection" in error_text:
-                    logger.error("Fyers auto-login blocked by Cloudflare (Datacenter IP detected). You MUST authenticate manually via the Dashboard UI today.")
-                else:
-                    logger.error(f"Fyers Step 1 failed, invalid JSON response: {error_text[:200]}...")
+                logger.error(f"Fyers Step 1 invalid JSON response (Status {res_obj.status_code}): {error_text[:250]}...")
                 return None
             
             if 'request_key' not in res:
@@ -215,19 +233,30 @@ def auto_login() -> Optional[str]:
                 return None
                 
             payload2 = {"request_key": request_key, "otp": totp}
-            res2 = session.post("https://api-t2.fyers.in/vagator/v2/verify_otp", json=payload2).json()
-            logger.info(f"Fyers Step 2 response payload: {res2}")
-            
+            res2_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_totp_v2", payload2)
+            try:
+                res2 = res2_obj.json()
+                logger.info(f"Fyers Step 2 response payload: {res2}")
+            except ValueError:
+                logger.error(f"Fyers Step 2 non-JSON response (Status {res2_obj.status_code}): {res2_obj.text[:250]}...")
+                return None
+                
             if 'request_key' not in res2:
                 logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
                 return None
-            request_key = res2["request_key"]
+            request_key2 = res2["request_key"]
             
             logger.info("Fyers login Step 3: Verifying PIN...")
-            payload3 = {"request_key": request_key, "identity_type": "pin", "identifier": base64.b64encode(f"{pin.strip()}".encode()).decode()}
-            res3 = session.post("https://api-t2.fyers.in/vagator/v2/verify_pin_v2", json=payload3).json()
-            logger.info(f"Fyers Step 3 response status: {res3.get('s')}, code: {res3.get('code')}")
-            
+            payload3 = {"request_key": request_key2, "identity_type": "pin", "identifier": base64.b64encode(f"{pin.strip()}".encode()).decode()}
+            res3_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_pin_v2", payload3)
+            try:
+                res3 = res3_obj.json()
+                logger.info(f"Fyers Step 3 response status: {res3.get('s')}, code: {res3.get('code')}")
+            except ValueError:
+                logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code}): {res3_obj.text[:250]}...")
+                return None3_obj.text[:250]}...")
+                return None
+                
             if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
                 logger.error(f"Fyers Step 3 PIN verification failed: {res3}")
                 return None
@@ -242,8 +271,8 @@ def auto_login() -> Optional[str]:
             headers = {"Authorization": f"Bearer {auth_token}"}
             auth_code = None
             successful_app_id = None
+            step4_jwt = None
             
-            # Try full client_id first (e.g. M0SD1EXNYU-100) so token app_id claim matches FyersModel client_id
             for cand_app_id in (target_app_id, app_id_clean):
                 logger.info(f"Fyers login Step 4: Requesting auth code for App ID '{cand_app_id}'...")
                 payload4 = {
@@ -258,9 +287,17 @@ def auto_login() -> Optional[str]:
                     "response_type": "code",
                     "create_cookie": True
                 }
-                res4 = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers).json()
-                logger.info(f"Fyers Step 4 raw response for '{cand_app_id}': {res4}")
+                res4_obj = session.post("https://api-t1.fyers.in/api/v3/token", json=payload4, headers=headers)
+                try:
+                    res4 = res4_obj.json()
+                    logger.info(f"Fyers Step 4 raw response for '{cand_app_id}': {res4}")
+                except ValueError:
+                    logger.error(f"Fyers Step 4 non-JSON response ({cand_app_id}, Status {res4_obj.status_code}): {res4_obj.text[:250]}...")
+                    continue
                 
+                if isinstance(res4.get('data'), dict) and res4['data'].get('auth'):
+                    step4_jwt = res4['data']['auth']
+
                 url = res4.get('Url') or res4.get('redirectUrl') or (isinstance(res4.get('data'), dict) and res4['data'].get('redirectUrl'))
                 if url:
                     parsed = urllib.parse.urlparse(url)
@@ -268,12 +305,10 @@ def auto_login() -> Optional[str]:
                     auth_code = qs.get('auth_code', [None])[0]
 
                 # Step 4b: If direct token response did NOT return ?auth_code= in redirectUrl,
-                # follow the standard OAuth 2.0 authorize redirect endpoint to get the real auth_code
-                if not auth_code:
-                    step4_jwt = isinstance(res4.get('data'), dict) and res4['data'].get('auth')
-                    auth_headers = {"Authorization": f"Bearer {step4_jwt}"} if step4_jwt else headers
+                # test generate-authcode via GET and POST
+                if not auth_code and step4_jwt:
+                    auth_headers = {"Authorization": f"Bearer {step4_jwt}"}
                     
-                    # Try target_app_id (e.g. M0SD1EXNYU-100) first for generate-authcode endpoint
                     for client_id_for_4b in (target_app_id, cand_app_id):
                         auth_params = {
                             "client_id": client_id_for_4b,
@@ -288,60 +323,41 @@ def auto_login() -> Optional[str]:
                         is_redirect = res_redirect.status_code in (301, 302, 303, 307, 308)
                         redirect_location = res_redirect.headers.get('Location') or res_redirect.headers.get('location')
                         
-                        logger.info(f"Fyers Step 4b Trace ({client_id_for_4b}): Status={res_redirect.status_code} | IsRedirect={is_redirect} | LocationHeader={'YES' if redirect_location else 'NO'}")
-                        
                         if res_redirect.status_code == 200:
                             try:
                                 json_200 = res_redirect.json()
-                                logger.info(f"Fyers Step 4b HTTP 200 JSON payload ({client_id_for_4b}): {json_200}")
                                 target_url_200 = (json_200.get('Url') or json_200.get('redirectUrl') or 
                                                  (isinstance(json_200.get('data'), dict) and (json_200['data'].get('redirectUrl') or json_200['data'].get('Url'))))
                                 if target_url_200:
                                     parsed_200 = urllib.parse.urlparse(target_url_200)
                                     qs_200 = urllib.parse.parse_qs(parsed_200.query)
-                                    qs_frag_200 = urllib.parse.parse_qs(parsed_200.fragment)
-                                    codes = (qs_200.get('auth_code') or qs_200.get('auth') or qs_200.get('code') or
-                                             qs_frag_200.get('auth_code') or qs_frag_200.get('auth') or qs_frag_200.get('code'))
+                                    codes = qs_200.get('auth_code') or qs_200.get('auth') or qs_200.get('code')
                                     if codes:
                                         auth_code = codes[0]
                                         successful_app_id = client_id_for_4b
                                         logger.info(f"✅ Fyers Step 4b Trace (HTTP 200 JSON): auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
                                         break
-                            except Exception as json_err:
+                            except Exception:
                                 logger.warning(f"Fyers Step 4b HTTP 200 non-JSON text ({client_id_for_4b}): {res_redirect.text[:200]}")
                         elif is_redirect and redirect_location:
                             parsed_loc = urllib.parse.urlparse(redirect_location)
                             qs_loc = urllib.parse.parse_qs(parsed_loc.query)
-                            qs_frag = urllib.parse.parse_qs(parsed_loc.fragment)
-                            
-                            logger.info(f"Fyers Step 4b Location breakdown ({client_id_for_4b}): host={parsed_loc.netloc}, path={parsed_loc.path}, query_keys={list(qs_loc.keys())}, frag_keys={list(qs_frag.keys())}")
-                            
-                            codes = (qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code') or
-                                     qs_frag.get('auth_code') or qs_frag.get('auth') or qs_frag.get('code'))
+                            codes = qs_loc.get('auth_code') or qs_loc.get('auth') or qs_loc.get('code')
                             if codes:
                                 auth_code = codes[0]
                                 successful_app_id = client_id_for_4b
-                                logger.info(f"✅ Fyers Step 4b Trace (302 Location): auth_code Present=YES | Length={len(auth_code)} | client_id='{successful_app_id}'")
                                 break
-                            else:
-                                logger.error(f"Fyers Step 4b Location missing auth_code ({client_id_for_4b}). Full query='{parsed_loc.query}', fragment='{parsed_loc.fragment}'")
-
-                if not auth_code and step4_jwt:
-                    auth_code = step4_jwt
-                    successful_app_id = target_app_id
-                    logger.info(f"ℹ️ Fyers Step 4: Using Step 4 session JWT (len={len(auth_code)}) for Step 5 verification (client_id='{successful_app_id}')...")
 
                 if auth_code:
                     if not successful_app_id:
                         successful_app_id = cand_app_id
-                    logger.info(f"✅ Fyers Step 4 successfully obtained credential token for App ID '{successful_app_id}'. Proceeding immediately to Step 5 verification...")
                     break
 
             if not auth_code:
                 logger.error("❌ Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
-            logger.info(f"Fyers login Step 5: Exchanging/Validating credential token (len={len(auth_code)}) for all-day access token (client_id='{successful_app_id}')...")
+            logger.info(f"Fyers login Step 5: Exchanging/Validating credential token for all-day access token (client_id='{successful_app_id}')...")
             try:
                 session_m = get_session_model(client_id=successful_app_id)
                 session_m.set_token(auth_code)
@@ -349,23 +365,9 @@ def auto_login() -> Optional[str]:
                 
                 if response and isinstance(response, dict) and "access_token" in response:
                     real_token = response["access_token"]
-                    logger.info(f"✅ Fyers Step 5: generate_token() SUCCESS | AccessToken len={len(real_token)} | Saving to DB & local cache.")
                     return save_access_token_direct(real_token)
                 else:
-                    logger.info(f"Fyers Step 5: generate_token() returned {response}. Testing token directly against live Fyers API profile...")
-                    try:
-                        from fyers_apiv3 import fyersModel
-                        for test_client_id in (successful_app_id, app_id_clean, target_app_id):
-                            f_client = fyersModel.FyersModel(client_id=test_client_id, is_async=False, token=auth_code, log_path=os.getcwd())
-                            profile_res = f_client.get_profile()
-                            logger.info(f"Fyers Step 5 Profile Test ({test_client_id}): {profile_res}")
-                            if profile_res and isinstance(profile_res, dict) and (profile_res.get('s') == 'ok' or profile_res.get('code') == 200 or 'data' in profile_res):
-                                logger.info(f"✅ Fyers Step 5: Direct session token verified live with Fyers API profile for client_id '{test_client_id}'! | AccessToken len={len(auth_code)} | Saving to DB & local cache.")
-                                return save_access_token_direct(auth_code)
-                    except Exception as prof_err:
-                        logger.error(f"Fyers Step 5 profile validation exception: {prof_err}")
-
-                    logger.error("❌ Fyers Step 5 token exchange and direct validation failed.")
+                    logger.error("❌ Fyers Step 5 token exchange failed.")
                     return None
             except Exception as exc:
                 logger.error(f"❌ Fyers Step 5 token exchange exception: {exc}")
