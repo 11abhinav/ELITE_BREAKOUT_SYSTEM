@@ -443,8 +443,8 @@ class FyersFetcher(DataFetcher):
                         if code in ["494", "-401", "401", "-16", "-15"] or any(k in error_msg.lower() for k in ("authenticate", "permission required", "regenerate access token")):
                             logger.error(f"🚫 Fyers auth/permission error for {cand_symbol} (code {code}): {error_msg}")
                             try:
-                                from database import delete_system_state
-                                delete_system_state("fyers_access_token")
+                                from database import save_system_state
+                                save_system_state("fyers_access_token", "")
                             except Exception:
                                 pass
                             raise ValueError("Could not authenticate the user")

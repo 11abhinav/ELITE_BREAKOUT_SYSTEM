@@ -65,8 +65,8 @@ def test_fyers_symbol_miss_condition_does_not_break_on_403():
     assert 'code in ("-403", "403")' not in source, "code -403 MUST NOT trigger candidate loop break on Attempt 1"
 
 def test_fyers_permission_error_triggers_token_invalidation():
-    # Verify that permission required error triggers delete_system_state for fyers_access_token
+    # Verify that permission required error triggers save_system_state for fyers_access_token
     import inspect
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
-    assert 'permission required' in source and 'delete_system_state' in source, "Fyers permission errors MUST invalidate fyers_access_token in DB"
+    assert 'permission required' in source and 'save_system_state' in source, "Fyers permission errors MUST invalidate fyers_access_token in DB"
