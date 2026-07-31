@@ -64,12 +64,12 @@ def test_fyers_symbol_miss_condition_does_not_break_on_403():
     source = inspect.getsource(FyersFetcher.get_ohlcv)
     assert 'code in ("-403", "403")' not in source, "code -403 MUST NOT trigger candidate loop break on Attempt 1"
 
-def test_fyers_permission_error_triggers_token_invalidation():
-    # Verify that permission required error triggers save_system_state for fyers_access_token
+def test_fyers_permission_error_never_wipes_global_token():
+    # Verify that single-stock permission errors NEVER wipe the global DB access token
     import inspect
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
-    assert 'permission required' in source and 'save_system_state' in source, "Fyers permission errors MUST invalidate fyers_access_token in DB"
+    assert 'save_system_state' not in source, "FyersFetcher MUST NEVER call save_system_state to purge token on single stock errors"
 
 def test_fyers_client_id_always_ends_with_100():
     # Verify that get_fyers_client enforces -100 suffix for History API compatibility
@@ -92,12 +92,12 @@ def test_unified_fetcher_includes_bse_symbols_in_fyers_quotes():
     source = inspect.getsource(UnifiedFetcher.fetch_live_quotes)
     assert 'norm.startswith("BSE:")' in source, "UnifiedFetcher MUST include BSE: symbols in Fyers quote batches"
 
-def test_index_symbol_permission_error_does_not_purge_token():
-    # Verify that index symbol history errors do NOT purge valid DB token
+def test_fyers_fetcher_never_purges_token_on_api_errors():
+    # Verify that fyers_fetcher NEVER purges valid DB token on single-stock API errors
     import inspect
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
-    assert '-INDEX' in source and 'not any' in source, "Fyers index history permission errors MUST NOT purge fyers_access_token in DB"
+    assert 'save_system_state' not in source, "FyersFetcher MUST NEVER call save_system_state to purge token on single stock errors"
 
 def test_fyers_cont_flag_omitted_for_equity_spot():
     # Verify that cont_flag is NOT passed for equity spot history requests
