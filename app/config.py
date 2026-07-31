@@ -463,13 +463,13 @@ PROVIDER_ROUTING_POLICY = {
     "price_1wk": ["yahoo", "fyers", "bse"],
     "price_1mo": ["yahoo", "fyers", "bse"],
 
-    # Fyers-first for intraday: more accurate NSE intraday data, fewer gaps than Yahoo.
-    # Rate limits are less severe at shorter lookback periods.
-    "price_1h":  ["fyers", "yahoo", "bse"],
-    "price_30m": ["fyers", "yahoo", "bse"],
-    "price_15m": ["fyers", "yahoo", "bse"],
-    "price_5m":  ["fyers", "yahoo", "bse"],
-    "price_1m":  ["fyers", "yahoo", "bse"],
+    # Yahoo-first for intraday due to Fyers History API permission issues.
+    # Fyers remains fallback if Yahoo fails.
+    "price_1h":  ["yahoo", "fyers", "bse"],
+    "price_30m": ["yahoo", "fyers", "bse"],
+    "price_15m": ["yahoo", "fyers", "bse"],
+    "price_5m":  ["yahoo", "fyers", "bse"],
+    "price_1m":  ["yahoo", "fyers", "bse"],
 
     # Fyers-only for live quotes: Yahoo gives 15-min delayed previous-close, not real-time.
     # BSE/Yahoo are kept as fallback only for when Fyers token is unavailable.
