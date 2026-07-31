@@ -12,18 +12,35 @@ logger = logging.getLogger(__name__)
 _cached_token = None
 _token_date = None
 
-def get_session_model() -> fyersModel.SessionModel:
+def get_session_model(client_id: str = None) -> fyersModel.SessionModel:
     """Helper to initialize SessionModel using client credentials."""
-    if not config.FYERS_CLIENT_ID or not config.FYERS_SECRET_KEY:
+    cid = (client_id or config.FYERS_CLIENT_ID or "").strip()
+    if not cid or not config.FYERS_SECRET_KEY:
         raise ValueError("FYERS_CLIENT_ID or FYERS_SECRET_KEY is not configured in environment/config.")
     
     return fyersModel.SessionModel(
-        client_id=config.FYERS_CLIENT_ID,
+        client_id=cid,
         secret_key=config.FYERS_SECRET_KEY,
         redirect_uri=config.FYERS_REDIRECT_URL,
         response_type="code",
         grant_type="authorization_code"
     )
+
+def get_token_app_id(token: str) -> Optional[str]:
+    """Helper to decode JWT payload without verification to extract app_id or client_id claim."""
+    if not token or not token.startswith("eyJ"):
+        return None
+    try:
+        import base64, json
+        parts = token.split(".")
+        if len(parts) >= 2:
+            padding = "=" * (4 - len(parts[1]) % 4)
+            payload_bytes = base64.urlsafe_b64decode(parts[1] + padding)
+            payload = json.loads(payload_bytes.decode('utf-8'))
+            return payload.get("app_id") or payload.get("client_id")
+    except Exception:
+        pass
+    return None
 
 def get_login_url() -> str:
     """Generates the Fyers authorization URL."""
@@ -223,6 +240,7 @@ def auto_login() -> Optional[str]:
             
             headers = {"Authorization": f"Bearer {auth_token}"}
             auth_code = None
+            successful_app_id = None
             
             # Try full client_id first (e.g. M0SD1EXNYU-100) so token app_id claim matches FyersModel client_id
             for cand_app_id in (target_app_id, app_id_clean):
@@ -252,6 +270,7 @@ def auto_login() -> Optional[str]:
                     auth_code = res4['data'].get('auth') or res4['data'].get('auth_code')
 
                 if auth_code:
+                    successful_app_id = cand_app_id
                     logger.info(f"Fyers Step 4 obtained token/code for App ID '{cand_app_id}'. Proceeding to Step 5...")
                     break
 
@@ -259,26 +278,31 @@ def auto_login() -> Optional[str]:
                 logger.error("Fyers Step 4 auth code failed for all App ID variants.")
                 return None
             
-            logger.info("Fyers login Step 5: Exchanging Step 4 auth code for real long-lived access token via generate_token()...")
-            # CRITICAL: Do NOT call save_access_token(auth_code) here.
-            # The Step 4 'auth' JWT from Fyers has sub='access_token' which fools is_direct_access_token()
-            # into saving it directly — but this JWT expires in only 5 MINUTES (exp - iat = 300s).
-            # It is an OAuth exchange token, not the final trading access token.
-            # We MUST call generate_token() to exchange it for the real all-day access token.
+            logger.info(f"Fyers login Step 5: Exchanging Step 4 auth code for real long-lived access token via generate_token() (client_id='{successful_app_id}')...")
             try:
-                session = get_session_model()
-                session.set_token(auth_code)
-                response = session.generate_token()
+                # Use successful_app_id matching Step 4 to prevent -437 invalid auth code error
+                session_m = get_session_model(client_id=successful_app_id)
+                session_m.set_token(auth_code)
+                response = session_m.generate_token()
+                
+                # If primary exchange returned invalid auth code, attempt secondary exchange with clean app_id / target_app_id
+                if not response or not isinstance(response, dict) or "access_token" not in response:
+                    alt_app_id = app_id_clean if successful_app_id != app_id_clean else target_app_id
+                    logger.warning(f"Fyers generate_token() primary failed ({response}). Retrying Step 5 with alternate App ID '{alt_app_id}'...")
+                    session_m_alt = get_session_model(client_id=alt_app_id)
+                    session_m_alt.set_token(auth_code)
+                    response = session_m_alt.generate_token()
+
                 if response and isinstance(response, dict) and "access_token" in response:
                     real_token = response["access_token"]
                     logger.info("✅ Fyers headless login Step 5: generate_token() exchange succeeded. Saving real access token.")
                     return save_access_token_direct(real_token)
                 else:
-                    logger.warning(f"Fyers generate_token() returned unexpected response: {response}. Saving auth_code directly as fallback.")
-                    return save_access_token_direct(auth_code)
+                    logger.error(f"❌ Fyers generate_token() exchange failed: {response}.")
+                    return None
             except Exception as exc:
-                logger.error(f"Fyers generate_token() exchange failed: {exc}. Saving auth_code directly as fallback.")
-                return save_access_token_direct(auth_code)
+                logger.error(f"❌ Fyers generate_token() exchange exception: {exc}")
+                return None
             
         except Exception as e:
             import traceback
@@ -291,82 +315,59 @@ _token_lock = threading.Lock()
 def get_access_token() -> str:
     """Retrieves the access token prioritizing DB, then local file, then auto-login."""
     from zoneinfo import ZoneInfo
+    from datetime import datetime as _dt
     global _cached_token, _token_date
-    now_date = datetime.now(ZoneInfo('Asia/Kolkata')).date()
-    now_str = str(now_date)
-    
-    if _cached_token and _token_date == now_date:
-        return _cached_token
+    now_date = str(_dt.now(ZoneInfo('Asia/Kolkata')).date())
 
     with _token_lock:
         if _cached_token and _token_date == now_date:
             return _cached_token
 
-        token = None
-        token_path = config.FYERS_TOKEN_PATH
-        
-        # 1. Try reading from the database first (survives restarts)
+        # 1. Try fetching from DB
         try:
             from database import get_system_state
             db_token = get_system_state("fyers_access_token")
-            db_token_date = get_system_state("fyers_access_token_date")
-            
-            # If we have a token and its date is today's date
-            if db_token and db_token_date == now_str:
-                # Sync to local file cache if missing or empty
-                if not os.path.exists(token_path) or os.path.getsize(token_path) == 0:
-                    os.makedirs(os.path.dirname(token_path), exist_ok=True)
-                    with open(token_path, "w") as f:
-                        f.write(db_token)
-                
+            saved_date = get_system_state("fyers_access_token_date")
+            if db_token and saved_date == now_date:
                 _cached_token = db_token
                 _token_date = now_date
                 return db_token
-        except Exception as db_err:
-            logger.warning(f"Failed to load Fyers token from database: {db_err}")
+        except Exception as e:
+            logger.warning(f"Error fetching Fyers token from DB: {e}")
 
-        # 2. Check if local file exists and was modified today (fallback if DB fails)
-        if os.path.exists(token_path) and os.path.getsize(token_path) > 0:
-            mtime = os.path.getmtime(token_path)
-            file_date = datetime.fromtimestamp(mtime).date()
-            if file_date == now_date:
-                try:
+        # 2. Try fetching from local file
+        token_path = config.FYERS_TOKEN_PATH
+        if os.path.exists(token_path):
+            try:
+                mtime = os.path.getmtime(token_path)
+                mtime_date = str(_dt.fromtimestamp(mtime, ZoneInfo('Asia/Kolkata')).date())
+                if mtime_date == now_date:
                     with open(token_path, "r") as f:
                         token = f.read().strip()
-                    if token:
-                        _cached_token = token
-                        _token_date = now_date
-                        return token
-                except Exception as e:
-                    logger.warning(f"Error reading Fyers access token file: {e}")
+                        if token:
+                            _cached_token = token
+                            _token_date = now_date
+                            return token
+            except Exception as e:
+                logger.warning(f"Error reading Fyers token file: {e}")
 
         # 3. Try auto_login if no valid token for today
         logger.info("No valid Fyers token for today found in DB or locally. Attempting headless auto-login...")
         token = auto_login()
-    if token:
-        _cached_token = token
-        _token_date = now_date
-        return token
+        if token:
+            _cached_token = token
+            _token_date = now_date
+            return token
 
-    # 4. Fallback: just try to use local file even if old (last resort)
-    if os.path.exists(token_path):
-        try:
-            with open(token_path, "r") as f:
-                token = f.read().strip()
-            if token:
-                logger.warning("Using EXPIRED Fyers token from local file as absolute fallback.")
-                return token
-        except Exception:
-            pass
-
-    return None
+        return None
 
 def clear_token():
-    """Clears the cached and database Fyers token to force a re-login."""
+    """Clears cached token locally and from database on authentication failures."""
     global _cached_token, _token_date
-    _cached_token = None
-    _token_date = None
-    
+    with _token_lock:
+        _cached_token = None
+        _token_date = None
+        
     token_path = config.FYERS_TOKEN_PATH
     if os.path.exists(token_path):
         try:
@@ -395,9 +396,19 @@ def get_fyers_client() -> fyersModel.FyersModel:
     log_path = os.path.join(config.DATA_DIR, "fyers_logs")
     os.makedirs(log_path, exist_ok=True)
     
-    # Use config.FYERS_CLIENT_ID (M0SD1EXNYU-100) required by Fyers API v3 SDK
+    # Align client_id to token app_id claim if decoded, defaulting to config.FYERS_CLIENT_ID
+    target_client_id = config.FYERS_CLIENT_ID
+    token_app = get_token_app_id(token)
+    if token_app:
+        if token_app.endswith("-100"):
+            target_client_id = token_app
+        elif f"{token_app}-100" == config.FYERS_CLIENT_ID:
+            target_client_id = config.FYERS_CLIENT_ID
+        else:
+            target_client_id = token_app
+
     client = fyersModel.FyersModel(
-        client_id=config.FYERS_CLIENT_ID,
+        client_id=target_client_id,
         token=token,
         log_path=log_path,
         is_async=False
