@@ -49,3 +49,10 @@ def test_fyers_history_payload_cont_flag_is_zero():
     from data_providers.fyers_fetcher import FyersFetcher
     source = inspect.getsource(FyersFetcher.get_ohlcv)
     assert '"cont_flag": "0"' in source, "Fyers history API cont_flag MUST be '0' for spot equity stocks"
+
+def test_database_system_state_dict_serialization():
+    # Verify that save_system_state handles dictionary arguments without throwing psycopg2 adapt error
+    import inspect
+    import database
+    source = inspect.getsource(database.save_system_state)
+    assert 'isinstance(val_str, (dict, list))' in source or 'json.dumps' in source, "save_system_state must serialize dict/list objects to JSON strings"
