@@ -488,9 +488,9 @@ class FyersFetcher(DataFetcher):
                 except Exception as e:
                     error_str = str(e)
                     
-                    # Record failure for circuit breaker, but ignore expected symbol mismatches or unsupported series errors
-                    if "Bad request" in error_str or "error" in error_str.lower():
-                        if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403")):
+                    # Record failure for circuit breaker, but ignore expected symbol mismatches, permission errors, or transient 429 rate limits
+                    if "error" in error_str.lower():
+                        if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403", "429", "bad request")):
                             _fyers_circuit_breaker.record_failure()
 
                     if "Could not authenticate the user" in error_str:
@@ -508,9 +508,9 @@ class FyersFetcher(DataFetcher):
                         
                     # Exponential backoff for network rate limits or server errors
                     import random
-                    if "request limit reached" in error_str:
-                        backoff_time = 20.0 + random.uniform(0.0, 10.0)
-                        logger.info(f"⏳ Rate limited by Fyers for {cand_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
+                    if "request limit reached" in error_str.lower() or "429" in error_str or "bad request" in error_str.lower():
+                        backoff_time = random.uniform(0.5, 1.5)
+                        logger.info(f"⏳ Fyers history API rate limit (429) for {cand_symbol}. Backing off for {backoff_time:.1f}s... (Attempt {attempt+1}/{retries})")
                         time.sleep(backoff_time)
                     else:
                         logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
