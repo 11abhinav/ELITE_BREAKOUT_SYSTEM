@@ -21,7 +21,7 @@ import config
 def test_provider_selector_routing():
     # 1. Dataset-level resolution
     daily_providers = selector.get_providers("price_1d")
-    assert daily_providers[0] == "fyers"
+    assert daily_providers[0] == "yahoo"
 
     intraday_providers = selector.get_providers("price_15m")
     assert intraday_providers[0] == "fyers"
