@@ -260,22 +260,17 @@ class FyersFetcher(DataFetcher):
 
         candidates = []
 
-        # If base is numeric (BSE Scrip Code), prioritize BSE
+        # If base is numeric (BSE Scrip Code), prioritize BSE:5XXXXX-EQ
         if base.isdigit():
             candidates.append(f"BSE:{base}-EQ")
-            candidates.append(f"BSE:{base}")
         elif is_bse_pref:
-            # Prioritize BSE series for BSE-preference stocks
+            # Prioritize BSE:SYMBOL-EQ for BSE-preference stocks, then NSE:SYMBOL-EQ
             candidates.append(f"BSE:{base}-EQ")
-            candidates.append(f"BSE:{base}")
             candidates.append(f"NSE:{base}-EQ")
-            candidates.append(f"NSE:{base}-BE")
         else:
-            # Standard NSE first (-EQ, -BE series), then BSE series
+            # Standard NSE:SYMBOL-EQ first, then BSE:SYMBOL-EQ
             candidates.append(f"NSE:{base}-EQ")
-            candidates.append(f"NSE:{base}-BE")
             candidates.append(f"BSE:{base}-EQ")
-            candidates.append(f"BSE:{base}")
 
             # Known BSE scrip code map for stocks with custom Fyers BSE tickers
             _KNOWN_BSE_SCRIP_CODES = {

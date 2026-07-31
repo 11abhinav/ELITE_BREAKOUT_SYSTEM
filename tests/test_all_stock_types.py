@@ -7,11 +7,11 @@ def test_all_stock_categories_candidate_resolution():
     # 1. Standard NSE Equities
     c_reliance = fetcher._generate_fyers_candidate_symbols("RELIANCE")
     assert "NSE:RELIANCE-EQ" in c_reliance
-    assert "NSE:RELIANCE-BE" in c_reliance
+    assert "BSE:RELIANCE-EQ" in c_reliance
     
     c_itc = fetcher._generate_fyers_candidate_symbols("ITC")
     assert "NSE:ITC-EQ" in c_itc
-    assert "NSE:ITC-BE" in c_itc
+    assert "BSE:ITC-EQ" in c_itc
     
     # 2. Known Custom BSE Scrip Mapped Stocks (e.g. POONAWALLA -> 524000)
     c_poonawalla = fetcher._generate_fyers_candidate_symbols("POONAWALLA")
@@ -25,7 +25,6 @@ def test_all_stock_categories_candidate_resolution():
     # 3. Numeric BSE Scrip Codes
     c_bse = fetcher._generate_fyers_candidate_symbols("500290")
     assert "BSE:500290-EQ" in c_bse
-    assert "BSE:500290" in c_bse
     
     # 4. Special Character Ampersand Handling
     c_mm = fetcher._generate_fyers_candidate_symbols("M_M")

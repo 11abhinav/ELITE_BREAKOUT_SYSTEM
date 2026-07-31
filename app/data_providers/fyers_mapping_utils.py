@@ -165,3 +165,17 @@ def remove_fyers_invalid(original_sym: str):
         logger.info(f"✨ Unblacklisted Fyers invalid mapping for: {original_sym}")
     except Exception as e:
         logger.warning(f"Failed to unblacklist Fyers symbol {original_sym}: {e}")
+
+def clear_all_fyers_invalid():
+    """Wipes all invalid Fyers symbol blacklists from DB and RAM so symbols are retried on fresh auth."""
+    global _fyers_invalid_cache
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM symbol_mappings WHERE mapping_type = 'FYERS' AND (mapping_state = 'INVALID' OR is_invalid = TRUE)")
+            conn.commit()
+        _fyers_invalid_cache = set()
+        logger.info("✨ Cleared all Fyers invalid symbol blacklists from DB and RAM cache.")
+    except Exception as e:
+        logger.warning(f"Failed to clear all Fyers invalid mappings: {e}")
