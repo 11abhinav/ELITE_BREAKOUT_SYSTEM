@@ -180,7 +180,7 @@ class UpstoxInstrumentMapper:
                     inst_type = row[9].strip().upper()
                     exchange = row[11].strip().upper()
 
-                    if inst_type == "EQUITY" and exchange in ("NSE_EQ", "BSE_EQ"):
+                    if inst_type in ("EQ", "EQUITY") and exchange in ("NSE_EQ", "BSE_EQ"):
                         # Save both symbol alone (TCS) and exchange-prefixed (NSE_EQ:TCS)
                         if tradingsymbol not in new_map or exchange == "NSE_EQ":
                             new_map[tradingsymbol] = inst_key

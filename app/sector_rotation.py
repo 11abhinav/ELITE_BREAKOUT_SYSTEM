@@ -85,7 +85,7 @@ SECTOR_ETF_MAP: dict[str, str] = {
     # "Electronics" removed — MAMFGETF.NS fails at runtime (delisted/illiquid). Re-add when a stable ETF is available.
 }
 
-BENCHMARK_TICKER       = "^NSEI"
+BENCHMARK_TICKER       = "NIFTY 50"
 RS_LOOKBACK_DAYS       = 20
 MOMENTUM_LOOKBACK_DAYS = 5
 DOWNLOAD_PERIOD        = "60d"

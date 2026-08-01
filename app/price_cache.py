@@ -69,13 +69,17 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
         if not ts_series.is_monotonic_increasing:
             return False, "NON_MONOTONIC_TIMESTAMPS"
             
-        # 2. Price Sanity
+        # 2. Price Sanity & Corporate Action Envelope Auto-Sanitization
+        if all(col in df.columns for col in ["High", "Low", "Open", "Close"]):
+            # Sanitize envelope bounds for corporate action / bonus / split adjusted historical candles
+            df["High"] = df[["High", "Open", "Close"]].max(axis=1)
+            df["Low"] = df[["Low", "Open", "Close"]].min(axis=1)
+
         if "High" in df.columns and "Low" in df.columns:
             if (df["High"] < df["Low"]).any():
                 return False, "HIGH_LESS_THAN_LOW"
                 
         if "Close" in df.columns and "High" in df.columns and "Low" in df.columns:
-            # Allow 1.5% tolerance for corporate action / dividend / split adjustments from YFinance historical data
             if (df["Close"] > df["High"] * 1.015).any() or (df["Close"] < df["Low"] * 0.985).any():
                 return False, "CLOSE_OUT_OF_BOUNDS"
                 

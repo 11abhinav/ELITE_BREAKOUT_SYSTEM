@@ -37,8 +37,8 @@ def _get_daily_nifty() -> pd.DataFrame:
     try:
         from price_cache import fetch_unified_historical
         # We need at least 1 year for the 6-month returns and 52W high
-        fetched = fetch_unified_historical(["^NSEI"], period="1y", interval="1d", requester="macro_daily")
-        df = fetched.get("^NSEI")
+        fetched = fetch_unified_historical(["NIFTY 50"], period="1y", interval="1d", requester="macro_daily")
+        df = fetched.get("NIFTY 50")
         from core_enums import ProviderResult
         if df is not None and not isinstance(df, ProviderResult) and not df.empty:
             with _cache.lock:
@@ -59,8 +59,8 @@ def _get_intraday_nifty() -> pd.DataFrame:
             
     try:
         from price_cache import fetch_unified_historical
-        fetched = fetch_unified_historical(["^NSEI"], period="5d", interval="15m", requester="macro_intraday")
-        df = fetched.get("^NSEI")
+        fetched = fetch_unified_historical(["NIFTY 50"], period="5d", interval="15m", requester="macro_intraday")
+        df = fetched.get("NIFTY 50")
         from core_enums import ProviderResult
         if df is not None and not isinstance(df, ProviderResult) and not df.empty:
             with _cache.lock:
@@ -373,10 +373,10 @@ def compute_nifty_rs_rating(symbols: list = None) -> dict:
 
     try:
         from price_cache import fetch_unified_historical
-        fetch_list = list(set(symbols + ["^NSEI"]))
+        fetch_list = list(set(symbols + ["NIFTY 50"]))
         historical_dict = fetch_unified_historical(fetch_list, period="6mo", interval="1d", requester="rs_rating")
 
-        nifty_df = historical_dict.get("^NSEI")
+        nifty_df = historical_dict.get("NIFTY 50")
         if nifty_df is None or nifty_df.empty or len(nifty_df) < 20:
             return {s: 50.0 for s in symbols}
 

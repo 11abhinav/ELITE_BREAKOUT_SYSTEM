@@ -1642,7 +1642,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     market_regime = "BEAR"
     try:
         from data_provider import get_fetcher
-        nifty_md = get_fetcher().get_ohlcv("^NSEI", period="1y", interval="1d")
+        nifty_md = get_fetcher().get_ohlcv("NIFTY 50", period="1y", interval="1d")
         if nifty_md:
             import pandas as pd
             nifty_df = nifty_md.dataframe if hasattr(nifty_md, "dataframe") else nifty_md
