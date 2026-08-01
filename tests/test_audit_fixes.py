@@ -337,5 +337,38 @@ class TestAuditFixes(unittest.TestCase):
             self.assertEqual(row.get("Forensic_Risk_Tier"), "LOW")
             self.assertIsNone(row.get("NONEXISTENT"))
 
+    def test_upstox_1h_resample_returns_valid_normalized_data(self):
+        """Verify UpstoxProvider.fetch_ohlcv('1h') constructs NormalizedMarketData with valid provenance."""
+        from market_data.providers.upstox_provider import UpstoxProvider
+        from market_data.core.models import NormalizedMarketData
+        
+        provider = UpstoxProvider()
+        dates = pd.date_range("2026-08-01 09:15", periods=4, freq="30min")
+        df_30m = pd.DataFrame({
+            "Open": [100, 102, 105, 104],
+            "High": [103, 106, 107, 108],
+            "Low": [99, 101, 103, 102],
+            "Close": [102, 105, 104, 106],
+            "Volume": [1000, 1200, 1500, 1100]
+        }, index=dates)
+        
+        mock_30m_res = NormalizedMarketData("NEULANDLAB", "30m", df_30m, MagicMock())
+        
+        with patch.object(provider, 'fetch_ohlcv', return_value=mock_30m_res) as mock_fetch:
+            # Override fetch_ohlcv to simulate recursive 30m fetch
+            def side_effect(symbol, timeframe, range_from, range_to):
+                if timeframe == "30m":
+                    return mock_30m_res
+                return UpstoxProvider.fetch_ohlcv(provider, symbol, timeframe, range_from, range_to)
+            
+            mock_fetch.side_effect = side_effect
+            res_1h = provider.fetch_ohlcv("NEULANDLAB", "1h", datetime(2026, 8, 1), datetime(2026, 8, 1))
+            
+            self.assertIsNotNone(res_1h)
+            self.assertEqual(res_1h.symbol, "NEULANDLAB")
+            self.assertEqual(res_1h.timeframe, "1h")
+            self.assertFalse(res_1h.dataframe.empty)
+            self.assertIsNotNone(res_1h.provenance)
+
 if __name__ == '__main__':
     unittest.main()

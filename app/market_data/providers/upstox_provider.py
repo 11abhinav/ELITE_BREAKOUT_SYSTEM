@@ -194,12 +194,13 @@ class UpstoxProvider(ProviderInterface):
             if "OI" in df_30m.columns:
                 agg_dict["OI"] = "last"
             df_1h = df_30m.resample("1h").agg(agg_dict).dropna(subset=["Close"])
+            prov = DataProvenance(self.provider_name, datetime.now(), 0.0, 100.0)
             return NormalizedMarketData(
                 symbol=symbol,
                 timeframe="1h",
                 dataframe=df_1h,
-                provider="upstox",
-                is_stale=getattr(res_30m, "is_stale", False)
+                provenance=prov,
+                is_complete_candle=True
             )
 
         # 1. Use Long-Lived Analytics Token
