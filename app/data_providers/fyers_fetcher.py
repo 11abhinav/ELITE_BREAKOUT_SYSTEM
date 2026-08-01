@@ -481,7 +481,7 @@ class FyersFetcher(DataFetcher):
                 "range_to": range_to
             }
             if any(sfx in cand_symbol for sfx in ("-FUT", "-OPT")):
-                data["cont_flag"] = "1"
+                data["cont_flag"] = "0"
             
             for attempt in range(retries):
                 try:
