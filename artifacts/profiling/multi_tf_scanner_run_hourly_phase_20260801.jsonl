@@ -1,3 +1,5 @@
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-01T13:39:27.137895+05:30", "duration_s": 0.0, "rss_before_mb": 373.9, "rss_after_mb": 373.9, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-01T13:41:07.559029+05:30", "duration_s": 0.0, "rss_before_mb": 369.1, "rss_after_mb": 369.1, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-01T15:40:17.882424+05:30", "duration_s": 0.0, "rss_before_mb": 396.5, "rss_after_mb": 396.5, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-01T15:42:35.189637+05:30", "duration_s": 0.001, "rss_before_mb": 408.7, "rss_after_mb": 408.7, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-01T15:45:02.990498+05:30", "duration_s": 0.001, "rss_before_mb": 402.4, "rss_after_mb": 402.4, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
