@@ -105,7 +105,9 @@ class FyersAdapter(BaseProviderAdapter):
         return "fyers"
 
     def lookup_master(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
-        sym = symbol.upper()
+        sym_raw = symbol.upper()
+        force_bse = sym_raw.endswith(".BO") or sym_raw.startswith("BSE:")
+        sym = sym_raw.replace(".NS", "").replace(".BO", "").replace("NSE:", "").replace("BSE:", "")
         # 1. Index Symbol Lookup
         if sym in ("NIFTY 50", "NIFTY", "NIFTY50", "NIFTY-50", "^NSEI"):
             return ResolvedInstrument("INDEX:NSE:NIFTY50", sym, "fyers", "NSE:NIFTY50-INDEX", "NSE", "INDEX", 100, "MASTER")
@@ -120,14 +122,19 @@ class FyersAdapter(BaseProviderAdapter):
             fetcher = get_fyers_fetcher()
             if hasattr(fetcher, "_load_symbol_master"):
                 master = fetcher._load_symbol_master()
-                for prefix in ("NSE:", "BSE:"):
+                prefixes = ("BSE:", "NSE:") if force_bse else ("NSE:", "BSE:")
+                for prefix in prefixes:
                     cand = f"{prefix}{sym}-EQ"
                     if cand in master:
                         inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
                         return ResolvedInstrument(inst_id, sym, "fyers", cand, prefix.rstrip(":"), "EQ", 100, "MASTER")
         except Exception:
             pass
-        return None
+
+        # Fallback default candidate format
+        prefix = "BSE:" if force_bse else "NSE:"
+        inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
+        return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()

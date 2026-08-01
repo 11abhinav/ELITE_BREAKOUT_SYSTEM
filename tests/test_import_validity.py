@@ -31,7 +31,7 @@ def test_all_app_imports_exist():
                     continue
 
                 # Only validate internal app imports
-                if (app_dir / f"{module_name}.py").exists() or module_name in ("database", "config", "price_cache", "daily_builder", "earnings_calendar", "quality_trajectory", "message_formatter"):
+                if (app_dir / f"{module_name}.py").exists() or module_name in ("database", "config", "price_cache", "daily_builder", "earnings_calendar", "quality_trajectory", "message_formatter", "symbol_resolution_engine"):
                     try:
                         mod = importlib.import_module(module_name)
                         mod = importlib.reload(mod)
