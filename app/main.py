@@ -1724,7 +1724,16 @@ def run_watchdog():
         from data_provider import get_fetcher
         fetcher = get_fetcher()
         if getattr(fetcher, "_should_use_fyers", lambda: False)():
-            logger.info("✅ [BOOT] Fyers API session authenticated & ready on startup!")
+            # Perform a live 1-symbol probe query to verify Fyers Historical Data API permissions
+            try:
+                probe_res = fetcher.fyers_fetcher.get_ohlcv("SBIN", "1d", "5d")
+                if probe_res and probe_res.dataframe is not None and not probe_res.dataframe.empty:
+                    logger.info("✅ [BOOT] Fyers API session authenticated & historical data verified live on startup!")
+                else:
+                    err = getattr(probe_res, 'error', 'Unknown')
+                    logger.warning(f"⚠️ [BOOT] Fyers token loaded, but historical data probe returned: {err}")
+            except Exception as probe_err:
+                logger.warning(f"⚠️ [BOOT] Fyers historical data live probe failed: {probe_err}")
         else:
             logger.warning("⚠️ [BOOT] Fyers API auto-login skipped or incomplete on startup.")
     except Exception as boot_fyers_err:
