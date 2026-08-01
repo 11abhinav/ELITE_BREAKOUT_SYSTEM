@@ -138,7 +138,9 @@ class UpstoxProvider(ProviderInterface):
             raise PermissionError("UPSTOX_ACCESS_TOKEN is completely missing from config.")
             
         # 2. Build Request
-        instrument_key = self._get_instrument_key(symbol)
+        import urllib.parse
+        raw_key = self._get_instrument_key(symbol)
+        instrument_key = urllib.parse.quote(raw_key)
         interval = self._map_timeframe(timeframe)
         url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{range_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
         
@@ -231,10 +233,11 @@ class UpstoxProvider(ProviderInterface):
         
         results = {}
         # Upstox supports up to 500 symbols per request. Chunk into batches of 500.
+        import urllib.parse
         chunk_size = 500
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
-            formatted_keys = ",".join([self._get_instrument_key(s) for s in chunk])
+            formatted_keys = ",".join([urllib.parse.quote(self._get_instrument_key(s)) for s in chunk])
             url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={formatted_keys}"
             
             try:
