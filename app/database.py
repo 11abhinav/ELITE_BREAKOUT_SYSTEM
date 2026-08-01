@@ -609,6 +609,8 @@ def init_db():
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ DEFAULT NOW();
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ;
 
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol);
+
                     CREATE TABLE IF NOT EXISTS resolution_history (
                         id BIGSERIAL PRIMARY KEY,
                         provider TEXT NOT NULL,
@@ -6495,25 +6497,51 @@ def save_symbol_mapping_db(provider: str, original_symbol: str, mapped_symbol: s
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO symbol_mappings (
-                        provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
-                        confidence_score, mapping_source, status, consecutive_failures, last_success_at,
-                        last_verified_at, retry_after
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s)
-                    ON CONFLICT (provider, original_symbol) DO UPDATE SET
-                        mapped_symbol = EXCLUDED.mapped_symbol,
-                        instrument_id = COALESCE(EXCLUDED.instrument_id, symbol_mappings.instrument_id),
-                        exchange = COALESCE(EXCLUDED.exchange, symbol_mappings.exchange),
-                        series = COALESCE(EXCLUDED.series, symbol_mappings.series),
-                        confidence_score = EXCLUDED.confidence_score,
-                        mapping_source = EXCLUDED.mapping_source,
-                        status = EXCLUDED.status,
-                        consecutive_failures = 0,
-                        last_success_at = NOW(),
-                        last_verified_at = NOW(),
-                        retry_after = EXCLUDED.retry_after;
-                """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
+                try:
+                    cur.execute("""
+                        INSERT INTO symbol_mappings (
+                            provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                            confidence_score, mapping_source, status, consecutive_failures, last_success_at,
+                            last_verified_at, retry_after
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s)
+                        ON CONFLICT (provider, original_symbol) DO UPDATE SET
+                            mapped_symbol = EXCLUDED.mapped_symbol,
+                            instrument_id = COALESCE(EXCLUDED.instrument_id, symbol_mappings.instrument_id),
+                            exchange = COALESCE(EXCLUDED.exchange, symbol_mappings.exchange),
+                            series = COALESCE(EXCLUDED.series, symbol_mappings.series),
+                            confidence_score = EXCLUDED.confidence_score,
+                            mapping_source = EXCLUDED.mapping_source,
+                            status = EXCLUDED.status,
+                            consecutive_failures = 0,
+                            last_success_at = NOW(),
+                            last_verified_at = NOW(),
+                            retry_after = EXCLUDED.retry_after;
+                    """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
+                except Exception:
+                    conn.rollback()
+                    cur.execute("""
+                        UPDATE symbol_mappings SET
+                            mapped_symbol = %s,
+                            instrument_id = COALESCE(%s, instrument_id),
+                            exchange = COALESCE(%s, exchange),
+                            series = COALESCE(%s, series),
+                            confidence_score = %s,
+                            mapping_source = %s,
+                            status = %s,
+                            consecutive_failures = 0,
+                            last_success_at = NOW(),
+                            last_verified_at = NOW(),
+                            retry_after = %s
+                        WHERE provider = %s AND original_symbol = %s;
+                    """, (mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after, provider, original_symbol))
+                    if cur.rowcount == 0:
+                        cur.execute("""
+                            INSERT INTO symbol_mappings (
+                                provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                                confidence_score, mapping_source, status, consecutive_failures, last_success_at,
+                                last_verified_at, retry_after
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s);
+                        """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
                 conn.commit()
                 return True
     except Exception as e:

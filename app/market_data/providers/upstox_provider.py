@@ -194,7 +194,6 @@ class UpstoxProvider(ProviderInterface):
             if "OI" in df_30m.columns:
                 agg_dict["OI"] = "last"
             df_1h = df_30m.resample("1h").agg(agg_dict).dropna(subset=["Close"])
-            from market_data.core.models import NormalizedMarketData
             return NormalizedMarketData(
                 symbol=symbol,
                 timeframe="1h",
