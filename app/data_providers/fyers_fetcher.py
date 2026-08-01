@@ -4,6 +4,7 @@ import time
 import logging
 import concurrent.futures
 from datetime import datetime, timedelta
+from typing import Optional
 import pandas as pd
 from zoneinfo import ZoneInfo
 from threading import Lock
@@ -790,3 +791,98 @@ class FyersFetcher(DataFetcher):
             except Exception:
                 pass
             return {}
+
+    def verify_historical_scope(self) -> bool:
+        """
+        [VERSION: FYERS_SCOPE_CHECK_v1.0]
+        Startup Gate: Performs a test historical candle request at startup.
+        If Fyers returns code -403 / 'Additional permission required':
+          - Immediately opens the circuit breaker so no scanner wastes network latency on Fyers calls.
+          - Updates DB scanner_health table with status='PERMISSION_DENIED'.
+          - Dispatches WebPush / Bell notification.
+        """
+        try:
+            client = fyers_auth.get_fyers_client()
+            if not client:
+                logger.warning("⚠️ Fyers startup check: token missing or client uninitialized.")
+                self._update_db_health("AUTH_REQUIRED", "Fyers access token is missing or unauthenticated.")
+                return False
+
+            today_str = datetime.now(IST).strftime("%Y-%m-%d")
+            range_from = (datetime.now(IST) - timedelta(days=5)).strftime("%Y-%m-%d")
+            data = {
+                "symbol": "NSE:NIFTY50-INDEX",
+                "resolution": "1D",
+                "date_format": "1",
+                "range_from": range_from,
+                "range_to": today_str
+            }
+
+            self.rate_limiter.wait()
+            response = client.history(data=data)
+
+            if response and response.get("s") == "ok":
+                logger.info("✅ [FYERS STARTUP GATE] Historical Data API permission VERIFIED (code 200 OK).")
+                self._update_db_health("OK", None)
+                return True
+
+            error_msg = str(response.get("message", "Unknown response")) if response else "Empty response"
+            code = str(response.get("code", "NO_CODE")) if response else "NO_CODE"
+
+            if code in ("-403", "403") or "permission required" in error_msg.lower():
+                _perm_error_msg = (
+                    f"🚫 [FYERS PERMISSION DENIED] Fyers App lacks Historical Data API permission (code {code}): {error_msg}. "
+                    "Edit app at developer.fyers.in → enable 'Historical Data' → regenerate token. "
+                    "Fyers circuit breaker opened at startup; all requests routed to Upstox/YFinance."
+                )
+                logger.error(_perm_error_msg)
+
+                # Open circuit breaker immediately
+                for _ in range(_fyers_circuit_breaker.failure_threshold):
+                    _fyers_circuit_breaker.record_failure()
+
+                # Persist PERMISSION_DENIED status in Postgres DB
+                self._update_db_health("PERMISSION_DENIED", _perm_error_msg)
+
+                # Send WebPush / Bell notification
+                try:
+                    fyers_auth.dispatch_fyers_reauth_notification(
+                        "Fyers App lacks Historical Data permission (code -403). Edit app at developer.fyers.in & enable 'Historical Data'."
+                    )
+                except Exception:
+                    pass
+                return False
+            else:
+                logger.warning(f"⚠️ Fyers startup check warning: code={code}, msg={error_msg}")
+                self._update_db_health("WARNING", f"Fyers ping code {code}: {error_msg}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"⚠️ Fyers startup verification exception: {e}")
+            self._update_db_health("ERROR", str(e))
+            return False
+
+    def _update_db_health(self, status: str, error_msg: Optional[str]):
+        """Persists Fyers provider health state into PostgreSQL scanner_health DB table."""
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                scanner_name="FYERS_PROVIDER",
+                status=status,
+                error_msg=error_msg[:500] if error_msg else None,
+                last_success=datetime.now(IST).isoformat() if status == "OK" else None,
+                scheduled_for="Startup / Active Session"
+            )
+        except Exception as db_err:
+            logger.debug(f"Failed to persist FYERS_PROVIDER health to DB: {db_err}")
+
+
+def verify_fyers_startup_scope() -> bool:
+    """Module-level helper to trigger Fyers historical scope check at process startup."""
+    try:
+        fetcher = FyersFetcher()
+        return fetcher.verify_historical_scope()
+    except Exception as e:
+        logger.warning(f"Failed to run verify_fyers_startup_scope: {e}")
+        return False
+

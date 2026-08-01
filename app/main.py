@@ -92,6 +92,14 @@ except ImportError:
 except Exception as e:
     logger.warning(f"⚠️ Diagnostics check failed: {e}. Continuing anyway.")
 
+# [VERSION: FYERS_SCOPE_CHECK_v1.0] Perform startup verification of Fyers Historical Data API scope.
+# If code -403 is returned, opens circuit breaker immediately & records PERMISSION_DENIED status in DB.
+try:
+    from data_providers.fyers_fetcher import verify_fyers_startup_scope
+    verify_fyers_startup_scope()
+except Exception as _fyers_scope_err:
+    logger.warning(f"⚠️ Fyers startup scope verification failed: {_fyers_scope_err}")
+
 # [VERSION: PERF_PROFILER_v1.0] Log total boot latency from process start to first
 # scanner-ready checkpoint. This is a passive metric — no behavior is changed.
 _boot_elapsed = _time.monotonic() - _PROCESS_START_TIME

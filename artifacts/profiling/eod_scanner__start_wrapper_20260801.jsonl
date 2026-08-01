@@ -1,0 +1,2 @@
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-01T13:39:17.627640+05:30", "duration_s": 9.319, "rss_before_mb": 315.0, "rss_after_mb": 373.8, "rss_delta_mb": 58.8, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-01T13:40:58.947770+05:30", "duration_s": 8.387, "rss_before_mb": 309.9, "rss_after_mb": 368.9, "rss_delta_mb": 59.1, "error": null}

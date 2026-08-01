@@ -154,24 +154,24 @@ class UpstoxProvider(ProviderInterface):
 
     def _get_instrument_key(self, symbol: str) -> str:
         """
-        Maps a YFinance-style symbol to Upstox instrument key format.
-        Indices use NSE_INDEX segment; equities use NSE_EQ segment.
-        Strips .NS/.BO suffixes that come from YFinance normalization.
+        [VERSION: UPSTOX_ISIN_MAPPER_v1.0]
+        Maps a YFinance-style symbol (e.g. TCS, RELIANCE, ^NSEI) to the official Upstox instrument key
+        (e.g. NSE_EQ|INE467B01029, NSE_INDEX|Nifty 50) using the UpstoxInstrumentMapper.
+        Prevents HTTP 400 Bad Request errors caused by bare ticker symbols.
         """
-        clean = str(symbol).strip().upper()
-        # Strip YFinance suffixes
-        for sfx in (".NS", ".BO", ".BSE"):
-            if clean.endswith(sfx):
-                clean = clean[:-len(sfx)]
-                break
-
-        # Check index map first (e.g. ^NSEI → NSE_INDEX|Nifty 50)
-        if clean in self._INDEX_KEY_MAP:
-            return self._INDEX_KEY_MAP[clean]
-
-        # Standard NSE equity: strip leading ^ if any stray caret
-        clean = clean.lstrip("^")
-        return f"NSE_EQ|{clean}"
+        try:
+            from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
+            return get_upstox_instrument_key(symbol)
+        except Exception:
+            clean = str(symbol).strip().upper()
+            for sfx in (".NS", ".BO", ".BSE"):
+                if clean.endswith(sfx):
+                    clean = clean[:-len(sfx)]
+                    break
+            if clean in self._INDEX_KEY_MAP:
+                return self._INDEX_KEY_MAP[clean]
+            clean = clean.lstrip("^")
+            return f"NSE_EQ|{clean}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         # 1. Use Long-Lived Analytics Token
