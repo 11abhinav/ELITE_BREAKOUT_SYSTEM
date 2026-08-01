@@ -3278,64 +3278,63 @@ def api_analyze_stock():
         wl_symbols = {item["symbol"].upper() for item in (user_wl or []) if item.get("symbol")}
         is_in_wl = (sym_clean in wl_symbols)
 
-        # Check stock_analysis_master repository first for instant 0ms pre-scanned report
+        # 1. Check stock_analysis_master repository first for instant 0ms pre-scanned report
         cached_master = get_stock_master_analysis(sym_clean)
         if cached_master and isinstance(cached_master, dict) and cached_master.get("funnel"):
             cached_master["is_in_watchlist"] = is_in_wl
             
-            # Check cache age (stale if > 24 hours)
-            if not force_refresh:
-                last_scanned = cached_master.get("last_deep_analysis_at")
-                is_stale = True
-                if last_scanned:
-                    try:
-                        from datetime import datetime
-                        from zoneinfo import ZoneInfo
-                        ts = datetime.fromisoformat(str(last_scanned).replace('Z', '+00:00'))
-                        now = datetime.now(ts.tzinfo or ZoneInfo("Asia/Kolkata"))
-                        if (now - ts).total_seconds() < 86400:
-                            is_stale = False
-                    except Exception:
-                        pass
-                
-                # If cache is older than 24h, trigger background deep scan to update it silently
-                if is_stale:
-                    import threading
-                    logger.info(f"🔄 Cache for {sym_clean} is >24h old. Returning instant cache and spawning background refresh thread.")
-                    threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
-
-                return jsonify(cached_master)
-
-        if quick_mode:
-            from stock_analyzer import validate_nse_bse_ticker_fast
-            val = validate_nse_bse_ticker_fast(symbol)
-            if not val["is_valid"]:
-                return jsonify({"success": False, "is_invalid_ticker": True, "error": val["error"]})
-                
-            sym_clean = val["symbol"]
-            from live_prices import get_live_prices
-            prices = get_live_prices([sym_clean])
-            cmp = prices.get(sym_clean, 0.0)
+            last_scanned = cached_master.get("last_deep_analysis_at")
+            is_stale = True
+            if last_scanned:
+                try:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    ts = datetime.fromisoformat(str(last_scanned).replace('Z', '+00:00'))
+                    now = datetime.now(ts.tzinfo or ZoneInfo("Asia/Kolkata"))
+                    if (now - ts).total_seconds() < 86400:
+                        is_stale = False
+                except Exception:
+                    pass
             
-            return jsonify({
-                "symbol": sym_clean,
-                "company_name": val.get("company_name", sym_clean),
-                "sector": val.get("sector", "EQUITY"),
-                "success": True,
-                "is_in_watchlist": is_in_wl,
-                "is_deep_analysis": False,
-                "watchlist_status": "ANALYSIS PENDING",
-                "close_price": float(cmp),
-                "volume_ratio": 1.0,
-                "rsi": 50.0,
-                "overall_health_score": 0.0,
-                "deficits": ["Analysis Pending... Add to Watchlist to begin deep background analysis."],
-                "funnel": {}
-            })
+            # If force_refresh or stale (>24h), spawn background thread to update silently
+            if force_refresh or is_stale or is_deep:
+                import threading
+                logger.info(f"⚡ Non-blocking deep scan triggered for {sym_clean}. Returning instant cache and spawning background refresh thread.")
+                threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
 
-        result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep, _skip_validation=True)
-        result["is_in_watchlist"] = is_in_wl
-        return jsonify(result)
+            return jsonify(cached_master)
+
+        # 2. If no cache exists, return instant live CMP and spawn background deep analysis
+        from stock_analyzer import validate_nse_bse_ticker_fast
+        val = validate_nse_bse_ticker_fast(symbol)
+        if not val["is_valid"]:
+            return jsonify({"success": False, "is_invalid_ticker": True, "error": val["error"]})
+            
+        sym_clean = val["symbol"]
+        from live_prices import get_live_prices
+        prices = get_live_prices([sym_clean])
+        cmp = prices.get(sym_clean, 0.0)
+        
+        # Automatically spawn background analysis so user/admin receives notification when scan completes!
+        import threading
+        logger.info(f"⚡ First-time scan for {sym_clean}. Returning instant quote and spawning background deep analysis thread.")
+        threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
+        
+        return jsonify({
+            "symbol": sym_clean,
+            "company_name": val.get("company_name", sym_clean),
+            "sector": val.get("sector", "EQUITY"),
+            "success": True,
+            "is_in_watchlist": is_in_wl,
+            "is_deep_analysis": False,
+            "watchlist_status": "ANALYSIS PENDING",
+            "close_price": float(cmp),
+            "volume_ratio": 1.0,
+            "rsi": 50.0,
+            "overall_health_score": 0.0,
+            "deficits": ["Analysis Pending... Deep scan running in background."],
+            "funnel": {}
+        })
     except Exception as e:
         logger.exception("❌ Stock analysis endpoint error")
         return jsonify({"success": False, "error": f"Failed to analyze symbol: {str(e)}"}), 200
