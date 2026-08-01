@@ -647,12 +647,15 @@ def init_db():
                     END $$;
 
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol);
-                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapping_type') THEN
-                        BEGIN
-                            CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_type_orig ON symbol_mappings (mapping_type, original_sym);
-                        EXCEPTION WHEN OTHERS THEN NULL;
-                        END;
-                    END IF;
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapping_type') THEN
+                            BEGIN
+                                EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_type_orig ON symbol_mappings (mapping_type, original_sym)';
+                            EXCEPTION WHEN OTHERS THEN NULL;
+                            END;
+                        END IF;
+                    END $$;
 
                     CREATE TABLE IF NOT EXISTS resolution_history (
                         id BIGSERIAL PRIMARY KEY,
