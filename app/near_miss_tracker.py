@@ -20,10 +20,10 @@ def init_near_miss_schema() -> None:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS near_misses (
                         id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(20) NOT NULL,
-                        scanner VARCHAR(30) NOT NULL,
-                        breakout_type VARCHAR(30) NOT NULL,
-                        gate_name VARCHAR(50) NOT NULL,
+                        symbol TEXT NOT NULL,
+                        scanner TEXT NOT NULL,
+                        breakout_type TEXT NOT NULL,
+                        gate_name TEXT NOT NULL,
                         observed_value NUMERIC(10, 2),
                         threshold_value NUMERIC(10, 2),
                         delta_pct NUMERIC(5, 2),
@@ -33,10 +33,18 @@ def init_near_miss_schema() -> None:
                         target_1 NUMERIC(10, 2),
                         logged_at TIMESTAMPTZ NOT NULL,
                         logged_date DATE NOT NULL,
-                        status VARCHAR(20) DEFAULT 'TRACKING',
+                        status TEXT DEFAULT 'TRACKING',
                         realized_rr NUMERIC(5, 2),
                         max_mfe_r NUMERIC(5, 2) DEFAULT 0.0
                     )
+                """)
+                # Auto-migrate existing table columns from VARCHAR(30) to TEXT
+                cur.execute("""
+                    ALTER TABLE near_misses ALTER COLUMN symbol TYPE TEXT;
+                    ALTER TABLE near_misses ALTER COLUMN scanner TYPE TEXT;
+                    ALTER TABLE near_misses ALTER COLUMN breakout_type TYPE TEXT;
+                    ALTER TABLE near_misses ALTER COLUMN gate_name TYPE TEXT;
+                    ALTER TABLE near_misses ALTER COLUMN status TYPE TEXT;
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
@@ -57,7 +65,7 @@ def log_near_miss(
     target_1: Optional[float] = None
 ) -> None:
     """
-    Logs a near-miss candidate rejected within 5% of a gate threshold into PostgreSQL.
+    Logs a near-miss candidate rejected within 10% of a gate threshold into PostgreSQL.
     """
     if not observed_value or not threshold_value or threshold_value == 0:
         return
@@ -68,6 +76,11 @@ def log_near_miss(
 
     now_ist = datetime.now(IST)
     today_date = now_ist.date()
+
+    clean_symbol = str(symbol).strip()[:30]
+    clean_scanner = str(scanner).strip()[:100]
+    clean_breakout_type = str(breakout_type).strip()[:150]
+    clean_gate_name = str(gate_name).strip()[:150]
 
     try:
         init_near_miss_schema()
@@ -81,11 +94,11 @@ def log_near_miss(
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    symbol, scanner, breakout_type, gate_name, observed_value,
+                    clean_symbol, clean_scanner, clean_breakout_type, clean_gate_name, observed_value,
                     threshold_value, round(delta_pct, 2), score, entry_price,
                     stop_loss, target_1, now_ist, today_date
                 ))
                 conn.commit()
-                logger.info(f"🎯 [NEAR-MISS LOGGED] {symbol} ({scanner}) gate '{gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%)")
+                logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%)")
     except Exception as e:
         logger.exception(f"Failed to log near-miss for {symbol}: {e}")
