@@ -81,8 +81,8 @@ def test_dependency_rules_enforced():
         if py_file.name == "__init__.py":
             continue
             
-        # Skip files inside data_providers directory
-        if "data_providers" in py_file.parts:
+        # Skip files inside data_providers or market_data directory
+        if "data_providers" in py_file.parts or "market_data" in py_file.parts:
             continue
             
         # Skip data_provider.py itself

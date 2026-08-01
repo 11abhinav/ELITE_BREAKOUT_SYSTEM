@@ -121,9 +121,63 @@ class UpstoxProvider(ProviderInterface):
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
             
     def fetch_batch_ohlcv(self, symbols: List[str], timeframe: str, range_from: datetime, range_to: datetime) -> Dict[str, NormalizedMarketData]:
-        # Upstox does not support bulk downloading natively via a single endpoint.
-        # Coordinator manages parallelization. For interface compliance:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         results = {}
-        for sym in symbols:
-            results[sym] = self.fetch_ohlcv(sym, timeframe, range_from, range_to)
+        # Upstox historical candle endpoint accepts 1 symbol per request.
+        # We execute up to 10 concurrent threads to achieve high-speed batch fetching while respecting rate limits.
+        max_workers = min(10, len(symbols)) if symbols else 1
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_sym = {
+                executor.submit(self.fetch_ohlcv, sym, timeframe, range_from, range_to): sym 
+                for sym in symbols
+            }
+            
+            for future in as_completed(future_to_sym):
+                sym = future_to_sym[future]
+                try:
+                    results[sym] = future.result()
+                except Exception as e:
+                    logger.error(f"Error fetching batch symbol {sym}: {e}")
+                    
+        return results
+
+    def fetch_live_quotes_batch(self, symbols: List[str]) -> Dict[str, Dict]:
+        """
+        Fetches full live market quotes (OHLC, Depth, Volume, Last Price) for up to 500 instruments in 1 single GET request.
+        Uses Upstox official batch endpoint: /v2/market-quote/quotes
+        """
+        from ... import config
+        token = config.UPSTOX_ACCESS_TOKEN
+        
+        if not token or not symbols:
+            return {}
+            
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+        
+        results = {}
+        # Upstox supports up to 500 symbols per request. Chunk into batches of 500.
+        chunk_size = 500
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i:i + chunk_size]
+            formatted_keys = ",".join([self._get_instrument_key(s) for s in chunk])
+            url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={formatted_keys}"
+            
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    data = res.json().get("data", {})
+                    for key, quote in data.items():
+                        # Key format is "NSE_EQ:RELIANCE" or "NSE_EQ|RELIANCE"
+                        clean_sym = key.split(":")[-1].split("|")[-1]
+                        results[clean_sym] = quote
+                else:
+                    logger.error(f"Failed live quote batch fetch (Status {res.status_code})")
+            except Exception as e:
+                logger.error(f"Error fetching live quote batch: {e}")
+                
         return results
