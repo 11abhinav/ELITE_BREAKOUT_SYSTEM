@@ -262,7 +262,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
                 _active_working_scraper_key = scraper_key
                 return res_scraper
         except Exception as s_err:
-            logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}")
+            logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}", exc_info=True)
 
     # 2. Direct Connection Fallback (If ScraperAPI key is not configured or all keys failed)
     logger.info(f"Attempting direct POST connection to {target_url}...")
@@ -303,7 +303,7 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
                 _active_working_scraper_key = scraper_key
                 return res_scraper
         except Exception as s_err:
-            logger.warning(f"ScraperAPI proxy GET key attempt failed ({scraper_key[:5]}...): {s_err}")
+            logger.warning(f"ScraperAPI proxy GET key attempt failed ({scraper_key[:5]}...): {s_err}", exc_info=True)
 
     logger.info(f"Attempting direct GET connection to {target_url}...")
     try:
@@ -366,10 +366,12 @@ def auto_login() -> Optional[str]:
                 return None
 
             try:
+                res1_text = res_obj.text
+                logger.info(f"Fyers Step 1 raw response text (Status {res_obj.status_code}): {res1_text}")
                 res = res_obj.json()
-                logger.info(f"Fyers Step 1 response payload: {res}")
+                logger.info(f"Fyers Step 1 parsed payload: {res}")
             except ValueError:
-                logger.error(f"Fyers Step 1 invalid JSON response (Status {res_obj.status_code}): {error_text[:250]}...")
+                logger.error(f"Fyers Step 1 non-JSON response (Status {res_obj.status_code}): {error_text[:1000]}")
                 return None
             
             if 'request_key' not in res:
@@ -388,10 +390,12 @@ def auto_login() -> Optional[str]:
             payload2 = {"request_key": request_key, "otp": totp}
             res2_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_otp", payload2)
             try:
+                res2_text = res2_obj.text
+                logger.info(f"Fyers Step 2 raw response text (Status {res2_obj.status_code}): {res2_text}")
                 res2 = res2_obj.json()
-                logger.info(f"Fyers Step 2 response payload: {res2}")
+                logger.info(f"Fyers Step 2 parsed payload: {res2}")
             except ValueError:
-                logger.error(f"Fyers Step 2 non-JSON response (Status {res2_obj.status_code}): {res2_obj.text[:250]}...")
+                logger.error(f"Fyers Step 2 non-JSON response (Status {res2_obj.status_code}): {res2_obj.text[:1000]}")
                 return None
                 
             if 'request_key' not in res2:
@@ -403,10 +407,12 @@ def auto_login() -> Optional[str]:
             payload3 = {"request_key": request_key2, "identity_type": "pin", "identifier": base64.b64encode(f"{pin.strip()}".encode()).decode()}
             res3_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_pin_v2", payload3)
             try:
+                res3_text = res3_obj.text
+                logger.info(f"Fyers Step 3 raw response text (Status {res3_obj.status_code}): {res3_text}")
                 res3 = res3_obj.json()
                 logger.info(f"Fyers Step 3 response status: {res3.get('s')}, code: {res3.get('code')}")
             except ValueError:
-                logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code}): {res3_obj.text[:250]}...")
+                logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code}): {res3_obj.text[:1000]}")
                 return None
                 
             if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
@@ -441,10 +447,12 @@ def auto_login() -> Optional[str]:
                 }
                 res4_obj = fyers_post_with_scraper_fallback(session, "https://api-t1.fyers.in/api/v3/token", payload4, headers=headers)
                 try:
+                    res4_text = res4_obj.text
+                    logger.info(f"Fyers Step 4 raw response text for '{cand_app_id}' (Status {res4_obj.status_code}): {res4_text}")
                     res4 = res4_obj.json()
-                    logger.info(f"Fyers Step 4 raw response for '{cand_app_id}': {res4}")
+                    logger.info(f"Fyers Step 4 parsed response for '{cand_app_id}': {res4}")
                 except ValueError:
-                    logger.error(f"Fyers Step 4 non-JSON response ({cand_app_id}, Status {res4_obj.status_code}): {res4_obj.text[:250]}...")
+                    logger.error(f"Fyers Step 4 non-JSON response ({cand_app_id}, Status {res4_obj.status_code}): {res4_obj.text[:1000]}")
                     continue
                 
                 if isinstance(res4.get('data'), dict) and res4['data'].get('auth'):
