@@ -1368,6 +1368,7 @@ def _run_scan(force: bool = False):
         and dtime(9, 15) <= ist_now.time() <= dtime(15, 30)
     )
     all_symbols = scan_watchlist["Stock"].tolist()
+    requested_symbols = set([_canonical_symbol(s) for s in all_symbols if s])
     snapshot_by_symbol = {}
     snapshot_fetch_failed = False
     if is_market_open:

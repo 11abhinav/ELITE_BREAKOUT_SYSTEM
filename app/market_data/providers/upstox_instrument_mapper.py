@@ -53,10 +53,10 @@ _STATIC_SYMBOL_MAP = {
     "^CNXMETAL": "NSE_INDEX|Nifty Metal",
     "^CNXREALTY": "NSE_INDEX|Nifty Realty",
     "^CNXENERGY": "NSE_INDEX|Nifty Energy",
-    "^CNXINFRA": "NSE_INDEX|Nifty Infrastructure",
+    "^CNXINFRA": "NSE_INDEX|Nifty Infra",
     "^CNXPSUBANK": "NSE_INDEX|Nifty PSU Bank",
-    "^CNXFIN": "NSE_INDEX|Nifty Financial Services",
-    "^CNXFINANCE": "NSE_INDEX|Nifty Financial Services",
+    "^CNXFIN": "NSE_INDEX|Nifty Fin Service",
+    "^CNXFINANCE": "NSE_INDEX|Nifty Fin Service",
     "^CNXCMDT": "NSE_INDEX|Nifty Commodities",
     "^CNXCOMMODITIES": "NSE_INDEX|Nifty Commodities",
 
