@@ -348,7 +348,7 @@ class UpstoxProvider(ProviderInterface):
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {e.response.status_code if e.response is not None else 'Error'}")
         except Exception as e:
             self._health_score = max(0, self._health_score - 2)
-            logger.error(f"Upstox fetch error for {symbol}: {e}")
+            logger.exception(f"Upstox fetch error for {symbol}: {e}")
             latency = (datetime.now() - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
