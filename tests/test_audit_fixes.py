@@ -289,8 +289,11 @@ class TestAuditFixes(unittest.TestCase):
         import pandas as pd
         df = pd.DataFrame([{"Stock": "TCS", "Category": "LARGE", "Sector": "IT"}])
         mock_wl.return_value = df
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        sample_df = pd.DataFrame({"Close": [100.0]}, index=pd.to_datetime([today_str]))
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
+        sample_df = pd.DataFrame({
+            "Open": [100.0] * 60, "High": [105.0] * 60, "Low": [99.0] * 60,
+            "Close": [102.0] * 60, "Volume": [100000] * 60
+        }, index=dates)
         mock_fetch.return_value = {"TCS": sample_df}
 
         from pullback_pipeline import run_pullback_pipeline
