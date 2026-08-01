@@ -297,8 +297,16 @@ YAHOO_TIMEOUT = 30
 PRICE_CACHE_TTL_SECONDS = 60  # Changed from 180s: Intraday runs every 5min (need fresh cache hit)
 
 
-TELEGRAM_CHUNK_SIZE = 10
-TELEGRAM_RETRIES = 3
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1002341999976")
+
+# ─── MARKET DATA PLATFORM MIGRATION (FEATURE FLAGS) ─────────────────────────
+# When True, routes fetches through the new HistoricalDataService (Upstox + Fyers)
+# When False, uses legacy data_provider.py and price_provider.py (Yahoo Finance)
+USE_MARKET_DATA_PLATFORM = os.environ.get("USE_MARKET_DATA_PLATFORM", "False").lower() == "true"
+USE_UPSTOX_PROVIDER = os.environ.get("USE_UPSTOX_PROVIDER", "True").lower() == "true"
+USE_FYERS_PROVIDER = os.environ.get("USE_FYERS_PROVIDER", "True").lower() == "true"
+
+UPSTOX_ACCESS_TOKEN = os.environ.get("UPSTOX_ACCESS_TOKEN")
 TELEGRAM_TIMEOUT = 10
 LOG_LEVEL = "INFO"
 
