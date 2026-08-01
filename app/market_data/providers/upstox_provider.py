@@ -242,8 +242,10 @@ class UpstoxProvider(ProviderInterface):
                 is_complete_candle=True
             )
 
-        # Handle 15m / 15minute by fetching 1m candles from Upstox API and resampling
-        if tf_clean in ("15m", "15min", "15minute"):
+        # Handle unsupported 5m / 15m intraday intervals by fetching 1m candles from Upstox API and resampling
+        if tf_clean in ("5m", "5min", "5minute", "15m", "15min", "15minute"):
+            resample_freq = "5min" if tf_clean.startswith("5") else "15min"
+            target_tf = "5m" if tf_clean.startswith("5") else "15m"
             res_1m = self.fetch_ohlcv(symbol, timeframe="1m", range_from=range_from, range_to=range_to)
             if res_1m and res_1m.dataframe is not None and not res_1m.dataframe.empty:
                 df_1m = res_1m.dataframe.copy()
@@ -256,12 +258,12 @@ class UpstoxProvider(ProviderInterface):
                 }
                 if "OI" in df_1m.columns:
                     agg_dict["OI"] = "last"
-                df_15m = df_1m.resample("15m").agg(agg_dict).dropna(subset=["Close"])
+                df_resampled = df_1m.resample(resample_freq).agg(agg_dict).dropna(subset=["Close"])
                 prov = DataProvenance(self.provider_name, datetime.now(), 0.0, 100.0)
                 return NormalizedMarketData(
                     symbol=symbol,
-                    timeframe="15m",
-                    dataframe=df_15m,
+                    timeframe=target_tf,
+                    dataframe=df_resampled,
                     provenance=prov,
                     is_complete_candle=True
                 )
