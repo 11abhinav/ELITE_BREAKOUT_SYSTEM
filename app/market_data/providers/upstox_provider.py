@@ -139,10 +139,20 @@ class UpstoxProvider(ProviderInterface):
             
         # 2. Build Request
         import urllib.parse
+        from datetime import timedelta
         raw_key = self._get_instrument_key(symbol)
         instrument_key = urllib.parse.quote(raw_key)
         interval = self._map_timeframe(timeframe)
-        url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{range_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
+        
+        # Proactively adjust range_to if it falls on a non-trading weekend day (Saturday=5, Sunday=6)
+        adjusted_range_to = range_to
+        if range_to and hasattr(range_to, "weekday"):
+            if range_to.weekday() == 5:
+                adjusted_range_to = range_to - timedelta(days=1)
+            elif range_to.weekday() == 6:
+                adjusted_range_to = range_to - timedelta(days=2)
+                
+        url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{adjusted_range_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
         
         headers = {
             "Accept": "application/json",
