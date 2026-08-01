@@ -3016,6 +3016,11 @@ function triggerStockDiagnostic(overrideSym, isDeep = false) {
   fetch(url)
     .then(async res => {
       const text = await res.text();
+      if (res.status === 502 || res.status === 503 || res.status === 504 || text.includes('502 Bad Gateway') || text.includes('Bad Gateway')) {
+        logger ? logger.warn('502 Gateway during deployment, auto-retrying...') : console.warn('502 Gateway, retrying...');
+        setTimeout(() => triggerStockDiagnostic(sym, isDeep), 2500);
+        throw new Error('⚡ Live server deployment in progress. Auto-retrying diagnostic in 2 seconds...');
+      }
       let data;
       try {
         data = JSON.parse(text);
@@ -3034,6 +3039,9 @@ function triggerStockDiagnostic(overrideSym, isDeep = false) {
       renderStockDiagnosticModal(data);
     })
     .catch(err => {
+      if (err.message.includes('Live server deployment')) {
+        return; // Auto-retry is scheduled via setTimeout
+      }
       closeDiagnosticModal();
       showInvalidTickerAlert(sym, `Failed to analyze ticker '${sym}': ${err.message}`);
     });
