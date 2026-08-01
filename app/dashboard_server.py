@@ -3258,6 +3258,39 @@ def api_symbols_master_list():
         return jsonify([]), 500
 
 
+def _run_deep_analysis_bg(sym, uid):
+    try:
+        from stock_analyzer import analyze_symbol
+        from database import update_user_watchlist_scan_result, insert_notification
+        from push_service import send_push_to_all
+        res = analyze_symbol(sym, user_id=uid, is_deep_analysis=True)
+        if res and res.get("success"):
+            score = float(res.get("overall_health_score", 0))
+            status = res.get("watchlist_status", "MONITORING")
+            update_user_watchlist_scan_result(sym, uid, score, status, res)
+            
+            # 1. In-App Notification Center (Bell Badge for Admin/User)
+            try:
+                insert_notification(
+                    notif_type="watchlist_analysis",
+                    title=f"📊 Deep Analysis Ready: #{sym}",
+                    message=f"Completed background 7-stage deep scan for #{sym}. Health Score: {score:.1f}/100 | Status: {status}",
+                    symbol=sym
+                )
+            except Exception as notif_err:
+                logger.warning(f"Could not insert in-app notification for {sym}: {notif_err}")
+
+            # 2. Browser Web Push Notification
+            send_push_to_all(
+                title=f"📊 Deep Analysis Ready: {sym}",
+                body=f"Health Score: {score:.1f}/100 | Status: {status}",
+                symbol=sym,
+                bypass_throttle=True
+            )
+    except Exception as ex:
+        logger.error(f"Background deep analysis failed for {sym}: {ex}")
+
+
 @app.route("/api/v1/analyze_stock", methods=["GET"])
 @login_required
 def api_analyze_stock():
@@ -3419,37 +3452,6 @@ def api_add_user_watchlist():
         # Run deep 1-year historical fetch and analysis in background thread so UI doesn't freeze
         if ok:
             import threading
-            def _run_deep_analysis_bg(sym, uid):
-                try:
-                    from stock_analyzer import analyze_symbol
-                    from database import update_user_watchlist_scan_result, insert_notification
-                    from push_service import send_push_to_all
-                    res = analyze_symbol(sym, user_id=uid, is_deep_analysis=True)
-                    if res and res.get("success"):
-                        score = float(res.get("overall_health_score", 0))
-                        status = res.get("watchlist_status", "MONITORING")
-                        update_user_watchlist_scan_result(sym, uid, score, status, res)
-                        
-                        # 1. In-App Notification Center (Bell Badge for Admin/User)
-                        try:
-                            insert_notification(
-                                notif_type="watchlist_analysis",
-                                title=f"📊 Deep Analysis Ready: #{sym}",
-                                message=f"Completed background 7-stage deep scan for #{sym}. Health Score: {score:.1f}/100 | Status: {status}",
-                                symbol=sym
-                            )
-                        except Exception as notif_err:
-                            logger.warning(f"Could not insert in-app notification for {sym}: {notif_err}")
-
-                        # 2. Browser Web Push Notification
-                        send_push_to_all(
-                            title=f"📊 Deep Analysis Ready: {sym}",
-                            body=f"Health Score: {score:.1f}/100 | Status: {status}",
-                            symbol=sym,
-                            bypass_throttle=True
-                        )
-                except Exception as ex:
-                    logger.error(f"Background deep analysis failed for {sym}: {ex}")
             threading.Thread(target=_run_deep_analysis_bg, args=(symbol, user_id), daemon=True).start()
 
         return jsonify({"success": ok})
