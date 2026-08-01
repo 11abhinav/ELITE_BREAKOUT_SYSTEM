@@ -342,10 +342,12 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
             self.assertEqual(data[0]["symbol"], "TATAMOTORS")
 
     @patch('dashboard_server._cached_check_session', return_value=True)
+    @patch('database.get_stock_master_analysis')
     @patch('stock_analyzer.analyze_symbol')
-    def test_api_analyze_stock_endpoint(self, mock_analyze, mock_check):
+    def test_api_analyze_stock_endpoint(self, mock_analyze, mock_get_master, mock_check):
         """Verify /api/v1/analyze_stock route returns diagnostic analysis object."""
-        mock_analyze.return_value = {"success": True, "symbol": "TATAMOTORS", "overall_health_score": 85.0}
+        mock_get_master.return_value = {"success": True, "symbol": "TATAMOTORS", "overall_health_score": 85.0, "funnel": {"daily_builder": {}}}
+        mock_analyze.return_value = {"success": True, "symbol": "TATAMOTORS", "overall_health_score": 85.0, "funnel": {"daily_builder": {}}}
 
         from dashboard_server import app
         with app.test_client() as client:
