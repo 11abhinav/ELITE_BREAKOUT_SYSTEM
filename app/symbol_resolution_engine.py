@@ -218,8 +218,8 @@ class UpstoxAdapter(BaseProviderAdapter):
         sym = symbol.upper()
         candidates = [f"NSE_EQ|{sym}", f"BSE_EQ|{sym}"]
         try:
-            from market_data.providers.upstox_provider import get_upstox_provider
-            up = get_upstox_provider()
+            from market_data.providers.upstox_provider import UpstoxProvider
+            up = UpstoxProvider()
             for cand in candidates:
                 try:
                     res = up.fetch_ohlcv(cand, timeframe="1d")

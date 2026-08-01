@@ -6413,3 +6413,154 @@ def export_table_records(table_name: str) -> tuple:
             return col_names, rows
 
 
+# =====================================================================================
+# INSTITUTIONAL SYMBOL RESOLUTION DATABASE HELPERS
+# =====================================================================================
+
+def load_all_symbol_resolution_data() -> dict:
+    """
+    Bulk loads instrument_registry, provider_instruments, and active symbol_mappings 
+    from PostgreSQL for initializing ultra-fast O(1) in-memory hash indexes.
+    """
+    init_db()
+    res = {
+        "instrument_registry": [],
+        "provider_instruments": [],
+        "symbol_mappings": []
+    }
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT instrument_id, symbol, company_name, primary_exchange, series, nse_symbol, bse_symbol, bse_scrip_code, is_active
+                    FROM instrument_registry WHERE is_active = TRUE
+                """)
+                for r in cur.fetchall():
+                    res["instrument_registry"].append({
+                        "instrument_id": r[0], "symbol": r[1], "company_name": r[2],
+                        "primary_exchange": r[3], "series": r[4], "nse_symbol": r[5],
+                        "bse_symbol": r[6], "bse_scrip_code": r[7], "is_active": r[8]
+                    })
+
+                cur.execute("""
+                    SELECT provider, instrument_id, provider_symbol, provider_key, exchange, series
+                    FROM provider_instruments
+                """)
+                for r in cur.fetchall():
+                    res["provider_instruments"].append({
+                        "provider": r[0], "instrument_id": r[1], "provider_symbol": r[2],
+                        "provider_key": r[3], "exchange": r[4], "series": r[5]
+                    })
+
+                cur.execute("""
+                    SELECT provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                           confidence_score, mapping_source, status, consecutive_failures, last_success_at, retry_after
+                    FROM symbol_mappings
+                """)
+                for r in cur.fetchall():
+                    res["symbol_mappings"].append({
+                        "provider": r[0], "original_symbol": r[1], "mapped_symbol": r[2],
+                        "instrument_id": r[3], "exchange": r[4], "series": r[5],
+                        "confidence_score": r[6], "mapping_source": r[7], "status": r[8],
+                        "consecutive_failures": r[9], "last_success_at": r[10], "retry_after": r[11]
+                    })
+    except Exception as e:
+        logger.error(f"❌ Failed to load symbol resolution data from DB: {e}")
+    return res
+
+
+def save_symbol_mapping_db(provider: str, original_symbol: str, mapped_symbol: str, 
+                           instrument_id: str = None, exchange: str = None, series: str = None, 
+                           confidence_score: int = 100, mapping_source: str = "LEARNED", 
+                           status: str = "ACTIVE", retry_after = None) -> bool:
+    """Upserts a learned or master symbol mapping into symbol_mappings table."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO symbol_mappings (
+                        provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                        confidence_score, mapping_source, status, consecutive_failures, last_success_at,
+                        last_verified_at, retry_after
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s)
+                    ON CONFLICT (provider, original_symbol) DO UPDATE SET
+                        mapped_symbol = EXCLUDED.mapped_symbol,
+                        instrument_id = COALESCE(EXCLUDED.instrument_id, symbol_mappings.instrument_id),
+                        exchange = COALESCE(EXCLUDED.exchange, symbol_mappings.exchange),
+                        series = COALESCE(EXCLUDED.series, symbol_mappings.series),
+                        confidence_score = EXCLUDED.confidence_score,
+                        mapping_source = EXCLUDED.mapping_source,
+                        status = EXCLUDED.status,
+                        consecutive_failures = 0,
+                        last_success_at = NOW(),
+                        last_verified_at = NOW(),
+                        retry_after = EXCLUDED.retry_after;
+                """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
+                conn.commit()
+                return True
+    except Exception as e:
+        logger.error(f"❌ Failed to save symbol mapping in DB for {provider}/{original_symbol}: {e}")
+        return False
+
+
+def record_symbol_mapping_failure_db(provider: str, original_symbol: str) -> dict:
+    """
+    Increments consecutive failure count for a mapping. 
+    If consecutive_failures >= 3 AND last_success_at > 30 days, transitions status to STALE for auto-healing.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE symbol_mappings
+                    SET consecutive_failures = consecutive_failures + 1,
+                        status = CASE 
+                            WHEN (consecutive_failures + 1 >= 3 AND (last_success_at IS NULL OR last_success_at < NOW() - INTERVAL '30 days')) THEN 'STALE'
+                            ELSE status
+                        END
+                    WHERE provider = %s AND original_symbol = %s
+                    RETURNING consecutive_failures, status;
+                """, (provider, original_symbol))
+                conn.commit()
+                row = cur.fetchone()
+                if row:
+                    return {"consecutive_failures": row[0], "status": row[1]}
+    except Exception as e:
+        logger.error(f"❌ Failed to record symbol mapping failure for {provider}/{original_symbol}: {e}")
+        return {"consecutive_failures": 1, "status": "ACTIVE"}
+
+
+def record_symbol_mapping_success_db(provider: str, original_symbol: str):
+    """Resets consecutive failures to 0 and updates last_success_at timestamp."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE symbol_mappings
+                    SET consecutive_failures = 0,
+                        last_success_at = NOW(),
+                        last_verified_at = NOW()
+                    WHERE provider = %s AND original_symbol = %s;
+                """, (provider, original_symbol))
+                conn.commit()
+    except Exception as e:
+        logger.error(f"❌ Failed to record symbol mapping success for {provider}/{original_symbol}: {e}")
+
+
+def log_resolution_event_db(provider: str, original_symbol: str, attempted_symbol: str, 
+                             event_type: str, resolution_level: str, confidence_score: int = None, 
+                             latency_ms: float = 0.0, error_code: str = None):
+    """Logs selective operational audit events (failures, probes, auto-heal) to resolution_history."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO resolution_history (
+                        provider, original_symbol, attempted_symbol, event_type, resolution_level, confidence_score, latency_ms, error_code
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                """, (provider, original_symbol, attempted_symbol, event_type, resolution_level, confidence_score, latency_ms, error_code))
+                conn.commit()
+    except Exception as e:
+        logger.error(f"❌ Failed to log resolution event for {provider}/{original_symbol}: {e}")
+
+
