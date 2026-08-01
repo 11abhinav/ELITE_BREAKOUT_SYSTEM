@@ -383,6 +383,10 @@ class UpstoxProvider(ProviderInterface):
         quotes = self.get_quotes([symbol])
         return quotes.get(symbol, {})
 
+    def fetch_live_quotes_batch(self, symbols: List[str]) -> Dict[str, dict]:
+        """Fetches live market quotes for multiple symbols (alias for UnifiedFetcher callers)."""
+        return self.get_quotes(symbols)
+
     def get_quotes(self, symbols: List[str]) -> Dict[str, dict]:
         """Fetches live market quotes for multiple symbols from Upstox v2 API."""
         if not symbols:
