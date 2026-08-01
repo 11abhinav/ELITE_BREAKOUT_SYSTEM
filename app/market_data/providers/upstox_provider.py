@@ -410,8 +410,13 @@ class UpstoxProvider(ProviderInterface):
                 if res.status_code == 200:
                     data = res.json().get("data", {})
                     for key, quote in data.items():
+                        # Save under full key (NSE_EQ:INE...), pipe key (NSE_EQ|INE...), clean sym (INE...), and symbol name
+                        results[key] = quote
+                        results[key.replace(":", "|")] = quote
                         clean_sym = key.split(":")[-1].split("|")[-1]
                         results[clean_sym] = quote
+                        if isinstance(quote, dict) and quote.get("symbol"):
+                            results[str(quote["symbol"]).upper()] = quote
                 else:
                     logger.error(f"Failed live quote batch fetch (Status {res.status_code})")
             except requests.RequestException as e:

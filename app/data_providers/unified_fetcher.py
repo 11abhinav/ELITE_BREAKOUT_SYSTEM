@@ -273,10 +273,12 @@ class UnifiedFetcher:
                                     try:
                                         raw_key = upstox_fetcher._get_instrument_key(orig)
                                         clean_sym = raw_key.split(":")[-1].split("|")[-1]
-                                        quote_data = resp.get(clean_sym)
+                                        quote_data = resp.get(orig) or resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":"))
                                         
-                                        if quote_data:
+                                        if quote_data and isinstance(quote_data, dict):
                                             val = quote_data.get("last_price")
+                                            if val is None and "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
+                                                val = quote_data["ohlc"].get("close")
                                             if val is not None and float(val) > 0:
                                                 results[orig] = {"v": {"cmd": {"c": float(val)}}}
                                                 logger.info(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
