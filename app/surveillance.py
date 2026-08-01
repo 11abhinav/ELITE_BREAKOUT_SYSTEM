@@ -92,19 +92,24 @@ def get_live_blacklist() -> set[str]:
                     api_key = get_scraper_api_key()
                     
                     def fetch_nse_json(url: str):
-                        if api_key:
-                            payload = {'api_key': api_key, 'url': url, 'render': 'false', 'country_code': 'in'}
-                            resp = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
-                            if resp.status_code in [401, 403, 429]:
-                                mark_key_exhausted_today(api_key)
-                                raise Exception(f"ScraperAPI rate-limited ({resp.status_code})")
-                            if resp.status_code == 200:
-                                return resp.json()
-                            raise Exception(f"Failed to fetch {url} via ScraperAPI, status: {resp.status_code}")
-                        else:
-                            # Fallback to nsepython
+                        curr_key = get_scraper_api_key()
+                        if curr_key:
+                            try:
+                                payload = {'api_key': curr_key, 'url': url, 'render': 'false', 'country_code': 'in'}
+                                resp = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
+                                if resp.status_code in [401, 403, 429]:
+                                    mark_key_exhausted_today(curr_key)
+                                elif resp.status_code == 200:
+                                    return resp.json()
+                            except Exception as scraper_err:
+                                logger.debug(f"ScraperAPI fetch failed for {url}: {scraper_err}")
+                        
+                        # Fallback to direct nsepython fetch if ScraperAPI fails or is missing key
+                        try:
                             import nsepython
                             return nsepython.nsefetch(url)
+                        except Exception as nse_err:
+                            raise Exception(f"Failed to fetch {url} via ScraperAPI & nsepython fallback: {nse_err}")
 
                     asm_res = fetch_nse_json("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):
