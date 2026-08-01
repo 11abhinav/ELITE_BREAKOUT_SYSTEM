@@ -363,7 +363,7 @@ class SymbolResolutionService:
 
         sym_clean = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
         prov = provider.lower()
-        key = (prov, sym_clean)
+        key = (prov, symbol.strip().upper())
         store = self._active_indexes
 
         with self._metrics_lock:
@@ -405,17 +405,17 @@ class SymbolResolutionService:
             metadata = store.idx_by_id.get(inst_id) if inst_id else None
 
             # ── LEVEL 2: Broker Instrument Master Lookup ─────────────────────────────
-            resolved = adapter.lookup_master(sym_clean, metadata)
+            resolved = adapter.lookup_master(symbol, metadata)
             if resolved and resolved.is_valid:
-                self._cache_and_persist_mapping(prov, sym_clean, resolved)
+                self._cache_and_persist_mapping(prov, symbol.strip().upper(), resolved)
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self._record_telemetry("master_hits", latency_ms)
                 return resolved
 
-            # ── LEVEL 3: Metadata-Guided Smart Series Probing ────────────────────────
-            resolved = adapter.probe_candidates(sym_clean, metadata)
+            # ── LEVEL 3: Smart Series Probing ─────────────────────────────────────────
+            resolved = adapter.probe_candidates(symbol, metadata)
             if resolved and resolved.is_valid:
-                self._cache_and_persist_mapping(prov, sym_clean, resolved)
+                self._cache_and_persist_mapping(prov, symbol.strip().upper(), resolved)
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self._record_telemetry("probe_hits", latency_ms)
                 

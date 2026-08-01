@@ -297,7 +297,8 @@ class TestAuditFixes(unittest.TestCase):
         mock_fetch.return_value = {"TCS": sample_df}
 
         from pullback_pipeline import run_pullback_pipeline
-        run_pullback_pipeline(force=False)
+        with patch('pullback_pipeline._determine_dataset_date', return_value=datetime.now().strftime("%Y-%m-%d")):
+            run_pullback_pipeline(force=False)
 
         # Check upsert_scanner_health calls
         health_calls = mock_health.call_args_list

@@ -163,7 +163,8 @@ class FyersFetcher(DataFetcher):
                 return f"{sym}-EQ"
             return sym
             
-        if sym.endswith(".NS"):
+        is_bse = sym.endswith(".BO") or sym.startswith("BSE:")
+        if sym.endswith(".NS") or sym.endswith(".BO"):
             sym = sym[:-3]
             
         # [VERSION: FYERS_PATCH_v1.0] Intercept ampersand symbols before blind replace
@@ -224,7 +225,8 @@ class FyersFetcher(DataFetcher):
             logger.debug(f"SymbolResolutionService fallback for Fyers {symbol}: {ex}")
 
         # Standard stock format fallback
-        return f"NSE:{sym}-EQ"
+        prefix = "BSE:" if is_bse else "NSE:"
+        return f"{prefix}{sym}-EQ"
 
 
     def _get_date_range(self, period: str) -> tuple[str, str]:
