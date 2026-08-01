@@ -3278,6 +3278,34 @@ def api_analyze_stock():
         wl_symbols = {item["symbol"].upper() for item in (user_wl or []) if item.get("symbol")}
         is_in_wl = (sym_clean in wl_symbols)
 
+        # Check stock_analysis_master repository first for instant 0ms pre-scanned report
+        cached_master = get_stock_master_analysis(sym_clean)
+        if cached_master and isinstance(cached_master, dict) and cached_master.get("funnel"):
+            cached_master["is_in_watchlist"] = is_in_wl
+            
+            # Check cache age (stale if > 24 hours)
+            if not force_refresh:
+                last_scanned = cached_master.get("last_deep_analysis_at")
+                is_stale = True
+                if last_scanned:
+                    try:
+                        from datetime import datetime
+                        from zoneinfo import ZoneInfo
+                        ts = datetime.fromisoformat(str(last_scanned).replace('Z', '+00:00'))
+                        now = datetime.now(ts.tzinfo or ZoneInfo("Asia/Kolkata"))
+                        if (now - ts).total_seconds() < 86400:
+                            is_stale = False
+                    except Exception:
+                        pass
+                
+                # If cache is older than 24h, trigger background deep scan to update it silently
+                if is_stale:
+                    import threading
+                    logger.info(f"🔄 Cache for {sym_clean} is >24h old. Returning instant cache and spawning background refresh thread.")
+                    threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
+
+                return jsonify(cached_master)
+
         if quick_mode:
             from stock_analyzer import validate_nse_bse_ticker_fast
             val = validate_nse_bse_ticker_fast(symbol)
@@ -3304,13 +3332,6 @@ def api_analyze_stock():
                 "deficits": ["Analysis Pending... Add to Watchlist to begin deep background analysis."],
                 "funnel": {}
             })
-
-        # Check stock_analysis_master repository first for instant 0ms pre-scanned report
-        if not force_refresh:
-            cached_master = get_stock_master_analysis(symbol)
-            if cached_master and isinstance(cached_master, dict) and cached_master.get("funnel"):
-                cached_master["is_in_watchlist"] = is_in_wl
-                return jsonify(cached_master)
 
         result = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=is_deep, _skip_validation=True)
         result["is_in_watchlist"] = is_in_wl

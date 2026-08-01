@@ -6146,6 +6146,8 @@ def get_stock_master_analysis(symbol: str) -> dict:
                         res = json.loads(row[0]) if isinstance(row[0], str) else row[0]
                         if isinstance(res, dict):
                             res["cached_from_master"] = True
+                            if row[1]:
+                                res["last_deep_analysis_at"] = str(row[1])
                             return res
                     except Exception:
                         pass
