@@ -524,29 +524,32 @@ def auto_login() -> Optional[str]:
                 dispatch_fyers_reauth_notification("Fyers OAuth auto-login failed at Step 4.")
                 return None
             
-            logger.info(f"Fyers login Step 5: Exchanging/Validating credential token (len={len(auth_code)}) for all-day access token (client_id='{successful_app_id}')...")
+            logger.info(f"Fyers login Step 5: Exchanging/Validating credential token (len={len(auth_code)}) for all-day access token...")
             try:
-                session_m = get_session_model(client_id=successful_app_id)
-                session_m.set_token(auth_code)
-                response = session_m.generate_token()
+                real_token = None
+                for test_id in (target_app_id, successful_app_id):
+                    session_m = get_session_model(client_id=test_id)
+                    session_m.set_token(auth_code)
+                    response = session_m.generate_token()
+                    if response and isinstance(response, dict) and "access_token" in response:
+                        real_token = response["access_token"]
+                        logger.info(f"✅ Fyers Step 5: generate_token() SUCCESS for '{test_id}' | AccessToken len={len(real_token)} | Saving to DB & local cache.")
+                        return save_access_token_direct(real_token)
+                    else:
+                        logger.warning(f"Fyers Step 5 generate_token() failed for '{test_id}': {response}")
                 
-                if response and isinstance(response, dict) and "access_token" in response:
-                    real_token = response["access_token"]
-                    logger.info(f"✅ Fyers Step 5: generate_token() SUCCESS | AccessToken len={len(real_token)} | Saving to DB & local cache.")
-                    return save_access_token_direct(real_token)
-                else:
-                    logger.info(f"Fyers Step 5: generate_token() returned {response}. Testing token directly against live Fyers API profile...")
-                    try:
-                        from fyers_apiv3 import fyersModel
-                        for test_client_id in (successful_app_id, app_id_clean, target_app_id):
-                            f_client = fyersModel.FyersModel(client_id=test_client_id, is_async=False, token=auth_code, log_path=os.getcwd())
-                            profile_res = f_client.get_profile()
-                            logger.info(f"Fyers Step 5 Profile Test ({test_client_id}): {profile_res}")
-                            if profile_res and isinstance(profile_res, dict) and (profile_res.get('s') == 'ok' or profile_res.get('code') == 200 or 'data' in profile_res):
-                                logger.info(f"✅ Fyers Step 5: Direct session token verified live with Fyers API profile for client_id '{test_client_id}'! | AccessToken len={len(auth_code)} | Saving to DB & local cache.")
-                                return save_access_token_direct(auth_code)
-                    except Exception as prof_err:
-                        logger.error(f"Fyers Step 5 profile validation exception: {prof_err}")
+                logger.info(f"Fyers Step 5: generate_token() returned failures. Testing token directly against live Fyers API profile...")
+                try:
+                    from fyers_apiv3 import fyersModel
+                    for test_client_id in (successful_app_id, app_id_clean, target_app_id):
+                        f_client = fyersModel.FyersModel(client_id=test_client_id, is_async=False, token=auth_code, log_path=os.getcwd())
+                        profile_res = f_client.get_profile()
+                        logger.info(f"Fyers Step 5 Profile Test ({test_client_id}): {profile_res}")
+                        if profile_res and isinstance(profile_res, dict) and (profile_res.get('s') == 'ok' or profile_res.get('code') == 200 or 'data' in profile_res):
+                            logger.info(f"✅ Fyers Step 5: Direct session token verified live with Fyers API profile for client_id '{test_client_id}'! | AccessToken len={len(auth_code)} | Saving to DB & local cache.")
+                            return save_access_token_direct(auth_code)
+                except Exception as prof_err:
+                    logger.error(f"Fyers Step 5 profile validation exception: {prof_err}")
 
                     logger.error("❌ Fyers Step 5 token exchange and direct validation failed.")
                     dispatch_fyers_reauth_notification("Fyers token validation failed.")
