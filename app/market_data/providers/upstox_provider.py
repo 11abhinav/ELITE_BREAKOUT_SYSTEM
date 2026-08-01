@@ -59,8 +59,12 @@ class UpstoxProvider(ProviderInterface):
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         # 1. Use Long-Lived Analytics Token
-        from ... import config
-        token = config.UPSTOX_ACCESS_TOKEN
+        try:
+            import config
+        except ImportError:
+            from app import config
+            
+        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         
         if not token:
             self._status = ProviderStatus.AUTH_FAILED
@@ -148,8 +152,12 @@ class UpstoxProvider(ProviderInterface):
         Fetches full live market quotes (OHLC, Depth, Volume, Last Price) for up to 500 instruments in 1 single GET request.
         Uses Upstox official batch endpoint: /v2/market-quote/quotes
         """
-        from ... import config
-        token = config.UPSTOX_ACCESS_TOKEN
+        try:
+            import config
+        except ImportError:
+            from app import config
+            
+        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         
         if not token or not symbols:
             return {}
