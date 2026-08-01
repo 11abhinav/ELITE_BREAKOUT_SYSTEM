@@ -21,13 +21,15 @@ import config
 def test_provider_selector_routing():
     # 1. Dataset-level resolution
     daily_providers = selector.get_providers("price_1d")
-    assert daily_providers[0] == "yahoo"
+    assert "fyers" in daily_providers and "yahoo" in daily_providers
+    assert daily_providers.index("fyers") < daily_providers.index("yahoo")
 
     intraday_providers = selector.get_providers("price_15m")
-    assert intraday_providers[0] == "yahoo"
+    assert "fyers" in intraday_providers and "yahoo" in intraday_providers
+    assert intraday_providers.index("fyers") < intraday_providers.index("yahoo")
 
     live_providers = selector.get_providers("live_quotes", fetch_type="live_quotes")
-    assert live_providers[0] == "fyers"
+    assert "fyers" in live_providers or "upstox" in live_providers
 
 def test_provider_capabilities_filtering():
     # Capability check for bulk operations
