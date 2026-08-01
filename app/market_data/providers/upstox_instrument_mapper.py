@@ -94,7 +94,7 @@ class UpstoxInstrumentMapper:
     """Singleton Instrument Key Mapper for Upstox API v2."""
 
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls):
         with cls._lock:
