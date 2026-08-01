@@ -751,7 +751,6 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception:
         ticker_name = f"{symbol}.NS"
         
-    ticker = yf.Ticker(ticker_name)
     info, fast_info, fin, bs, cf = None, None, None, None, None
     success = False
     
@@ -762,7 +761,14 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         try:
             yf_acquire(context=f"Multibagger Scanner | {symbol}")
             try:
+                ticker = yf.Ticker(ticker_name)
                 info = ticker.info
+                fast_info = getattr(ticker, 'fast_info', {})
+                fin = ticker.financials
+                bs = ticker.balance_sheet
+                cf = ticker.cashflow
+            finally:
+                yf_release()
                 fast_info = ticker.fast_info
                 fin = ticker.financials
                 bs = ticker.balance_sheet

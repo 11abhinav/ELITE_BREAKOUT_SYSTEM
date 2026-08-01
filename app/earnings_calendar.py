@@ -33,14 +33,19 @@ class YahooEarningsProvider(EarningsProvider):
     def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
         """Fetches upcoming earnings date via yfinance."""
         import yfinance as yf
+        from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
         clean_upper = symbol.strip().upper()
         ticker_str = clean_upper if clean_upper.endswith(".NS") or clean_upper.endswith(".BO") else f"{clean_upper}.NS"
         
         try:
-            t = yf.Ticker(ticker_str)
-            
-            # Method A: t.calendar dict/df
-            cal = t.calendar
+            yf_acquire(context=f"YahooEarningsProvider | {symbol}")
+            try:
+                t = yf.Ticker(ticker_str)
+                cal = t.calendar
+                ed_df = t.earnings_dates
+            finally:
+                yf_release()
+
             if cal is not None and len(cal) > 0:
                 if isinstance(cal, dict) and "Earnings Date" in cal:
                     ed_list = cal["Earnings Date"]
@@ -55,8 +60,6 @@ class YahooEarningsProvider(EarningsProvider):
                         dt_val = pd.to_datetime(vals[0])
                         return dt_val.date(), DateStatus.ESTIMATED
 
-            # Method B: t.earnings_dates DataFrame
-            ed_df = t.earnings_dates
             if ed_df is not None and not ed_df.empty:
                 now_date = datetime.now(IST).date()
                 future_dates = [d.date() for d in ed_df.index if d.date() >= now_date]
@@ -64,6 +67,9 @@ class YahooEarningsProvider(EarningsProvider):
                     return min(future_dates), DateStatus.ESTIMATED
                     
         except Exception as e:
+            msg = str(e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                record_rate_limit(context=f"YahooEarningsProvider | {symbol}")
             logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
             
         return None, DateStatus.UNKNOWN
