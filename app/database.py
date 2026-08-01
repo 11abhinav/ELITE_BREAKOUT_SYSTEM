@@ -609,14 +609,26 @@ def init_db():
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ DEFAULT NOW();
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ;
 
-                    -- Drop legacy NOT NULL constraints so inserts into modern columns succeed on hybrid tables
+                    -- Safely migrate legacy Primary Key and NOT NULL constraints
                     DO $$ 
                     BEGIN 
+                        BEGIN
+                            ALTER TABLE symbol_mappings DROP CONSTRAINT IF EXISTS symbol_mappings_pkey;
+                        EXCEPTION WHEN OTHERS THEN NULL;
+                        END;
+
                         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapping_type') THEN
-                            ALTER TABLE symbol_mappings ALTER COLUMN mapping_type DROP NOT NULL;
+                            BEGIN
+                                ALTER TABLE symbol_mappings ALTER COLUMN mapping_type DROP NOT NULL;
+                            EXCEPTION WHEN OTHERS THEN NULL;
+                            END;
                         END IF;
+
                         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'original_sym') THEN
-                            ALTER TABLE symbol_mappings ALTER COLUMN original_sym DROP NOT NULL;
+                            BEGIN
+                                ALTER TABLE symbol_mappings ALTER COLUMN original_sym DROP NOT NULL;
+                            EXCEPTION WHEN OTHERS THEN NULL;
+                            END;
                         END IF;
                     END $$;
 
@@ -6563,13 +6575,23 @@ def save_symbol_mapping_db(provider: str, original_symbol: str, mapped_symbol: s
                           AND (original_symbol = %s OR original_sym = %s);
                     """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after, provider, provider.upper(), original_symbol, original_symbol))
                     if cur.rowcount == 0:
-                        cur.execute("""
-                            INSERT INTO symbol_mappings (
-                                provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
-                                confidence_score, mapping_source, status, consecutive_failures, last_success_at,
-                                last_verified_at, retry_after
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s);
-                        """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
+                        try:
+                            cur.execute("""
+                                INSERT INTO symbol_mappings (
+                                    provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                                    confidence_score, mapping_source, status, consecutive_failures, last_success_at,
+                                    last_verified_at, retry_after
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s);
+                            """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after))
+                        except Exception:
+                            conn.rollback()
+                            cur.execute("""
+                                INSERT INTO symbol_mappings (
+                                    provider, original_symbol, mapped_symbol, instrument_id, exchange, series,
+                                    confidence_score, mapping_source, status, consecutive_failures, last_success_at,
+                                    last_verified_at, retry_after, mapping_type, original_sym, mapped_sym
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, NOW(), NOW(), %s, %s, %s, %s);
+                            """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after, provider.upper(), original_symbol, mapped_symbol))
                 conn.commit()
                 return True
     except Exception as e:

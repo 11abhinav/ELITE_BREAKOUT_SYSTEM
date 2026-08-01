@@ -2664,11 +2664,22 @@
           showCustomToast(data.message || 'Scanner trigger started successfully in the background.', 'success');
           doRefresh();
         } else {
-          const err = await res.json();
-          showCustomToast(`Failed to trigger ${sc}: ${err.message || err.error}`, 'error');
+          let errMessage = `${res.status} ${res.statusText}`;
+          try {
+            const err = await res.json();
+            errMessage = err.message || err.error || errMessage;
+          } catch (_) {
+            const text = await res.text();
+            if (text && text.includes("Bad Gateway")) {
+              errMessage = "502 Bad Gateway (Server deploying or restarting. Please try again in 5 seconds)";
+            } else if (text) {
+              errMessage = text;
+            }
+          }
+          showCustomToast(`Failed to trigger ${sc}: ${errMessage}`, 'error');
         }
       } catch (e) {
-        showCustomToast('Error triggering scanner: ' + e, 'error');
+        showCustomToast('Error triggering scanner: ' + (e.message || e), 'error');
       }
     }
 
