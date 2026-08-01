@@ -6424,7 +6424,7 @@ function triggerStockDiagnostic(overrideSym, isDeep = false) {
 
   showDiagnosticLoadingModal(sym);
 
-  const url = isDeep ? `/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}&is_deep_analysis=true` : `/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}`;
+  const url = isDeep ? `/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}&is_deep_analysis=true` : `/api/v1/analyze_stock?symbol=${encodeURIComponent(sym)}&quick_mode=true`;
   fetch(url)
     .then(async res => {
       const text = await res.text();
@@ -6814,7 +6814,8 @@ function saveToUserWatchlist(sym, company, score) {
   .then(res => res.json())
   .then(res => {
     if (res.success) {
-      showCustomToast(`⭐ #${sym} saved to your personal watchlist!`, 'success');
+      closeDiagnosticModal();
+      showCustomToast(`⭐ #${sym} saved! Deep analysis started in background.`, 'success');
       if (btnContainer) {
         btnContainer.innerHTML = `
           <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
