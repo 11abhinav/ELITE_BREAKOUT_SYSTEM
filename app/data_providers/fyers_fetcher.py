@@ -873,7 +873,7 @@ class FyersFetcher(DataFetcher):
                 return True
             else:
                 # Step 4: If it still doesn't work, notify admin and continue normal flow
-                _perm_error_msg = f"🚫 [FYERS STARTUP ERROR] Token test failed after regeneration: {final_msg}. Continuing normal flow, fallback to Upstox/YFinance."
+                _perm_error_msg = f"🚫 [FYERS STARTUP ERROR] Token test failed after regeneration: {final_msg}. Continuing normal flow (fallback order: Upstox -> Yahoo)."
                 logger.error(_perm_error_msg)
                 
                 # Open circuit breaker immediately

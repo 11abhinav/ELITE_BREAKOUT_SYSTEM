@@ -55,6 +55,29 @@ class UnifiedFetcher:
                 except Exception as e:
                     logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
             
+            elif provider == "upstox":
+                try:
+                    from market_data.providers.upstox_provider import UpstoxProvider
+                    upstox_fetcher = UpstoxProvider(auth_service=None)
+                    md = upstox_fetcher.get_ohlcv(symbol, interval=interval, period=period)
+                    if md is not None and getattr(md, 'dataframe', None) is not None and not md.dataframe.empty:
+                        logger.info(f"✅ [Upstox] Successfully fetched historical {symbol}")
+                        entry = self.registry.get_entry(dataset_id)
+                        if entry:
+                            entry.provider_used = "upstox"
+                            is_fallback = entry.preferred_provider and provider != entry.preferred_provider
+                            from datetime import datetime
+                            md.dataframe.attrs = {
+                                "dataset": dataset_id,
+                                "provider": provider,
+                                "preferred_provider": entry.preferred_provider,
+                                "fallback_used": bool(is_fallback),
+                                "fetch_timestamp": datetime.now().isoformat()
+                            }
+                        return md.dataframe
+                except Exception as e:
+                    logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
+            
             elif provider == "yahoo":
                 try:
                     import yfinance as yf
@@ -198,6 +221,29 @@ class UnifiedFetcher:
                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
                                 else:
                                     logger.warning(f"⚠️ [Fyers] Quote batch response not ok for {len(fyers_map)} symbols: {resp}")
+                                    code = resp.get("code") if isinstance(resp, dict) else None
+                                    msg = str(resp.get("message", "")).lower() if isinstance(resp, dict) else ""
+                                    if str(code) in ["-15", "-16", "401", "-401", "494"] or "valid token" in msg or "authenticate" in msg:
+                                        logger.error("🚫 Fyers token invalid/expired during live quotes batch. Triggering auto-login...")
+                                        from fyers_auth import clear_token, auto_login, get_fyers_client
+                                        clear_token(force=True)
+                                        if auto_login():
+                                            new_client = get_fyers_client()
+                                            if new_client:
+                                                resp2 = new_client.quotes({"symbols": fyers_symbols_str})
+                                                if resp2 and isinstance(resp2, dict) and resp2.get("s") == "ok":
+                                                    success_count = 0
+                                                    for item in resp2.get("d", []):
+                                                        if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                                                            sym_name = item.get("n")
+                                                            orig = fyers_map.get(sym_name)
+                                                            if orig:
+                                                                results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                                logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{item['v']['lp']:.2f}")
+                                                                pending.discard(orig)
+                                                                success_count += 1
+                                                    if success_count > 0:
+                                                        logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
                         except Exception as e:
                             logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
 
@@ -208,6 +254,40 @@ class UnifiedFetcher:
                     with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(chunks) or 1)) as executor:
                         executor.map(fetch_fyers_chunk, chunks)
                         
+                elif provider == "upstox":
+                    logger.info(f"🔄 [Upstox] Fetching live quotes for {len(pending)} symbols...")
+                    try:
+                        from market_data.providers.upstox_provider import UpstoxProvider
+                        upstox_fetcher = UpstoxProvider(auth_service=None)
+                        pending_list = list(pending)
+                        
+                        chunk_size = 500
+                        chunks = [pending_list[i:i+chunk_size] for i in range(0, len(pending_list), chunk_size)]
+                        
+                        for chunk in chunks:
+                            resp = upstox_fetcher.fetch_live_quotes_batch(chunk)
+                            if resp:
+                                success_count = 0
+                                for orig in chunk:
+                                    try:
+                                        raw_key = upstox_fetcher._get_instrument_key(orig)
+                                        clean_sym = raw_key.split(":")[-1].split("|")[-1]
+                                        quote_data = resp.get(clean_sym)
+                                        
+                                        if quote_data:
+                                            val = quote_data.get("last_price")
+                                            if val is not None and float(val) > 0:
+                                                results[orig] = {"v": {"cmd": {"c": float(val)}}}
+                                                logger.info(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
+                                                pending.discard(orig)
+                                                success_count += 1
+                                    except Exception:
+                                        pass
+                                if success_count > 0:
+                                    logger.info(f"✅ [Upstox] Fetched {success_count}/{len(chunk)} quotes successfully.")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [Upstox] Batch quote fetch failed: {e}")
+
                 elif provider == "yahoo":
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
                     import yfinance as yf
