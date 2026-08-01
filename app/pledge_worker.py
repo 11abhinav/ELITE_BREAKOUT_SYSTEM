@@ -265,8 +265,16 @@ def worker_loop():
                 try:
                     res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
                     if res is not None and res.status_code in (401, 403, 429):
-                        logger.warning(f"❌ HTTP {res.status_code} quota exceeded for ScraperAPI key")
-                        mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
+                        reason = res.text.strip()[:200]
+                        try:
+                            err_dict = res.json()
+                            if isinstance(err_dict, dict) and "error" in err_dict:
+                                reason = err_dict["error"]
+                        except Exception:
+                            pass
+                        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "CONFIG_KEY"
+                        logger.warning(f"❌ ScraperAPI HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Reason: {reason}")
+                        mark_failure('scraperapi', f"HTTP {res.status_code} ({reason}): URL={target_url}")
                         mark_key_exhausted_today(api_key)
                         return "ERROR" # Returning ERROR here allows the loop to retry the next key on the next iteration
                 except Exception as e:

@@ -98,9 +98,20 @@ def get_live_blacklist() -> set[str]:
                                 payload = {'api_key': curr_key, 'url': url, 'render': 'false', 'country_code': 'in'}
                                 resp = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
                                 if resp.status_code in [401, 403, 429]:
+                                    reason = resp.text.strip()[:200]
+                                    try:
+                                        err_dict = resp.json()
+                                        if isinstance(err_dict, dict) and "error" in err_dict:
+                                            reason = err_dict["error"]
+                                    except Exception:
+                                        pass
+                                    masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "CONFIG_KEY"
+                                    logger.warning(f"⚠️ ScraperAPI returned HTTP {resp.status_code} for key [{masked_key}]. Reason: {reason}")
                                     mark_key_exhausted_today(curr_key)
                                 elif resp.status_code == 200:
                                     return resp.json()
+                                else:
+                                    logger.warning(f"⚠️ ScraperAPI returned unexpected status {resp.status_code} for {url}: {resp.text[:150]}")
                             except Exception as scraper_err:
                                 logger.debug(f"ScraperAPI fetch failed for {url}: {scraper_err}")
                         
