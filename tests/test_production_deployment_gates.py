@@ -238,6 +238,6 @@ class TestProductionDeploymentGates:
         import price_cache
         import inspect
         src = inspect.getsource(price_cache._download_all_robust)
-        assert "sym.NS" in src and "sym.BO" in src, "price_cache missing canonical ingestion boundary symbol resolution logic"
+        assert ("sym}.NS" in src or "sym.NS" in src) and ("sym}.BO" in src or "sym.BO" in src), "price_cache missing canonical ingestion boundary symbol resolution logic"
 
 

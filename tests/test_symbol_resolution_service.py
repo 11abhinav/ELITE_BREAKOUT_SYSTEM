@@ -75,14 +75,14 @@ class TestSymbolResolutionEngine(unittest.TestCase):
             with threading.Lock():
                 probe_counter["count"] += 1
             time.sleep(0.05)  # Simulate API latency
-            return ResolvedInstrument("EQ:PARALLELTEST", sym, "fyers", f"NSE:{sym}-EQ", "NSE", "EQ", 80, "PROBED")
+            return ResolvedInstrument("EQ:UNKNOWNCONCURRENCYTEST", sym, "fyers", f"NSE:{sym}-EQ", "NSE", "EQ", 80, "PROBED")
 
         with patch.object(self.resolver._adapters["fyers"], 'probe_candidates', side_effect=mock_probe):
             threads = []
             results = [None] * 10
 
             def worker(idx):
-                results[idx] = self.resolver.resolve("PARALLELTEST", provider="fyers")
+                results[idx] = self.resolver.resolve("UNKNOWNCONCURRENCYTEST", provider="fyers")
 
             for i in range(10):
                 t = threading.Thread(target=worker, args=(i,))
@@ -95,7 +95,7 @@ class TestSymbolResolutionEngine(unittest.TestCase):
             # All 10 threads must return the valid resolved instrument
             for r in results:
                 self.assertIsNotNone(r)
-                self.assertEqual(r.mapped_symbol, "NSE:PARALLELTEST-EQ")
+                self.assertEqual(r.mapped_symbol, "NSE:UNKNOWNCONCURRENCYTEST-EQ")
 
             # But probe_candidates was invoked exactly ONCE due to single-flight locking!
             self.assertEqual(probe_counter["count"], 1)
