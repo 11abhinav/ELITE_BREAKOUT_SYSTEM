@@ -100,6 +100,13 @@ class TestSymbolResolutionEngine(unittest.TestCase):
             # But probe_candidates was invoked exactly ONCE due to single-flight locking!
             self.assertEqual(probe_counter["count"], 1)
 
+    def test_all_three_providers_resolution(self):
+        """Verify SymbolResolutionService resolves symbols cleanly across Upstox, Fyers, and Yahoo."""
+        for prov, expected in [("fyers", "NSE:TATAMOTORS-EQ"), ("upstox", "NSE_EQ|TATAMOTORS"), ("yahoo", "TATAMOTORS.NS")]:
+            res = self.resolver.resolve("TATAMOTORS", provider=prov)
+            self.assertTrue(res.is_valid)
+            self.assertEqual(res.provider, prov)
+
     def test_telemetry_metrics_summary(self):
         """Verify telemetry collector tracks hits, P50/P95/P99 latency, and summary dict."""
         metrics = self.resolver.get_metrics_summary()

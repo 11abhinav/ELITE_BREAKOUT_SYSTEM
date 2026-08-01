@@ -83,9 +83,10 @@ class UnifiedFetcher:
                     import yfinance as yf
                     # ── FORMAT GATE: validate Yahoo format before download ──────────────────
                     try:
-                        from symbol_format_validator import validate_yahoo_symbol
-                        yf_symbol = validate_yahoo_symbol(symbol + ".NS")
-                    except ValueError as fmt_err:
+                        from symbol_resolution_engine import get_symbol_resolver
+                        resolved = get_symbol_resolver().resolve(symbol, provider="yahoo")
+                        yf_symbol = resolved.mapped_symbol if (resolved and resolved.is_valid and resolved.mapped_symbol) else f"{symbol}.NS"
+                    except Exception as fmt_err:
                         logger.error(f"🚫 [YahooFormat] Skipping fetch_historical — invalid Yahoo symbol: {fmt_err}")
                         continue
                     logger.info(f"🔄 [Yahoo] Falling back to {yf_symbol}")
@@ -303,12 +304,18 @@ class UnifiedFetcher:
                     for i in range(0, len(pending_list), chunk_size):
                         chunk = pending_list[i:i+chunk_size]
                         # ── FORMAT GATE: ensure every symbol is SYMBOL.NS or ^INDEX for Yahoo ──────────
-                        raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
+                        raw_yf_symbols = []
                         try:
-                            from symbol_format_validator import sanitize_yahoo_ticker_list
-                            yf_symbols = sanitize_yahoo_ticker_list(raw_yf_symbols)
+                            from symbol_resolution_engine import get_symbol_resolver
+                            resolver = get_symbol_resolver()
+                            for s in chunk:
+                                r = resolver.resolve(s, provider="yahoo")
+                                if r and r.is_valid and r.mapped_symbol:
+                                    raw_yf_symbols.append(r.mapped_symbol)
+                                else:
+                                    raw_yf_symbols.append(f"{s}.NS")
                         except Exception:
-                            yf_symbols = raw_yf_symbols
+                            raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:

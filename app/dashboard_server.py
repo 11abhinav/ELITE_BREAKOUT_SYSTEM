@@ -3258,6 +3258,36 @@ def api_admin_resolution_metrics():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/v1/admin/resolution/symbol/<symbol>", methods=["GET"])
+@login_required
+def api_admin_resolution_symbol(symbol):
+    """Returns exact resolution mapping and confidence across Upstox, Fyers, and Yahoo for a ticker."""
+    try:
+        from symbol_resolution_engine import get_symbol_resolver
+        resolver = get_symbol_resolver()
+        providers = {}
+        for prov in ("fyers", "upstox", "yahoo"):
+            res = resolver.resolve(symbol, provider=prov)
+            providers[prov] = {
+                "mapped_symbol": res.mapped_symbol,
+                "instrument_id": res.instrument_id,
+                "exchange": res.exchange,
+                "series": res.series,
+                "confidence_score": res.confidence_score,
+                "source": res.source,
+                "is_valid": res.is_valid,
+                "error_message": res.error_message
+            }
+        return jsonify({
+            "success": True,
+            "symbol": symbol.upper(),
+            "providers": providers
+        })
+    except Exception as e:
+        logger.exception("❌ Resolution symbol debug endpoint error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/v1/symbols/master_list", methods=["GET"])
 @login_required
 def api_symbols_master_list():
