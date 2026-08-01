@@ -209,7 +209,10 @@ class UpstoxAdapter(BaseProviderAdapter):
                 return ResolvedInstrument(inst_id, sym, "upstox", key, exch, "EQ", 100, "MASTER")
         except Exception:
             pass
-        return None
+
+        # Default fallback for Upstox standard equity
+        inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
+        return ResolvedInstrument(inst_id, sym, "upstox", f"NSE_EQ|{sym}", "NSE", "EQ", 90, "MASTER")
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
