@@ -3245,6 +3245,19 @@ def api_symbols_suggest():
         return jsonify([]), 500
 
 
+@app.route("/api/v1/admin/resolution/metrics", methods=["GET"])
+@login_required
+def api_admin_resolution_metrics():
+    """Returns P50/P95/P99 latency, hit ratios, and telemetry from SymbolResolutionService."""
+    try:
+        from symbol_resolution_engine import get_symbol_resolver
+        summary = get_symbol_resolver().get_metrics_summary()
+        return jsonify({"success": True, "metrics": summary})
+    except Exception as e:
+        logger.exception("❌ Resolution metrics endpoint error")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/v1/symbols/master_list", methods=["GET"])
 @login_required
 def api_symbols_master_list():

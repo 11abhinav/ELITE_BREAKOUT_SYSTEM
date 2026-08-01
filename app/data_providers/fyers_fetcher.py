@@ -214,30 +214,16 @@ class FyersFetcher(DataFetcher):
         if sym in _bse_scrip_overrides:
             return _bse_scrip_overrides[sym]
             
-        # Check mapping cache to skip the 1st failure if we already know mapped format
+        # Use institutional SymbolResolutionService (O(1) memory hotpath + DB registry + auto-healing)
         try:
-            from data_providers.fyers_mapping_utils import load_fyers_mappings
-            mappings = load_fyers_mappings()
-            if sym in mappings and mappings[sym]:
-                return mappings[sym]
-            if symbol.strip().upper() in mappings and mappings[symbol.strip().upper()]:
-                return mappings[symbol.strip().upper()]
-        except Exception:
-            pass
+            from symbol_resolution_engine import get_symbol_resolver
+            resolved = get_symbol_resolver().resolve(symbol, provider="fyers")
+            if resolved and resolved.is_valid and resolved.mapped_symbol:
+                return resolved.mapped_symbol
+        except Exception as ex:
+            logger.debug(f"SymbolResolutionService fallback for Fyers {symbol}: {ex}")
 
-        # Check BSE mapping cache to immediately use BSE for known BSE-only stocks
-        try:
-            from bse_mapping_utils import load_bse_mappings
-            bse_mappings = load_bse_mappings()
-            if sym in bse_mappings or sym.endswith(".BO"):
-                clean_sym = sym[:-3] if sym.endswith(".BO") else sym
-                return f"BSE:{clean_sym}-EQ"
-            if sym.endswith(".NS") and sym[:-3] in bse_mappings:
-                return f"BSE:{sym[:-3]}-EQ"
-        except Exception:
-            pass
-            
-        # Standard stock format
+        # Standard stock format fallback
         return f"NSE:{sym}-EQ"
 
 

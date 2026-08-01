@@ -542,19 +542,68 @@ def init_db():
                     )
                 """)
 
-                # 14. symbol_mappings
+                # 14. instrument_registry, provider_instruments, symbol_mappings, resolution_history
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS instrument_registry (
+                        instrument_id TEXT PRIMARY KEY,
+                        symbol TEXT NOT NULL UNIQUE,
+                        company_name TEXT,
+                        primary_exchange TEXT DEFAULT 'NSE',
+                        series TEXT DEFAULT 'EQ',
+                        nse_symbol TEXT,
+                        bse_symbol TEXT,
+                        bse_scrip_code TEXT,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_inst_reg_sym ON instrument_registry (symbol);
+
+                    CREATE TABLE IF NOT EXISTS provider_instruments (
+                        provider TEXT NOT NULL,
+                        instrument_id TEXT NOT NULL,
+                        provider_symbol TEXT NOT NULL,
+                        provider_key TEXT,
+                        exchange TEXT,
+                        series TEXT,
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (provider, instrument_id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_prov_inst_sym ON provider_instruments (provider, provider_symbol);
+
                     CREATE TABLE IF NOT EXISTS symbol_mappings (
-                        mapping_type TEXT NOT NULL,
-                        original_sym TEXT NOT NULL,
-                        mapped_sym TEXT,
-                        is_invalid BOOLEAN DEFAULT FALSE,
-                        mapping_state TEXT DEFAULT 'ACTIVE',
-                        failure_count INTEGER DEFAULT 0,
-                        retry_after TIMESTAMPTZ DEFAULT NULL,
-                        last_verified TIMESTAMPTZ DEFAULT NULL,
-                        PRIMARY KEY (mapping_type, original_sym)
-                    )
+                        provider TEXT NOT NULL,
+                        original_symbol TEXT NOT NULL,
+                        mapped_symbol TEXT NOT NULL,
+                        instrument_id TEXT,
+                        exchange TEXT,
+                        series TEXT,
+                        confidence_score INTEGER DEFAULT 100,
+                        mapping_source TEXT NOT NULL,
+                        status TEXT DEFAULT 'ACTIVE',
+                        version INTEGER DEFAULT 1,
+                        consecutive_failures INTEGER DEFAULT 0,
+                        last_success_at TIMESTAMPTZ,
+                        last_verified_at TIMESTAMPTZ DEFAULT NOW(),
+                        retry_after TIMESTAMPTZ,
+                        effective_from TIMESTAMPTZ DEFAULT NOW(),
+                        effective_to TIMESTAMPTZ,
+                        PRIMARY KEY (provider, original_symbol)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS resolution_history (
+                        id BIGSERIAL PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        original_symbol TEXT NOT NULL,
+                        attempted_symbol TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        resolution_level TEXT NOT NULL,
+                        confidence_score INTEGER,
+                        latency_ms DOUBLE PRECISION,
+                        error_code TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_res_hist_sym ON resolution_history (provider, original_symbol);
                 """)
 
                 # 15. ai_concall_cache_v3

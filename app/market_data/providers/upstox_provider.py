@@ -153,12 +153,15 @@ class UpstoxProvider(ProviderInterface):
     }
 
     def _get_instrument_key(self, symbol: str) -> str:
-        """
-        [VERSION: UPSTOX_ISIN_MAPPER_v1.0]
-        Maps a YFinance-style symbol (e.g. TCS, RELIANCE, ^NSEI) to the official Upstox instrument key
-        (e.g. NSE_EQ|INE467B01029, NSE_INDEX|Nifty 50) using the UpstoxInstrumentMapper.
-        Prevents HTTP 400 Bad Request errors caused by bare ticker symbols.
-        """
+        """Maps symbol to official Upstox instrument key using SymbolResolutionService."""
+        try:
+            from symbol_resolution_engine import get_symbol_resolver
+            resolved = get_symbol_resolver().resolve(symbol, provider="upstox")
+            if resolved and resolved.is_valid and resolved.mapped_symbol:
+                return resolved.mapped_symbol
+        except Exception:
+            pass
+
         try:
             from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
             return get_upstox_instrument_key(symbol)
