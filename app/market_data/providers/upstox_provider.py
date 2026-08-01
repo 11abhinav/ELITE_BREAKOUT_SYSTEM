@@ -186,6 +186,24 @@ class UpstoxProvider(ProviderInterface):
             return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
             
         except Exception as e:
+            # If 400 Client Error occurs (e.g. today is a non-trading weekend date), retry with yesterday's date
+            if "400" in str(e) and range_to:
+                try:
+                    alt_to = range_to - timedelta(days=1)
+                    url_alt = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{alt_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
+                    res_alt = requests.get(url_alt, headers=headers, timeout=10)
+                    if res_alt.status_code == 200:
+                        data = res_alt.json()
+                        candles = data.get("data", {}).get("candles", [])
+                        if candles:
+                            df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
+                            df["Datetime"] = pd.to_datetime(df["Datetime"])
+                            df = df.set_index("Datetime").sort_index()
+                            latency = (datetime.now() - start_time).total_seconds() * 1000
+                            prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
+                            return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
+                except Exception:
+                    pass
             self._health_score = max(0, self._health_score - 2)
             logger.error(f"Upstox fetch error for {symbol}: {e}")
             latency = (datetime.now() - start_time).total_seconds() * 1000
@@ -285,24 +303,21 @@ class UpstoxProvider(ProviderInterface):
         norm_data = self.fetch_ohlcv(symbol, timeframe=interval, range_from=r_from, range_to=r_to)
         
         from validation import MarketData, DataQualityReport
+        from validation.result import ValidationStatus
             
         df = norm_data.dataframe
         if df is None or df.empty:
-            return MarketData(df=pd.DataFrame(), source="Upstox", quality_report=None, is_stale=False, used_fallback=False, error_msg=norm_data.error)
+            return MarketData(dataframe=pd.DataFrame(), source="Upstox", quality_report=None, stale=False, used_fallback=False, error=norm_data.error)
             
         report = DataQualityReport(
-            status="ValidationStatus.OPTIMAL",
-            quality_score=100.0,
-            row_count=len(df),
-            null_count=0,
-            missing_dates_count=0,
-            duplicated_dates_count=0,
-            non_monotonic_count=0,
-            outliers_count=0,
-            zero_volume_pct=0.0,
-            critical_failures=[]
+            is_valid=True,
+            quality_score=100,
+            critical_failures=(),
+            warnings=(),
+            status=ValidationStatus.OPTIMAL,
+            row_count=len(df)
         )
-        return MarketData(df=df, source="Upstox", quality_report=report, is_stale=False, used_fallback=False, error_msg=None)
+        return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None)
 
     def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> Dict:
         """
