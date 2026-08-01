@@ -241,6 +241,30 @@ class UpstoxProvider(ProviderInterface):
                 provenance=prov,
                 is_complete_candle=True
             )
+
+        # Handle 15m / 15minute by fetching 1m candles from Upstox API and resampling
+        if tf_clean in ("15m", "15min", "15minute"):
+            res_1m = self.fetch_ohlcv(symbol, timeframe="1m", range_from=range_from, range_to=range_to)
+            if res_1m and res_1m.dataframe is not None and not res_1m.dataframe.empty:
+                df_1m = res_1m.dataframe.copy()
+                agg_dict = {
+                    "Open": "first",
+                    "High": "max",
+                    "Low": "min",
+                    "Close": "last",
+                    "Volume": "sum"
+                }
+                if "OI" in df_1m.columns:
+                    agg_dict["OI"] = "last"
+                df_15m = df_1m.resample("15m").agg(agg_dict).dropna(subset=["Close"])
+                prov = DataProvenance(self.provider_name, datetime.now(), 0.0, 100.0)
+                return NormalizedMarketData(
+                    symbol=symbol,
+                    timeframe="15m",
+                    dataframe=df_15m,
+                    provenance=prov,
+                    is_complete_candle=True
+                )
         import config
         import urllib.parse
         from datetime import timedelta
