@@ -1,7 +1,7 @@
 import logging
 import requests
 import pandas as pd
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -89,46 +89,44 @@ class UpstoxProvider(ProviderInterface):
             df = df.set_index("Datetime").sort_index()
         return df
 
-    def _map_timeframe(self, timeframe: str) -> str:
+    def _map_timeframe(self, timeframe: str) -> Tuple[str, str]:
+        """Maps timeframe string to official Upstox V3 (unit, interval) path parameters per API spec."""
         tf_clean = str(timeframe).lower().strip()
         mapping = {
-            "1m": "1minute",
-            "1min": "1minute",
-            "1minute": "1minute",
-            "3m": "3minute",
-            "3min": "3minute",
-            "3minute": "3minute",
-            "5m": "5minute",
-            "5min": "5minute",
-            "5minute": "5minute",
-            "10m": "10minute",
-            "10min": "10minute",
-            "10minute": "10minute",
-            "15m": "15minute",
-            "15min": "15minute",
-            "15minute": "15minute",
-            "30m": "30minute",
-            "30min": "30minute",
-            "30minute": "30minute",
-            "60m": "60minute",
-            "60min": "60minute",
-            "60minute": "60minute",
-            "1h": "60minute",
-            "1hour": "60minute",
-            "1d": "day",
-            "d": "day",
-            "daily": "day",
-            "day": "day",
-            "1w": "week",
-            "w": "week",
-            "weekly": "week",
-            "week": "week",
-            "1mo": "month",
-            "mo": "month",
-            "monthly": "month",
-            "month": "month"
+            "1m": ("minutes", "1"),
+            "1min": ("minutes", "1"),
+            "1minute": ("minutes", "1"),
+            "2m": ("minutes", "2"),
+            "3m": ("minutes", "3"),
+            "5m": ("minutes", "5"),
+            "5min": ("minutes", "5"),
+            "5minute": ("minutes", "5"),
+            "10m": ("minutes", "10"),
+            "15m": ("minutes", "15"),
+            "15min": ("minutes", "15"),
+            "15minute": ("minutes", "15"),
+            "30m": ("minutes", "30"),
+            "30min": ("minutes", "30"),
+            "30minute": ("minutes", "30"),
+            "60m": ("hours", "1"),
+            "60min": ("hours", "1"),
+            "60minute": ("hours", "1"),
+            "1h": ("hours", "1"),
+            "1hour": ("hours", "1"),
+            "1d": ("days", "1"),
+            "d": ("days", "1"),
+            "daily": ("days", "1"),
+            "day": ("days", "1"),
+            "1w": ("weeks", "1"),
+            "w": ("weeks", "1"),
+            "weekly": ("weeks", "1"),
+            "week": ("weeks", "1"),
+            "1mo": ("months", "1"),
+            "mo": ("months", "1"),
+            "monthly": ("months", "1"),
+            "month": ("months", "1"),
         }
-        return mapping.get(tf_clean, "day")
+        return mapping.get(tf_clean, ("days", "1"))
         
     # Upstox index instrument key map — NSE_INDEX / BSE_INDEX segment, NOT NSE_EQ
     # Source: Upstox historical-candle API instrument key registry (verified format)
@@ -216,57 +214,6 @@ class UpstoxProvider(ProviderInterface):
             return f"NSE_EQ|{clean_bare}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
-        # Handle 1h / 60m by fetching 30m candles from Upstox API and resampling
-        tf_clean = str(timeframe).lower()
-        if tf_clean in ("1h", "60m", "60minute", "1hour"):
-            res_30m = self.fetch_ohlcv(symbol, timeframe="30m", range_from=range_from, range_to=range_to)
-            if not res_30m or res_30m.dataframe is None or res_30m.dataframe.empty:
-                return res_30m
-            df_30m = res_30m.dataframe.copy()
-            agg_dict = {
-                "Open": "first",
-                "High": "max",
-                "Low": "min",
-                "Close": "last",
-                "Volume": "sum"
-            }
-            if "OI" in df_30m.columns:
-                agg_dict["OI"] = "last"
-            df_1h = df_30m.resample("1h").agg(agg_dict).dropna(subset=["Close"])
-            prov = DataProvenance(self.provider_name, datetime.now(), 0.0, 100.0)
-            return NormalizedMarketData(
-                symbol=symbol,
-                timeframe="1h",
-                dataframe=df_1h,
-                provenance=prov,
-                is_complete_candle=True
-            )
-
-        # Handle unsupported 5m / 15m intraday intervals by fetching 1m candles from Upstox API and resampling
-        if tf_clean in ("5m", "5min", "5minute", "15m", "15min", "15minute"):
-            resample_freq = "5min" if tf_clean.startswith("5") else "15min"
-            target_tf = "5m" if tf_clean.startswith("5") else "15m"
-            res_1m = self.fetch_ohlcv(symbol, timeframe="1m", range_from=range_from, range_to=range_to)
-            if res_1m and res_1m.dataframe is not None and not res_1m.dataframe.empty:
-                df_1m = res_1m.dataframe.copy()
-                agg_dict = {
-                    "Open": "first",
-                    "High": "max",
-                    "Low": "min",
-                    "Close": "last",
-                    "Volume": "sum"
-                }
-                if "OI" in df_1m.columns:
-                    agg_dict["OI"] = "last"
-                df_resampled = df_1m.resample(resample_freq).agg(agg_dict).dropna(subset=["Close"])
-                prov = DataProvenance(self.provider_name, datetime.now(), 0.0, 100.0)
-                return NormalizedMarketData(
-                    symbol=symbol,
-                    timeframe=target_tf,
-                    dataframe=df_resampled,
-                    provenance=prov,
-                    is_complete_candle=True
-                )
         import config
         import urllib.parse
         from datetime import timedelta
@@ -274,10 +221,10 @@ class UpstoxProvider(ProviderInterface):
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         raw_key = self._get_instrument_key(symbol)
         instrument_key = urllib.parse.quote(raw_key)
-        interval = self._map_timeframe(timeframe)
+        unit, interval = self._map_timeframe(timeframe)
         
-        # Upstox V2 API does not support intraday historical candles for indices (NSE_INDEX / BSE_INDEX)
-        if (raw_key.startswith("NSE_INDEX|") or raw_key.startswith("BSE_INDEX|")) and interval not in ("day", "week", "month"):
+        # Upstox V3 API historical candles for indices: defer intraday index candles to Fyers fallback
+        if (raw_key.startswith("NSE_INDEX|") or raw_key.startswith("BSE_INDEX|")) and unit in ("minutes", "hours"):
             logger.debug(f"Upstox API does not support intraday candles for index {symbol} ({raw_key}); deferring to fallback.")
             start_time = datetime.now()
             prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
@@ -295,7 +242,8 @@ class UpstoxProvider(ProviderInterface):
             elif range_to.weekday() == 6:
                 adjusted_range_to = range_to - timedelta(days=2)
                 
-        url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{adjusted_range_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
+        # Upstox V3 API Historical Candle Endpoint
+        url = f"https://api.upstox.com/v3/historical-candle/{instrument_key}/{unit}/{interval}/{adjusted_range_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
         
         headers = {
             "Accept": "application/json",

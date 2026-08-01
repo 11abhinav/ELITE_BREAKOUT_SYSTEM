@@ -107,13 +107,13 @@ class TestExternalApiDataValidation:
         from market_data.providers.upstox_provider import UpstoxProvider
         upstox = UpstoxProvider()
         
-        assert upstox._map_timeframe("1m") == "1minute"
-        assert upstox._map_timeframe("5m") == "5minute"
-        assert upstox._map_timeframe("15m") == "15minute"
-        assert upstox._map_timeframe("30m") == "30minute"
-        assert upstox._map_timeframe("60m") == "60minute"
-        assert upstox._map_timeframe("1h") == "60minute"
-        assert upstox._map_timeframe("1d") == "day"
-        assert upstox._map_timeframe("daily") == "day"
-        assert upstox._map_timeframe("1w") == "week"
-        assert upstox._map_timeframe("1mo") == "month"
+        assert upstox._map_timeframe("1m") == ("minutes", "1")
+        assert upstox._map_timeframe("5m") == ("minutes", "5")
+        assert upstox._map_timeframe("15m") == ("minutes", "15")
+        assert upstox._map_timeframe("30m") == ("minutes", "30")
+        assert upstox._map_timeframe("60m") == ("hours", "1")
+        assert upstox._map_timeframe("1h") == ("hours", "1")
+        assert upstox._map_timeframe("1d") == ("days", "1")
+        assert upstox._map_timeframe("daily") == ("days", "1")
+        assert upstox._map_timeframe("1w") == ("weeks", "1")
+        assert upstox._map_timeframe("1mo") == ("months", "1")
