@@ -140,10 +140,9 @@ class FyersFetcher(DataFetcher):
             "15m": "15",
             "30m": "30",
             "1h": "60",
-            # CRITICAL FIX (Do not change in future revisions): 
-            # In Fyers API, "1" means 1-minute data. For daily data, the resolution MUST be "1D" or "D".
-            # Requesting "1" for a 365-day period triggers the 'range_to cannot be 100 days greater than range_from' error.
-            "1d": "1D"
+            "1d": "1D",
+            "1wk": "1W",
+            "1mo": "1M"
         }
 
     def _normalize_symbol(self, symbol: str) -> str:
@@ -452,10 +451,10 @@ class FyersFetcher(DataFetcher):
             range_from = start_date.strftime("%Y-%m-%d")
             range_to = end_date.strftime("%Y-%m-%d")
 
-        if res in ("1D", "D"):
+        if res in ("1D", "D", "1W", "1M"):
             span_days = (end_date - start_date).days
             if span_days > 365:
-                # Cap span to 365 days to avoid Fyers 'Invalid input'
+                # Cap span to 365 days per Fyers API limits (max 366 days for 1D, 1W, 1M)
                 start_date = end_date - timedelta(days=365)
                 range_from = start_date.strftime("%Y-%m-%d")
         else:
@@ -482,7 +481,7 @@ class FyersFetcher(DataFetcher):
                 "range_to": range_to
             }
             if any(sfx in cand_symbol for sfx in ("-FUT", "-OPT")):
-                data["cont_flag"] = "0"
+                data["cont_flag"] = "1"
             
             for attempt in range(retries):
                 try:
@@ -543,7 +542,7 @@ class FyersFetcher(DataFetcher):
                     df["Close"] = df["Close"].astype(np.float32)
                     df["Volume"] = df["Volume"].astype(np.float32)
                     
-                    if interval == "1d":
+                    if str(interval).lower() in ("1d", "1w", "1m", "1wk", "1mo"):
                         df["Date"] = pd.to_datetime(timestamps.dt.date)
                         df = df.drop(columns=["Timestamp"], errors="ignore")
                     else:
