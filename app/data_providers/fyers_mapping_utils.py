@@ -89,12 +89,20 @@ def mark_fyers_invalid(symbol: str):
                 retry_after = next_date_midnight.isoformat()
                 now_str = datetime.now(IST).isoformat()
                 
-                cur.execute('''
-                    INSERT INTO symbol_mappings (mapping_type, original_sym, mapping_state, failure_count, retry_after, last_verified)
-                    VALUES ('FYERS', %s, 'INVALID', %s, %s, %s)
-                    ON CONFLICT (mapping_type, original_sym) 
-                    DO UPDATE SET mapping_state = 'INVALID', failure_count = EXCLUDED.failure_count, retry_after = EXCLUDED.retry_after, last_verified = EXCLUDED.last_verified, is_invalid = TRUE
-                ''', (symbol, failures, retry_after, now_str))
+                try:
+                    cur.execute('''
+                        INSERT INTO symbol_mappings (provider, original_symbol, mapping_type, original_sym, mapping_state, failure_count, retry_after, last_verified, is_invalid)
+                        VALUES ('FYERS', %s, 'FYERS', %s, 'INVALID', %s, %s, %s, TRUE)
+                        ON CONFLICT (provider, original_symbol) 
+                        DO UPDATE SET mapping_state = 'INVALID', failure_count = EXCLUDED.failure_count, retry_after = EXCLUDED.retry_after, last_verified = EXCLUDED.last_verified, is_invalid = TRUE
+                    ''', (symbol, symbol, failures, retry_after, now_str))
+                except Exception:
+                    cur.execute('''
+                        INSERT INTO symbol_mappings (mapping_type, original_sym, mapping_state, failure_count, retry_after, last_verified, is_invalid)
+                        VALUES ('FYERS', %s, 'INVALID', %s, %s, %s, TRUE)
+                        ON CONFLICT (mapping_type, original_sym) 
+                        DO UPDATE SET mapping_state = 'INVALID', failure_count = EXCLUDED.failure_count, retry_after = EXCLUDED.retry_after, last_verified = EXCLUDED.last_verified, is_invalid = TRUE
+                    ''', (symbol, failures, retry_after, now_str))
             conn.commit()
             
         if _fyers_mappings_cache is not None and symbol in _fyers_mappings_cache:
@@ -119,12 +127,20 @@ def save_fyers_mapping(original_sym: str, mapped_sym: str):
         from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute('''
-                    INSERT INTO symbol_mappings (mapping_type, original_sym, mapped_sym, mapping_state, failure_count, last_verified)
-                    VALUES ('FYERS', %s, %s, 'ACTIVE', 0, %s)
-                    ON CONFLICT (mapping_type, original_sym) 
-                    DO UPDATE SET mapped_sym = EXCLUDED.mapped_sym, mapping_state = 'ACTIVE', failure_count = 0, last_verified = EXCLUDED.last_verified, is_invalid = FALSE
-                ''', (original_sym, mapped_sym, datetime.now(IST).isoformat()))
+                try:
+                    cur.execute('''
+                        INSERT INTO symbol_mappings (provider, original_symbol, mapping_type, original_sym, mapped_sym, mapping_state, failure_count, last_verified, is_invalid)
+                        VALUES ('FYERS', %s, 'FYERS', %s, %s, 'ACTIVE', 0, %s, FALSE)
+                        ON CONFLICT (provider, original_symbol) 
+                        DO UPDATE SET mapped_sym = EXCLUDED.mapped_sym, mapping_state = 'ACTIVE', failure_count = 0, last_verified = EXCLUDED.last_verified, is_invalid = FALSE
+                    ''', (original_sym, original_sym, mapped_sym, datetime.now(IST).isoformat()))
+                except Exception:
+                    cur.execute('''
+                        INSERT INTO symbol_mappings (mapping_type, original_sym, mapped_sym, mapping_state, failure_count, last_verified, is_invalid)
+                        VALUES ('FYERS', %s, %s, 'ACTIVE', 0, %s, FALSE)
+                        ON CONFLICT (mapping_type, original_sym) 
+                        DO UPDATE SET mapped_sym = EXCLUDED.mapped_sym, mapping_state = 'ACTIVE', failure_count = 0, last_verified = EXCLUDED.last_verified, is_invalid = FALSE
+                    ''', (original_sym, mapped_sym, datetime.now(IST).isoformat()))
             conn.commit()
             
         mappings[original_sym] = mapped_sym

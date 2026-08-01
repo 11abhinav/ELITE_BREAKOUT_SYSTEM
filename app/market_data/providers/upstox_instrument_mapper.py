@@ -55,7 +55,10 @@ _STATIC_SYMBOL_MAP = {
     "^CNXENERGY": "NSE_INDEX|Nifty Energy",
     "^CNXINFRA": "NSE_INDEX|Nifty Infrastructure",
     "^CNXPSUBANK": "NSE_INDEX|Nifty PSU Bank",
+    "^CNXFIN": "NSE_INDEX|Nifty Financial Services",
     "^CNXFINANCE": "NSE_INDEX|Nifty Financial Services",
+    "^CNXCMDT": "NSE_INDEX|Nifty Commodities",
+    "^CNXCOMMODITIES": "NSE_INDEX|Nifty Commodities",
 
     # Top Equities (ISIN Keys)
     "TCS": "NSE_EQ|INE467B01029",
