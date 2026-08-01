@@ -609,6 +609,31 @@ def init_db():
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ DEFAULT NOW();
                     ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ;
 
+                    -- Drop legacy NOT NULL constraints so inserts into modern columns succeed on hybrid tables
+                    DO $$ 
+                    BEGIN 
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapping_type') THEN
+                            ALTER TABLE symbol_mappings ALTER COLUMN mapping_type DROP NOT NULL;
+                        END IF;
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'original_sym') THEN
+                            ALTER TABLE symbol_mappings ALTER COLUMN original_sym DROP NOT NULL;
+                        END IF;
+                    END $$;
+
+                    -- Copy legacy data to modern columns if present
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapping_type') THEN
+                            UPDATE symbol_mappings SET provider = UPPER(mapping_type) WHERE provider IS NULL AND mapping_type IS NOT NULL;
+                        END IF;
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'original_sym') THEN
+                            UPDATE symbol_mappings SET original_symbol = original_sym WHERE original_symbol IS NULL AND original_sym IS NOT NULL;
+                        END IF;
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'symbol_mappings' AND column_name = 'mapped_sym') THEN
+                            UPDATE symbol_mappings SET mapped_symbol = mapped_sym WHERE mapped_symbol IS NULL AND mapped_sym IS NOT NULL;
+                        END IF;
+                    END $$;
+
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol);
 
                     CREATE TABLE IF NOT EXISTS resolution_history (
@@ -6521,6 +6546,8 @@ def save_symbol_mapping_db(provider: str, original_symbol: str, mapped_symbol: s
                     conn.rollback()
                     cur.execute("""
                         UPDATE symbol_mappings SET
+                            provider = COALESCE(provider, %s),
+                            original_symbol = COALESCE(original_symbol, %s),
                             mapped_symbol = %s,
                             instrument_id = COALESCE(%s, instrument_id),
                             exchange = COALESCE(%s, exchange),
@@ -6532,8 +6559,9 @@ def save_symbol_mapping_db(provider: str, original_symbol: str, mapped_symbol: s
                             last_success_at = NOW(),
                             last_verified_at = NOW(),
                             retry_after = %s
-                        WHERE provider = %s AND original_symbol = %s;
-                    """, (mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after, provider, original_symbol))
+                        WHERE (provider = %s OR UPPER(mapping_type) = %s)
+                          AND (original_symbol = %s OR original_sym = %s);
+                    """, (provider, original_symbol, mapped_symbol, instrument_id, exchange, series, confidence_score, mapping_source, status, retry_after, provider, provider.upper(), original_symbol, original_symbol))
                     if cur.rowcount == 0:
                         cur.execute("""
                             INSERT INTO symbol_mappings (
