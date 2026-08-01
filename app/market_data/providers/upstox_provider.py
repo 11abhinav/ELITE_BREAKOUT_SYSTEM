@@ -53,9 +53,79 @@ class UpstoxProvider(ProviderInterface):
         }
         return mapping.get(timeframe.lower(), "day")
         
+    # Upstox index instrument key map — NSE_INDEX / BSE_INDEX segment, NOT NSE_EQ
+    # Source: Upstox historical-candle API instrument key registry (verified format)
+    _INDEX_KEY_MAP = {
+        # ── Broad Market Indices ──────────────────────────────────────────────────
+        "^NSEI":        "NSE_INDEX|Nifty 50",
+        "NIFTY":        "NSE_INDEX|Nifty 50",
+        "NIFTY50":      "NSE_INDEX|Nifty 50",
+        "NIFTY-50":     "NSE_INDEX|Nifty 50",
+        "NIFTY 50":     "NSE_INDEX|Nifty 50",
+        "NSEI":         "NSE_INDEX|Nifty 50",
+
+        "^NSEBANK":     "NSE_INDEX|Nifty Bank",
+        "BANKNIFTY":    "NSE_INDEX|Nifty Bank",
+        "NIFTYBANK":    "NSE_INDEX|Nifty Bank",
+        "NSEBANK":      "NSE_INDEX|Nifty Bank",
+
+        "^BSESN":       "BSE_INDEX|SENSEX",
+        "SENSEX":       "BSE_INDEX|SENSEX",
+        "BSE:SENSEX":   "BSE_INDEX|SENSEX",
+
+        # ── Midcap / Smallcap / Broad ─────────────────────────────────────────────
+        "^NSMIDCP":         "NSE_INDEX|Nifty Midcap 100",
+        "^NSMIDCP50":       "NSE_INDEX|Nifty Midcap 50",
+        "^CNXSMALLCAP":     "NSE_INDEX|Nifty Smallcap 100",
+        "^CNXSMALLCAP50":   "NSE_INDEX|Nifty Smallcap 50",
+        "^CNXMICROCAP250":  "NSE_INDEX|Nifty Microcap 250",
+        "^NIFTY200":        "NSE_INDEX|Nifty 200",
+        "^NIFTY500":        "NSE_INDEX|Nifty 500",
+        "^NIFTY100":        "NSE_INDEX|Nifty 100",
+        "^NIFTYNEXT50":     "NSE_INDEX|Nifty Next 50",
+
+        # ── Sectoral Indices ──────────────────────────────────────────────────────
+        "^CNXIT":           "NSE_INDEX|Nifty IT",
+        "^CNXAUTO":         "NSE_INDEX|Nifty Auto",
+        "^CNXFMCG":         "NSE_INDEX|Nifty FMCG",
+        "^CNXPHARMA":       "NSE_INDEX|Nifty Pharma",
+        "^CNXMETAL":        "NSE_INDEX|Nifty Metal",
+        "^CNXREALTY":       "NSE_INDEX|Nifty Realty",
+        "^CNXENERGY":       "NSE_INDEX|Nifty Energy",
+        "^CNXINFRA":        "NSE_INDEX|Nifty Infrastructure",
+        "^CNXPSUBANK":      "NSE_INDEX|Nifty PSU Bank",
+        "^CNXPSU":          "NSE_INDEX|Nifty PSE",
+        "^CNXFINANCE":      "NSE_INDEX|Nifty Financial Services",
+        "^CNXCONSUMPTION":  "NSE_INDEX|Nifty India Consumption",
+        "^CNXCOMMODITIES":  "NSE_INDEX|Nifty Commodities",
+        "^NIFTYOILGAS":     "NSE_INDEX|Nifty Oil & Gas",
+        "^NIFTYDEFENCE":    "NSE_INDEX|Nifty India Defence",
+        "^CNXMNC":          "NSE_INDEX|Nifty MNC",
+        "^CNXSERVICE":      "NSE_INDEX|Nifty Services Sector",
+        "^CNXMEDIA":        "NSE_INDEX|Nifty Media",
+        "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
+    }
+
     def _get_instrument_key(self, symbol: str) -> str:
-        # Converts "RELIANCE" to "NSE_EQ|INE002A01018" (Simplification for now)
-        return f"NSE_EQ|{symbol}"
+        """
+        Maps a YFinance-style symbol to Upstox instrument key format.
+        Indices use NSE_INDEX segment; equities use NSE_EQ segment.
+        Strips .NS/.BO suffixes that come from YFinance normalization.
+        """
+        clean = str(symbol).strip().upper()
+        # Strip YFinance suffixes
+        for sfx in (".NS", ".BO", ".BSE"):
+            if clean.endswith(sfx):
+                clean = clean[:-len(sfx)]
+                break
+
+        # Check index map first (e.g. ^NSEI → NSE_INDEX|Nifty 50)
+        if clean in self._INDEX_KEY_MAP:
+            return self._INDEX_KEY_MAP[clean]
+
+        # Standard NSE equity: strip leading ^ if any stray caret
+        clean = clean.lstrip("^")
+        return f"NSE_EQ|{clean}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         # 1. Use Long-Lived Analytics Token
@@ -232,7 +302,32 @@ class UpstoxProvider(ProviderInterface):
         return MarketData(df=df, source="Upstox", quality_report=report, is_stale=False, used_fallback=False, error_msg=None)
 
     def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> Dict:
+        """
+        Concurrent batch fetch using ThreadPoolExecutor (up to 10 parallel threads).
+        Upstox historical candle endpoint accepts one symbol per request; threads are
+        the only way to achieve bulk throughput without sequential bottleneck.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         results = {}
-        for sym in symbols:
-            results[sym] = self.get_ohlcv(sym, interval=interval, period=period, retries=retries, range_from=range_from, range_to=range_to)
+        if not symbols:
+            return results
+
+        prefix = f"[{caller}] " if caller else ""
+        max_workers = min(10, len(symbols))
+        logger.info(f"{prefix}📥 Upstox: batch fetching {len(symbols)} symbols ({interval}, {period}) concurrently (workers={max_workers})...")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_sym = {
+                executor.submit(self.get_ohlcv, sym, interval, period, retries, range_from, range_to): sym
+                for sym in symbols
+            }
+            for future in as_completed(future_to_sym):
+                sym = future_to_sym[future]
+                try:
+                    results[sym] = future.result()
+                except Exception as e:
+                    logger.error(f"Upstox batch fetch error for {sym}: {e}")
+
+        ok_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and not getattr(v.dataframe, 'empty', True))
+        logger.info(f"{prefix}📊 Upstox batch complete: {ok_count}/{len(symbols)} ok")
         return results
