@@ -134,16 +134,49 @@ class FyersFetcher(DataFetcher):
     def __init__(self):
         self.rate_limiter = _fyers_rate_limiter
         
-        # Map standard intervals to Fyers resolution parameters
-        # Note: Fyers uses numeric strings for intraday and "D" for daily
+        # Map standard intervals to Fyers V3 resolution parameters per official API spec
         self.INTERVAL_MAP = {
+            "1m": "1",
+            "1min": "1",
+            "1minute": "1",
+            "2m": "2",
+            "2min": "2",
+            "3m": "3",
+            "3min": "3",
             "5m": "5",
+            "5min": "5",
+            "5minute": "5",
+            "10m": "10",
+            "10min": "10",
             "15m": "15",
+            "15min": "15",
+            "15minute": "15",
+            "20m": "20",
+            "20min": "20",
             "30m": "30",
+            "30min": "30",
+            "30minute": "30",
+            "45m": "45",
+            "45min": "45",
+            "60m": "60",
+            "60min": "60",
+            "60minute": "60",
             "1h": "60",
+            "1hour": "60",
+            "120m": "120",
+            "180m": "180",
+            "240m": "240",
             "1d": "1D",
+            "d": "1D",
+            "daily": "1D",
+            "day": "1D",
+            "1w": "1W",
             "1wk": "1W",
-            "1mo": "1M"
+            "weekly": "1W",
+            "week": "1W",
+            "1mo": "1M",
+            "monthly": "1M",
+            "month": "1M"
         }
 
     def _normalize_symbol(self, symbol: str) -> str:
