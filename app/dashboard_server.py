@@ -3268,6 +3268,7 @@ def api_analyze_stock():
         symbol = request.args.get("symbol", "").strip()
         is_deep = request.args.get("is_deep_analysis", "false").lower() == "true"
         force_refresh = request.args.get("force_refresh", "false").lower() == "true"
+        quick_mode = request.args.get("quick_mode", "false").lower() == "true"
         user_id = session.get("user_id", "DEFAULT_USER")
         if not symbol:
             return jsonify({"success": False, "error": "Symbol parameter is required."}), 400
@@ -3276,6 +3277,33 @@ def api_analyze_stock():
         user_wl = get_user_watchlist(user_id)
         wl_symbols = {item["symbol"].upper() for item in (user_wl or []) if item.get("symbol")}
         is_in_wl = (sym_clean in wl_symbols)
+
+        if quick_mode:
+            from stock_analyzer import validate_nse_bse_ticker_fast
+            val = validate_nse_bse_ticker_fast(symbol)
+            if not val["is_valid"]:
+                return jsonify({"success": False, "is_invalid_ticker": True, "error": val["error"]})
+                
+            sym_clean = val["symbol"]
+            from live_prices import get_live_prices
+            prices = get_live_prices([sym_clean])
+            cmp = prices.get(sym_clean, 0.0)
+            
+            return jsonify({
+                "symbol": sym_clean,
+                "company_name": val.get("company_name", sym_clean),
+                "sector": val.get("sector", "EQUITY"),
+                "success": True,
+                "is_in_watchlist": is_in_wl,
+                "is_deep_analysis": False,
+                "watchlist_status": "ANALYSIS PENDING",
+                "close_price": float(cmp),
+                "volume_ratio": 1.0,
+                "rsi": 50.0,
+                "overall_health_score": 0.0,
+                "deficits": ["Analysis Pending... Add to Watchlist to begin deep background analysis."],
+                "funnel": {}
+            })
 
         # Check stock_analysis_master repository first for instant 0ms pre-scanned report
         if not force_refresh:
@@ -3367,6 +3395,28 @@ def api_add_user_watchlist():
 
         ok = add_to_user_watchlist(symbol, company_name=company_name, user_id=user_id, notes=notes, health_score=health_score, status=status)
         _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
+        
+        # Run deep 1-year historical fetch and analysis in background thread so UI doesn't freeze
+        if ok:
+            import threading
+            def _run_deep_analysis_bg(sym, uid):
+                try:
+                    from stock_analyzer import analyze_symbol
+                    from database import update_user_watchlist_scan_result
+                    from push_service import send_push_to_all
+                    res = analyze_symbol(sym, user_id=uid, is_deep_analysis=True)
+                    if res and res.get("success"):
+                        update_user_watchlist_scan_result(sym, uid, res.get("overall_health_score"), res.get("watchlist_status"), res)
+                        send_push_to_all(
+                            title=f"📊 Deep Analysis Ready: {sym}",
+                            body=f"Health Score: {res.get('overall_health_score', 0)}/100 | Status: {res.get('watchlist_status', 'MONITORING')}",
+                            symbol=sym,
+                            bypass_throttle=True
+                        )
+                except Exception as ex:
+                    logger.error(f"Background deep analysis failed for {sym}: {ex}")
+            threading.Thread(target=_run_deep_analysis_bg, args=(symbol, user_id), daemon=True).start()
+
         return jsonify({"success": ok})
     except Exception as e:
         logger.exception("❌ Add to user watchlist error")
