@@ -794,67 +794,104 @@ class FyersFetcher(DataFetcher):
 
     def verify_historical_scope(self) -> bool:
         """
-        [VERSION: FYERS_SCOPE_CHECK_v1.0]
-        Startup Gate: Performs a test historical candle request at startup.
-        If Fyers returns code -403 / 'Additional permission required':
-          - Immediately opens the circuit breaker so no scanner wastes network latency on Fyers calls.
-          - Updates DB scanner_health table with status='PERMISSION_DENIED'.
-          - Dispatches WebPush / Bell notification.
+        Startup Gate:
+        - First check DB if token exist.
+        - If yes, try one sample quote and fetch historical data to test.
+        - If fails (or if token doesn't exist initially), regenerate token using scraper and save in DB.
+        - Check access again.
+        - If it still doesn't work, notify admin and continue normal flow.
         """
+        def _test_access(client):
+            try:
+                # 1. Test Sample Quote
+                q_data = {"symbols": "NSE:TCS-EQ"}
+                self.rate_limiter.wait()
+                q_res = client.quotes(data=q_data)
+                if not q_res or q_res.get("s") != "ok":
+                    return False, f"Quote test failed: {q_res}"
+
+                # 2. Test Historical Data
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                range_from = (datetime.now(IST) - timedelta(days=5)).strftime("%Y-%m-%d")
+                h_data = {
+                    "symbol": "NSE:TCS-EQ",
+                    "resolution": "1D",
+                    "date_format": "1",
+                    "range_from": range_from,
+                    "range_to": today_str
+                }
+                self.rate_limiter.wait()
+                h_res = client.history(data=h_data)
+                
+                if not h_res or h_res.get("s") != "ok":
+                    error_msg = str(h_res.get("message", "Unknown response")) if h_res else "Empty response"
+                    code = str(h_res.get("code", "NO_CODE")) if h_res else "NO_CODE"
+                    return False, f"History test failed (code {code}): {error_msg}"
+                
+                return True, "OK"
+            except Exception as e:
+                return False, f"Exception during test: {e}"
+
         try:
+            # Step 1: Get client (this implicitly checks DB, and if missing, does 1st scraper attempt via get_access_token)
             client = fyers_auth.get_fyers_client()
             if not client:
-                logger.warning("⚠️ Fyers startup check: token missing or client uninitialized.")
-                self._update_db_health("AUTH_REQUIRED", "Fyers access token is missing or unauthenticated.")
-                return False
+                logger.warning("⚠️ Fyers startup check: No token available initially. Will attempt generation.")
+                success = False
+            else:
+                logger.info("Fyers token found/generated. Testing access (quote + history)...")
+                success, msg = _test_access(client)
+                if success:
+                    logger.info("✅ [FYERS STARTUP GATE] Token VERIFIED successfully (Quote + History).")
+                    self._update_db_health("OK", None)
+                    return True
+                else:
+                    logger.warning(f"⚠️ Initial Fyers token test failed: {msg}")
 
-            today_str = datetime.now(IST).strftime("%Y-%m-%d")
-            range_from = (datetime.now(IST) - timedelta(days=5)).strftime("%Y-%m-%d")
-            data = {
-                "symbol": "NSE:NIFTY50-INDEX",
-                "resolution": "1D",
-                "date_format": "1",
-                "range_from": range_from,
-                "range_to": today_str
-            }
+            # Step 2: If we are here, initial token test failed OR token was completely missing.
+            # Regenerate token using scraper.
+            logger.info("🔄 Regenerating Fyers token using scraper...")
+            fyers_auth.clear_token(force=True)
+            
+            # auto_login will generate via scraper and save to DB
+            new_token = fyers_auth.auto_login()
+            if not new_token:
+                logger.error("❌ Token regeneration via scraper failed.")
+                final_success = False
+                final_msg = "Token regeneration failed."
+            else:
+                # Step 3: Check access again with the new token
+                new_client = fyers_auth.get_fyers_client()
+                if new_client:
+                    final_success, final_msg = _test_access(new_client)
+                else:
+                    final_success, final_msg = False, "Could not initialize client with new token."
 
-            self.rate_limiter.wait()
-            response = client.history(data=data)
-
-            if response and response.get("s") == "ok":
-                logger.info("✅ [FYERS STARTUP GATE] Historical Data API permission VERIFIED (code 200 OK).")
+            if final_success:
+                logger.info("✅ [FYERS STARTUP GATE] Regenerated Token VERIFIED successfully.")
                 self._update_db_health("OK", None)
                 return True
-
-            error_msg = str(response.get("message", "Unknown response")) if response else "Empty response"
-            code = str(response.get("code", "NO_CODE")) if response else "NO_CODE"
-
-            if code in ("-403", "403") or "permission required" in error_msg.lower():
-                _perm_error_msg = (
-                    f"🚫 [FYERS PERMISSION DENIED] Fyers App lacks Historical Data API permission (code {code}): {error_msg}. "
-                    "Edit app at developer.fyers.in → enable 'Historical Data' → regenerate token. "
-                    "Fyers circuit breaker opened at startup; all requests routed to Upstox/YFinance."
-                )
+            else:
+                # Step 4: If it still doesn't work, notify admin and continue normal flow
+                _perm_error_msg = f"🚫 [FYERS STARTUP ERROR] Token test failed after regeneration: {final_msg}. Continuing normal flow, fallback to Upstox/YFinance."
                 logger.error(_perm_error_msg)
-
+                
                 # Open circuit breaker immediately
                 for _ in range(_fyers_circuit_breaker.failure_threshold):
                     _fyers_circuit_breaker.record_failure()
 
-                # Persist PERMISSION_DENIED status in Postgres DB
-                self._update_db_health("PERMISSION_DENIED", _perm_error_msg)
+                # Persist PERMISSION_DENIED or ERROR status in Postgres DB
+                self._update_db_health("ERROR", _perm_error_msg)
 
-                # Send WebPush / Bell notification
+                # Send WebPush / Bell notification to notify admin
                 try:
                     fyers_auth.dispatch_fyers_reauth_notification(
-                        "Fyers App lacks Historical Data permission (code -403). Edit app at developer.fyers.in & enable 'Historical Data'."
+                        f"Fyers token test failed: {final_msg}. Check app permissions or credentials."
                     )
                 except Exception:
                     pass
-                return False
-            else:
-                logger.warning(f"⚠️ Fyers startup check warning: code={code}, msg={error_msg}")
-                self._update_db_health("WARNING", f"Fyers ping code {code}: {error_msg}")
+                
+                # Continue normal flow (return False, but app shouldn't crash)
                 return False
 
         except Exception as e:
