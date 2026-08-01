@@ -89,15 +89,45 @@ class UpstoxProvider(ProviderInterface):
         return df
 
     def _map_timeframe(self, timeframe: str) -> str:
+        tf_clean = str(timeframe).lower().strip()
         mapping = {
             "1m": "1minute",
+            "1min": "1minute",
+            "1minute": "1minute",
+            "3m": "3minute",
+            "3min": "3minute",
+            "3minute": "3minute",
             "5m": "5minute",
+            "5min": "5minute",
+            "5minute": "5minute",
+            "10m": "10minute",
+            "10min": "10minute",
+            "10minute": "10minute",
             "15m": "15minute",
+            "15min": "15minute",
+            "15minute": "15minute",
             "30m": "30minute",
+            "30min": "30minute",
+            "30minute": "30minute",
+            "60m": "60minute",
+            "60min": "60minute",
+            "60minute": "60minute",
             "1h": "60minute",
-            "1d": "day"
+            "1hour": "60minute",
+            "1d": "day",
+            "d": "day",
+            "daily": "day",
+            "day": "day",
+            "1w": "week",
+            "w": "week",
+            "weekly": "week",
+            "week": "week",
+            "1mo": "month",
+            "mo": "month",
+            "monthly": "month",
+            "month": "month"
         }
-        return mapping.get(timeframe.lower(), "day")
+        return mapping.get(tf_clean, "day")
         
     # Upstox index instrument key map — NSE_INDEX / BSE_INDEX segment, NOT NSE_EQ
     # Source: Upstox historical-candle API instrument key registry (verified format)

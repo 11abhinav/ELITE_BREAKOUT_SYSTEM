@@ -101,3 +101,19 @@ class TestExternalApiDataValidation:
         assert quotes["TATAMOTORS"]["v"]["cmd"]["c"] == 1020.0
         assert "RELIANCE" in quotes
         assert quotes["RELIANCE"]["v"]["cmd"]["c"] == 3050.0
+
+    def test_upstox_timeframe_mappings_and_resampling(self):
+        """Validate UpstoxProvider timeframe string mappings for all supported intervals."""
+        from market_data.providers.upstox_provider import UpstoxProvider
+        upstox = UpstoxProvider()
+        
+        assert upstox._map_timeframe("1m") == "1minute"
+        assert upstox._map_timeframe("5m") == "5minute"
+        assert upstox._map_timeframe("15m") == "15minute"
+        assert upstox._map_timeframe("30m") == "30minute"
+        assert upstox._map_timeframe("60m") == "60minute"
+        assert upstox._map_timeframe("1h") == "60minute"
+        assert upstox._map_timeframe("1d") == "day"
+        assert upstox._map_timeframe("daily") == "day"
+        assert upstox._map_timeframe("1w") == "week"
+        assert upstox._map_timeframe("1mo") == "month"
