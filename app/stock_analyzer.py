@@ -59,6 +59,31 @@ def validate_nse_bse_ticker_fast(symbol: str) -> dict:
     if not symbol or not isinstance(symbol, str) or len(symbol.strip()) < 1:
         return {"is_valid": False, "error": "Symbol input cannot be empty."}
     raw = symbol.strip().upper()
+
+    # Benchmark Index Alias Support
+    index_aliases = {
+        "NIFTY 50": ("NIFTY 50", "Nifty 50 Index", "INDEX"),
+        "NIFTY": ("NIFTY 50", "Nifty 50 Index", "INDEX"),
+        "NIFTY50": ("NIFTY 50", "Nifty 50 Index", "INDEX"),
+        "NIFTY-50": ("NIFTY 50", "Nifty 50 Index", "INDEX"),
+        "^NSEI": ("NIFTY 50", "Nifty 50 Index", "INDEX"),
+        "BANKNIFTY": ("BANKNIFTY", "Nifty Bank Index", "INDEX"),
+        "BANK NIFTY": ("BANKNIFTY", "Nifty Bank Index", "INDEX"),
+        "NIFTYBANK": ("BANKNIFTY", "Nifty Bank Index", "INDEX"),
+        "^NSEBANK": ("BANKNIFTY", "Nifty Bank Index", "INDEX"),
+        "SENSEX": ("SENSEX", "BSE Sensex Index", "INDEX"),
+        "^BSESN": ("SENSEX", "BSE Sensex Index", "INDEX"),
+    }
+    if raw in index_aliases:
+        canonical_sym, comp, sec = index_aliases[raw]
+        return {
+            "is_valid": True,
+            "symbol": canonical_sym,
+            "company_name": comp,
+            "sector": sec,
+            "source": "index_alias"
+        }
+
     sym_clean = raw.replace('.NS', '').replace('.BO', '').replace('.BSE', '')
     import re
     if not re.match(r"^[A-Z0-9&\-]{2,20}$", sym_clean):
