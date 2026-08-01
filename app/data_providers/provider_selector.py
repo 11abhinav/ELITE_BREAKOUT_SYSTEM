@@ -45,13 +45,15 @@ class ProviderSelector:
         if entry and entry.preferred_provider:
             primary = entry.preferred_provider.lower()
             if primary == "fyers":
-                base_route = ["fyers", "yahoo", "bse"]
+                base_route = ["fyers", "upstox", "yahoo", "bse"]
+            elif primary == "upstox":
+                base_route = ["upstox", "fyers", "yahoo", "bse"]
             elif primary == "yahoo":
-                base_route = ["yahoo", "fyers", "bse"]
+                base_route = ["yahoo", "upstox", "fyers", "bse"]
             elif primary == "nse":
                 base_route = ["nse"]
             else:
-                base_route = [primary, "yahoo", "fyers", "bse"]
+                base_route = [primary, "upstox", "fyers", "yahoo", "bse"]
         else:
             # 2. Configuration-driven policy routing from config.py
             routing_policy = getattr(config, "PROVIDER_ROUTING_POLICY", {})

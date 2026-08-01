@@ -464,28 +464,22 @@ DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
-    # Yahoo-first for daily/weekly/monthly: yf.download() fetches 300 symbols in 1 HTTP call (~5s).
-    # Fyers requires one API call per symbol (6 parallel threads) = ~50s+ for 300 symbols.
-    # Data reliability is equivalent for daily+ data. Speed wins → Yahoo primary.
-    "price_1d":  ["yahoo", "fyers", "bse"],
-    "price_1wk": ["yahoo", "fyers", "bse"],
-    "price_1mo": ["yahoo", "fyers", "bse"],
+    "price_1d":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_1wk": ["upstox", "fyers", "yahoo", "bse"],
+    "price_1mo": ["upstox", "fyers", "yahoo", "bse"],
 
-    # Yahoo-first for intraday due to Fyers History API permission issues.
-    # Fyers remains fallback if Yahoo fails.
-    "price_1h":  ["yahoo", "fyers", "bse"],
-    "price_30m": ["yahoo", "fyers", "bse"],
-    "price_15m": ["yahoo", "fyers", "bse"],
-    "price_5m":  ["yahoo", "fyers", "bse"],
-    "price_1m":  ["yahoo", "fyers", "bse"],
+    "price_1h":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_30m": ["upstox", "fyers", "yahoo", "bse"],
+    "price_15m": ["upstox", "fyers", "yahoo", "bse"],
+    "price_5m":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_1m":  ["upstox", "fyers", "yahoo", "bse"],
 
-    # Fyers-only for live quotes: Yahoo gives 15-min delayed previous-close, not real-time.
-    # BSE/Yahoo are kept as fallback only for when Fyers token is unavailable.
-    "live_quotes": ["fyers", "yahoo", "bse"],
+    # Fyers & Upstox for live quotes
+    "live_quotes": ["upstox", "fyers", "yahoo", "bse"],
 
     "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
     "promoter_pledge":   ["bse_corporate", "nse_corporate"],
-    "default": ["fyers", "yahoo", "bse"]
+    "default": ["upstox", "fyers", "yahoo", "bse"]
 }
 
 PROVIDER_CAPABILITIES = {
