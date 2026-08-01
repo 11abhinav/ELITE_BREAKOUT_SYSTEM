@@ -25,3 +25,4 @@ pywebpush>=1.14.0
 pycryptodome>=3.23.0
 nsepython==2.97
 psutil
+upstox-python-sdk
