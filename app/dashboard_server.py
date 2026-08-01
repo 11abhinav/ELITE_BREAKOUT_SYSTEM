@@ -3402,14 +3402,29 @@ def api_add_user_watchlist():
             def _run_deep_analysis_bg(sym, uid):
                 try:
                     from stock_analyzer import analyze_symbol
-                    from database import update_user_watchlist_scan_result
+                    from database import update_user_watchlist_scan_result, insert_notification
                     from push_service import send_push_to_all
                     res = analyze_symbol(sym, user_id=uid, is_deep_analysis=True)
                     if res and res.get("success"):
-                        update_user_watchlist_scan_result(sym, uid, res.get("overall_health_score"), res.get("watchlist_status"), res)
+                        score = float(res.get("overall_health_score", 0))
+                        status = res.get("watchlist_status", "MONITORING")
+                        update_user_watchlist_scan_result(sym, uid, score, status, res)
+                        
+                        # 1. In-App Notification Center (Bell Badge for Admin/User)
+                        try:
+                            insert_notification(
+                                notif_type="watchlist_analysis",
+                                title=f"📊 Deep Analysis Ready: #{sym}",
+                                message=f"Completed background 7-stage deep scan for #{sym}. Health Score: {score:.1f}/100 | Status: {status}",
+                                symbol=sym
+                            )
+                        except Exception as notif_err:
+                            logger.warning(f"Could not insert in-app notification for {sym}: {notif_err}")
+
+                        # 2. Browser Web Push Notification
                         send_push_to_all(
                             title=f"📊 Deep Analysis Ready: {sym}",
-                            body=f"Health Score: {res.get('overall_health_score', 0)}/100 | Status: {res.get('watchlist_status', 'MONITORING')}",
+                            body=f"Health Score: {score:.1f}/100 | Status: {status}",
                             symbol=sym,
                             bypass_throttle=True
                         )
