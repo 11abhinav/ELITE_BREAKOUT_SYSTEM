@@ -769,12 +769,6 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 cf = ticker.cashflow
             finally:
                 yf_release()
-                fast_info = ticker.fast_info
-                fin = ticker.financials
-                bs = ticker.balance_sheet
-                cf = ticker.cashflow
-            finally:
-                yf_release()
                 
             mc = info.get("marketCap") if info else None
             if mc is None and fast_info:
