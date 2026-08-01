@@ -713,20 +713,17 @@ def get_fyers_client() -> fyersModel.FyersModel:
     log_path = os.path.join(config.DATA_DIR, "fyers_logs")
     os.makedirs(log_path, exist_ok=True)
     
-    # Align client_id to token app_id claim if decoded, defaulting to config.FYERS_CLIENT_ID
-    target_client_id = config.FYERS_CLIENT_ID
+    # [VERSION: FYERS_APP_ID_MATCH_v1.0] Align client_id to token app_id claim to prevent Root Cause 3/4 (-403 errors).
+    # New FYERS 2026 apps use -200 suffix. Always prioritize exact JWT token app_id claim if decoded.
     token_app = get_token_app_id(token)
     if token_app:
-        if token_app.endswith("-100"):
-            target_client_id = token_app
-        elif f"{token_app}-100" == config.FYERS_CLIENT_ID:
-            target_client_id = config.FYERS_CLIENT_ID
-        else:
-            target_client_id = token_app
-
-    # CRITICAL FIX: Fyers History API v3 requires client_id to strictly end with '-100' suffix
-    if target_client_id and not target_client_id.endswith("-100"):
-        target_client_id = f"{target_client_id}-100"
+        target_client_id = token_app
+    elif config.FYERS_CLIENT_ID:
+        target_client_id = config.FYERS_CLIENT_ID
+        if not target_client_id.endswith("-100") and not target_client_id.endswith("-200"):
+            target_client_id = f"{target_client_id}-100"
+    else:
+        target_client_id = None
 
     # ── Diagnostic log: show exactly what Authorization header history API will receive ──
     # Format: CLIENT_ID:ACCESS_TOKEN  (set by FyersModel as self.header = "{}:{}".format(client_id, token))
