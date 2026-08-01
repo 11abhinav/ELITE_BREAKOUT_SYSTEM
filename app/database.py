@@ -591,6 +591,24 @@ def init_db():
                         PRIMARY KEY (provider, original_symbol)
                     );
 
+                    -- Auto-migrate columns for existing legacy symbol_mappings tables
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS provider TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS original_symbol TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS mapped_symbol TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS instrument_id TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS exchange TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS series TEXT;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT 100;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS mapping_source TEXT DEFAULT 'MASTER';
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE';
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER DEFAULT 0;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMPTZ DEFAULT NOW();
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS retry_after TIMESTAMPTZ;
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ DEFAULT NOW();
+                    ALTER TABLE symbol_mappings ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ;
+
                     CREATE TABLE IF NOT EXISTS resolution_history (
                         id BIGSERIAL PRIMARY KEY,
                         provider TEXT NOT NULL,

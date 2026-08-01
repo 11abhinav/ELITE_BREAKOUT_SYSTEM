@@ -42,7 +42,7 @@ class UpstoxProvider(ProviderInterface):
             supports_1m=True,
             supports_5m=True,
             supports_15m=True,
-            supports_1h=True,
+            supports_1h=False,  # Resampled from 30m candles
             supports_1d=True,
             supports_corporate_actions=False,
             supports_oi=True
@@ -177,6 +177,32 @@ class UpstoxProvider(ProviderInterface):
             return f"NSE_EQ|{clean}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
+        # Handle 1h / 60m by fetching 30m candles from Upstox API and resampling
+        tf_clean = str(timeframe).lower()
+        if tf_clean in ("1h", "60m", "60minute", "1hour"):
+            res_30m = self.fetch_ohlcv(symbol, timeframe="30m", range_from=range_from, range_to=range_to)
+            if not res_30m or res_30m.dataframe is None or res_30m.dataframe.empty:
+                return res_30m
+            df_30m = res_30m.dataframe.copy()
+            agg_dict = {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum"
+            }
+            if "OI" in df_30m.columns:
+                agg_dict["OI"] = "last"
+            df_1h = df_30m.resample("1h").agg(agg_dict).dropna(subset=["Close"])
+            from core_models import NormalizedMarketData
+            return NormalizedMarketData(
+                symbol=symbol,
+                timeframe="1h",
+                dataframe=df_1h,
+                provider="upstox",
+                is_stale=getattr(res_30m, "is_stale", False)
+            )
+
         # 1. Use Long-Lived Analytics Token
         import config
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
