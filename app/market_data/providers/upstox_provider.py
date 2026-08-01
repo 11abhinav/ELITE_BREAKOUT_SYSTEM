@@ -211,10 +211,7 @@ class UpstoxProvider(ProviderInterface):
             
         norm_data = self.fetch_ohlcv(symbol, timeframe=interval, range_from=r_from, range_to=r_to)
         
-        try:
-            from validation import MarketData, DataQualityReport
-        except ImportError:
-            from app.validation import MarketData, DataQualityReport
+        from validation import MarketData, DataQualityReport
             
         df = norm_data.dataframe
         if df is None or df.empty:

@@ -237,7 +237,9 @@ def get_dynamic_cadence(interval: str) -> int:
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
-    requester = requester or threading.current_thread().name or "Unknown"
+    # Standardize all daily (1d) requests to 1y period to maximize cross-scanner RAM cache sharing
+    if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo"):
+        period = "1y"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
     now_mono = time.monotonic()
@@ -249,6 +251,8 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
         
         for s in watchlist["Stock"]:
             sym_entry = cache_dict.get(s)
+            if not sym_entry and interval == "1d":
+                sym_entry = _cache.get(("1d", "1y"), {}).get(s)
             if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
                 age = now_mono - sym_entry["ts"]
                 if age < cadence:
