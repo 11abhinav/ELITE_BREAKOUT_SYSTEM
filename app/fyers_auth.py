@@ -242,7 +242,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
             logger.info(f"🌐 Routing POST request via ScraperAPI Proxy ({scraper_key[:5]}...) for {target_url}...")
-            res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=25)
+            res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=60)
             body_scraper = res_scraper.text.strip()
             
             # Blacklist dead / exhausted / invalid keys project-wide for today
@@ -262,7 +262,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
                 _active_working_scraper_key = scraper_key
                 return res_scraper
         except Exception as s_err:
-            logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}", exc_info=True)
+            logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}")
 
     # 2. Direct Connection Fallback (If ScraperAPI key is not configured or all keys failed)
     logger.info(f"Attempting direct POST connection to {target_url}...")
@@ -283,7 +283,7 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
             logger.info(f"🌐 Routing GET request via ScraperAPI Proxy ({scraper_key[:5]}...) for {target_url}...")
-            res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=25)
+            res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=60)
             body_scraper = res_scraper.text.strip()
             
             # Blacklist dead / exhausted / invalid keys project-wide for today
@@ -303,7 +303,7 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
                 _active_working_scraper_key = scraper_key
                 return res_scraper
         except Exception as s_err:
-            logger.warning(f"ScraperAPI proxy GET key attempt failed ({scraper_key[:5]}...): {s_err}", exc_info=True)
+            logger.warning(f"ScraperAPI proxy GET key attempt failed ({scraper_key[:5]}...): {s_err}")
 
     logger.info(f"Attempting direct GET connection to {target_url}...")
     try:
