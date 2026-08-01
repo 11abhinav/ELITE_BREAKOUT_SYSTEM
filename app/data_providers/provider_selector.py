@@ -55,7 +55,14 @@ class ProviderSelector:
         else:
             # 2. Configuration-driven policy routing from config.py
             routing_policy = getattr(config, "PROVIDER_ROUTING_POLICY", {})
-            base_route = routing_policy.get(canonical_key, routing_policy.get("default", ["fyers", "yahoo", "bse"]))
+            base_route = list(routing_policy.get(canonical_key, routing_policy.get("default", ["upstox", "fyers", "yahoo", "bse"])))
+
+        # Automatically prioritize Upstox as primary provider if UPSTOX_ACCESS_TOKEN is configured
+        if getattr(config, "UPSTOX_ACCESS_TOKEN", None):
+            if "upstox" not in base_route:
+                base_route = ["upstox"] + base_route
+            elif base_route[0] != "upstox":
+                base_route = ["upstox"] + [p for p in base_route if p != "upstox"]
 
         # 3. Optional Capability Filter
         if required_capability:

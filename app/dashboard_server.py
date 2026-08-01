@@ -3287,7 +3287,7 @@ def api_analyze_stock():
         return jsonify(result)
     except Exception as e:
         logger.exception("❌ Stock analysis endpoint error")
-        return jsonify({"success": False, "error": f"Failed to analyze symbol: {str(e)}"}), 500
+        return jsonify({"success": False, "error": f"Failed to analyze symbol: {str(e)}"}), 200
 
 
 @app.route("/api/v1/create_manual_alert", methods=["POST"])

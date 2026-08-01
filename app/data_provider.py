@@ -514,6 +514,15 @@ class AutoSwitchingFetcher(DataFetcher):
             return ["fyers", "yfinance"]
 
     def _get_fetcher_by_name(self, name: str) -> DataFetcher:
+        if name == "upstox":
+            if not hasattr(self, "upstox_fetcher") or self.upstox_fetcher is None:
+                try:
+                    from market_data.providers.upstox_provider import UpstoxProvider
+                    self.upstox_fetcher = UpstoxProvider(auth_service=None)
+                except Exception as e:
+                    logger.warning(f"UpstoxProvider initialization failed: {e}")
+                    self.upstox_fetcher = None
+            return self.upstox_fetcher
         if name in ("yfinance", "yahoo", "bse"):
             return self.yfinance_fetcher
         if name == "fyers" and self._should_use_fyers():

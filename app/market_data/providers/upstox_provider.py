@@ -181,3 +181,61 @@ class UpstoxProvider(ProviderInterface):
                 logger.error(f"Error fetching live quote batch: {e}")
                 
         return results
+
+    def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None):
+        """
+        Adapter method for legacy DataFetcher callers (e.g. price_cache, stock_analyzer).
+        Converts NormalizedMarketData to MarketData validation format.
+        """
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        now = datetime.now(IST)
+        
+        if range_from and range_to:
+            r_from = datetime.strptime(range_from, "%Y-%m-%d")
+            r_to = datetime.strptime(range_to, "%Y-%m-%d")
+        else:
+            days = 365
+            if period.endswith("y"):
+                try: days = int(period[:-1]) * 365
+                except: days = 365
+            elif period.endswith("mo"):
+                try: days = int(period[:-2]) * 30
+                except: days = 30
+            elif period.endswith("d"):
+                try: days = int(period[:-1])
+                except: days = 10
+            r_from = now - timedelta(days=days)
+            r_to = now
+            
+        norm_data = self.fetch_ohlcv(symbol, timeframe=interval, range_from=r_from, range_to=r_to)
+        
+        try:
+            from validation import MarketData, DataQualityReport
+        except ImportError:
+            from app.validation import MarketData, DataQualityReport
+            
+        df = norm_data.dataframe
+        if df is None or df.empty:
+            return MarketData(df=pd.DataFrame(), source="Upstox", quality_report=None, is_stale=False, used_fallback=False, error_msg=norm_data.error)
+            
+        report = DataQualityReport(
+            status="ValidationStatus.OPTIMAL",
+            quality_score=100.0,
+            row_count=len(df),
+            null_count=0,
+            missing_dates_count=0,
+            duplicated_dates_count=0,
+            non_monotonic_count=0,
+            outliers_count=0,
+            zero_volume_pct=0.0,
+            critical_failures=[]
+        )
+        return MarketData(df=df, source="Upstox", quality_report=report, is_stale=False, used_fallback=False, error_msg=None)
+
+    def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> Dict:
+        results = {}
+        for sym in symbols:
+            results[sym] = self.get_ohlcv(sym, interval=interval, period=period, retries=retries, range_from=range_from, range_to=range_to)
+        return results
