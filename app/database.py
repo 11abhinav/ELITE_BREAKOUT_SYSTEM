@@ -488,7 +488,7 @@ def init_db():
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS wealth_score_history (
                         id SERIAL PRIMARY KEY,
-                        symbol VARCHAR(30) NOT NULL,
+                        symbol TEXT NOT NULL,
                         evaluation_date DATE NOT NULL,
                         hold_score REAL,
                         fm_score REAL,
@@ -872,7 +872,7 @@ def init_db():
                 # 29. earnings_calendar
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS earnings_calendar (
-                        symbol VARCHAR(20) PRIMARY KEY,
+                        symbol TEXT PRIMARY KEY,
                         earnings_date DATE NOT NULL,
                         date_status VARCHAR(20) DEFAULT 'ESTIMATED',
                         updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -884,15 +884,15 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS alert_outcomes (
                         alert_id INTEGER REFERENCES alerts(id),
                         leg INTEGER DEFAULT 1,
-                        symbol VARCHAR(20) NOT NULL,
-                        scanner VARCHAR(30) NOT NULL,
-                        regime VARCHAR(20) NOT NULL,
+                        symbol TEXT NOT NULL,
+                        scanner TEXT NOT NULL,
+                        regime TEXT NOT NULL,
                         regime_score NUMERIC(5, 2) DEFAULT 0.0,
                         base_score INTEGER DEFAULT 0,
                         rs_bonus INTEGER DEFAULT 0,
                         sector_bonus INTEGER DEFAULT 0,
                         rs_percentile NUMERIC(5, 2) DEFAULT 0.0,
-                        sector_name VARCHAR(50) DEFAULT '',
+                        sector_name TEXT DEFAULT '',
                         rr_at_alert NUMERIC(5, 2) DEFAULT 0.0,
                         atr_pct_at_alert NUMERIC(5, 2) DEFAULT 0.0,
                         entry_price NUMERIC(10, 2) NOT NULL,
@@ -903,7 +903,7 @@ def init_db():
                         target_4 NUMERIC(10, 2),
                         alert_timestamp TIMESTAMPTZ NOT NULL,
                         exit_timestamp TIMESTAMPTZ,
-                        exit_reason VARCHAR(30),
+                        exit_reason TEXT,
                         realized_rr NUMERIC(5, 2),
                         unrealized_rr_at_expiry NUMERIC(5, 2),
                         holding_period_bars INTEGER,
@@ -928,8 +928,8 @@ def init_db():
                 # 31. sector_rankings
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS sector_rankings (
-                        sector_symbol VARCHAR(30) NOT NULL,
-                        sector_name VARCHAR(50) NOT NULL,
+                        sector_symbol TEXT NOT NULL,
+                        sector_name TEXT NOT NULL,
                         ranking_date DATE NOT NULL,
                         blended_score NUMERIC(8, 2) NOT NULL,
                         raw_rank INTEGER NOT NULL,
@@ -1054,8 +1054,8 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS user_watchlists (
                         id SERIAL PRIMARY KEY,
                         user_id VARCHAR(50) DEFAULT 'DEFAULT_USER',
-                        symbol VARCHAR(30) NOT NULL,
-                        company_name VARCHAR(100) DEFAULT '',
+                        symbol TEXT NOT NULL,
+                        company_name TEXT DEFAULT '',
                         added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         last_scanned_at TIMESTAMPTZ,
                         last_health_score NUMERIC(5,2),
@@ -1071,9 +1071,9 @@ def init_db():
                 # 38. stock_analysis_master
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stock_analysis_master (
-                        symbol VARCHAR(30) PRIMARY KEY,
-                        company_name VARCHAR(100) DEFAULT '',
-                        sector VARCHAR(50) DEFAULT 'EQUITY',
+                        symbol TEXT PRIMARY KEY,
+                        company_name TEXT DEFAULT '',
+                        sector TEXT DEFAULT 'EQUITY',
                         last_scanned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         last_deep_analysis_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         health_score NUMERIC(5,2),
@@ -1187,6 +1187,24 @@ def init_db():
                     cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, updated_at = NOW() WHERE status = 'RUNNING' OR status LIKE 'QUEUED%'")
                 except Exception as t_err:
                     logger.warning(f"[STARTUP] Scanner state reset non-critical failure: {t_err}")
+
+                # 100. Auto-migrate targeted VARCHAR columns to TEXT to prevent StringDataRightTruncation
+                cur.execute('''
+                    DO $$ 
+                    DECLARE
+                        r RECORD;
+                    BEGIN
+                        FOR r IN (
+                            SELECT table_name, column_name 
+                            FROM information_schema.columns 
+                            WHERE table_schema = 'public' 
+                              AND data_type = 'character varying'
+                              AND column_name IN ('symbol', 'scanner', 'scanner_name', 'regime', 'sector_name', 'exit_reason', 'company_name', 'sector', 'sector_symbol', 'error_msg')
+                        ) LOOP
+                            EXECUTE 'ALTER TABLE ' || quote_ident(r.table_name) || ' ALTER COLUMN ' || quote_ident(r.column_name) || ' TYPE TEXT;';
+                        END LOOP;
+                    END $$;
+                ''')
 
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):

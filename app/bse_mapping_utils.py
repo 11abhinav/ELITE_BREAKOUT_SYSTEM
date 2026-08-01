@@ -88,11 +88,11 @@ def save_bse_mapping(original_sym: str, mapped_sym: str) -> None:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute('''
-                    INSERT INTO symbol_mappings (mapping_type, original_sym, mapped_sym, mapping_state, failure_count, last_verified)
-                    VALUES ('BSE', %s, %s, 'ACTIVE', 0, %s)
+                    INSERT INTO symbol_mappings (provider, original_symbol, mapped_symbol, mapping_type, original_sym, mapped_sym, mapping_state, failure_count, last_verified)
+                    VALUES ('BSE', %s, %s, 'BSE', %s, %s, 'ACTIVE', 0, %s)
                     ON CONFLICT (mapping_type, original_sym) 
-                    DO UPDATE SET mapped_sym = EXCLUDED.mapped_sym, mapping_state = 'ACTIVE', failure_count = 0, last_verified = EXCLUDED.last_verified, is_invalid = FALSE
-                ''', (orig_clean, mapped_clean, datetime.now(IST).isoformat()))
+                    DO UPDATE SET mapped_sym = EXCLUDED.mapped_sym, mapped_symbol = EXCLUDED.mapped_symbol, mapping_state = 'ACTIVE', failure_count = 0, last_verified = EXCLUDED.last_verified, is_invalid = FALSE
+                ''', (orig_clean, mapped_clean, orig_clean, mapped_clean, datetime.now(IST).isoformat()))
             conn.commit()
             
         mappings[orig_clean] = mapped_clean
@@ -128,11 +128,11 @@ def mark_bse_invalid(original_sym: str) -> None:
                 now_str = datetime.now(IST).isoformat()
                 
                 cur.execute('''
-                    INSERT INTO symbol_mappings (mapping_type, original_sym, mapping_state, failure_count, retry_after, last_verified)
-                    VALUES ('BSE', %s, 'INVALID', %s, %s, %s)
+                    INSERT INTO symbol_mappings (provider, original_symbol, mapped_symbol, mapping_type, original_sym, mapped_sym, mapping_state, failure_count, retry_after, last_verified)
+                    VALUES ('BSE', %s, '', 'BSE', %s, '', 'INVALID', %s, %s, %s)
                     ON CONFLICT (mapping_type, original_sym) 
                     DO UPDATE SET mapping_state = 'INVALID', failure_count = EXCLUDED.failure_count, retry_after = EXCLUDED.retry_after, last_verified = EXCLUDED.last_verified, is_invalid = TRUE
-                ''', (orig_clean, failures, retry_after, now_str))
+                ''', (orig_clean, orig_clean, failures, retry_after, now_str))
             conn.commit()
             
         if _bse_mappings_cache is not None and orig_clean in _bse_mappings_cache:
