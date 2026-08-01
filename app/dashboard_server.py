@@ -872,6 +872,7 @@ def api_version():
 
 
 @app.route("/fyers/login")
+@app.route("/fyer/login")
 @admin_required
 def fyers_login():
     """Redirect admin user to Fyers OAuth authentication portal."""
@@ -885,6 +886,7 @@ def fyers_login():
 
 
 @app.route("/fyers/callback")
+@app.route("/fyer/callback")
 def fyers_callback():
     """Fyers OAuth Redirect URI callback: captures authorization code, gets token, and caches it."""
     auth_code = request.args.get("auth_code") or request.args.get("code")
