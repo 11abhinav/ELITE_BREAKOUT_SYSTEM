@@ -233,30 +233,35 @@ def fetch_single_piotroski(symbol: str) -> dict:
             success = True
             break
         except Exception as e:
-            msg = str(e)
-            retry_syms = []
-            if yf_sym.endswith(".NS"):
-                retry_syms.append(yf_sym[:-3] + ".BO")
-            if "-" in yf_sym:
-                retry_syms.append(yf_sym.replace("-", "&"))
+            msg = str(e).lower()
+            is_rate_limit = 'too many requests' in msg or 'rate limit' in msg
+            
+            # If it's a rate limit, don't burn through alternate variants (they will just fail and trip the circuit).
+            # Instead, skip the fallback logic and let the main retry loop backoff and try the same symbol again.
+            if not is_rate_limit:
+                retry_syms = []
                 if yf_sym.endswith(".NS"):
-                    retry_syms.append(yf_sym.replace("-", "&")[:-3] + ".BO")
-
-            for alt_sym in retry_syms:
-                logger.info(f"🔄 fundamentals exception for {yf_sym}, retrying with alt {alt_sym}...")
-                try:
-                    t, info, fin, bs = try_fetch(alt_sym)
-                    if not (fin.empty and bs.empty):
-                        yf_sym = alt_sym
-                        if alt_sym.endswith(".BO"):
-                            save_bse_mapping(symbol, alt_sym)
-                        success = True
-                        break
-                except Exception:
-                    pass
+                    retry_syms.append(yf_sym[:-3] + ".BO")
+                if "-" in yf_sym:
+                    retry_syms.append(yf_sym.replace("-", "&"))
+                    if yf_sym.endswith(".NS"):
+                        retry_syms.append(yf_sym.replace("-", "&")[:-3] + ".BO")
+    
+                for alt_sym in retry_syms:
+                    logger.info(f"🔄 fundamentals exception for {yf_sym}, retrying with alt {alt_sym}...")
+                    try:
+                        t, info, fin, bs = try_fetch(alt_sym)
+                        if not (fin.empty and bs.empty):
+                            yf_sym = alt_sym
+                            if alt_sym.endswith(".BO"):
+                                save_bse_mapping(symbol, alt_sym)
+                            success = True
+                            break
+                    except Exception:
+                        pass
             
             # --- LAST RESORT FALLBACK via Yahoo Search API ---
-            if not success:
+            if not success and not is_rate_limit:
                 import requests
                 clean_base = symbol.strip().replace('.NS','').replace('.BO','')
                 logger.info(f"🔍 Both standard NS/BO failed for {clean_base}. Trying Yahoo Search API...")
