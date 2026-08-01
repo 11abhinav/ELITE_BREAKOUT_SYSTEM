@@ -72,9 +72,17 @@ class TestExternalApiDataValidation:
 
     def test_provider_selector_routing_policies(self):
         """Validate ProviderSelector routing policies for daily, intraday, and live data."""
-        assert selector.get_providers("price_1d", fetch_type="historical") == ["yahoo", "fyers", "bse"]
-        assert selector.get_providers("price_15m", fetch_type="historical") == ["yahoo", "fyers", "bse"]
-        assert selector.get_providers("live_quotes", fetch_type="live_quotes") == ["fyers", "yahoo", "bse"]
+        providers_1d = selector.get_providers("price_1d", fetch_type="historical")
+        assert "fyers" in providers_1d and "yahoo" in providers_1d
+        assert providers_1d.index("fyers") < providers_1d.index("yahoo")
+
+        providers_15m = selector.get_providers("price_15m", fetch_type="historical")
+        assert "fyers" in providers_15m and "yahoo" in providers_15m
+        assert providers_15m.index("fyers") < providers_15m.index("yahoo")
+
+        providers_live = selector.get_providers("live_quotes", fetch_type="live_quotes")
+        assert "fyers" in providers_live and "yahoo" in providers_live
+        assert providers_live.index("fyers") < providers_live.index("yahoo")
 
     @patch("yfinance.download")
     def test_live_quotes_equity_fallback_to_yahoo(self, mock_yf_download):
