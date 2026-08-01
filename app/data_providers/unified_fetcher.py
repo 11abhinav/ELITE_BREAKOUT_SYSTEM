@@ -284,12 +284,12 @@ class UnifiedFetcher:
                                                 logger.info(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
                                                 pending.discard(orig)
                                                 success_count += 1
-                                    except Exception:
-                                        pass
+                                    except Exception as item_err:
+                                        logger.exception(f"⚠️ [Upstox] Quote parsing error for symbol {orig}: {item_err}")
                                 if success_count > 0:
                                     logger.info(f"✅ [Upstox] Fetched {success_count}/{len(chunk)} quotes successfully.")
                     except Exception as e:
-                        logger.warning(f"⚠️ [Upstox] Batch quote fetch failed: {e}")
+                        logger.exception(f"⚠️ [Upstox] Batch quote fetch failed: {e}")
 
                 elif provider == "yahoo":
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
@@ -344,10 +344,10 @@ class UnifiedFetcher:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
                                                 logger.info(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
-                                    except Exception:
-                                        pass
+                                    except Exception as item_err:
+                                        logger.exception(f"⚠️ [Yahoo] Quote parsing error for symbol {orig}: {item_err}")
                         except Exception as e:
-                            logger.warning(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
+                            logger.exception(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
                         
                 elif provider == "bse":
                     # Skip BSE provider if there are no pending symbols or if circuit is still open.
