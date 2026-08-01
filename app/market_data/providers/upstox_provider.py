@@ -184,6 +184,20 @@ class UpstoxProvider(ProviderInterface):
 
     def _get_instrument_key(self, symbol: str) -> str:
         """Maps symbol to official Upstox instrument key using SymbolResolutionService."""
+        clean = str(symbol).strip().upper()
+        for sfx in (".NS", ".BO", ".BSE"):
+            if clean.endswith(sfx):
+                clean = clean[:-len(sfx)]
+                break
+
+        # 1. Fast-path for indices: Always use exact case-sensitive Upstox index keys first
+        if clean in self._INDEX_KEY_MAP:
+            return self._INDEX_KEY_MAP[clean]
+        raw_clean = str(symbol).strip()
+        if raw_clean in self._INDEX_KEY_MAP:
+            return self._INDEX_KEY_MAP[raw_clean]
+
+        # 2. Dynamic symbol resolution service
         try:
             from symbol_resolution_engine import get_symbol_resolver
             resolved = get_symbol_resolver().resolve(symbol, provider="upstox")
@@ -192,19 +206,13 @@ class UpstoxProvider(ProviderInterface):
         except Exception:
             pass
 
+        # 3. Dynamic Upstox Instrument Mapper lookup
         try:
             from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
             return get_upstox_instrument_key(symbol)
         except Exception:
-            clean = str(symbol).strip().upper()
-            for sfx in (".NS", ".BO", ".BSE"):
-                if clean.endswith(sfx):
-                    clean = clean[:-len(sfx)]
-                    break
-            if clean in self._INDEX_KEY_MAP:
-                return self._INDEX_KEY_MAP[clean]
-            clean = clean.lstrip("^")
-            return f"NSE_EQ|{clean}"
+            clean_bare = clean.lstrip("^")
+            return f"NSE_EQ|{clean_bare}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         # Handle 1h / 60m by fetching 30m candles from Upstox API and resampling
