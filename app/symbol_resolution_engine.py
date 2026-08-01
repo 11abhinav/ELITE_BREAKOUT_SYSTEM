@@ -116,25 +116,13 @@ class FyersAdapter(BaseProviderAdapter):
         if sym in ("SENSEX", "^BSESN"):
             return ResolvedInstrument("INDEX:BSE:SENSEX", sym, "fyers", "BSE:SENSEX-INDEX", "BSE", "INDEX", 100, "MASTER")
 
-        # 2. Check Fyers Master Symbol Registry
-        try:
-            from data_providers.fyers_fetcher import get_fyers_fetcher
-            fetcher = get_fyers_fetcher()
-            if hasattr(fetcher, "_load_symbol_master"):
-                master = fetcher._load_symbol_master()
-                prefixes = ("BSE:", "NSE:") if force_bse else ("NSE:", "BSE:")
-                for prefix in prefixes:
-                    cand = f"{prefix}{sym}-EQ"
-                    if cand in master:
-                        inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
-                        return ResolvedInstrument(inst_id, sym, "fyers", cand, prefix.rstrip(":"), "EQ", 100, "MASTER")
-        except Exception:
-            pass
+        # Standard equity fallback for clean symbols
+        if not sym.startswith("UNKNOWN"):
+            prefix = "BSE:" if force_bse else "NSE:"
+            inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
+            return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
 
-        # Fallback default candidate format
-        prefix = "BSE:" if force_bse else "NSE:"
-        inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
-        return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
+        return None
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
@@ -167,8 +155,8 @@ class FyersAdapter(BaseProviderAdapter):
 
         # Test candidate against Fyers historical or quote endpoint
         try:
-            from data_providers.fyers_fetcher import get_fyers_fetcher
-            fetcher = get_fyers_fetcher()
+            from data_providers.fyers_fetcher import FyersFetcher
+            fetcher = FyersFetcher()
             for cand in candidates:
                 try:
                     df = fetcher.get_ohlcv_single(cand, period="5d", interval="1d")
@@ -200,9 +188,8 @@ class UpstoxAdapter(BaseProviderAdapter):
 
         # 2. Upstox ISIN / Instrument Key Mapper Lookup
         try:
-            from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_mapper
-            mapper = get_upstox_instrument_mapper()
-            key = mapper.get_instrument_key(sym)
+            from market_data.providers.upstox_instrument_mapper import mapper
+            key = mapper.get_instrument_key(sym, allow_fallback=not sym.startswith("UNKNOWN"))
             if key:
                 inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
                 exch = "NSE" if "NSE" in key else "BSE"
@@ -210,9 +197,7 @@ class UpstoxAdapter(BaseProviderAdapter):
         except Exception:
             pass
 
-        # Default fallback for Upstox standard equity
-        inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
-        return ResolvedInstrument(inst_id, sym, "upstox", f"NSE_EQ|{sym}", "NSE", "EQ", 90, "MASTER")
+        return None
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()

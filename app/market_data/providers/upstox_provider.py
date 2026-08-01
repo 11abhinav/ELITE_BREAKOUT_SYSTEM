@@ -36,7 +36,7 @@ class UpstoxProvider(ProviderInterface):
     Official Upstox API v2 Integration.
     Acts as the Primary Historical Data Provider to bypass WAF bans.
     """
-    def __init__(self, auth_service):
+    def __init__(self, auth_service=None):
         self.auth_service = auth_service
         self._capabilities = CapabilityMatrix(
             supports_1m=True,

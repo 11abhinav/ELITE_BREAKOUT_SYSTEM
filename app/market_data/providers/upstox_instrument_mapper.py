@@ -219,13 +219,10 @@ class UpstoxInstrumentMapper:
             with self._lock:
                 self._is_downloading = False
 
-    def get_instrument_key(self, symbol: str) -> str:
-        """
-        Returns official Upstox instrument key for given symbol (e.g. TCS → NSE_EQ|INE467B01029).
-        Falls back to NSE_EQ|clean_symbol if symbol is not in master file.
-        """
+    def get_instrument_key(self, symbol: str, allow_fallback: bool = True) -> Optional[str]:
+        """Maps symbol to official Upstox instrument key."""
         if not symbol:
-            return "NSE_EQ|UNKNOWN"
+            return None
 
         clean = str(symbol).strip().upper()
         # Strip YFinance suffixes
@@ -245,6 +242,9 @@ class UpstoxInstrumentMapper:
         raw_no_caret = clean.lstrip("^")
         if raw_no_caret in self._symbol_map:
             return self._symbol_map[raw_no_caret]
+
+        if not allow_fallback:
+            return None
 
         # Standard equity fallback
         return f"NSE_EQ|{raw_no_caret}"
