@@ -329,12 +329,7 @@ class UpstoxProvider(ProviderInterface):
                 
             df = self._build_ohlcv_df(candles, timeframe)
             
-            prov = DataProvenance(
-                provider_name=self.provider_name,
-                timestamp=start_time,
-                latency_ms=latency,
-                quality_score=100.0
-            )
+            prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
             
             return NormalizedMarketData(
                 symbol=symbol,
