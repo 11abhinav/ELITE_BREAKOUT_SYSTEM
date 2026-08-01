@@ -316,6 +316,7 @@ class UnifiedFetcher:
                                     raw_yf_symbols.append(f"{s}.NS")
                         except Exception:
                             raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
+                        yf_symbols = raw_yf_symbols
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:
