@@ -8,6 +8,7 @@ from urllib3.util.retry import Retry
 
 from ..core.interfaces import ProviderInterface
 from ..core.models import NormalizedMarketData, CapabilityMatrix, ProviderStatus, DataProvenance
+from validation import MarketData
 
 logger = logging.getLogger(__name__)
 
@@ -240,24 +241,27 @@ class UpstoxProvider(ProviderInterface):
                 provenance=prov,
                 is_complete_candle=True
             )
-
-        # 1. Use Long-Lived Analytics Token
         import config
+        import urllib.parse
+        from datetime import timedelta
+        
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+        raw_key = self._get_instrument_key(symbol)
+        instrument_key = urllib.parse.quote(raw_key)
+        interval = self._map_timeframe(timeframe)
+        
+        # Upstox V2 API does not support intraday historical candles for indices (NSE_INDEX / BSE_INDEX)
+        if (raw_key.startswith("NSE_INDEX|") or raw_key.startswith("BSE_INDEX|")) and interval not in ("day", "week", "month"):
+            logger.debug(f"Upstox API does not support intraday candles for index {symbol} ({raw_key}); deferring to fallback.")
+            start_time = datetime.now()
+            prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
+            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Intraday index candles not supported by Upstox")
         
         if not token:
             self._status = ProviderStatus.AUTH_FAILED
             self._health_score -= 10
             raise PermissionError("UPSTOX_ACCESS_TOKEN is completely missing from config.")
             
-        # 2. Build Request
-        import urllib.parse
-        from datetime import timedelta
-        raw_key = self._get_instrument_key(symbol)
-        instrument_key = urllib.parse.quote(raw_key)
-        interval = self._map_timeframe(timeframe)
-        
-        # Proactively adjust range_to if it falls on a non-trading weekend day (Saturday=5, Sunday=6)
         adjusted_range_to = range_to
         if range_to and hasattr(range_to, "weekday"):
             if range_to.weekday() == 5:
@@ -275,7 +279,6 @@ class UpstoxProvider(ProviderInterface):
         start_time = datetime.now()
         
         try:
-            # [VERSION: UPSTOX_SESSION_POOL_v1.0] Use shared session for connection reuse
             response = _upstox_session.get(url, headers=headers, timeout=10)
             latency = (datetime.now() - start_time).total_seconds() * 1000
             
@@ -300,72 +303,71 @@ class UpstoxProvider(ProviderInterface):
             if not candles:
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 100), error=None)
                 
-            # [VERSION: UPSTOX_DATE_NORM_v1.0] Normalise column: daily→'Date', intraday→'Datetime'
             df = self._build_ohlcv_df(candles, timeframe)
             
-            prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
-            return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
+            prov = DataProvenance(
+                provider_name=self.provider_name,
+                timestamp=start_time,
+                latency_ms=latency,
+                quality_score=100.0
+            )
             
+            return NormalizedMarketData(
+                symbol=symbol,
+                timeframe=timeframe,
+                dataframe=df,
+                provenance=prov,
+                is_complete_candle=True,
+                error=None
+            )
+            
+        except requests.HTTPError as e:
+            self._health_score = max(0, self._health_score - 2)
+            logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")
+            latency = (datetime.now() - start_time).total_seconds() * 1000
+            prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
+            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {e.response.status_code if e.response is not None else 'Error'}")
         except Exception as e:
-            # If 400 Client Error occurs (e.g. today is a non-trading weekend date), retry with yesterday's date
-            if "400" in str(e) and range_to:
-                try:
-                    alt_to = range_to - timedelta(days=1)
-                    url_alt = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{interval}/{alt_to.strftime('%Y-%m-%d')}/{range_from.strftime('%Y-%m-%d')}"
-                    # [VERSION: UPSTOX_SESSION_POOL_v1.0] Use shared session for 400-retry fallback
-                    res_alt = _upstox_session.get(url_alt, headers=headers, timeout=10)
-                    if res_alt.status_code == 200:
-                        data = res_alt.json()
-                        candles = data.get("data", {}).get("candles", [])
-                        if candles:
-                            # [VERSION: UPSTOX_DATE_NORM_v1.0] Normalise column: daily→'Date', intraday→'Datetime'
-                            df = self._build_ohlcv_df(candles, timeframe)
-                            latency = (datetime.now() - start_time).total_seconds() * 1000
-                            prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
-                            return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
-                # [VERSION: UPSTOX_SESSION_POOL_v1.0] Typed handler per Rule 12 — never swallow silently
-                except requests.RequestException as retry_err:
-                    logger.warning(f"Upstox 400-retry failed for {symbol}: {retry_err}")
-                except Exception as retry_err:
-                    logger.warning(f"Upstox 400-retry unexpected error for {symbol}: {retry_err}")
             self._health_score = max(0, self._health_score - 2)
             logger.error(f"Upstox fetch error for {symbol}: {e}")
             latency = (datetime.now() - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
-            
+
     def fetch_batch_ohlcv(self, symbols: List[str], timeframe: str, range_from: datetime, range_to: datetime) -> Dict[str, NormalizedMarketData]:
+        """Fetches batch normalized market data concurrently for multiple symbols."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        
         results = {}
-        # Upstox historical candle endpoint accepts 1 symbol per request.
-        # We execute up to 10 concurrent threads to achieve high-speed batch fetching while respecting rate limits.
-        max_workers = min(10, len(symbols)) if symbols else 1
-        
+        if not symbols:
+            return results
+        max_workers = min(10, len(symbols))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
-                executor.submit(self.fetch_ohlcv, sym, timeframe, range_from, range_to): sym 
+                executor.submit(self.fetch_ohlcv, sym, timeframe, range_from, range_to): sym
                 for sym in symbols
             }
-            
             for future in as_completed(future_to_sym):
                 sym = future_to_sym[future]
                 try:
                     results[sym] = future.result()
                 except Exception as e:
                     logger.error(f"Error fetching batch symbol {sym}: {e}")
-                    
         return results
 
-    def fetch_live_quotes_batch(self, symbols: List[str]) -> Dict[str, Dict]:
-        """
-        Fetches full live market quotes (OHLC, Depth, Volume, Last Price) for up to 500 instruments in 1 single GET request.
-        Uses Upstox official batch endpoint: /v2/market-quote/quotes
-        """
+    def get_quote(self, symbol: str) -> dict:
+        """Fetches live market quote for a single symbol from Upstox v2 API."""
+        quotes = self.get_quotes([symbol])
+        return quotes.get(symbol, {})
+
+    def get_quotes(self, symbols: List[str]) -> Dict[str, dict]:
+        """Fetches live market quotes for multiple symbols from Upstox v2 API."""
+        if not symbols:
+            return {}
+            
         import config
+        import urllib.parse
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
-        
-        if not token or not symbols:
+        if not token:
             return {}
             
         headers = {
@@ -374,8 +376,6 @@ class UpstoxProvider(ProviderInterface):
         }
         
         results = {}
-        # Upstox supports up to 500 symbols per request. Chunk into batches of 500.
-        import urllib.parse
         chunk_size = 500
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
@@ -383,17 +383,14 @@ class UpstoxProvider(ProviderInterface):
             url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={formatted_keys}"
             
             try:
-                # [VERSION: UPSTOX_SESSION_POOL_v1.0] Use shared session for live quotes
                 res = _upstox_session.get(url, headers=headers, timeout=10)
                 if res.status_code == 200:
                     data = res.json().get("data", {})
                     for key, quote in data.items():
-                        # Key format is "NSE_EQ:RELIANCE" or "NSE_EQ|RELIANCE"
                         clean_sym = key.split(":")[-1].split("|")[-1]
                         results[clean_sym] = quote
                 else:
                     logger.error(f"Failed live quote batch fetch (Status {res.status_code})")
-            # [VERSION: UPSTOX_SESSION_POOL_v1.0] Typed handler per Rule 12
             except requests.RequestException as e:
                 logger.error(f"Network error fetching live quote batch: {e}", exc_info=True)
             except Exception as e:
@@ -401,9 +398,9 @@ class UpstoxProvider(ProviderInterface):
                 
         return results
 
-    def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None):
+    def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y", retries: int = 3, range_from = None, range_to = None) -> MarketData:
         """
-        Adapter method for legacy DataFetcher callers (e.g. price_cache, stock_analyzer).
+        Adapter method for legacy DataFetcher callers.
         Converts NormalizedMarketData to MarketData validation format.
         """
         from datetime import datetime, timedelta
@@ -412,8 +409,8 @@ class UpstoxProvider(ProviderInterface):
         now = datetime.now(IST)
         
         if range_from and range_to:
-            r_from = datetime.strptime(range_from, "%Y-%m-%d")
-            r_to = datetime.strptime(range_to, "%Y-%m-%d")
+            r_from = datetime.strptime(range_from, "%Y-%m-%d") if isinstance(range_from, str) else range_from
+            r_to = datetime.strptime(range_to, "%Y-%m-%d") if isinstance(range_to, str) else range_to
         else:
             days = 365
             if period.endswith("y"):
@@ -430,28 +427,30 @@ class UpstoxProvider(ProviderInterface):
             
         norm_data = self.fetch_ohlcv(symbol, timeframe=interval, range_from=r_from, range_to=r_to)
         
-        from validation import MarketData, DataQualityReport
-        from validation.result import ValidationStatus
+        from validation import ValidationEngine, MarketData, ValidationContext, registry as val_registry, DatasetType
             
         df = norm_data.dataframe
         if df is None or df.empty:
-            return MarketData(dataframe=pd.DataFrame(), source="Upstox", quality_report=None, stale=False, used_fallback=False, error=norm_data.error)
+            return MarketData(dataframe=pd.DataFrame(), source="Upstox", quality_report=None, stale=False, used_fallback=False, error=norm_data.error or "Empty DataFrame")
             
-        report = DataQualityReport(
-            is_valid=True,
-            quality_score=100,
-            critical_failures=(),
-            warnings=(),
-            status=ValidationStatus.OPTIMAL,
-            row_count=len(df)
-        )
-        return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None)
+        try:
+            pipeline = val_registry.get_pipeline(DatasetType.PRICE)
+            engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
+            r_from_str = r_from.strftime("%Y-%m-%d") if hasattr(r_from, "strftime") else str(r_from)
+            r_to_str = r_to.strftime("%Y-%m-%d") if hasattr(r_to, "strftime") else str(r_to)
+            ctx = ValidationContext(provider="Upstox", period=period, interval=interval, range_from=r_from_str, range_to=r_to_str, fetch_mode="DELTA" if range_from else "FULL")
+            report = engine.validate(df, ctx)
+            
+            if not report.is_valid:
+                return MarketData(dataframe=None, source="Upstox", quality_report=report, stale=False, used_fallback=False, error="Quality Check Failed")
+            return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None)
+        except Exception as val_err:
+            logger.warning(f"ValidationEngine exception for Upstox {symbol}: {val_err}")
+            return MarketData(dataframe=df, source="Upstox", quality_report=None, stale=False, used_fallback=False, error=None)
 
-    def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> Dict:
+    def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from = None, range_to = None, caller: str = None) -> Dict:
         """
-        Concurrent batch fetch using ThreadPoolExecutor (up to 10 parallel threads).
-        Upstox historical candle endpoint accepts one symbol per request; threads are
-        the only way to achieve bulk throughput without sequential bottleneck.
+        Concurrent batch fetch using ThreadPoolExecutor.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         results = {}
@@ -472,7 +471,7 @@ class UpstoxProvider(ProviderInterface):
                 try:
                     results[sym] = future.result()
                 except Exception as e:
-                    logger.error(f"Upstox batch fetch error for {sym}: {e}")
+                    logger.error(f"Upstox batch fetch exception for {sym}: {e}")
 
         ok_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and not getattr(v.dataframe, 'empty', True))
         logger.info(f"{prefix}📊 Upstox batch complete: {ok_count}/{len(symbols)} ok")
