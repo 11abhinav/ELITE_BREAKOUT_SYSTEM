@@ -2956,4 +2956,16 @@ When a user selects a stock ticker, `renderStockDiagnosticModal(data)` populates
 
 ---
 
+## 21.7 Deprecation & Change-Log Log (Rule 63 Compliance)
+
+| Date | Version Tag | Git Commit ID | Module / Component | Old Behavior | New Behavior | RCA & Rationale |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 2026-08-01 | `[VERSION: UPSTOX_DATACLASS_FIX_v1.0]` | `a98e9e66` | `upstox_provider.py` | `MarketData` instantiated with `df` and `is_stale` kwargs causing `TypeError`. | Instantiated canonical `MarketData` and `DataQualityReport` from `validation/report.py`. | RCA: `MarketData` dataclass signature changed in V8.0 validator. |
+| 2026-08-01 | `[VERSION: ROUTING_POLICY_ROBUST_v2.0]` | `c587fb4d` | `config.py`, `provider_selector.py` | `PROVIDER_ROUTING_POLICY` prioritized Yahoo Finance before Fyers. | Reordered to `["upstox", "fyers", "yahoo", "bse"]`. | RCA: User directive to eliminate Yahoo Finance dependency whenever Upstox/Fyers data is available. |
+| 2026-08-01 | `[VERSION: FYERS_INDEX_NORM_v2.0]` | `fe293144` | `fyers_fetcher.py` | Sector index queries (`^CNXIT`, `^CNXAUTO`, etc.) converted to invalid `NSE:CNXIT-INDEX`. | Added explicit Fyers index key mappings (`^CNXIT` -> `NSE:NIFTYIT-INDEX`). | RCA: Fyers API requires exact index series keys. |
+| 2026-08-01 | `[VERSION: RATE_LIMIT_YFINANCE_v2.0]` | `b6757c48` | `earnings_calendar.py`, `multibagger.py` | `yf.Ticker` instantiated without rate limiter locks. | Wrapped `yf.Ticker()` in `yf_acquire()` and `yf_release()` context blocks. | RCA: Unthrottled parallel crumb-fetch network calls triggered Yahoo 429 rate limit bans. |
+| 2026-08-01 | `[VERSION: UPSTOX_WEEKEND_DATE_FIX_v1.0]` | `958ed107` | `upstox_provider.py` | `range_to` passed as Saturday/Sunday date causing HTTP 400 Bad Request. | Proactively adjusts `range_to` to Friday for Saturday/Sunday weekend queries. | RCA: Upstox API v2 rejects historical candle queries where `to_date` is a non-trading date. |
+
+---
+
 *End of Complete Technical Architecture & Zero-Code Reconstruction Specification — `docs/SYSTEM_ARCHITECTURE.md`*
