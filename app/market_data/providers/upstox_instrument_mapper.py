@@ -194,6 +194,9 @@ class UpstoxInstrumentMapper:
                             new_map[name] = inst_key
                             new_map[f"^{name}"] = inst_key
 
+            # Ensure static index mappings (e.g. NSE_INDEX|Nifty 50) always take top priority
+            new_map.update(_STATIC_SYMBOL_MAP)
+
             with self._lock:
                 self._symbol_map.update(new_map)
                 self._last_download_ts = time.time()
