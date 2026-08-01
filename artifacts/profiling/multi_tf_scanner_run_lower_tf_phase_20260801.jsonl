@@ -1,0 +1,17 @@
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:36:33.538116+05:30", "duration_s": 0.332, "rss_before_mb": 250.9, "rss_after_mb": 253.4, "rss_delta_mb": 2.5, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:36:33.895617+05:30", "duration_s": 0.254, "rss_before_mb": 253.7, "rss_after_mb": 255.8, "rss_delta_mb": 2.1, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:36:34.260061+05:30", "duration_s": 0.242, "rss_before_mb": 255.9, "rss_after_mb": 258.0, "rss_delta_mb": 2.0, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:03.790044+05:30", "duration_s": 0.319, "rss_before_mb": 276.2, "rss_after_mb": 278.3, "rss_delta_mb": 2.1, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:04.168656+05:30", "duration_s": 0.23, "rss_before_mb": 278.6, "rss_after_mb": 279.0, "rss_delta_mb": 0.4, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:04.424063+05:30", "duration_s": 0.034, "rss_before_mb": 279.1, "rss_after_mb": 279.4, "rss_delta_mb": 0.3, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:04.555652+05:30", "duration_s": 1.707, "rss_before_mb": 279.8, "rss_after_mb": 241.0, "rss_delta_mb": -38.8, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:06.584192+05:30", "duration_s": 1.178, "rss_before_mb": 241.3, "rss_after_mb": 243.3, "rss_delta_mb": 2.0, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:07.769208+05:30", "duration_s": 1.89, "rss_before_mb": 243.3, "rss_after_mb": 244.4, "rss_delta_mb": 1.1, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:09.780114+05:30", "duration_s": 0.168, "rss_before_mb": 244.5, "rss_after_mb": 244.7, "rss_delta_mb": 0.3, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:10.108343+05:30", "duration_s": 1.389, "rss_before_mb": 245.2, "rss_after_mb": 240.0, "rss_delta_mb": -5.2, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:11.631966+05:30", "duration_s": 2.684, "rss_before_mb": 240.3, "rss_after_mb": 241.6, "rss_delta_mb": 1.2, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:14.690649+05:30", "duration_s": 1.481, "rss_before_mb": 241.9, "rss_after_mb": 243.7, "rss_delta_mb": 1.8, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:16.290353+05:30", "duration_s": 0.105, "rss_before_mb": 244.1, "rss_after_mb": 244.4, "rss_delta_mb": 0.3, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:16.519749+05:30", "duration_s": 0.945, "rss_before_mb": 244.8, "rss_after_mb": 246.7, "rss_delta_mb": 2.0, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:17.684942+05:30", "duration_s": 0.73, "rss_before_mb": 247.0, "rss_after_mb": 249.0, "rss_delta_mb": 2.0, "error": null}
+{"stage": "multi_tf_scanner.run_lower_tf_phase", "timestamp": "2026-08-01T13:37:18.475850+05:30", "duration_s": 0.322, "rss_before_mb": 249.3, "rss_after_mb": 251.1, "rss_delta_mb": 1.8, "error": null}

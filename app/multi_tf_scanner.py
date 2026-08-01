@@ -23,6 +23,11 @@ from database import (
 import json
 from config import MIN_STOCK_PRICE, SCANNER_MULTI_TF, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
 
+# [VERSION: PERF_PROFILER_v1.0] Stage timing + per-filter rejection observability
+# profile_timing logs wall-clock duration + RSS delta for each Multi-TF phase run.
+# FilterStats captures per-filter rejection breakdowns to artifacts/profiling/.
+from perf_utils import profile_timing, FilterStats
+
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -283,6 +288,9 @@ from trade_ranking_engine import TradeRankingEngine
 from macro_utils import MarketRegimeEngine, get_macro_regime, get_nifty_20d_return
 from strategy_policy import StrategyPolicyEngine
 
+# [VERSION: PERF_PROFILER_v1.0] Wrap Phase A so every run reports wall-clock time,
+# RSS delta, and any top-level exception via structured log — no behavioral change.
+@profile_timing("multi_tf_scanner.run_hourly_phase", log_to_file=True)
 def run_hourly_phase(is_test_mode=False, run_once=False):
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
@@ -523,6 +531,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
 
     return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_1h, "save_failures": 0}
 
+# [VERSION: PERF_PROFILER_v1.0] Wrap Phase B/C/D so each sub-hourly ladder cycle
+# reports its own timing + memory profile separately from Phase A.
+@profile_timing("multi_tf_scanner.run_lower_tf_phase", log_to_file=True)
 def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     """
     Phase B, C & D: Sub-hourly updater.

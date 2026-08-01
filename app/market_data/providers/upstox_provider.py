@@ -64,6 +64,30 @@ class UpstoxProvider(ProviderInterface):
     def get_status(self) -> ProviderStatus:
         return self._status
         
+    # [VERSION: UPSTOX_DATE_NORM_v1.0]
+    # Normalise the DataFrame column naming so that Upstox output matches Fyers/Yahoo convention:
+    #   - Daily intervals (1d, day) → 'Date' column (date-only, no time component)
+    #   - Intraday intervals        → 'Datetime' column (full timestamp)
+    # This is required because 14 downstream consumers branch on 'if "Date" in df.columns'
+    # to detect daily candles and derive delta fetch timestamps.
+    # Without this, price_cache.py, eod_scanner.py, request_planner.py etc. would treat
+    # daily Upstox candles as intraday — causing wrong indicator windows and stale deltas.
+    def _build_ohlcv_df(self, candles: list, timeframe: str) -> 'pd.DataFrame':
+        """Build a normalized OHLCV DataFrame from Upstox candle list.
+        Daily intervals emit a 'Date' column; intraday emits 'Datetime'.
+        """
+        df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
+        df["Datetime"] = pd.to_datetime(df["Datetime"])
+        is_daily = timeframe.lower() in ("1d", "day", "1day", "d")
+        if is_daily:
+            # Rename to 'Date' (date-only string) to match Fyers/Yahoo convention
+            df["Date"] = df["Datetime"].dt.normalize()  # midnight-normalised Timestamp
+            df = df.drop(columns=["Datetime"])
+            df = df.sort_values("Date").reset_index(drop=True)
+        else:
+            df = df.set_index("Datetime").sort_index()
+        return df
+
     def _map_timeframe(self, timeframe: str) -> str:
         mapping = {
             "1m": "1minute",
@@ -209,10 +233,8 @@ class UpstoxProvider(ProviderInterface):
             if not candles:
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 100), error=None)
                 
-            # Upstox returns: [timestamp, open, high, low, close, volume, oi]
-            df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
-            df["Datetime"] = pd.to_datetime(df["Datetime"])
-            df = df.set_index("Datetime").sort_index()
+            # [VERSION: UPSTOX_DATE_NORM_v1.0] Normalise column: daily→'Date', intraday→'Datetime'
+            df = self._build_ohlcv_df(candles, timeframe)
             
             prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
             return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
@@ -229,9 +251,8 @@ class UpstoxProvider(ProviderInterface):
                         data = res_alt.json()
                         candles = data.get("data", {}).get("candles", [])
                         if candles:
-                            df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
-                            df["Datetime"] = pd.to_datetime(df["Datetime"])
-                            df = df.set_index("Datetime").sort_index()
+                            # [VERSION: UPSTOX_DATE_NORM_v1.0] Normalise column: daily→'Date', intraday→'Datetime'
+                            df = self._build_ohlcv_df(candles, timeframe)
                             latency = (datetime.now() - start_time).total_seconds() * 1000
                             prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
                             return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)

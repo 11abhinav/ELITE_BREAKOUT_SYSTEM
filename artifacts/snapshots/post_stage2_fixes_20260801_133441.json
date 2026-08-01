@@ -1,0 +1,36 @@
+{
+  "label": "post_stage2_fixes",
+  "timestamp": "2026-08-01T13:34:41.073309+05:30",
+  "version_tag": "REGRESSION_SNAPSHOT_v1.0",
+  "git": {
+    "commit": "e444091d",
+    "branch": "main"
+  },
+  "file_hashes": {
+    "app/eod_scanner.py": "bea0642c498458f63d5934d5346f4154",
+    "app/reversal_scanner.py": "0e4a7e0509b17247e35e585eb8a68336",
+    "app/multi_tf_scanner.py": "616f38dd354934545281885afa72a399",
+    "app/data_providers/fyers_fetcher.py": "df5118a57dc987d9b1d993dbab792afc",
+    "app/market_data/providers/upstox_provider.py": "921bd7c361a34eaaaa99a7860d03c8e1",
+    "app/price_cache.py": "c2a9112e2763e70c2fa0ecb8e072d75c",
+    "app/config.py": "e1e1d8a7fed7a73ee661010492269ff0",
+    "app/technical_indicators.py": "68f3793b68fd7fdb06f0a8ad1cb3fc18",
+    "app/scoring_engine.py": "5787f57b721c5e8008c48568c89a38e7"
+  },
+  "module_line_counts": {
+    "app/eod_scanner.py": 1571,
+    "app/reversal_scanner.py": 1900,
+    "app/multi_tf_scanner.py": 1480,
+    "app/data_providers/fyers_fetcher.py": 792,
+    "app/market_data/providers/upstox_provider.py": 412,
+    "app/price_cache.py": 1197,
+    "app/config.py": 703
+  },
+  "config_hash": "7eef0dc9512543e01db6bb62ecbf24a9",
+  "db_alerts": {
+    "error": "'_GeneratorContextManager' object has no attribute 'cursor'"
+  },
+  "test_results": {
+    "skipped": true
+  }
+}

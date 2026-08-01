@@ -56,6 +56,11 @@ from config import (
 from sl_target_helper import compute_sl_and_target
 from surveillance import get_live_blacklist, force_refresh_blacklist
 
+# [VERSION: PERF_PROFILER_v1.0] Stage timing + filter rejection observability
+# profile_timing logs wall-clock duration + RSS delta for each reversal scan run.
+# FilterStats captures per-filter rejection CSV to artifacts/profiling/ each run.
+from perf_utils import profile_timing, FilterStats
+
 
 logger = logging.getLogger(__name__)
 
@@ -1220,6 +1225,10 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
 
 
 
+
+# [VERSION: PERF_PROFILER_v1.0] Wrap the reversal scan body so every run
+# reports wall-clock time, RSS delta, and any top-level exception via structured log.
+@profile_timing("reversal_scanner._run_scan", log_to_file=True)
 def _run_scan(force: bool = False):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     from database import (

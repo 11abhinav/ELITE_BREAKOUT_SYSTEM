@@ -38,6 +38,11 @@ from watchlist_cache import get_watchlist
 import time
 import database
 
+# [VERSION: PERF_PROFILER_v1.0] Stage timing + filter rejection observability
+# profile_timing logs duration + RSS delta for each EOD scanner run.
+# FilterStats exports per-filter rejection CSV to artifacts/profiling/.
+from perf_utils import profile_timing, FilterStats
+
 from config import (
     EOD_CONFIG,
     EOD_ADVANCED_CONFIG,
@@ -420,6 +425,10 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 
 
 
+# [VERSION: PERF_PROFILER_v1.0] Wrap the scan body so every EOD run reports
+# wall-clock time, memory delta (RSS), and any top-level exception — all without
+# changing any business logic or scanner decision paths.
+@profile_timing("eod_scanner._start_wrapper", log_to_file=True)
 def _start_wrapper(force: bool = False):
     from datetime import datetime
     from zoneinfo import ZoneInfo

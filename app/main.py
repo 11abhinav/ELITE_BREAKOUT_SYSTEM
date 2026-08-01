@@ -43,6 +43,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 from db_logger import install_db_logger
 install_db_logger()
 
+# [VERSION: PERF_PROFILER_v1.0] Capture process startup timestamp for boot latency telemetry.
+# This lets us log how long the full boot sequence takes (imports, DB init, diagnostics).
+import time as _time
+_PROCESS_START_TIME = _time.monotonic()
+
 logger = logging.getLogger(__name__)
 
 # ── Phase 2 Dataset Registry: Self-Register Consumers ────────────────────────
@@ -86,6 +91,11 @@ except ImportError:
     logger.warning("⚠️ diagnostics module not found (new deployment). Continuing without diagnostics.")
 except Exception as e:
     logger.warning(f"⚠️ Diagnostics check failed: {e}. Continuing anyway.")
+
+# [VERSION: PERF_PROFILER_v1.0] Log total boot latency from process start to first
+# scanner-ready checkpoint. This is a passive metric — no behavior is changed.
+_boot_elapsed = _time.monotonic() - _PROCESS_START_TIME
+logger.info(f"⏱  [STARTUP] Boot sequence complete in {_boot_elapsed:.1f}s (imports + DB init + diagnostics)")
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Map watchdog thread names to dashboard database keys
