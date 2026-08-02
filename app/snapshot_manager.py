@@ -86,11 +86,38 @@ class Snapshot:
             return self.raw_json_bytes
 
 
+from collections import deque
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """Immutable data snapshot representation."""
+    snapshot_type: str
+    version: int
+    generated_at: str
+    metadata: Dict[str, Any]
+    records: List[Dict[str, Any]]
+    summary: Dict[str, Any]
+    etag: str
+    raw_json_bytes: bytes
+    brotli_bytes: Optional[bytes] = None
+    gzip_bytes: Optional[bytes] = None
+
+    def get_brotli_bytes(self) -> Optional[bytes]:
+        """Brotli compression buffer."""
+        return self.brotli_bytes
+
+    def get_gzip_bytes(self) -> bytes:
+        """Gzip compression buffer."""
+        return self.gzip_bytes or self.raw_json_bytes
+
+
 class SnapshotManager:
     """
     Singleton In-Memory Shared Snapshot Manager.
     Scanners write snapshots here; HTTP endpoints serve pre-built memory buffers.
     All state updates perform thread-safe atomic reference swaps.
+    Maintains a ring buffer of recent snapshots per type for precise delta generation.
     """
     _instance = None
     _lock = threading.Lock()
@@ -105,8 +132,24 @@ class SnapshotManager:
 
     def _init_manager(self):
         self._snapshots: Dict[str, Snapshot] = {}
+        self._history: Dict[str, deque] = {}
         self._versions: Dict[str, int] = {}
         self._swap_lock = threading.Lock()
+        self._auto_restore_on_init()
+
+    def _auto_restore_on_init(self):
+        """Auto-restores initial memory snapshot from Parquet on startup if present."""
+        try:
+            from config import DATA_DIR
+            wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+            if os.path.exists(wealth_path):
+                import pandas as pd
+                df = pd.read_parquet(wealth_path)
+                records = df.to_dict(orient="records")
+                self.publish_snapshot("wealth", records, metadata={"source": "startup_auto_restore"})
+                logger.info("✅ [SnapshotManager] Auto-restored initial wealth snapshot from disk on startup.")
+        except Exception as e:
+            logger.debug(f"[SnapshotManager] Startup auto-restore skipped/deferred: {e}")
 
     def get_snapshot(self, snapshot_type: str) -> Optional[Snapshot]:
         """Fetch the current immutable snapshot pointer (0 disk reads, thread-safe)."""
@@ -120,7 +163,8 @@ class SnapshotManager:
         primary_key: str = "symbol",
     ) -> Snapshot:
         """
-        Builds a clean, immutable Snapshot and performs an atomic pointer swap.
+        Builds a clean, immutable Snapshot, pre-compresses buffers,
+        asserts self-consistency, and performs an atomic pointer swap.
         """
         start_time = time.perf_counter()
         with self._swap_lock:
@@ -131,7 +175,7 @@ class SnapshotManager:
         clean_recs = sanitize_records(records)
         now_ist = datetime.now(IST).isoformat()
 
-        # 2. Materialize summary statistics
+        # 2. Materialize summary statistics & assert self-consistency
         total_count = len(clean_recs)
         active_buys = sum(1 for r in clean_recs if "BUY" in str(r.get("Signal", r.get("last_status", ""))).upper())
         active_sells = sum(1 for r in clean_recs if "SELL" in str(r.get("Signal", r.get("last_status", ""))).upper())
@@ -143,33 +187,53 @@ class SnapshotManager:
             "active_buys": active_buys,
             "active_sells": active_sells,
             "avg_score": avg_score,
+            "generated_at": now_ist,
         }
 
-        # 3. Build metadata
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
-        meta = {
-            "snapshot_type": snapshot_type,
-            "version": current_version,
-            "generated_at": now_ist,
-            "build_duration_ms": duration_ms,
-            "stock_count": total_count,
-        }
-        if metadata:
-            meta.update(metadata)
+        # Self-consistency assertion
+        assert len(clean_recs) == materialized_summary["total_count"], "Self-consistency assertion failed: record count mismatch"
 
         etag = f'"{snapshot_type}-{current_version}"'
 
-        # 4. Serialize to raw JSON bytes
+        # 3. Serialize to raw JSON bytes
         payload_dict = {
             "version": current_version,
             "generated_at": now_ist,
             "summary": materialized_summary,
-            "metadata": meta,
             "data": clean_recs,
         }
         raw_bytes = json.dumps(payload_dict, ensure_ascii=False).encode("utf-8")
+        json_size_bytes = len(raw_bytes)
 
-        # 5. Create frozen Snapshot instance
+        # 4. Pre-compress Brotli and Gzip ONCE during publish (not on request path)
+        comp_start = time.perf_counter()
+        gzip_buf = gzip.compress(raw_bytes)
+        brotli_buf = brotli.compress(raw_bytes) if HAS_BROTLI else None
+        comp_duration_ms = round((time.perf_counter() - comp_start) * 1000, 2)
+
+        # 5. Build telemetry metadata
+        build_duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        meta = {
+            "snapshot_type": snapshot_type,
+            "version": current_version,
+            "generated_at": now_ist,
+            "build_duration_ms": build_duration_ms,
+            "compression_duration_ms": comp_duration_ms,
+            "stock_count": total_count,
+            "raw_json_bytes": json_size_bytes,
+            "gzip_bytes": len(gzip_buf),
+            "brotli_bytes": len(brotli_buf) if brotli_buf else None,
+        }
+        if metadata:
+            meta.update(metadata)
+
+        payload_dict["metadata"] = meta
+        # Re-encode raw_bytes with metadata
+        raw_bytes = json.dumps(payload_dict, ensure_ascii=False).encode("utf-8")
+        gzip_buf = gzip.compress(raw_bytes)
+        brotli_buf = brotli.compress(raw_bytes) if HAS_BROTLI else None
+
+        # 6. Create frozen Snapshot instance
         new_snap = Snapshot(
             snapshot_type=snapshot_type,
             version=current_version,
@@ -179,26 +243,37 @@ class SnapshotManager:
             summary=materialized_summary,
             etag=etag,
             raw_json_bytes=raw_bytes,
+            brotli_bytes=brotli_buf,
+            gzip_bytes=gzip_buf,
         )
 
-        # 6. Atomic Reference Swap
+        # 7. Atomic Reference Swap & Ring Buffer History Insertion
         with self._swap_lock:
             self._snapshots[snapshot_type] = new_snap
+            if snapshot_type not in self._history:
+                self._history[snapshot_type] = deque(maxlen=10)
+            self._history[snapshot_type].append(new_snap)
 
-        logger.info(f"⚡ [SnapshotManager] Published {snapshot_type} v{current_version} ({total_count} records) in {duration_ms}ms | ETag: {etag}")
+        logger.info(f"⚡ [SnapshotManager] Published {snapshot_type} v{current_version} ({total_count} records) in {build_duration_ms}ms (comp: {comp_duration_ms}ms) | ETag: {etag}")
         return new_snap
 
     def compute_delta(self, snapshot_type: str, since_version: int, primary_key: str = "symbol") -> Optional[Dict[str, Any]]:
         """
-        Calculates changed/added/removed records between since_version and current version.
-        Returns None if snapshot is missing or since_version matches current version.
+        Calculates precise changed/added/removed records between since_version and current version
+        using the snapshot ring buffer history.
         """
         current_snap = self.get_snapshot(snapshot_type)
         if not current_snap or current_snap.version == since_version:
             return None
 
-        # Return full payload if version mismatch is too large or since_version <= 0
-        if since_version <= 0 or (current_snap.version - since_version) > 50:
+        # Look up old snapshot in ring buffer history
+        with self._swap_lock:
+            history_queue = list(self._history.get(snapshot_type, []))
+
+        old_snap = next((s for s in history_queue if s.version == since_version), None)
+
+        # If since_version is not in ring buffer (expired or invalid), request full reload
+        if old_snap is None:
             return {
                 "full_reload": True,
                 "version": current_snap.version,
@@ -206,17 +281,33 @@ class SnapshotManager:
                 "data": current_snap.records,
             }
 
-        # Build key map for delta calculation
-        cur_map = {str(r.get(primary_key, r.get("Stock", ""))).upper(): r for r in current_snap.records if r.get(primary_key) or r.get("Stock")}
+        # Calculate exact deltas between old_snap and current_snap
+        def get_pk(row):
+            val = row.get(primary_key) or row.get("symbol") or row.get("Stock") or ""
+            return str(val).strip().upper()
+
+        old_map = {get_pk(r): r for r in old_snap.records if get_pk(r)}
+        cur_map = {get_pk(r): r for r in current_snap.records if get_pk(r)}
+
+        added = [r for k, r in cur_map.items() if k not in old_map]
+        removed = [k for k in old_map if k not in cur_map]
         
-        # If we don't have historical record state, return current full payload
+        # Check for changed records (different price, score, or signal)
+        updated = []
+        for k, cur_r in cur_map.items():
+            if k in old_map:
+                old_r = old_map[k]
+                if cur_r != old_r:
+                    updated.append(cur_r)
+
         return {
             "version": current_snap.version,
+            "since_version": since_version,
             "etag": current_snap.etag,
             "generated_at": current_snap.generated_at,
-            "updated": list(cur_map.values()),
-            "removed": [],
-            "added": [],
+            "updated": updated,
+            "added": added,
+            "removed": removed,
         }
 
 

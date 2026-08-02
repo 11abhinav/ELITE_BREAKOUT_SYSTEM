@@ -87,4 +87,7 @@ def test_snapshot_delta_computation():
     delta_diff = mgr.compute_delta("delta_test", v1_snap.version)
     assert delta_diff is not None
     assert delta_diff["version"] == v2_snap.version
-    assert len(delta_diff["updated"]) == 2
+    assert len(delta_diff["updated"]) == 1
+    assert len(delta_diff["added"]) == 1
+    assert delta_diff["updated"][0]["symbol"] == "TCS"
+    assert delta_diff["added"][0]["symbol"] == "INFY"
