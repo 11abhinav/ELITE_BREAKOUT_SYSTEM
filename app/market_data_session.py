@@ -305,20 +305,24 @@ class MarketDataSession:
         """
         Bulk-fetch 2-year daily OHLCV for all symbols in one pass.
         Returns (ohlcv_map, provider_id, cache_hits, cache_misses).
+
+        Cache hit/miss counts are estimated by comparing _cache key sizes
+        before and after the fetch call.
         """
-        from price_cache import fetch_watchlist_data, _cache_hits, _cache_misses
+        from price_cache import fetch_watchlist_data, _cache
         import pandas as pd
 
-        # Capture hit/miss counters before fetch
-        pre_hits = _cache_hits
-        pre_misses = _cache_misses
+        # Estimate prior cached symbols for hit/miss delta
+        cache_key = ("1d", "2y")
+        pre_cached_syms = set(_cache.get(cache_key, {}).keys())
 
         wl = pd.DataFrame({"Stock": symbols})
         raw = fetch_watchlist_data(wl, period="2y", interval="1d", requester=requester)
 
-        from price_cache import _cache_hits as post_hits, _cache_misses as post_misses
-        delta_hits   = post_hits   - pre_hits
-        delta_misses = post_misses - pre_misses
+        post_cached_syms = set(_cache.get(cache_key, {}).keys())
+        new_fetched = post_cached_syms - pre_cached_syms
+        cache_misses = len(new_fetched)                  # symbols not in cache before → fetched fresh
+        cache_hits   = len(symbols) - cache_misses        # rest came from RAM
 
         # Determine which provider was used (inspect attrs on first non-empty frame)
         provider_id = "unknown"
@@ -332,7 +336,7 @@ class MarketDataSession:
             sym: df for sym, df in raw.items()
             if isinstance(df, pd.DataFrame) and not df.empty
         }
-        return result, provider_id, delta_hits, delta_misses
+        return result, provider_id, max(cache_hits, 0), cache_misses
 
     @staticmethod
     def _stage_validate_ohlcv(ohlcv_raw: dict[str, pd.DataFrame],
@@ -411,19 +415,22 @@ class MarketDataSession:
         Load Bhavcopy delivery data.
 
         Strategy:
-          1. Check DB cache for today's date (< 10ms)
-          2. If today not in DB, try ScraperAPI (live fetch)
-          3. On 404/timeout: immediately fall back to most recent DB-cached date
+          1. Exact date check for today from DB (1 query, <10ms)
+          2. If today not in DB, try ScraperAPI live fetch
+          3. On failure: single-query bulk fallback — get most recent DB-cached entry
+             (uses get_latest_bhavcopy_cache_with_date(), no N+1 loop)
           4. Mark delivery_status = "STALE" if using non-today data
 
         Returns: (delivery_map, resolved_date, status)
           status: "FRESH" | "STALE" | "UNAVAILABLE"
+
+        [VERSION: MARKET_DATA_SESSION_v1.0] N+1 fix: replaced per-date loop
+        with single get_latest_bhavcopy_cache_with_date() bulk query.
         """
         try:
-            from database import get_bhavcopy_cache
-            from datetime import timedelta
+            from database import get_bhavcopy_cache, get_latest_bhavcopy_cache_with_date
 
-            # Try today first from DB (fast path — no network)
+            # ── Path 1: Exact date DB hit (fast, 1 query) ──────────────────
             today_data = get_bhavcopy_cache(ist_date)
             if today_data:
                 logger.info(
@@ -432,7 +439,7 @@ class MarketDataSession:
                 )
                 return today_data, ist_date, "FRESH"
 
-            # DB miss for today — attempt live ScraperAPI fetch (with 404 fast-fail)
+            # ── Path 2: Live ScraperAPI fetch ───────────────────────────────
             logger.info(f"[SESSION] 🔄 Delivery: Attempting live fetch for {ist_date} via ScraperAPI...")
             try:
                 from delivery_data import fetch_delivery_data
@@ -446,30 +453,30 @@ class MarketDataSession:
             except Exception as live_err:
                 logger.warning(f"[SESSION] ⚠️ Delivery: Live fetch failed: {live_err}")
 
-            # Live fetch failed — fall back to most recent DB-cached date (STALE)
+            # ── Path 3: Bulk single-query fallback (no N+1 loop) ────────────
+            # get_latest_bhavcopy_cache_with_date() issues one SQL:
+            #   SELECT delivery_data, trading_date FROM bhavcopy_cache
+            #   ORDER BY trading_date DESC LIMIT 1
+            # This returns whatever the most recent cached date is in one round-trip.
             logger.warning(
                 f"[SESSION] ⚠️ Delivery: Today ({ist_date}) unavailable. "
-                f"Falling back to most recent DB-cached date..."
+                f"Fetching most recent DB-cached entry in single query..."
             )
-            for days_back in range(1, 6):
-                fallback_date = ist_date - timedelta(days=days_back)
-                # Skip weekends
-                while fallback_date.weekday() >= 5:
-                    fallback_date -= timedelta(days=1)
-                stale_data = get_bhavcopy_cache(fallback_date)
-                if stale_data:
-                    logger.info(
-                        f"[SESSION] 📅 Delivery: Using STALE data from {fallback_date} "
-                        f"({len(stale_data)} symbols)"
-                    )
-                    return stale_data, fallback_date, "STALE"
+            stale_data, stale_date = get_latest_bhavcopy_cache_with_date()
+            if stale_data:
+                logger.info(
+                    f"[SESSION] 📅 Delivery: Using STALE data from {stale_date} "
+                    f"({len(stale_data)} symbols)"
+                )
+                return stale_data, stale_date, "STALE"
 
-            logger.error("[SESSION] ❌ Delivery: No Bhavcopy data available from DB for past 5 trading days")
+            logger.error("[SESSION] ❌ Delivery: No Bhavcopy data available in DB at all")
             return {}, None, "UNAVAILABLE"
 
         except Exception as e:
             logger.error(f"[SESSION] ❌ Delivery stage failed: {e}")
             return {}, None, "UNAVAILABLE"
+
 
     @staticmethod
     def _stage_load_pledge(symbols: list[str]) -> dict[str, float]:
@@ -497,7 +504,8 @@ class MarketDataSession:
                 regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret_20d)
                 policy = StrategyPolicyEngine.get_policy(regime_ctx, "EOD")
                 regime_ctx["policy"] = policy
-            except Exception:
+            except Exception as _re:
+                logger.warning(f"[SESSION] ⚠️ Could not build regime_ctx from MarketRegimeEngine: {_re}. Using neutral fallback.")
                 regime_ctx = {"trend": market_regime, "biases": {}}
 
             regime_ctx["nifty_ret_20d"] = nifty_ret_20d

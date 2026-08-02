@@ -1430,11 +1430,12 @@ def _run_scan(force: bool = False, session=None):
             try:
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
                 # fall back to independent per-batch fetch otherwise.
+                # Session keys match watchlist "Stock" column exactly.
                 if session is not None:
                     all_ticker_data = {
                         row["Stock"]: (
-                            session.get(_canonical_symbol(row["Stock"])).ohlcv_df
-                            if session.get(_canonical_symbol(row["Stock"])) is not None else None
+                            session.get(row["Stock"]).ohlcv_df
+                            if session.get(row["Stock"]) is not None else None
                         )
                         for _, row in chunk_df.iterrows()
                     }

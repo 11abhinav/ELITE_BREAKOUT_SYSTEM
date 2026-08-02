@@ -6128,6 +6128,34 @@ def get_bhavcopy_cache(trading_date) -> dict:
     return None
 
 
+def get_latest_bhavcopy_cache_with_date() -> tuple:
+    """
+    [VERSION: MARKET_DATA_SESSION_v1.0]
+    Retrieve the most recent Bhavcopy entry from the database in a SINGLE query.
+
+    Returns (delivery_data_dict, trading_date) for the most recent cached date.
+    Returns ({}, None) if no entry exists.
+
+    Used by MarketDataSession._stage_load_delivery() as a bulk fallback to avoid
+    N+1 DB reads across multiple candidate dates.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT delivery_data, trading_date
+                    FROM bhavcopy_cache
+                    ORDER BY trading_date DESC
+                    LIMIT 1
+                """)
+                row = cur.fetchone()
+                if row and row[0]:
+                    return row[0], row[1]
+    except Exception as e:
+        logger.error(f"Failed to get latest bhavcopy cache with date: {e}")
+    return {}, None
+
+
 # ── USER WATCHLIST HELPER FUNCTIONS ──────────────────────────────────────────
 
 def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "DEFAULT_USER", notes: str = "", health_score: float = None, status: str = "MONITORING") -> bool:

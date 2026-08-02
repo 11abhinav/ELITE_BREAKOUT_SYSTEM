@@ -966,41 +966,6 @@ def run_evening_scanners():
         time.sleep(3600 * 6)
 
 
-
-        # Verify actual execution outcome from database health records before declaring status
-        from database import get_all_scanner_health
-        health_records = {r.get("scanner_name"): r for r in get_all_scanner_health()}
-        
-        def _check_scanner_ok(name):
-            rec = health_records.get(name, {})
-            last_success = str(rec.get("last_success", ""))
-            return rec.get("status") == "OK" and last_success.startswith(today_str)
-            
-        eod_ok = _check_scanner_ok("EOD")
-        rev_ok = _check_scanner_ok("REVERSAL")
-        pb_ok  = _check_scanner_ok("PULLBACK")
-
-        if eod_ok and rev_ok and pb_ok:
-            logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) completed successfully for today.")
-            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
-            telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
-        else:
-            status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
-            logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
-            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_FAILED", error=status_str)
-            telemetry.log_session_timeline(f"Evening Scanners Cycle Failed: {status_str}")
-
-        # Execute 4-step defensive purge telemetry post evening batch
-        try:
-            from memory_profiler import run_purge_with_telemetry
-            run_purge_with_telemetry("Post-Evening Batch")
-        except Exception as pe:
-            logger.warning(f"Could not run purge telemetry post evening batch: {pe}")
-
-        # Sleep for 6 hours to avoid retriggering until the window closes
-        time.sleep(3600 * 6)
-
-
 def run_bayesian_loop():
     """Runs the Bayesian Updater loop. Triggers immediately on boot, then waits 24h."""
     from bayesian_updater import run_bayesian_updater
