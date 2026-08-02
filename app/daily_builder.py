@@ -1432,11 +1432,12 @@ def _main_impl(force_rebuild: bool = False):
 
         # Backup to Database to survive server restarts
         try:
-            from database import upload_parquet_to_db, save_df_to_table
+            from database import upload_parquet_to_db, save_df_to_table, upload_history_bundle_to_db
             logger.info("☁️ [DB] Uploading watchlist to Postgres cache...")
             upload_parquet_to_db("daily_builder", OUTPUT_PARQUET)
-            logger.info("☁️ [DAILY BUILDER] Backed up fundamental watchlist to Postgres cache.")
-            
+            upload_history_bundle_to_db("1d", force=True)
+            logger.info("☁️ [DAILY BUILDER] Backed up fundamental watchlist and 1d history bundle to Postgres cache.")
+
             save_df_to_table("daily_watchlist", final_df)
             logger.info("☁️ [DAILY BUILDER] Saved fundamental watchlist to the 'daily_watchlist' database table.")
         except Exception as e:
