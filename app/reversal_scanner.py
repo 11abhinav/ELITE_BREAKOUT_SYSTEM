@@ -1617,6 +1617,26 @@ def _run_scan(force: bool = False):
 
                         if not verdict["passed"]:
                             rejected[verdict.get("reject_code", "failed_pattern")] += 1
+                            try:
+                                from near_miss_tracker import log_near_miss
+                                ev_score = verdict.get("score") or verdict.get("raw_score") or 0
+                                if ev_score > 0:
+                                    sl_res = verdict.get("sl_result", {})
+                                    close_px = float(ticker["Close"].iloc[-1]) if not ticker.empty else 0.0
+                                    log_near_miss(
+                                        symbol=symbol,
+                                        scanner="REVERSAL",
+                                        breakout_type="REVERSAL_BREAKOUT",
+                                        gate_name=verdict.get("reject_code", "reversal_gate"),
+                                        observed_value=float(ev_score),
+                                        threshold_value=55.0,
+                                        score=int(ev_score),
+                                        entry_price=close_px,
+                                        stop_loss=float(sl_res.get("stop_loss", 0.0)) if sl_res and sl_res.get("stop_loss") else None,
+                                        target_1=float(sl_res.get("target_1", 0.0)) if sl_res and sl_res.get("target_1") else None,
+                                    )
+                            except Exception as _nm_e:
+                                logger.debug(f"Near miss log error: {_nm_e}")
                             continue
 
                         ctx = verdict["context"]

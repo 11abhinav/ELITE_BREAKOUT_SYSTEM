@@ -1759,6 +1759,57 @@
           </div>
         </div>
 
+        <!-- NEAR-MISS OPPORTUNITY-COST TRACKER SECTION -->
+        <div id="near-misses-section" style="margin-top: 32px; margin-bottom: 32px;">
+          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <span style="font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px;">
+              🎯 Near-Miss Opportunity-Cost Tracker 
+              <span style="font-size:11px; background:rgba(234,179,8,0.15); color:#eab308; border:1px solid rgba(234,179,8,0.3); padding:2px 8px; border-radius:12px; font-weight:700;">
+                Missed Alert Diagnostics (Within 10% Gate)
+              </span>
+            </span>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="near-miss-scanner-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
+                <option value="">All Scanners</option>
+                <option value="EOD">EOD Breakout</option>
+                <option value="REVERSAL">Reversal</option>
+                <option value="MULTI_TF">Multi-TF Ladder</option>
+                <option value="PULLBACK">Pullback</option>
+                <option value="WEALTH">Wealth Engine</option>
+              </select>
+              <select id="near-miss-days-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
+                <option value="7">Last 7 Days</option>
+                <option value="14">Last 14 Days</option>
+                <option value="30">Last 30 Days</option>
+              </select>
+              <button onclick="loadNearMisses()" class="refresh-btn" style="font-size:11px; padding:4px 12px; font-weight:700;">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <div class="card" style="padding:0; overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--card);">
+            <div class="tbl-wrap" style="max-height:480px; overflow-y:auto;">
+              <table class="table" style="width:100%; margin:0; border-collapse:collapse;">
+                <thead>
+                  <tr style="background:rgba(255,255,255,0.02); font-size:11px; color:var(--muted); text-transform:uppercase; border-bottom:1px solid var(--border);">
+                    <th style="padding:10px 14px; text-align:left;">Symbol</th>
+                    <th style="padding:10px 14px; text-align:left;">Scanner</th>
+                    <th style="padding:10px 14px; text-align:left;">Failed Gate / Reason</th>
+                    <th style="padding:10px 14px; text-align:center;">Observed vs Target</th>
+                    <th style="padding:10px 14px; text-align:center;">Delta %</th>
+                    <th style="padding:10px 14px; text-align:right;">Entry / SL / Target</th>
+                    <th style="padding:10px 14px; text-align:center;">Status</th>
+                    <th style="padding:10px 14px; text-align:center;">Max MFE (R)</th>
+                    <th style="padding:10px 14px; text-align:center;">Logged Date</th>
+                  </tr>
+                </thead>
+                <tbody id="near-misses-tbody">
+                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading near-miss diagnostics...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
         <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
 
@@ -7661,10 +7712,66 @@ function renderDatabaseExplorerGrid() {
   grid.innerHTML = html;
 }
 
+function loadNearMisses() {
+  const scannerEl = document.getElementById('near-miss-scanner-filter');
+  const daysEl = document.getElementById('near-miss-days-filter');
+  const tbody = document.getElementById('near-misses-tbody');
+  if (!tbody) return;
+
+  const scanner = scannerEl ? scannerEl.value : '';
+  const days = daysEl ? daysEl.value : 7;
+
+  fetch(`/api/near_misses?days=${days}&scanner=${encodeURIComponent(scanner)}`)
+    .then(res => res.json())
+    .then(data => {
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => {
+        const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
+        const statusBadge = item.status === 'TARGET_HIT' 
+          ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
+          : (item.status === 'STOP_HIT'
+            ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
+            : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`);
+
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${item.symbol}</td>
+            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${item.scanner}</td>
+            <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px; color:#e2e8f0;">${item.gate_name}</td>
+            <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
+              <span style="color:#10b981; font-weight:700;">${item.observed_value}</span> / <span style="color:var(--muted);">${item.threshold_value}</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
+              -${item.delta_pct}%
+            </td>
+            <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
+              ₹${item.entry_price || '-'} | SL: ₹${item.stop_loss || '-'} | T1: ₹${item.target_1 || '-'}
+            </td>
+            <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
+            <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
+              ${item.max_mfe_r ? '+' + item.max_mfe_r + 'R' : '-'}
+            </td>
+            <td style="padding:10px 14px; text-align:center; color:var(--muted); font-size:11px;">
+              ${formatISTDate(item.logged_at || item.logged_date)}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    })
+    .catch(err => {
+      console.warn('Failed to load near misses:', err);
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load near-miss diagnostics.</td></tr>`;
+    });
+}
+
 // Initial watchlist & database summary load
 document.addEventListener('DOMContentLoaded', () => {
   loadUserWatchlist();
   fetchDatabaseTablesSummary();
+  loadNearMisses();
 });
   </script>
 

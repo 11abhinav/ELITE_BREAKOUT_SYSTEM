@@ -728,6 +728,22 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
         if c.final_score < required_threshold:
             logger.info(f"REJECTION: {c.symbol} (Phase: SCORE_GATE, Reason: Final score {c.final_score:.1f} < required {required_threshold})")
             rejected["score_below_threshold"] += 1
+            try:
+                from near_miss_tracker import log_near_miss
+                log_near_miss(
+                    symbol=c.symbol,
+                    scanner="PULLBACK",
+                    breakout_type="PULLBACK_SETUP",
+                    gate_name="score_below_threshold",
+                    observed_value=float(c.final_score),
+                    threshold_value=float(required_threshold),
+                    score=int(c.final_score),
+                    entry_price=float(c.entry_price) if hasattr(c, 'entry_price') and c.entry_price else None,
+                    stop_loss=float(c.sl_result.get("stop_loss", 0.0)) if hasattr(c, 'sl_result') and c.sl_result and c.sl_result.get("stop_loss") else None,
+                    target_1=float(c.sl_result.get("target_1", 0.0)) if hasattr(c, 'sl_result') and c.sl_result and c.sl_result.get("target_1") else None,
+                )
+            except Exception as _nm_e:
+                logger.debug(f"Pullback near miss log failed: {_nm_e}")
         else:
             scored_candidates.append(c)
 
