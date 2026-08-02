@@ -3707,6 +3707,7 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
     bundles 15 times in a single run.
     """
     import io
+    import time
     import tarfile
     from config import DATA_DIR
 
