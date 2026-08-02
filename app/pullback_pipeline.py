@@ -251,7 +251,7 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "atr_14": float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(entry_val * 0.025)
     }
 
-def start(force: bool = False):
+def start(force: bool = False, session=None):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
@@ -266,7 +266,7 @@ def start(force: bool = False):
         _global_lock.release()
         raise RuntimeError("Pullback Scanner is already actively running!")
     try:
-        return run_pullback_pipeline(force=force)
+        return run_pullback_pipeline(force=force, session=session)
     finally:
         _scan_lock.release()
         _global_lock.release()
@@ -294,7 +294,7 @@ def _determine_dataset_date(sample_data: dict) -> Optional[str]:
         return most_common_date
     return None
 
-def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
+def run_pullback_pipeline(run_date: str = None, force: bool = False, session=None) -> int:
     init_db()
     ist_now = datetime.now(IST)
     if not run_date:
@@ -409,10 +409,22 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False) -> int:
 
     # ---------------- ORCHESTRATION LOOP ----------------
     symbols_processed = 0
+    if session is not None:
+        logger.info(f"📦 [PULLBACK] Using MarketDataSession | {session.metadata.valid_symbols} symbols pre-fetched")
     with MemoryProfiler("Pullback Scanner Process"):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             with BatchMemoryTracker("PULLBACK", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
-                all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
+                # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available.
+                if session is not None:
+                    all_ticker_data = {
+                        row["Stock"]: (
+                            session.get(row["Stock"]).ohlcv_df
+                            if session.get(row["Stock"]) is not None else None
+                        )
+                        for _, row in chunk_df.iterrows()
+                    }
+                else:
+                    all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
                 if not all_ticker_data:
                     for _, row in chunk_df.iterrows():
                         symbols_processed += 1

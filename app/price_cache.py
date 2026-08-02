@@ -242,9 +242,11 @@ def get_dynamic_cadence(interval: str) -> int:
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
-    # Standardize all daily (1d) requests to 1y period to maximize cross-scanner RAM cache sharing
-    if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo"):
-        period = "1y"
+    # [VERSION: UNIFIED_2Y_CACHE_v1.0] Standardize all 1d requests to "2y" so EOD, Reversal, Pullback,
+    # Wealth Engine and Multibagger all share one single cache key ("1d", "2y").
+    # This eliminates redundant re-downloads caused by Reversal requesting "2y" while others had "1y".
+    if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "1y"):
+        period = "2y"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
     now_mono = time.monotonic()
@@ -256,6 +258,9 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
         
         for s in watchlist["Stock"]:
             sym_entry = cache_dict.get(s)
+            # [VERSION: UNIFIED_2Y_CACHE_v1.0] Cross-period RAM lookup: if requesting "2y" and not found,
+            # check "1y" RAM slot. Both periods hold daily data; "1y" disk parquets will be delta-extended
+            # on the next batch fetch so no full re-download is needed on first run after the upgrade.
             if not sym_entry and interval == "1d":
                 sym_entry = _cache.get(("1d", "1y"), {}).get(s)
             if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
@@ -433,6 +438,14 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
             # A requested period of N calendar days will have at least N * 0.65 calendar days diff
             # between the first and last candle. If days_diff is smaller, we are missing historical data.
             if days_diff < (req * 0.65):
+                # [VERSION: UNIFIED_2Y_CACHE_v1.0] For "2y" requests: if the disk cache has >= 200 days
+                # (roughly 1y of trading days), accept it as "long enough" and allow a DELTA extension
+                # instead of a full re-download. This prevents Reversal Scanner from re-downloading 2
+                # years of data from scratch when 1y parquets already exist from EOD/Wealth Engine.
+                # The delta fetch will top up the remaining ~1y incrementally.
+                if p == "2y" and days_diff >= 200:
+                    return True
+
                 # Check if we already hit the beginning of history (IPO/recent listing)
                 # [VERSION: CACHE_POISON_FIX] Ignore earliest_dates if we have fewer than 10 bars to prevent 1-bar starvation
                 if len(cached_df) >= 10:

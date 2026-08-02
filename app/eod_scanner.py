@@ -79,7 +79,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(force: bool = False):
+def start(force: bool = False, session=None):
     from database import is_scanner_stopped
     if is_scanner_stopped("EOD"):
         logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
@@ -91,7 +91,7 @@ def start(force: bool = False):
         _global_lock.release()
         raise RuntimeError("Scanner is already actively running!")
     try:
-        return _start_wrapper(force)
+        return _start_wrapper(force, session=session)
     finally:
         _scan_lock.release()
         _global_lock.release()
@@ -429,7 +429,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 # wall-clock time, memory delta (RSS), and any top-level exception — all without
 # changing any business logic or scanner decision paths.
 @profile_timing("eod_scanner._start_wrapper", log_to_file=True)
-def _start_wrapper(force: bool = False):
+def _start_wrapper(force: bool = False, session=None):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     IST = ZoneInfo("Asia/Kolkata")
@@ -517,50 +517,76 @@ def _start_wrapper(force: bool = False):
         all_ticker_data = {}
         
         with StageTimelineTracker("EOD", "2. Pre-Scan Data (Pledge, Delivery, Sectors)"):
-            # Fetch pledge map to pass to scoring engine
-            try:
-                from database import get_pledge_map
+            # [VERSION: MARKET_DATA_SESSION_v1.0] Load pledge & delivery from session when available.
+            # Session already fetched these in parallel during build(); skip independent fetches.
+            if session is not None:
+                logger.info("📦 [EOD] Loading pledge & delivery from MarketDataSession (pre-fetched)")
                 symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
-                pledge_map = get_pledge_map(symbols)
-                logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
-            except Exception as e:
-                logger.exception("Failed to fetch pledge map")
-                pledge_map = {}
+                pledge_map = {
+                    sym: session.get(sym).pledge_pct
+                    for sym in symbols
+                    if session.get(sym) is not None and session.get(sym).pledge_pct is not None
+                }
+                delivery_map = {
+                    sym: session.get(sym).delivery_pct
+                    for sym in symbols
+                    if session.get(sym) is not None and session.get(sym).delivery_pct is not None
+                }
+                _delivery_stale = any(
+                    session.get(sym).delivery_stale
+                    for sym in symbols
+                    if session.get(sym) is not None
+                )
+                if _delivery_stale:
+                    logger.info("⚠️ [EOD] Session delivery data is STALE (previous trading day's Bhavcopy)")
+                logger.info(f"🛡️ Session pledge data: {len(pledge_map)} symbols | delivery: {len(delivery_map)} symbols")
+            else:
+                # Fetch pledge map to pass to scoring engine
+                try:
+                    from database import get_pledge_map
+                    symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+                    pledge_map = get_pledge_map(symbols)
+                    logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
+                except Exception as e:
+                    logger.exception("Failed to fetch pledge map")
+                    pledge_map = {}
 
             # [VERSION: EOD_DELIVERY_FALLBACK_v1.0] Try today first, fallback to previous days if not available
-            delivery_map = {}
-            delivery_days_back = 0
-            delivery_found = False
-            seen_delivery_dates = set()
+            # [VERSION: MARKET_DATA_SESSION_v1.0] Skip this loop if session already provided delivery data above.
+            if session is None:
+                delivery_map = {}
+                delivery_days_back = 0
+                delivery_found = False
+                seen_delivery_dates = set()
 
-            for days_back in range(0, 5):
-                candidate = ist_now.date() - timedelta(days=days_back)
-                while candidate.weekday() >= 5:
-                    candidate -= timedelta(days=1)
-                
-                if candidate in seen_delivery_dates:
-                    continue
-                seen_delivery_dates.add(candidate)
+                for days_back in range(0, 5):
+                    candidate = ist_now.date() - timedelta(days=days_back)
+                    while candidate.weekday() >= 5:
+                        candidate -= timedelta(days=1)
+                    
+                    if candidate in seen_delivery_dates:
+                        continue
+                    seen_delivery_dates.add(candidate)
 
-                try:
-                    delivery_map = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
-                    if delivery_map:
-                        delivery_days_back = (ist_now.date() - candidate).days
-                        delivery_found = True
-                        if delivery_days_back > 0:
-                            logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
-                            try:
-                                from push_service import send_push_to_all
-                                msg = f"EOD Scanner is using stale Bhavcopy (fallback from {candidate}) because today's data is not yet published."
-                                insert_notification("warning", "⚠️ Stale Bhavcopy Used", msg)
-                                send_push_to_all("⚠️ Stale Bhavcopy Used", msg, bypass_throttle=True)
-                            except Exception as ne:
-                                logger.error(f"Failed to send stale Bhavcopy notification: {ne}")
-                        else:
-                            logger.info(f"✅ EOD Scanner using TODAY'S Bhavcopy from: {candidate}")
-                        break
-                except Exception as e:
-                    logger.debug(f"Delivery fetch failed for {candidate}: {e}")
+                    try:
+                        delivery_map = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
+                        if delivery_map:
+                            delivery_days_back = (ist_now.date() - candidate).days
+                            delivery_found = True
+                            if delivery_days_back > 0:
+                                logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
+                                try:
+                                    from push_service import send_push_to_all
+                                    msg = f"EOD Scanner is using stale Bhavcopy (fallback from {candidate}) because today's data is not yet published."
+                                    insert_notification("warning", "⚠️ Stale Bhavcopy Used", msg)
+                                    send_push_to_all("⚠️ Stale Bhavcopy Used", msg, bypass_throttle=True)
+                                except Exception as ne:
+                                    logger.error(f"Failed to send stale Bhavcopy notification: {ne}")
+                            else:
+                                logger.info(f"✅ EOD Scanner using TODAY'S Bhavcopy from: {candidate}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Delivery fetch failed for {candidate}: {e}")
 
             try:
                 rotation_result = get_sector_scores()
@@ -661,7 +687,11 @@ def _start_wrapper(force: bool = False):
         cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 1440))
         
         total_fetched_count = 0
-        logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE}...")
+        # [VERSION: MARKET_DATA_SESSION_v1.0] Log whether session is available
+        if session is not None:
+            logger.info(f"📦 [EOD] Using MarketDataSession | {session.metadata.valid_symbols} symbols pre-fetched")
+        else:
+            logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE} (no session — independent fetch)...")
 
         from memory_profiler import chunk_iterable, BatchMemoryTracker
         total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -671,7 +701,18 @@ def _start_wrapper(force: bool = False):
             for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
                 with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                     import pandas as pd
-                    all_ticker_data = fetch_watchlist_data(chunk_df, "1y", "1d")
+                    # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
+                    # fall back to independent fetch otherwise.
+                    if session is not None:
+                        all_ticker_data = {
+                            row["Stock"]: (
+                                session.get(row["Stock"]).ohlcv_df
+                                if session.get(row["Stock"]) is not None else None
+                            )
+                            for _, row in chunk_df.iterrows()
+                        }
+                    else:
+                        all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
                     if not all_ticker_data:
                         continue
                     

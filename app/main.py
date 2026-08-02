@@ -602,7 +602,7 @@ def block_until_watchlist_ready():
 #
 # force=True must NOT be removed — doing so causes the scanners to silently
 # enter test_mode and discard all alert results whenever they run before 21:00.
-def _run_eod_with_retries(today_str):
+def _run_eod_with_retries(today_str, session=None):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -649,7 +649,7 @@ def _run_eod_with_retries(today_str):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler has
                     # validated prerequisites (Bhavcopy ready). Scanner must not override
                     # this by re-applying its internal time-window check.
-                    total = eod_scanner.start(force=True)   # returns int
+                    total = eod_scanner.start(force=True, session=session)   # returns int
                 duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -703,7 +703,7 @@ def _run_eod_with_retries(today_str):
             time.sleep(wait_time)
 
 
-def _run_reversal_with_retries(today_str):
+def _run_reversal_with_retries(today_str, session=None):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -746,7 +746,7 @@ def _run_reversal_with_retries(today_str):
                 upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal Scan in progress...")
                 with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
-                    total = reversal_scanner.start(force=True)   # returns int
+                    total = reversal_scanner.start(force=True, session=session)   # returns int
                 duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -800,7 +800,7 @@ def _run_reversal_with_retries(today_str):
             time.sleep(wait_time)
 
 
-def _run_pullback_with_retries(today_str):
+def _run_pullback_with_retries(today_str, session=None):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -842,7 +842,7 @@ def _run_pullback_with_retries(today_str):
                 upsert_scanner_health("PULLBACK", status="RUNNING", error_msg="Pullback Scan in progress...")
                 with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
-                    total = pullback_pipeline.start(force=True)
+                    total = pullback_pipeline.start(force=True, session=session)
                 duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
@@ -885,16 +885,87 @@ def run_evening_scanners():
         telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_START")
         telemetry.log_session_timeline("Started Evening Scanners Cycle (EOD, Reversal, Pullback)")
         
+        # ── [VERSION: MARKET_DATA_SESSION_v1.0] ─────────────────────────────────
+        # Build the shared MarketDataSession ONCE before any scanner runs.
+        # All scanners (EOD, Reversal, Pullback) consume pre-fetched, pre-computed
+        # data via session.get(symbol) instead of independently fetching OHLCV.
+        # This eliminates: duplicate downloads, duplicate indicator computation,
+        # and serialized Bhavcopy proxy retries per scanner.
+        # ────────────────────────────────────────────────────────────────────────
+        evening_session = None
+        try:
+            from market_data_session import build_evening_session
+            from watchlist_cache import get_watchlist
+            import pandas as pd
+            wl = get_watchlist()
+            all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
+            if all_symbols:
+                logger.info(f"🏗️  Building MarketDataSession for {len(all_symbols)} symbols...")
+                t_session_start = time.time()
+                evening_session = build_evening_session(all_symbols, ist_date=now.date())
+                t_session_dur = round(time.time() - t_session_start, 1)
+                if evening_session:
+                    logger.info(
+                        f"✅ MarketDataSession ready in {format_duration(t_session_dur)} "
+                        f"| {evening_session.summary()}"
+                    )
+                else:
+                    logger.warning(
+                        "⚠️ MarketDataSession build returned None — "
+                        "scanners will fall back to independent data fetching."
+                    )
+            else:
+                logger.warning("⚠️ Watchlist is empty — skipping session build.")
+        except Exception as session_err:
+            logger.exception(f"❌ MarketDataSession build crashed: {session_err}. "
+                             f"Scanners will run with independent fetching as fallback.")
+            evening_session = None
+
         logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
         
-        # Run EOD Scanner
-        _run_eod_with_retries(today_str)
+        # Run EOD Scanner (receives session; falls back to independent fetch if session=None)
+        _run_eod_with_retries(today_str, session=evening_session)
         
         # Run Reversal Scanner
-        _run_reversal_with_retries(today_str)
+        _run_reversal_with_retries(today_str, session=evening_session)
 
         # Run Pullback Scanner (after EOD & Reversal finish)
-        _run_pullback_with_retries(today_str)
+        _run_pullback_with_retries(today_str, session=evening_session)
+
+        # Verify actual execution outcome from database health records before declaring status
+        from database import get_all_scanner_health
+        health_records = {r.get("scanner_name"): r for r in get_all_scanner_health()}
+        
+        def _check_scanner_ok(name):
+            rec = health_records.get(name, {})
+            last_success = str(rec.get("last_success", ""))
+            return rec.get("status") == "OK" and last_success.startswith(today_str)
+            
+        eod_ok = _check_scanner_ok("EOD")
+        rev_ok = _check_scanner_ok("REVERSAL")
+        pb_ok  = _check_scanner_ok("PULLBACK")
+
+        if eod_ok and rev_ok and pb_ok:
+            logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) completed successfully for today.")
+            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
+            telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
+        else:
+            status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
+            logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
+            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_FAILED", error=status_str)
+            telemetry.log_session_timeline(f"Evening Scanners Cycle Failed: {status_str}")
+
+        # Execute 4-step defensive purge telemetry post evening batch
+        try:
+            from memory_profiler import run_purge_with_telemetry
+            run_purge_with_telemetry("Post-Evening Batch")
+        except Exception as pe:
+            logger.warning(f"Could not run purge telemetry post evening batch: {pe}")
+
+        # Sleep for 6 hours to avoid retriggering until the window closes
+        time.sleep(3600 * 6)
+
+
 
         # Verify actual execution outcome from database health records before declaring status
         from database import get_all_scanner_health

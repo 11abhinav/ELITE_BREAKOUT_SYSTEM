@@ -1252,7 +1252,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
 # [VERSION: PERF_PROFILER_v1.0] Wrap the reversal scan body so every run
 # reports wall-clock time, RSS delta, and any top-level exception via structured log.
 @profile_timing("reversal_scanner._run_scan", log_to_file=True)
-def _run_scan(force: bool = False):
+def _run_scan(force: bool = False, session=None):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     from database import (
         is_scanner_stopped,
@@ -1428,7 +1428,19 @@ def _run_scan(force: bool = False):
     with MemoryProfiler("Process Symbols"):
         for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
             try:
-                all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
+                # fall back to independent per-batch fetch otherwise.
+                if session is not None:
+                    all_ticker_data = {
+                        row["Stock"]: (
+                            session.get(_canonical_symbol(row["Stock"])).ohlcv_df
+                            if session.get(_canonical_symbol(row["Stock"])) is not None else None
+                        )
+                        for _, row in chunk_df.iterrows()
+                    }
+                else:
+                    all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+
             except Exception as fetch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} fetch error: {fetch_err}")
                 rejected["batch_fetch_failed"] += len(chunk_df)
@@ -1898,7 +1910,8 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("reversal_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(force: bool = False) -> int:
+
+def start(force: bool = False, session=None) -> int:
     from database import is_scanner_stopped
     if is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
@@ -1911,12 +1924,13 @@ def start(force: bool = False) -> int:
         _global_lock.release()
         raise RuntimeError("Scanner is already actively running!")
     try:
-        return _start_wrapper(force)
+        return _start_wrapper(force, session=session)
     finally:
         _scan_lock.release()
         _global_lock.release()
 
-def _start_wrapper(force: bool = False) -> int:
+
+def _start_wrapper(force: bool = False, session=None) -> int:
     """
     Single-shot scan. Called once by main.py at the 21:00 window.
     Returns the number of alerts generated (0 = no setups found).
@@ -1932,7 +1946,7 @@ def _start_wrapper(force: bool = False) -> int:
     force_refresh_blacklist()
 
     try:
-        return _run_scan(force=force)
+        return _run_scan(force=force, session=session)
     except Exception as e:
         logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
         import database
