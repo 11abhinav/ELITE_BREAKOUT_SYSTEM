@@ -469,6 +469,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     # Key: (range_from, range_to) or "FULL"
     # Value: list of (symbol, cached_df)
     fetch_groups = {}
+    today_str = datetime.now(IST).strftime("%Y-%m-%d")
+    fresh_count = 0
     
     # 🚀 COLD START ACCELERATION: If disk cache is missing for symbols, attempt DB bundle restore (<0.5s)
     missing_any_disk = any(not os.path.exists(os.path.join(history_dir, f"{s.replace(':', '_')}.parquet")) for s in symbols)
