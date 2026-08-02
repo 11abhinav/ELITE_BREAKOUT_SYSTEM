@@ -32,7 +32,7 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
         import time
         time.sleep(2.5)
         
-        response = s.get(pdf_url, headers=headers, stream=True, timeout=15)
+        response = s.get(pdf_url, headers=headers, stream=True, timeout=60)
         response.raise_for_status()
         
         # Write to a temp file
