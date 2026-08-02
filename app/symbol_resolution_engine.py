@@ -115,6 +115,8 @@ class FyersAdapter(BaseProviderAdapter):
             return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "fyers", "NSE:NIFTYBANK-INDEX", "NSE", "INDEX", 100, "MASTER")
         if sym in ("SENSEX", "^BSESN"):
             return ResolvedInstrument("INDEX:BSE:SENSEX", sym, "fyers", "BSE:SENSEX-INDEX", "BSE", "INDEX", 100, "MASTER")
+        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
+            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "fyers", "NSE:NIFTYINFRA-INDEX", "NSE", "INDEX", 100, "MASTER")
 
         # Standard equity fallback for clean symbols
         if not sym.startswith("UNKNOWN"):
@@ -185,6 +187,8 @@ class UpstoxAdapter(BaseProviderAdapter):
             return ResolvedInstrument("INDEX:NSE:NIFTY50", sym, "upstox", "NSE_INDEX|Nifty 50", "NSE", "INDEX", 100, "MASTER")
         if sym in ("BANKNIFTY", "BANK NIFTY", "NIFTYBANK", "^NSEBANK"):
             return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "upstox", "NSE_INDEX|Nifty Bank", "NSE", "INDEX", 100, "MASTER")
+        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
+            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "upstox", "NSE_INDEX|Nifty Infra", "NSE", "INDEX", 100, "MASTER")
 
         # 2. Upstox ISIN / Instrument Key Mapper Lookup
         try:
@@ -233,6 +237,8 @@ class YahooAdapter(BaseProviderAdapter):
             return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "yahoo", "^NSEBANK", "NSE", "INDEX", 100, "MASTER")
         if sym in ("SENSEX", "^BSESN"):
             return ResolvedInstrument("INDEX:BSE:SENSEX", sym, "yahoo", "^BSESN", "BSE", "INDEX", 100, "MASTER")
+        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
+            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "yahoo", "^CNXINFRA", "NSE", "INDEX", 100, "MASTER")
 
         # Standard Yahoo format `.NS`
         cand = f"{sym}.NS"
