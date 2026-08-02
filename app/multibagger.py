@@ -235,6 +235,24 @@ def append_rejection(results: list, symbol: str, status: str, notes: str, price:
         change_pct=0.0,
         alert_inserted=False
     ))
+    try:
+        eff_score = total_score or cqs or 0.0
+        if eff_score > 0:
+            from near_miss_tracker import log_near_miss
+            log_near_miss(
+                symbol=symbol,
+                scanner="MULTIBAGGER",
+                breakout_type="MULTIBAGGER_SETUP",
+                gate_name=status,
+                observed_value=float(eff_score),
+                threshold_value=65.0,
+                score=int(eff_score),
+                entry_price=float(price) if price else None,
+                stop_loss=float(buy_zone_low) if buy_zone_low else None,
+                target_1=float(buy_zone_high) if buy_zone_high else None,
+            )
+    except Exception as _nm_e:
+        logger.debug(f"Multibagger near miss log error: {_nm_e}")
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError, get_backoff_delay
 
