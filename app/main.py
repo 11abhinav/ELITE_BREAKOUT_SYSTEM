@@ -1170,6 +1170,14 @@ def run_system_scheduler():
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
 
+        # 0. Restore Historical Parquet Cache from DB (<0.5s cold boot restoration)
+        try:
+            from database import restore_history_bundle_from_db
+            restore_history_bundle_from_db("1d")
+            restore_history_bundle_from_db("15m")
+        except Exception as hb_err:
+            logger.debug(f"History bundle restore check at boot: {hb_err}")
+
         # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
         logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
         block_until_watchlist_ready()

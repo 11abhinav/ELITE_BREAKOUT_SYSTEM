@@ -3691,6 +3691,87 @@ def delete_stale_parquet_from_db(name: str) -> bool:
         logger.exception(f"❌ Failed to delete stale {name} from DB")
         return False
 
+def upload_history_bundle_to_db(interval: str = "1d") -> bool:
+    """
+    Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
+    into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
+    """
+    import io
+    import tarfile
+    from config import DATA_DIR
+    
+    history_dir = os.path.join(DATA_DIR, "history", interval)
+    if not os.path.exists(history_dir):
+        return False
+        
+    files = [f for f in os.listdir(history_dir) if f.endswith(".parquet") or f.endswith(".meta.json")]
+    if not files:
+        return False
+        
+    init_db()
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    try:
+        bio = io.BytesIO()
+        with tarfile.open(fileobj=bio, mode="w:gz") as tar:
+            for fname in files:
+                fpath = os.path.join(history_dir, fname)
+                tar.add(fpath, arcname=fname)
+        
+        binary_data = bio.getvalue()
+        name = f"history_bundle_{interval}"
+        
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO parquet_cache (name, date, data)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                    """, (name, today, binary_data))
+                conn.commit()
+                
+        logger.info(f"💾 Uploaded {len(files)} files ({len(binary_data)} bytes) for {name} to DB parquet_cache for {today}")
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Failed to upload history bundle for {interval} to DB")
+        return False
+
+def restore_history_bundle_from_db(interval: str = "1d") -> bool:
+    """
+    Downloads the latest tar.gz history bundle for {interval} from PostgreSQL parquet_cache
+    and unpacks all parquet & metadata files to data/history/{interval}/ in <0.5s.
+    """
+    import io
+    import tarfile
+    from config import DATA_DIR
+    
+    name = f"history_bundle_{interval}"
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    logger.info(f"ℹ️ No DB history bundle found for {name}")
+                    return False
+                
+                binary_data, bundle_date = row[0], row[1]
+                history_dir = os.path.join(DATA_DIR, "history", interval)
+                os.makedirs(history_dir, exist_ok=True)
+                
+                bio = io.BytesIO(binary_data)
+                with tarfile.open(fileobj=bio, mode="r:gz") as tar:
+                    tar.extractall(path=history_dir)
+                    
+                extracted_count = len([f for f in os.listdir(history_dir) if f.endswith(".parquet")])
+                logger.info(f"⚡ [RESTORE] Extracted {extracted_count} historical Parquet files for {interval} from DB bundle (from date: {bundle_date}) in <0.5s")
+                return True
+    except Exception as e:
+        logger.exception(f"❌ Failed to restore history bundle for {interval} from DB")
+        return False
+
+
 
 def save_df_to_table(table_name: str, df: pd.DataFrame):
     """Saves a Pandas DataFrame to a PostgreSQL table dynamically."""

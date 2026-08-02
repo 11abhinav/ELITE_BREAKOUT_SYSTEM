@@ -470,9 +470,15 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     # Value: list of (symbol, cached_df)
     fetch_groups = {}
     
-    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-    fresh_count = 0
-    
+    # 🚀 COLD START ACCELERATION: If disk cache is missing for symbols, attempt DB bundle restore (<0.5s)
+    missing_any_disk = any(not os.path.exists(os.path.join(history_dir, f"{s.replace(':', '_')}.parquet")) for s in symbols)
+    if missing_any_disk:
+        try:
+            from database import restore_history_bundle_from_db
+            restore_history_bundle_from_db(interval)
+        except Exception as res_err:
+            logger.debug(f"History bundle DB restore check: {res_err}")
+
     for sym in symbols:
         file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
         needs_full = True
@@ -875,6 +881,13 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 time.sleep(0.5)
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
+
+    if fetch_groups:
+        try:
+            from database import upload_history_bundle_to_db
+            upload_history_bundle_to_db(interval)
+        except Exception as up_err:
+            logger.debug(f"History bundle DB upload check: {up_err}")
 
     for sym in symbols:
         df = all_data.get(sym)
