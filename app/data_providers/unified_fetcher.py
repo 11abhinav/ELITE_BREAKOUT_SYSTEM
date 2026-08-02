@@ -179,6 +179,7 @@ class UnifiedFetcher:
             providers = self.selector.get_providers(dataset_id, fetch_type="live_quotes")
             results: Dict[str, dict] = {}
             pending = set(symbols)
+            results_lock = threading.Lock()
             
             for provider in providers:
                 if not pending:
@@ -186,7 +187,6 @@ class UnifiedFetcher:
                     
                 if provider == "fyers":
                     logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
-                    # [VERSION: CONCURRENT_FYERS_BATCH_v1.0] Run Fyers live quote batches concurrently using ThreadPoolExecutor
                     import concurrent.futures
 
                     def fetch_fyers_chunk(chunk):
@@ -201,7 +201,6 @@ class UnifiedFetcher:
 
                         try:
                             from fyers_auth import get_fyers_client
-                            import time
                             fyers_client = get_fyers_client()
                             if fyers_client:
                                 fyers_symbols_str = ",".join(fyers_map.keys())
@@ -214,9 +213,10 @@ class UnifiedFetcher:
                                             sym_name = item.get("n")
                                             orig = fyers_map.get(sym_name)
                                             if orig:
-                                                results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                with results_lock:
+                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                    pending.discard(orig)
                                                 logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{item['v']['lp']:.2f}")
-                                                pending.discard(orig)
                                                 success_count += 1
                                     if success_count > 0:
                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
@@ -239,9 +239,10 @@ class UnifiedFetcher:
                                                             sym_name = item.get("n")
                                                             orig = fyers_map.get(sym_name)
                                                             if orig:
-                                                                results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                                with results_lock:
+                                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                                    pending.discard(orig)
                                                                 logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{item['v']['lp']:.2f}")
-                                                                pending.discard(orig)
                                                                 success_count += 1
                                                     if success_count > 0:
                                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
