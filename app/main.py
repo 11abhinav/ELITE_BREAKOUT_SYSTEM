@@ -1940,7 +1940,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 dur_str = f"Time: {format_duration(duration_sec)}"
                 summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
                 # Skip duplicate notification for scanners that emit their own detailed completion notifications
-                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine"]:
+                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
                     insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
             except Exception:
                 pass

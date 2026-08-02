@@ -1826,6 +1826,13 @@ def _run_scan(force: bool = False, session=None):
                 total_count=total_symbols, 
                 outcome="SUCCESS"
             )
+            try:
+                from database import insert_notification
+                insert_notification("admin", f"🔄 Reversal Scanner ran successfully. Found {total_alerts} new reversal alerts.", f"Generated {total_alerts} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
+                from push_service import send_push_to_all
+                send_push_to_all("🔄 Reversal Scanner OK", f"Found {total_alerts} new reversal alerts.", bypass_throttle=True)
+            except Exception:
+                pass
             logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
             return total_alerts
 

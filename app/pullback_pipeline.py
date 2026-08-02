@@ -11,7 +11,7 @@ from config import PULLBACK_CONFIG, PULLBACK_CONFIG as config, REGIME_POLICIES
 import swing_utils
 from sl_target_helper import compute_sl_and_target
 from database import (
-    init_db, save_alert_if_new, upsert_scanner_health,
+    init_db, save_alert_if_new, upsert_scanner_health, insert_notification,
     get_recent_alerts_for_scanner, save_funnel_telemetry
 )
 from memory_profiler import MemoryProfiler, BatchMemoryTracker, chunk_iterable
@@ -909,6 +909,20 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             duration_seconds=elapsed_time,
             error_msg=err_val
         )
+        if status_val == "OK":
+            try:
+                insert_notification("admin", f"🎯 Pullback Scanner ran successfully. Found {alert_count} pullback alerts.", f"Generated {alert_count} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
+                from push_service import send_push_to_all
+                send_push_to_all("🎯 Pullback Scanner OK", f"Found {alert_count} pullback alerts.", bypass_throttle=True)
+            except Exception:
+                pass
+        elif status_val == "DEGRADED":
+            try:
+                insert_notification("admin", f"⚠️ Pullback Scanner finished with DEGRADED status", err_val or f"Generated {alert_count} alerts but data was degraded.")
+                from push_service import send_push_to_all
+                send_push_to_all("⚠️ Pullback Scanner DEGRADED", err_val or "Stale data exceeded limit.")
+            except Exception:
+                pass
     fired_pb = {k: v for k, v in rejected.items() if v > 0}
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
