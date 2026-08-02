@@ -508,6 +508,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     try:
                         with open(meta_path, "r") as f:
                             meta = json.load(f)
+                        cached_df.attrs["quality_score"] = meta.get("validation_score", 100)
                         if meta.get("validation_status") == "ValidationStatus.DEGRADED":
                             is_degraded = True
                     except Exception: pass
@@ -661,25 +662,23 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     # Cache Decision Engine
                     if cached_df is not None and not cached_df.empty:
-                        pipeline = val_registry.get_pipeline(DatasetType.PRICE)
-                        engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
-                        ctx = ValidationContext(cache_df=None, provider="Cache", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
-                        cache_report = engine.validate(cached_df, ctx)
-                        
+                        cached_score_raw = cached_df.attrs.get("quality_score", 100)
+                        cached_row_count = len(cached_df)
+
                         remote_score = (new_report.quality_score if new_report else 0) * SOURCE_RELIABILITY.get(remote_source, 1.0)
-                        cache_score = cache_report.quality_score * SOURCE_RELIABILITY.get("Cache", 0.95)
-                        
+                        cache_score = cached_score_raw * SOURCE_RELIABILITY.get("Cache", 0.95)
+
                         logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f}")
-                        
+
                         # 1. Critical Cache Validation
                         reject_reason = None
-                        if not range_from and new_report and cache_report:
-                            if new_report.row_count < cache_report.row_count * (1.0 - MAX_HISTORY_SHRINK):
+                        if not range_from and new_report:
+                            if new_report.row_count < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
                                 reject_reason = "HISTORICAL_SHRINK"
 
                         if reject_reason:
                             logger.warning(f"Critical Cache Validation Failed for {sym}: {reject_reason}. REJECTING remote data to protect cache.")
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cache_report.row_count} | IncomingRows={new_report.row_count} | Threshold={MAX_HISTORY_SHRINK*100}%")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cached_row_count} | IncomingRows={new_report.row_count} | Threshold={MAX_HISTORY_SHRINK*100}%")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
