@@ -905,13 +905,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 
-    if fetch_groups:
-        try:
-            from database import upload_history_bundle_to_db
-            upload_history_bundle_to_db(interval)
-        except Exception as up_err:
-            logger.debug(f"History bundle DB upload check: {up_err}")
-
+    successful_syms = []
     for sym in symbols:
         df = all_data.get(sym)
         if df is None or isinstance(df, ProviderResult):
@@ -921,11 +915,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 pass
             all_data[sym] = None
         else:
-            try:
-                from database import delete_fetch_error_on_success
-                delete_fetch_error_on_success('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch')
-            except Exception:
-                pass
+            successful_syms.append(sym)
+
+    if successful_syms:
+        try:
+            from database import delete_fetch_errors_batch_on_success
+            delete_fetch_errors_batch_on_success('yfinance', 'PRICE_CACHE', successful_syms, interval, 'no_data_after_fetch')
+        except Exception:
+            pass
 
     try:
         from data_fetch_status import mark_success, mark_failure

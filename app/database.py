@@ -3253,18 +3253,28 @@ def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interva
 
 def delete_fetch_error_on_success(source_name: str, scanner_name: str, symbol: str, interval: str, category: str):
     """Delete a fetch error row when the operation succeeds, ensuring it will re-alert if it fails again in the future."""
-    init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute("""
-                    DELETE FROM fetch_errors
-                    WHERE source_name = %s AND scanner_name = %s AND symbol = %s AND interval = %s AND category = %s
-                """, (source_name, scanner_name, symbol, interval, category))
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                logger.exception(f"❌ delete_fetch_error_on_success failed for {source_name}/{symbol}")
+    delete_fetch_errors_batch_on_success(source_name, scanner_name, [symbol], interval, category)
+
+
+def delete_fetch_errors_batch_on_success(source_name: str, scanner_name: str, symbols: list, interval: str, category: str):
+    """Delete fetch error rows for a list of symbols in a single batch query."""
+    if not symbols:
+        return
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("""
+                        DELETE FROM fetch_errors
+                        WHERE source_name = %s AND scanner_name = %s AND symbol = ANY(%s) AND interval = %s AND category = %s
+                    """, (source_name, scanner_name, list(symbols), interval, category))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    logger.exception(f"❌ delete_fetch_errors_batch_on_success failed for {len(symbols)} symbols")
+    except Exception as db_err:
+        logger.debug(f"DB unavailable for delete_fetch_errors_batch_on_success: {db_err}")
 
 
 def get_all_fetch_errors(limit: int = 100) -> list:
