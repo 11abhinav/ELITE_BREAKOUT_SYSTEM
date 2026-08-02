@@ -1828,11 +1828,20 @@ def api_data_fetch_health():
         return jsonify([]), 500
 
 
+_todays_alerts_cache = {"ts": 0, "admin_payload": None, "user_payload": None}
 
 @app.route('/api/todays_alerts')
 @login_required
 def api_todays_alerts():
     """Return alerts fired today (includes seen flags)."""
+    global _todays_alerts_cache
+    now_ts = time.time()
+    is_admin = session.get('role') == 'admin'
+    cache_key = "admin_payload" if is_admin else "user_payload"
+    
+    if _todays_alerts_cache[cache_key] is not None and (now_ts - _todays_alerts_cache["ts"]) < 3.0:
+        return Response(_todays_alerts_cache[cache_key], mimetype="application/json")
+
     try:
         from database import get_todays_alerts
         from datetime import datetime
@@ -1841,11 +1850,13 @@ def api_todays_alerts():
         rows = get_todays_alerts(today)
         
         # [VERSION: GHOST_PNL_FIX_v1.0] Mask rejected trades in the JSON API for non-admins
-        is_admin = session.get('role') == 'admin'
         if not is_admin:
             rows = [r for r in rows if not r.get('is_rejected', False)]
             
-        return jsonify(serialize_datetimes(rows))
+        payload = json.dumps(serialize_datetimes(rows))
+        _todays_alerts_cache[cache_key] = payload
+        _todays_alerts_cache["ts"] = now_ts
+        return Response(payload, mimetype="application/json")
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
         return jsonify([]), 200
