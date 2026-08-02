@@ -39,7 +39,11 @@ def load_fyers_mappings():
                 # Load ACTIVE mappings
                 cur.execute("SELECT original_sym, mapped_sym FROM symbol_mappings WHERE mapping_type = 'FYERS' AND (mapping_state = 'ACTIVE' OR (mapping_state IS NULL AND is_invalid = FALSE))")
                 rows = cur.fetchall()
-                _fyers_mappings_cache = {row[0]: row[1] for row in rows}
+                db_mappings = {row[0]: row[1] for row in rows if isinstance(row, (tuple, list)) and len(row) >= 2 and isinstance(row[0], str)}
+                if _fyers_mappings_cache is None:
+                    _fyers_mappings_cache = db_mappings
+                else:
+                    _fyers_mappings_cache.update(db_mappings)
                 
                 # Load INVALID mappings (only those whose retry_after is still in the future)
                 current_time = datetime.now(IST).isoformat()
@@ -50,7 +54,11 @@ def load_fyers_mappings():
                     AND (retry_after IS NULL OR retry_after > %s)
                 """, (current_time,))
                 inv_rows = cur.fetchall()
-                _fyers_invalid_cache = {row[0] for row in inv_rows}
+                db_invalid = {row[0] for row in inv_rows if isinstance(row, (tuple, list)) and len(row) >= 1 and isinstance(row[0], str)}
+                if _fyers_invalid_cache is None:
+                    _fyers_invalid_cache = db_invalid
+                else:
+                    _fyers_invalid_cache.update(db_invalid)
                 
         _last_mappings_fetch_time = now
     except Exception as e:

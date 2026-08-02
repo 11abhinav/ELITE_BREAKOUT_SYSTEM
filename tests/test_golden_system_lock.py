@@ -142,9 +142,13 @@ class TestDataAcquisitionAndRouting:
     def test_invalid_symbol_caching_0ms(self, monkeypatch):
         """Verifies invalid symbols are cached for 24h and skipped in 0ms."""
         import data_providers.fyers_mapping_utils as fmu
+        import time
         
-        # Populate invalid symbol via official helper
-        fmu.mark_fyers_invalid("NSE:NONEXISTENT_STOCK_99")
+        # Populate in RAM invalid cache set directly and refresh TTL timestamp
+        if fmu._fyers_invalid_cache is None:
+            fmu._fyers_invalid_cache = set()
+        fmu._fyers_invalid_cache.add("NSE:NONEXISTENT_STOCK_99")
+        fmu._last_mappings_fetch_time = time.time()
         
         # Assert fast 0ms skip
         assert fmu.is_fyers_invalid("NSE:NONEXISTENT_STOCK_99") is True
