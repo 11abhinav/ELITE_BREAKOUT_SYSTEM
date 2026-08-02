@@ -839,11 +839,28 @@
     };
     const sectorTag = (s) => `<span class="sector-tag">${s || 'Unknown'}</span>`;
 
+    let lastWealthEtag = null;
+
+    function setupSSEAlertStream() {
+      if (!!window.EventSource) {
+        const source = new EventSource('/api/stream/alerts');
+        source.addEventListener('snapshot', function(e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'wealth' && data.etag !== lastWealthEtag) {
+              loadData();
+            }
+          } catch(err) {}
+        }, false);
+      }
+    }
+
     async function loadData() {
       try {
-        // Fire ALL API requests in parallel instead of sequentially
+        // Fire ALL API requests in parallel with ETag header support
+        const headers = lastWealthEtag ? { 'If-None-Match': lastWealthEtag } : {};
         const [wealthRes, macroRes, alertsRes, closedRes] = await Promise.allSettled([
-          fetch('/api/wealth'),
+          fetch('/api/wealth', { headers }),
           fetch('/api/macro_state'),
           fetch('/api/wealth/alerts?today=true'),
           fetch('/api/wealth/closed-positions?days=1'),
@@ -851,10 +868,18 @@
 
         // 1. Parse wealth data (primary)
         let data = [];
-        if (wealthRes.status === 'fulfilled' && wealthRes.value.ok) {
-          data = await wealthRes.value.json();
-        } else {
-          throw new Error('Wealth API failed');
+        if (wealthRes.status === 'fulfilled') {
+          if (wealthRes.value.status === 304) {
+            // Data has not changed, skip DOM re-render
+            return;
+          }
+          if (wealthRes.value.ok) {
+            const etag = wealthRes.value.headers.get('ETag');
+            if (etag) lastWealthEtag = etag;
+            data = await wealthRes.value.json();
+          } else {
+            throw new Error('Wealth API failed');
+          }
         }
 
         // 2. Parse macro state (non-blocking)
@@ -1692,6 +1717,11 @@ window.addEventListener('DOMContentLoaded', () => {
         .catch(err => console.error('[PWA] SW registration failed:', err));
     });
   }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof setupSSEAlertStream === 'function') setupSSEAlertStream();
+    if (typeof loadData === 'function') loadData();
+  });
 </script>
 </body>
 </html>

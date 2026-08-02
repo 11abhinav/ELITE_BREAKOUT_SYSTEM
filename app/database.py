@@ -1067,6 +1067,7 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_added ON user_watchlists(user_id, added_at DESC)")
 
                 # 38. stock_analysis_master
                 cur.execute("""
@@ -1084,6 +1085,7 @@ def init_db():
                         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_master_scanned ON stock_analysis_master(last_scanned_at DESC)")
 
                 # 39. watchlist (Multibagger Watchlist)
                 cur.execute("""

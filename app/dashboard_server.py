@@ -1265,53 +1265,90 @@ def _get_wealth_cache():
 @app.route("/api/wealth")
 @login_required
 def api_wealth():
-    """Returns the elite wealth system data as JSON. Cached in-memory by file mtime."""
-    from config import DATA_DIR
-    try:
+    """Serves wealth snapshot using in-memory SnapshotManager with ETag 304 and compression."""
+    from snapshot_manager import get_snapshot_manager
+    mgr = get_snapshot_manager()
+    snap = mgr.get_snapshot("wealth")
+
+    # If snapshot is missing in memory, load from Parquet file once and publish to memory
+    if snap is None:
+        from config import DATA_DIR
         WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
         if not os.path.exists(WEALTH_PATH):
             return jsonify([])
-        
-        mtime = os.path.getmtime(WEALTH_PATH)
-        
-        # Serve from cache if file hasn't changed
-        cache = _get_wealth_cache()
-        if cache["mtime"] == mtime and cache["payload"] is not None:
-            return Response(cache["payload"], mimetype="application/json")
-        
-        import pandas as pd
-        import json
-        import math
-        
-        def sanitize_nans(obj):
-            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-                return None
-            elif isinstance(obj, dict):
-                return {k: sanitize_nans(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [sanitize_nans(item) for item in obj]
-            elif hasattr(obj, 'isoformat') and callable(getattr(obj, 'isoformat')):
-                return obj.isoformat()
-            return obj
+        try:
+            import pandas as pd
+            df = pd.read_parquet(WEALTH_PATH)
+            records = df.to_dict(orient="records")
+            snap = mgr.publish_snapshot("wealth", records, metadata={"source": "parquet_initial_load"})
+        except Exception as e:
+            logger.exception(f"Failed to initialize wealth snapshot from parquet: {e}")
+            return jsonify([])
 
-        df = pd.read_parquet(WEALTH_PATH)
-        records = df.to_dict(orient="records")
-        records = sanitize_nans(records)
-        
-        from zoneinfo import ZoneInfo
-        from datetime import datetime
-        IST = ZoneInfo("Asia/Kolkata")
-        generated_at = datetime.fromtimestamp(mtime, tz=IST).isoformat()
-        
-        payload = json.dumps({"data": records, "generated_at": generated_at})
-        cache = _get_wealth_cache()
-        cache["mtime"] = mtime
-        cache["payload"] = payload
-        
-        return Response(payload, mimetype="application/json")
-    except Exception as e:
-        logger.exception(f"Failed to load wealth JSON")
-        return jsonify([])
+    # 1. ETag / If-None-Match conditional request check
+    client_etag = request.headers.get("If-None-Match", "").strip()
+    since_ver = request.args.get("since", type=int, default=0)
+    if client_etag == snap.etag or (since_ver > 0 and since_ver == snap.version):
+        return Response("", status=304, headers={"ETag": snap.etag})
+
+    # 2. Content Encoding Compression Selection
+    accept_encoding = request.headers.get("Accept-Encoding", "").lower()
+    headers = {
+        "Content-Type": "application/json",
+        "ETag": snap.etag,
+        "Cache-Control": "public, no-cache, must-revalidate",
+        "X-Snapshot-Version": str(snap.version),
+    }
+
+    if "br" in accept_encoding:
+        br_data = snap.get_brotli_bytes()
+        if br_data:
+            headers["Content-Encoding"] = "br"
+            return Response(br_data, headers=headers)
+
+    if "gzip" in accept_encoding:
+        gz_data = snap.get_gzip_bytes()
+        headers["Content-Encoding"] = "gzip"
+        return Response(gz_data, headers=headers)
+
+    return Response(snap.raw_json_bytes, headers=headers)
+
+
+@app.route("/api/wealth/delta")
+@login_required
+def api_wealth_delta():
+    """Incremental delta update endpoint for wealth dashboard."""
+    from snapshot_manager import get_snapshot_manager
+    since = request.args.get("since", type=int, default=0)
+    mgr = get_snapshot_manager()
+    delta = mgr.compute_delta("wealth", since_version=since)
+    if delta is None:
+        return Response("", status=304)
+    return jsonify(delta)
+
+
+@app.route("/api/stream/alerts")
+def api_stream_alerts():
+    """Server-Sent Events (SSE) metadata push endpoint for real-time dashboard sync."""
+    def event_stream():
+        from snapshot_manager import get_snapshot_manager
+        mgr = get_snapshot_manager()
+        last_versions = {}
+        while True:
+            for stype in ["wealth", "summary", "shortlist", "user_watchlist"]:
+                snap = mgr.get_snapshot(stype)
+                if snap and snap.version != last_versions.get(stype):
+                    last_versions[stype] = snap.version
+                    event_data = json.dumps({
+                        "type": stype,
+                        "version": snap.version,
+                        "etag": snap.etag,
+                        "generated_at": snap.generated_at,
+                    })
+                    yield f"event: snapshot\ndata: {event_data}\n\n"
+            time.sleep(2)
+
+    return Response(event_stream(), mimetype="text/event-stream")
 
 @app.route("/api/macro_state")
 @login_required
