@@ -67,9 +67,12 @@ def load_fyers_invalid():
     return _fyers_invalid_cache if _fyers_invalid_cache is not None else set()
 
 def mark_fyers_invalid(symbol: str):
-    invalid = load_fyers_invalid()
-    if symbol in invalid:
-        return
+    global _fyers_invalid_cache, _fyers_mappings_cache
+    if _fyers_invalid_cache is None:
+        _fyers_invalid_cache = set()
+    _fyers_invalid_cache.add(symbol)
+    if _fyers_mappings_cache is not None and symbol in _fyers_mappings_cache:
+        del _fyers_mappings_cache[symbol]
         
     try:
         from database import get_connection
@@ -107,14 +110,9 @@ def mark_fyers_invalid(symbol: str):
                     ''', (symbol, failures, retry_after, now_str))
             conn.commit()
             
-        if _fyers_mappings_cache is not None and symbol in _fyers_mappings_cache:
-            del _fyers_mappings_cache[symbol]
-        if _fyers_invalid_cache is not None:
-            _fyers_invalid_cache.add(symbol)
-            
         logger.warning(f"🚫 Temporarily caching Fyers symbol as INVALID for 24h (attempt {failures}). Automatic retry on {retry_after[:10]}: {symbol}")
     except Exception as e:
-        logger.warning(f"Failed to mark Fyers mapping invalid for {symbol}: {e}")
+        logger.warning(f"Failed to mark Fyers mapping invalid in DB for {symbol}: {e}")
 
 def is_fyers_invalid(symbol: str) -> bool:
     return symbol in load_fyers_invalid()

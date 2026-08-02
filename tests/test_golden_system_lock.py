@@ -143,10 +143,8 @@ class TestDataAcquisitionAndRouting:
         """Verifies invalid symbols are cached for 24h and skipped in 0ms."""
         import data_providers.fyers_mapping_utils as fmu
         
-        # Populate in RAM invalid cache set directly
-        if fmu._fyers_invalid_cache is None:
-            fmu._fyers_invalid_cache = set()
-        fmu._fyers_invalid_cache.add("NSE:NONEXISTENT_STOCK_99")
+        # Populate invalid symbol via official helper
+        fmu.mark_fyers_invalid("NSE:NONEXISTENT_STOCK_99")
         
         # Assert fast 0ms skip
         assert fmu.is_fyers_invalid("NSE:NONEXISTENT_STOCK_99") is True
