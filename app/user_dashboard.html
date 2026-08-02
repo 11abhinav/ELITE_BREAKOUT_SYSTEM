@@ -638,14 +638,23 @@ function playDing() {
             <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:10px;">
               <span>⭐</span> My Monitored Watchlist (<span id="modal-watchlist-count" style="color:var(--accent);">0</span>)
             </h3>
-            <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:9px 18px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:8px;">
-              ⚡ Execute Deep Analysis on All Watchlist Stocks
-            </button>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button id="user-wl-delete-selected-btn" onclick="deleteSelectedUserWatchlist()" style="display:none; padding:8px 14px; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer; box-shadow:0 3px 10px rgba(239,68,68,0.35);">
+                🗑️ Delete Selected (<span id="user-wl-selected-count">0</span>)
+              </button>
+              <button id="user-wl-clear-all-btn" onclick="deleteAllUserWatchlist()" style="padding:8px 14px; background:rgba(220,38,38,0.12); color:#ef4444; border:1px solid rgba(220,38,38,0.3); border-radius:8px; font-weight:800; font-size:12px; cursor:pointer;">
+                💣 Clear All Watchlist
+              </button>
+              <button id="run-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" style="padding:8px 16px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(59,130,246,0.35); display:flex; align-items:center; gap:6px;">
+                ⚡ Execute Deep Analysis
+              </button>
+            </div>
           </div>
           <div style="overflow-x:auto;">
             <table class="data-table" style="width:100%;">
               <thead>
                 <tr>
+                  <th style="width:36px; text-align:center;"><input type="checkbox" id="user-wl-select-all" onclick="toggleSelectAllUserWatchlist(this)" title="Select All / Deselect All" style="cursor:pointer; width:16px; height:16px;"></th>
                   <th>Symbol</th>
                   <th style="text-align:right;">CMP (₹)</th>
                   <th style="text-align:center;">Health Score</th>
@@ -3515,6 +3524,83 @@ function removeFromWatchlist(sym) {
   });
 }
 
+function toggleSelectAllUserWatchlist(masterCb) {
+  const checkboxes = document.querySelectorAll('.user-wl-checkbox');
+  checkboxes.forEach(cb => { cb.checked = masterCb.checked; });
+  updateUserWatchlistBatchBar();
+}
+
+function updateUserWatchlistBatchBar() {
+  const checkboxes = document.querySelectorAll('.user-wl-checkbox:checked');
+  const count = checkboxes.length;
+  const btn = document.getElementById('user-wl-delete-selected-btn');
+  const countEl = document.getElementById('user-wl-selected-count');
+  const masterCb = document.getElementById('user-wl-select-all');
+  
+  if (countEl) countEl.textContent = count;
+  if (btn) btn.style.display = count > 0 ? 'inline-flex' : 'none';
+  if (masterCb) {
+    const total = document.querySelectorAll('.user-wl-checkbox').length;
+    masterCb.checked = total > 0 && count === total;
+  }
+}
+
+function deleteSelectedUserWatchlist() {
+  const checkedNodes = document.querySelectorAll('.user-wl-checkbox:checked');
+  const selectedSymbols = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedSymbols.length === 0) return;
+
+  showCustomConfirmModal({
+    title: `Delete ${selectedSymbols.length} Selected Stock(s)?`,
+    message: `Are you sure you want to delete <strong>${selectedSymbols.length} stock(s)</strong> (${selectedSymbols.join(', ')}) from your watchlist?`,
+    icon: '🗑️',
+    confirmText: `Delete ${selectedSymbols.length} Stocks`,
+    onConfirm: () => {
+      fetch('/api/v1/user_watchlist/remove', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: selectedSymbols })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          showCustomToast(`🗑️ ${selectedSymbols.length} stock(s) removed from watchlist`, 'info');
+          _watchlistFetchCacheUser = null;
+          loadUserWatchlist();
+        } else {
+          showCustomToast(`Failed to remove stocks: ${res.error}`, 'error');
+        }
+      });
+    }
+  });
+}
+
+function deleteAllUserWatchlist() {
+  showCustomConfirmModal({
+    title: '💣 Clear Entire Watchlist?',
+    message: 'WARNING: Are you sure you want to <strong>DELETE ALL STOCKS</strong> from your watchlist? This action cannot be undone.',
+    icon: '💣',
+    confirmText: 'Delete All Watchlist',
+    onConfirm: () => {
+      fetch('/api/v1/user_watchlist/remove', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clear_all: true })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          showCustomToast('💣 Entire watchlist cleared cleanly!', 'info');
+          _watchlistFetchCacheUser = null;
+          loadUserWatchlist();
+        } else {
+          showCustomToast(`Failed to clear watchlist: ${res.error}`, 'error');
+        }
+      });
+    }
+  });
+}
+
 function formatISTDateTime(isoStr) {
   if (!isoStr) return 'Pending';
   try {
@@ -3584,7 +3670,8 @@ function loadUserWatchlist() {
       if (!tbody) return;
 
       if (watchlistItems.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+        updateUserWatchlistBatchBar();
         return;
       }
 
@@ -3616,6 +3703,9 @@ function loadUserWatchlist() {
 
         return `
           <tr>
+            <td style="text-align:center;">
+              <input type="checkbox" class="user-wl-checkbox" value="${item.symbol}" onchange="updateUserWatchlistBatchBar()" style="cursor:pointer; width:16px; height:16px;">
+            </td>
             <td class="font-bold">
               <a href="#" onclick="openInTradingView('${item.symbol}'); return false;"
                  style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
@@ -3646,6 +3736,8 @@ function loadUserWatchlist() {
           </tr>
         `;
       }).join('');
+      updateUserWatchlistBatchBar();
+    })
     })
     .catch(err => console.warn('Failed to load user watchlist:', err));
 }

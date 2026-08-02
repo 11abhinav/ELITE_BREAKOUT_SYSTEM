@@ -1732,7 +1732,9 @@
         <div class="card" style="margin-bottom:18px; padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleManualWatchlist()">
             <h3 style="font-size:16px; font-weight:800; color:var(--text); margin:0; display:flex; align-items:center; gap:8px;"><span>🛠️</span> Manual Watchlist (Admin)</h3>
-            <div style="display:flex; gap:8px; align-items:center;" onclick="event.stopPropagation()">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;" onclick="event.stopPropagation()">
+              <button id="mwl-delete-selected-btn" onclick="deleteSelectedManualWatchlist()" class="refresh-btn" style="display:none; background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; border:none; font-weight:800; padding:6px 12px; border-radius:8px; box-shadow:0 3px 10px rgba(239,68,68,0.35); font-size:12px;">🗑️ Delete Selected (<span id="mwl-selected-count">0</span>)</button>
+              <button id="mwl-clear-all-btn" onclick="deleteAllManualWatchlist()" class="refresh-btn" style="background:rgba(220,38,38,0.12); color:#ef4444; border:1px solid rgba(220,38,38,0.3); font-weight:800; padding:6px 12px; border-radius:8px; font-size:12px;">💣 Clear All Watchlist</button>
               <button id="run-manual-watchlist-deep-scan-btn" onclick="runWatchlistDeepAnalysis()" class="refresh-btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; font-weight:700; padding:6px 14px; border-radius:8px; box-shadow:0 4px 14px rgba(59,130,246,0.35); font-size:12px;">⚡ Execute Deep Scan on All Watchlist Stocks</button>
               <button class="refresh-btn" onclick="downloadManualWatchlistCSV()" style="font-weight:700; font-size:12px; padding:6px 12px;">📥 Download CSV</button>
               <button class="refresh-btn" id="manual-watchlist-toggle-btn" onclick="toggleManualWatchlist()" style="font-size:12px; font-weight:700; padding:6px 12px;">▶️ Expand</button>
@@ -1742,6 +1744,7 @@
             <div class="table-container">
               <table class="data-table" style="width:100%;" id="manual-watchlist-table">
                 <thead><tr>
+                  <th style="width:36px; text-align:center;"><input type="checkbox" id="mwl-select-all" onclick="toggleSelectAllManualWatchlist(this)" title="Select All / Deselect All" style="cursor:pointer; width:16px; height:16px;"></th>
                   <th onclick="sortManualWatchlist('symbol')" style="cursor:pointer; user-select:none; white-space:nowrap;">Symbol <span id="mwl-sort-symbol" style="font-size:10px;"></span></th>
                   <th onclick="sortManualWatchlist('cmp')" style="text-align:right; cursor:pointer; user-select:none; white-space:nowrap;">LTP (₹) <span id="mwl-sort-cmp" style="font-size:10px;"></span></th>
                   <th onclick="sortManualWatchlist('health_score')" style="cursor:pointer; user-select:none; white-space:nowrap;">Score <span id="mwl-sort-health_score" style="font-size:10px;"></span></th>
@@ -1750,7 +1753,7 @@
                   <th>Last Scanned (IST)</th>
                   <th style="text-align:center;">Action</th>
                 </tr></thead>
-                <tbody id="manual-watchlist-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Loading manual entries...</td></tr></tbody>
+                <tbody id="manual-watchlist-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Loading manual entries...</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -7035,6 +7038,87 @@ function sortManualWatchlist(col) {
   _renderManualWatchlist();
 }
 
+function toggleSelectAllManualWatchlist(masterCb) {
+  const checkboxes = document.querySelectorAll('.mwl-checkbox');
+  checkboxes.forEach(cb => { cb.checked = masterCb.checked; });
+  updateManualWatchlistBatchBar();
+}
+
+function updateManualWatchlistBatchBar() {
+  const checkboxes = document.querySelectorAll('.mwl-checkbox:checked');
+  const count = checkboxes.length;
+  const btn = document.getElementById('mwl-delete-selected-btn');
+  const countEl = document.getElementById('mwl-selected-count');
+  const masterCb = document.getElementById('mwl-select-all');
+  
+  if (countEl) countEl.textContent = count;
+  if (btn) btn.style.display = count > 0 ? 'inline-flex' : 'none';
+  if (masterCb) {
+    const total = document.querySelectorAll('.mwl-checkbox').length;
+    masterCb.checked = total > 0 && count === total;
+  }
+}
+
+function deleteSelectedManualWatchlist() {
+  const checkedNodes = document.querySelectorAll('.mwl-checkbox:checked');
+  const selectedSymbols = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedSymbols.length === 0) return;
+
+  showCustomConfirmModal({
+    title: `Delete ${selectedSymbols.length} Selected Stock(s)?`,
+    message: `Are you sure you want to delete <strong>${selectedSymbols.length} stock(s)</strong> (${selectedSymbols.join(', ')}) from the watchlist?`,
+    icon: '🗑️',
+    confirmText: `Delete ${selectedSymbols.length} Stocks`,
+    onConfirm: () => {
+      fetch('/api/v1/user_watchlist/remove', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: selectedSymbols })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          showCustomToast(`🗑️ ${selectedSymbols.length} stock(s) removed from watchlist`, 'info');
+          _watchlistFetchCache = null;
+          _watchlistFetchCache_ts = 0;
+          if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
+          if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
+        } else {
+          showCustomToast(`Failed to remove stocks: ${res.error}`, 'error');
+        }
+      });
+    }
+  });
+}
+
+function deleteAllManualWatchlist() {
+  showCustomConfirmModal({
+    title: '💣 Clear Entire Watchlist?',
+    message: 'WARNING: Are you sure you want to <strong>DELETE ALL STOCKS</strong> from the watchlist? This action cannot be undone.',
+    icon: '💣',
+    confirmText: 'Delete All Watchlist',
+    onConfirm: () => {
+      fetch('/api/v1/user_watchlist/remove', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clear_all: true })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          showCustomToast('💣 Entire watchlist cleared cleanly!', 'info');
+          _watchlistFetchCache = null;
+          _watchlistFetchCache_ts = 0;
+          if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
+          if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
+        } else {
+          showCustomToast(`Failed to clear watchlist: ${res.error}`, 'error');
+        }
+      });
+    }
+  });
+}
+
 function _renderManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
@@ -7052,6 +7136,12 @@ function _renderManualWatchlist() {
     if (typeof av === 'string') return _mwlSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
     return _mwlSortAsc ? av - bv : bv - av;
   });
+
+  if (sorted.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+    updateManualWatchlistBatchBar();
+    return;
+  }
 
   tbody.innerHTML = sorted.map(it => {
     let statusBadge = '';
@@ -7077,6 +7167,9 @@ function _renderManualWatchlist() {
 
     return `
       <tr>
+        <td style="text-align:center;">
+          <input type="checkbox" class="mwl-checkbox" value="${it.symbol}" onchange="updateManualWatchlistBatchBar()" style="cursor:pointer; width:16px; height:16px;">
+        </td>
         <td>
           <a href="#" onclick="openInTradingView('${it.symbol}'); return false;"
              style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
@@ -7098,19 +7191,21 @@ function _renderManualWatchlist() {
       </tr>
     `;
   }).join('');
+  updateManualWatchlistBatchBar();
 }
 
   // [VERSION: MWL_SORT_v1.0] Uses shared _fetchWatchlist(), stores into _mwlData, delegates to _renderManualWatchlist()
 function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
   _fetchWatchlist()
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       const tbody = document.getElementById('manual-watchlist-tbody');
       if (list.length === 0) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
+        updateManualWatchlistBatchBar();
         return;
       }
       // Merge into WATCHLIST_ITEMS_CACHE for analysis lookup
@@ -7124,7 +7219,7 @@ function loadManualWatchlist() {
     .catch(err => {
       console.error('Failed to load manual watchlist:', err);
       const tbody = document.getElementById('manual-watchlist-tbody');
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--warn);padding:18px;">Failed to load manual watchlist.</td></tr>`;
     });
 }
 

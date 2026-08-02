@@ -3517,19 +3517,22 @@ def api_add_user_watchlist():
 @app.route("/api/v1/user_watchlist/remove", methods=["DELETE", "POST"])
 @login_required
 def api_remove_user_watchlist():
-    """Remove ticker from user's personal watchlist."""
+    """Remove single ticker, batch tickers, or clear all entries from user's personal watchlist."""
     try:
         from database import remove_from_user_watchlist
         data = request.get_json() or {}
-        symbol = data.get("symbol", request.args.get("symbol", "")).strip()
+        symbol = str(data.get("symbol", request.args.get("symbol", ""))).strip()
+        symbols = data.get("symbols", [])
+        clear_all = data.get("clear_all", False) or symbol.upper() == "ALL" or (isinstance(symbols, list) and "ALL" in [s.upper() for s in symbols if isinstance(s, str)])
         user_id = str(session.get("user_id", "DEFAULT_USER"))
 
-        if not symbol:
-            return jsonify({"success": False, "error": "Symbol is required."}), 400
+        if not clear_all and not symbol and not symbols:
+            return jsonify({"success": False, "error": "Symbol(s) or clear_all parameter is required."}), 400
 
-        ok = remove_from_user_watchlist(symbol, user_id=user_id)
+        target = symbols if symbols else symbol
+        ok = remove_from_user_watchlist(target, user_id=user_id, clear_all=clear_all)
         _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
-        return jsonify({"success": ok})
+        return jsonify({"success": ok, "message": "Watchlist cleared cleanly." if clear_all else "Selected stocks removed successfully."})
     except Exception as e:
         logger.exception("❌ Remove from user watchlist error")
         return jsonify({"success": False, "error": str(e)}), 500

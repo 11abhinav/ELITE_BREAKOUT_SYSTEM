@@ -6162,19 +6162,29 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
         logger.error(f"Failed to add symbol {sym_clean} to user watchlist: {e}")
         return False
 
-def remove_from_user_watchlist(symbol: str, user_id: str = "DEFAULT_USER") -> bool:
-    """Remove a stock from user's personal watchlist."""
-    sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+def remove_from_user_watchlist(symbol_or_symbols=None, user_id: str = "DEFAULT_USER", clear_all: bool = False) -> bool:
+    """
+    Remove stock(s) or clear all entries from user's personal watchlist.
+    Supports single symbol string ('TCS'), list/set of symbols (['TCS', 'INFY']), or clear_all=True.
+    """
     user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
     try:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id_str, sym_clean))
+                if clear_all or (isinstance(symbol_or_symbols, str) and symbol_or_symbols.strip().upper() in ("ALL", "*")):
+                    cur.execute("DELETE FROM user_watchlists WHERE user_id = %s", (user_id_str,))
+                elif isinstance(symbol_or_symbols, (list, tuple, set)):
+                    clean_syms = [str(s).strip().upper().replace('.NS', '').replace('.BO', '') for s in symbol_or_symbols if s]
+                    if clean_syms:
+                        cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = ANY(%s)", (user_id_str, clean_syms))
+                elif isinstance(symbol_or_symbols, str) and symbol_or_symbols.strip():
+                    sym_clean = symbol_or_symbols.strip().upper().replace('.NS', '').replace('.BO', '')
+                    cur.execute("DELETE FROM user_watchlists WHERE user_id = %s AND symbol = %s", (user_id_str, sym_clean))
             conn.commit()
             return True
     except Exception as e:
-        logger.error(f"Failed to remove symbol {sym_clean} from user watchlist: {e}")
+        logger.error(f"Failed to remove watchlist items for user {user_id_str}: {e}")
         return False
 
 def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
@@ -6221,17 +6231,17 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     results.append({
                         "symbol": sym,
                         "company_name": r[1] or sym,
-                        "added_at": r[2].isoformat() if r[2] else None,
-                        "last_scanned_at": r[3].isoformat() if r[3] else None,
+                        "added_at": r[2].isoformat() if hasattr(r[2], 'isoformat') else (str(r[2]) if r[2] else None),
+                        "last_scanned_at": r[3].isoformat() if hasattr(r[3], 'isoformat') else (str(r[3]) if r[3] else None),
                         "last_health_score": float(r[4]) if r[4] is not None else None,
                         "last_status": r[5] or "MONITORING",
                         "notes": r[6] or "",
-                        "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and r[7] else None,
+                        "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and hasattr(r[7], 'isoformat') else (str(r[7]) if len(r) > 7 and r[7] else None),
                         "deep_analysis_result": deep_res,
                         "close_price": float(close_price) if close_price is not None else None,
                         # [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master
                         "cmp": float(r[9]) if len(r) > 9 and r[9] is not None else None,
-                        "cmp_updated_at": r[10].isoformat() if len(r) > 10 and r[10] else None,
+                        "cmp_updated_at": r[10].isoformat() if len(r) > 10 and hasattr(r[10], 'isoformat') else (str(r[10]) if len(r) > 10 and r[10] else None),
                     })
                 return results
     except Exception as e:
