@@ -2,6 +2,36 @@
 <html lang="en">
 
 <head>
+<script>
+// GLOBAL FETCH FORTIFICATION
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    try {
+      return await originalFetch.apply(this, args);
+    } catch (e) {
+      console.warn("Network error caught by fortified fetch:", e);
+      return new Response(JSON.stringify({ error: "Network error (502/down)" }), {
+        status: 502,
+        statusText: "Bad Gateway",
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+
+  const originalJson = Response.prototype.json;
+  Response.prototype.json = async function() {
+    const text = await this.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.warn("JSON parse failed. Response was:", text.substring(0, 150));
+      return { error: "Invalid JSON from server. (Possible 502 Gateway)" };
+    }
+  };
+})();
+</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="mobile-web-app-capable" content="yes">
