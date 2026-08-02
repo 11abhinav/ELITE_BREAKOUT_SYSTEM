@@ -41,38 +41,45 @@ class IndicatorManager:
             
         try:
             n_bars = len(df)
-            
+            cols = set(df.columns)
+
             # 1. Short-window indicators (>= 14 bars)
-            if n_bars >= 14 and 'High' in df.columns and 'Low' in df.columns and 'Close' in df.columns:
+            if n_bars >= 14 and 'High' in cols and 'Low' in cols and 'Close' in cols:
                 # ATR 14
-                prev_close = df['Close'].shift()
-                high_low = df['High'] - df['Low']
-                high_close = np.abs(df['High'] - prev_close)
-                low_close = np.abs(df['Low'] - prev_close)
-                tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-                bundle.atr_14 = tr.rolling(window=14).mean()
-                
+                if 'ATR' in cols:
+                    bundle.atr_14 = df['ATR']
+                else:
+                    prev_close = df['Close'].shift()
+                    high_low = df['High'] - df['Low']
+                    high_close = np.abs(df['High'] - prev_close)
+                    low_close = np.abs(df['Low'] - prev_close)
+                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                    bundle.atr_14 = tr.rolling(window=14).mean()
+
                 # RSI 14
-                delta = df['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                rs = gain / loss
-                bundle.rsi_14 = 100 - (100 / (1 + rs))
-            
+                if 'RSI' in cols:
+                    bundle.rsi_14 = df['RSI']
+                else:
+                    delta = df['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    bundle.rsi_14 = 100 - (100 / (1 + rs))
+
             # 2. Medium-window indicators (>= 20 bars)
-            if n_bars >= 20 and 'Close' in df.columns:
-                bundle.ema_20 = df['Close'].ewm(span=20, adjust=False).mean()
-                bundle.sma_20 = df['Close'].rolling(window=20).mean()
-                
+            if n_bars >= 20 and 'Close' in cols:
+                bundle.ema_20 = df['EMA20'] if 'EMA20' in cols else df['Close'].ewm(span=20, adjust=False).mean()
+                bundle.sma_20 = df['SMA20'] if 'SMA20' in cols else df['Close'].rolling(window=20).mean()
+
             # 3. 50-bar indicators (>= 50 bars)
-            if n_bars >= 50 and 'Close' in df.columns:
-                bundle.ema_50 = df['Close'].ewm(span=50, adjust=False).mean()
-                bundle.sma_50 = df['Close'].rolling(window=50).mean()
-                
+            if n_bars >= 50 and 'Close' in cols:
+                bundle.ema_50 = df['EMA50'] if 'EMA50' in cols else df['Close'].ewm(span=50, adjust=False).mean()
+                bundle.sma_50 = df['SMA50'] if 'SMA50' in cols else df['Close'].rolling(window=50).mean()
+
             # 4. Long-window indicators (>= 200 bars)
-            if n_bars >= 200 and 'Close' in df.columns:
-                bundle.ema_200 = df['Close'].ewm(span=200, adjust=False).mean()
-                bundle.sma_200 = df['Close'].rolling(window=200).mean()
+            if n_bars >= 200 and 'Close' in cols:
+                bundle.ema_200 = df['EMA200'] if 'EMA200' in cols else df['Close'].ewm(span=200, adjust=False).mean()
+                bundle.sma_200 = df['SMA200'] if 'SMA200' in cols else df['Close'].rolling(window=200).mean()
             
             # 5. Save to registry (Dynamically register indicator dataset if not already registered)
             registry_key = f"indicator_{symbol}"

@@ -813,6 +813,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             all_data[sym] = cached_df
 
                 # Run indicator calculations concurrently for all symbols in this batch
+                batch_earliest_updates: dict[str, str] = {}
                 if batch_indicator_jobs:
                     from indicator_executor import indicator_executor
                     exec_res = indicator_executor.execute(batch_indicator_jobs)
@@ -825,23 +826,30 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         n_df = meta_info.get("new_df")
                         n_rep = meta_info.get("new_report")
 
-                        # Record earliest date
+                        # Record earliest date into batch dict (saved once after loop)
                         if group_key == "FULL" and n_df is not None and not n_df.empty and len(n_df) >= 10 and period.lower() in ("max", "10y", "5y", "2y", "1y", "ytd"):
                             try:
                                 t_col = 'Date' if 'Date' in n_df.columns else ('Datetime' if 'Datetime' in n_df.columns else None)
                                 earliest_ts = pd.to_datetime(n_df[t_col].iloc[0]) if t_col else pd.to_datetime(n_df.index[0])
                                 earliest_dt_str = earliest_ts.date().isoformat() if hasattr(earliest_ts, 'date') else None
                                 if earliest_dt_str:
-                                    earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
-                                    earliest_dates = {}
-                                    if os.path.exists(earliest_path):
-                                        with open(earliest_path, "r") as f:
-                                            earliest_dates = json.load(f)
-                                    earliest_dates[sym] = earliest_dt_str
-                                    with open(earliest_path, "w") as f:
-                                        json.dump(earliest_dates, f)
+                                    batch_earliest_updates[sym] = earliest_dt_str
                             except Exception as e:
                                 logger.debug(f"Failed to record earliest date for {sym}: {e}")
+
+                # Batch write earliest_dates.json ONCE per sub-chunk instead of N times in loop
+                if batch_earliest_updates:
+                    try:
+                        earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
+                        earliest_dates = {}
+                        if os.path.exists(earliest_path):
+                            with open(earliest_path, "r") as f:
+                                earliest_dates = json.load(f)
+                        earliest_dates.update(batch_earliest_updates)
+                        with open(earliest_path, "w") as f:
+                            json.dump(earliest_dates, f)
+                    except Exception as ed_err:
+                        logger.debug(f"Failed to batch-write earliest_dates.json: {ed_err}")
 
                         # Save back to disk
                         try:

@@ -1532,6 +1532,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
+
+    # [OPTIMIZATION: SINGLE_BUNDLE_UPLOAD_v1.0] Force a single DB history bundle upload
+    # after all 750 symbols finish downloading, replacing 15 redundant sub-batch uploads.
+    try:
+        from database import upload_history_bundle_to_db
+        upload_history_bundle_to_db("1d", force=True)
+    except Exception as _up_err:
+        logger.debug(f"Post-multibagger bundle upload check: {_up_err}")
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)

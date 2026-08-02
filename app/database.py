@@ -3693,23 +3693,41 @@ def delete_stale_parquet_from_db(name: str) -> bool:
         logger.exception(f"❌ Failed to delete stale {name} from DB")
         return False
 
-def upload_history_bundle_to_db(interval: str = "1d") -> bool:
+_last_bundle_upload_time: dict[str, float] = {}
+
+def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 300.0, force: bool = False) -> bool:
     """
     Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
     into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
+
+    [OPTIMIZATION: DB_UPLOAD_THROTTLE_v1.0]
+    Throttles uploads so that calls within `min_interval_sec` (default 5 minutes)
+    skip the heavy tar.gz compression and DB upload, unless force=True. This prevents
+    scanners with sub-batch loops (e.g. Multibagger 15 batches) from uploading 35MB
+    bundles 15 times in a single run.
     """
     import io
     import tarfile
     from config import DATA_DIR
-    
+
+    global _last_bundle_upload_time
+    now_ts = time.time()
+    last_ts = _last_bundle_upload_time.get(interval, 0.0)
+    if not force and (now_ts - last_ts) < min_interval_sec:
+        logger.debug(
+            f"ℹ️ [DB] Skipping history_bundle_{interval} upload "
+            f"({now_ts - last_ts:.0f}s elapsed < {min_interval_sec:.0f}s threshold)"
+        )
+        return True
+
     history_dir = os.path.join(DATA_DIR, "history", interval)
     if not os.path.exists(history_dir):
         return False
-        
+
     files = [f for f in os.listdir(history_dir) if f.endswith(".parquet") or f.endswith(".meta.json")]
     if not files:
         return False
-        
+
     init_db()
     today = datetime.now(IST).strftime("%Y-%m-%d")
     try:
@@ -3718,10 +3736,10 @@ def upload_history_bundle_to_db(interval: str = "1d") -> bool:
             for fname in files:
                 fpath = os.path.join(history_dir, fname)
                 tar.add(fpath, arcname=fname)
-        
+
         binary_data = bio.getvalue()
         name = f"history_bundle_{interval}"
-        
+
         with _DB_WRITE_LOCK:
             with get_connection() as conn:
                 with conn.cursor() as cur:
@@ -3731,7 +3749,8 @@ def upload_history_bundle_to_db(interval: str = "1d") -> bool:
                         ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                     """, (name, today, binary_data))
                 conn.commit()
-                
+
+        _last_bundle_upload_time[interval] = now_ts
         logger.info(f"💾 Uploaded {len(files)} files ({len(binary_data)} bytes) for {name} to DB parquet_cache for {today}")
         return True
     except Exception as e:
