@@ -184,6 +184,11 @@ def count_confirmed_pullbacks_since_trend_start(historical_view: pd.DataFrame) -
     """
     [DEFERRED POST-v1] Trend maturity tracking.
     Returns 0 in v1 (maturity penalty is calculated downstream in scoring).
+    
+    [AUDIT-P1] This function always returns 0. The maturity penalty dict in scoring
+    is {0: 0, 1: 0, 2: -3, 3: -6}, so the first pullback in any trend always receives
+    zero penalty. Implement actual pivot counting here to activate maturity penalties
+    for 2nd and 3rd pullbacks in an aging trend.
     """
     return 0
 

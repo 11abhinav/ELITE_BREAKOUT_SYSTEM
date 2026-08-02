@@ -199,7 +199,11 @@ REVERSAL_RSI_LOOKBACK = 25
 REVERSAL_MAX_TROUGH_AGE = 25
 
 # Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
-BB_WIDTH_PCTILE_LOOKBACK = 60
+# [AUDIT-C1] BB_WIDTH_PCTILE_LOOKBACK is currently NOT used by any scanner.
+# The actual BB_WIDTH_PCTILE rolling window is hardcoded in technical_indicators.py as:
+#   df["BB_WIDTH_PCTILE"] = df["BB_WIDTH"].rolling(window=100, min_periods=50).rank(pct=True)
+# To make this configurable, wire this constant into technical_indicators.py's apply_indicators().
+BB_WIDTH_PCTILE_LOOKBACK = 60  # Target value when wired in
 
 # Multi-TF batch size (number of symbols fetched per provider call)
 MULTI_TF_FETCH_BATCH_SIZE = 100

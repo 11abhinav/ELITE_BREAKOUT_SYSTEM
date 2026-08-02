@@ -1439,8 +1439,7 @@ def _start_wrapper(force: bool = False):
         error_msg = None
 
         # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
-        stale_count = rejection_counts.get("stale_data", 0)
-        total_symbols = len(watchlist)
+        # [AUDIT-E1 FIX] stale_count and total_symbols already set at summary block above — removed duplicate assignments
         if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
             status = "DEGRADED"
             error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"

@@ -22,6 +22,10 @@ from database import (
 )
 import json
 from config import MIN_STOCK_PRICE, SCANNER_MULTI_TF, ACTIVE_ALGO_VERSION, MULTI_TF_CONFIG, LIVE_1H_CONFIG
+# [AUDIT-M1] LIVE_1H_CONFIG is imported but not yet applied to any Phase A/B/C/D gate.
+# Currently all Multi-TF gates use MULTI_TF_CONFIG or hardcoded values.
+# To wire: apply LIVE_1H_CONFIG thresholds (MIN_RSI, MIN_VOLUME_RATIO, etc.) in the live
+# intraday scan path when interval="1h" and is_live_session=True.
 
 # [VERSION: PERF_PROFILER_v1.0] Stage timing + per-filter rejection observability
 # profile_timing logs wall-clock duration + RSS delta for each Multi-TF phase run.
