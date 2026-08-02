@@ -837,39 +837,25 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             except Exception as e:
                                 logger.debug(f"Failed to record earliest date for {sym}: {e}")
 
-                # Batch write earliest_dates.json ONCE per sub-chunk instead of N times in loop
-                if batch_earliest_updates:
-                    try:
-                        earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
-                        earliest_dates = {}
-                        if os.path.exists(earliest_path):
-                            with open(earliest_path, "r") as f:
-                                earliest_dates = json.load(f)
-                        earliest_dates.update(batch_earliest_updates)
-                        with open(earliest_path, "w") as f:
-                            json.dump(earliest_dates, f)
-                    except Exception as ed_err:
-                        logger.debug(f"Failed to batch-write earliest_dates.json: {ed_err}")
-
                         # Save back to disk
                         try:
                             file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
                             if isinstance(all_data[sym].columns, pd.MultiIndex):
                                 all_data[sym].columns = ['_'.join(map(str, col)).strip() for col in all_data[sym].columns.values]
                             all_data[sym].columns = all_data[sym].columns.astype(str)
-                            
+
                             time_cols = ['Date', 'Datetime']
                             for col in all_data[sym].columns:
                                 if col not in time_cols and all_data[sym][col].dtype == 'object':
                                     all_data[sym][col] = pd.to_numeric(all_data[sym][col], errors='coerce')
-                                    
+
                             if all_data[sym].index.name in time_cols or isinstance(all_data[sym].index, pd.DatetimeIndex):
                                 all_data[sym].index = pd.to_datetime(all_data[sym].index, errors='coerce')
                             elif not isinstance(all_data[sym].index, pd.RangeIndex):
                                 all_data[sym].index = all_data[sym].index.astype(str)
-                            
+
                             all_data[sym].to_parquet(file_path)
-                            
+
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             meta = {
                                 "schema_version": CACHE_SCHEMA_VERSION,
@@ -885,6 +871,20 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 json.dump(meta, f)
                         except Exception as e:
                             logger.exception(f"Failed to write disk cache for {sym}")
+
+                # Batch write earliest_dates.json ONCE per sub-chunk instead of N times in loop
+                if batch_earliest_updates:
+                    try:
+                        earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
+                        earliest_dates = {}
+                        if os.path.exists(earliest_path):
+                            with open(earliest_path, "r") as f:
+                                earliest_dates = json.load(f)
+                        earliest_dates.update(batch_earliest_updates)
+                        with open(earliest_path, "w") as f:
+                            json.dump(earliest_dates, f)
+                    except Exception as ed_err:
+                        logger.debug(f"Failed to batch-write earliest_dates.json: {ed_err}")
                 
                 # Record batch validation history
                 history_recorder.record_batch(DatasetType.PRICE, batch_validation_items)
