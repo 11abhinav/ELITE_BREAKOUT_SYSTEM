@@ -2666,15 +2666,19 @@
         } else {
           let errMessage = `${res.status} ${res.statusText}`;
           try {
-            const err = await res.json();
-            errMessage = err.message || err.error || errMessage;
-          } catch (_) {
             const text = await res.text();
-            if (text && text.includes("Bad Gateway")) {
-              errMessage = "502 Bad Gateway (Server deploying or restarting. Please try again in 5 seconds)";
-            } else if (text) {
-              errMessage = text;
+            try {
+              const err = JSON.parse(text);
+              errMessage = err.message || err.error || errMessage;
+            } catch (_) {
+              if (text && text.includes("Bad Gateway")) {
+                errMessage = "502 Bad Gateway (Server deploying or restarting. Please try again in 5 seconds)";
+              } else if (text) {
+                errMessage = text;
+              }
             }
+          } catch (e) {
+            console.error("Could not read response text", e);
           }
           showCustomToast(`Failed to trigger ${sc}: ${errMessage}`, 'error');
         }
