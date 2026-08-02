@@ -196,6 +196,7 @@ SCANNER_MAX_ALERTS = {
 # [FIX P3-8] Extended from 15 to 25 bars to capture slower bottoming patterns
 # where RSI oversold condition occurred 3-4 weeks ago during the base formation.
 REVERSAL_RSI_LOOKBACK = 25
+REVERSAL_MAX_TROUGH_AGE = 25
 
 # Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
 BB_WIDTH_PCTILE_LOOKBACK = 60

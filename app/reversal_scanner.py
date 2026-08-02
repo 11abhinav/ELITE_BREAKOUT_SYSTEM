@@ -51,7 +51,9 @@ from config import (
     CLIMAX_VOLUME_LOOKBACK, 
     MIN_CANDLE_RANGE_PCT, 
     REVERSAL_CONFIG,
-    ACTIVE_ALGO_VERSION
+    ACTIVE_ALGO_VERSION,
+    REVERSAL_RSI_LOOKBACK,
+    REVERSAL_MAX_TROUGH_AGE
 )
 from sl_target_helper import compute_sl_and_target
 from surveillance import get_live_blacklist, force_refresh_blacklist
@@ -73,8 +75,8 @@ MAX_DROP_FROM_52W_HIGH = REVERSAL_CONFIG["MAX_DROP_FROM_52W_HIGH"]
 RSI_OVERSOLD_THRESHOLD = REVERSAL_CONFIG["RSI_OVERSOLD_THRESHOLD"]
 RSI_CURL_MIN           = REVERSAL_CONFIG["RSI_CURL_MIN"]
 MIN_RSI_RECOVERY       = 8.0
-RSI_TROUGH_LOOKBACK    = 35
-MAX_TROUGH_AGE         = 10  # Enforce immediate recovery within 2 trading weeks
+RSI_TROUGH_LOOKBACK    = REVERSAL_RSI_LOOKBACK
+MAX_TROUGH_AGE         = REVERSAL_MAX_TROUGH_AGE
 
 MIN_VOLUME_RATIO       = REVERSAL_CONFIG["MIN_VOLUME_RATIO"]
 VOL_WINDOW_BARS        = 5
@@ -875,10 +877,8 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    _n = RSI_TROUGH_LOOKBACK
-    rsi_window = df["RSI"].iloc[-_n:-1] if len(df) >= _n + 1 else df["RSI"].iloc[:-1]
-    rsi_window = rsi_window.dropna()
-    if len(rsi_window) < 5:
+    rsi_series = df["RSI"].dropna()
+    if len(rsi_series) < 5:
         return {
             "passed": False,
             "reject_reason": "RSI data insufficient (too many NaN values in historical window)",
@@ -888,9 +888,32 @@ def _evaluate_candidate(
             "sl_result": {},
             "context": {},
         }
-    past_rsi_min = float(rsi_window.min())
-    trough_idx = rsi_window.idxmin()
-    bars_since_trough = (len(df) - 1 - df.index.get_loc(trough_idx)) if trough_idx in df.index else 99
+
+    past_rsi_min = None
+    bars_since_trough = 99
+    
+    # Find the most recent valid RSI trough (local minimum)
+    search_start = max(1, len(rsi_series) - RSI_TROUGH_LOOKBACK - 1)
+    for i in range(len(rsi_series) - 2, search_start - 1, -1):
+        val = rsi_series.iloc[i]
+        prev_val = rsi_series.iloc[i-1]
+        next_val = rsi_series.iloc[i+1]
+        
+        if val <= prev_val and val <= next_val:
+            # Local trough found
+            if val <= RSI_OVERSOLD_THRESHOLD:
+                past_rsi_min = float(val)
+                bars_since_trough = len(df) - 1 - df.index.get_loc(rsi_series.index[i])
+                break
+
+    # Fallback to absolute minimum if no structural trough is found
+    if past_rsi_min is None:
+        _n = RSI_TROUGH_LOOKBACK
+        rsi_window = rsi_series.iloc[-_n-1:-1] if len(rsi_series) >= _n + 1 else rsi_series.iloc[:-1]
+        past_rsi_min = float(rsi_window.min())
+        trough_idx = rsi_window.idxmin()
+        bars_since_trough = len(df) - 1 - df.index.get_loc(trough_idx)
+
     rsi_recovery = current_rsi - past_rsi_min
 
     if current_rsi < RSI_CURL_MIN or past_rsi_min > RSI_OVERSOLD_THRESHOLD or rsi_recovery < MIN_RSI_RECOVERY or bars_since_trough > MAX_TROUGH_AGE:
