@@ -73,8 +73,8 @@ def test_no_cache_full_fetch_healthy(mock_get_fetcher, mock_watchlist, base_hist
     assert "TEST1.NS" in result
     assert "TEST2.NS" in result
     
-    # 3. Cache populated
-    cache_key = ("1d", "1y")
+    # 3. Cache populated at unified 2y key (period '1y' → '2y' via UNIFIED_2Y_CACHE_v1.0)
+    cache_key = ("1d", "2y")
     assert cache_key in _cache
     assert not _cache[cache_key]["TEST1.NS"]["data"].empty
 
@@ -221,7 +221,8 @@ def test_provider_returns_one_row_cache_repaired(mock_get_fetcher, base_history,
     }
     
     # Reset TTL to trigger fetch again (set it far in the past)
-    _cache[("1d", "1y")]["TEST1.NS"]["ts"] = -1000000
+    # [VERSION: UNIFIED_2Y_CACHE_v1.0] period '1y' is standardized to '2y' internally
+    _cache[("1d", "2y")]["TEST1.NS"]["ts"] = -1000000
     
     with patch("app.price_cache._is_cache_up_to_date", return_value=False):
         result2 = fetch_watchlist_data(watchlist, period="1y", interval="1d")
