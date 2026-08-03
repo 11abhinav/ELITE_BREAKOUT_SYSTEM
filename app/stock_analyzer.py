@@ -372,20 +372,51 @@ def _load_master_symbol_dictionary() -> dict:
     return master
 
 
+def fetch_live_nse_equities() -> list:
+    """Fetch official live daily list of all active NSE equities from NSE archives."""
+    import urllib.request, csv, io
+    url = 'https://archives.nseindia.com/content/equities/EQUITY_L.csv'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    results = []
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            content = resp.read().decode('utf-8')
+            reader = csv.DictReader(io.StringIO(content))
+            for r in reader:
+                sym = str(r.get('SYMBOL', '')).strip().upper()
+                comp = str(r.get('NAME OF COMPANY', '')).strip()
+                if sym and sym != 'SYMBOL':
+                    results.append({'symbol': sym, 'company_name': comp, 'sector': 'EQUITY'})
+    except Exception as e:
+        logger.warning(f"Live NSE EQUITY_L.csv fetch warning: {e}")
+    return results
+
+
 def refresh_master_symbols_universe() -> bool:
-    """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols into DB master_symbols table."""
+    """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols (including newly listed IPOs) into DB master_symbols table."""
+    global _MASTER_SYMBOLS_MTIME
     try:
         from database import sync_master_symbols, upsert_scanner_health
         m = _load_master_symbol_dictionary()
+        
+        # 1. Fetch live NSE equity list from official daily NSE archives (catches newly listed IPOs)
+        live_nse = fetch_live_nse_equities()
+        if live_nse:
+            for item in live_nse:
+                sym = item['symbol']
+                if sym not in m:
+                    m[sym] = item
+        
         if m:
             symbol_rows = list(m.values())
             ok = sync_master_symbols(symbol_rows)
+            _MASTER_SYMBOLS_MTIME = 0 # Force in-memory cache refresh
             if ok:
                 try:
                     upsert_scanner_health("MASTER_SYMBOLS", "OK", error_msg=f"Synced {len(symbol_rows)} NSE/BSE equities")
                 except Exception:
                     pass
-            logger.info(f"✅ 07:00 AM IST Master Symbol Refresh: Synced {len(symbol_rows)} equities into master_symbols table.")
+            logger.info(f"✅ Master Symbol Refresh: Synced {len(symbol_rows)} equities into master_symbols table.")
             return ok
         return False
     except Exception as e:
@@ -396,8 +427,8 @@ def refresh_master_symbols_universe() -> bool:
 def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     """
     Ultra-fast (<1ms) real-time autocomplete search returning matching NSE/BSE symbols & company titles.
-    Searches across pre-indexed 2,389+ equities (including TATAMOTORS, RELIANCE, TCS, INFY).
-    Supports space/punctuation insensitive matching (e.g. 'tata motors' -> TATAMOTORS).
+    Searches across pre-indexed 2,400+ equities (including newly listed IPOs like INDOMIM).
+    Supports space/punctuation insensitive matching and dynamic Yahoo Search fallback for new listings.
     """
     if not query or len(query.strip()) < 1:
         return []
@@ -406,7 +437,7 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
     q_raw = query.strip().upper()
     q_nospace = re.sub(r"[\s\-\&\.]+", "", q_raw)
 
-    _load_master_symbol_dictionary()
+    master_dict = _load_master_symbol_dictionary()
     compiled_list = _MASTER_PRECOMPILED_LIST or []
 
     exact_matches = []
@@ -428,7 +459,49 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
             contains_matches.append(item)
             seen.add(sym)
 
-    return (exact_matches + prefix_matches + contains_matches)[:limit]
+    all_matches = exact_matches + prefix_matches + contains_matches
+
+    # Dynamic fallback for newly listed IPOs / stocks not yet in local precompiled list
+    if len(all_matches) < limit and len(q_raw) >= 3:
+        try:
+            import urllib.request, json
+            req = urllib.request.Request(
+                f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(q_raw)}&quotesCount=5&country=India",
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    new_symbols_to_sync = []
+                    for q in data.get('quotes', []):
+                        raw_sym = q.get('symbol', '').upper()
+                        if '.' in raw_sym:
+                            sym_root = raw_sym.split('.')[0]
+                            ex = raw_sym.split('.')[1]
+                            if ex in ('NS', 'BO', 'BSE') and sym_root not in seen:
+                                comp_name = q.get('shortname') or q.get('longname') or sym_root
+                                sec_name = q.get('sector') or 'EQUITY'
+                                item = {
+                                    "symbol": sym_root,
+                                    "company_name": comp_name,
+                                    "sector": sec_name
+                                }
+                                all_matches.append(item)
+                                seen.add(sym_root)
+                                new_symbols_to_sync.append(item)
+                                # Update local cache immediately
+                                master_dict[sym_root] = item
+                    
+                    if new_symbols_to_sync:
+                        try:
+                            from database import sync_master_symbols
+                            sync_master_symbols(new_symbols_to_sync)
+                        except Exception:
+                            pass
+        except Exception as _yerr:
+            logger.debug(f"Autocomplete Yahoo fallback warning for {q_raw}: {_yerr}")
+
+    return all_matches[:limit]
 
 
 
