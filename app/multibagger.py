@@ -693,12 +693,22 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
-        # [FIX ISSUE-13] Reduce cache TTL from 7 days to 1 day. A 7-day cache retains
-        # stale earnings, debt, pledge, and profitability data that can cause false alerts.
-        if age_days < 1:
+        # Fundamentals (ROE, OPM, D/E, Piotroski) only update quarterly.
+        # Accept cached fundamentals up to 7 days old to prevent YFinance IP rate-limiting stalls.
+        if age_days < 7:
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
+        
+    # Fallback to shared global fundamentals_cache (from Postgres DB)
+    try:
+        from fundamentals_cache import get_fundamentals
+        g_fund = get_fundamentals(symbol)
+        if g_fund and not g_fund.get("failed", False):
+            return g_fund
+    except Exception as _g_err:
+        logger.debug(f"Global fundamentals_cache fallback failed for {symbol}: {_g_err}")
+
     return None
 
 
