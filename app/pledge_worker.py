@@ -253,35 +253,53 @@ def worker_loop():
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
                 
-                api_key = get_scraper_api_key()
+                from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
+                crawlora_key = get_crawlora_api_key()
+                scraper_key = get_scraper_api_key()
                 
-                if not api_key:
-                    logger.error(f"❌ SCRAPERAPI_KEY exhausted or missing during processing {sym}")
+                if not crawlora_key and not scraper_key:
+                    logger.error(f"❌ All Crawlora & ScraperAPI keys exhausted or missing during processing {sym}")
                     return "QUOTA_EXHAUSTED"
                     
                 res = None
                 
-                payload = {'api_key': api_key, 'url': target_url, 'render': 'false'}
-                try:
-                    res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
-                    if res is not None and res.status_code in (401, 403, 429):
-                        reason = res.text.strip()[:200]
-                        try:
-                            err_dict = res.json()
-                            if isinstance(err_dict, dict) and "error" in err_dict:
-                                reason = err_dict["error"]
-                        except Exception:
-                            pass
-                        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "CONFIG_KEY"
-                        logger.warning(f"❌ ScraperAPI HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Reason: {reason}")
-                        mark_failure('scraperapi', f"HTTP {res.status_code} ({reason}): URL={target_url}")
-                        mark_key_exhausted_today(api_key)
-                        return "ERROR" # Returning ERROR here allows the loop to retry the next key on the next iteration
-                except Exception as e:
-                    logger.warning(f"ScraperAPI failed for {sym}: {e}")
+                # 1. Try Crawlora First
+                if crawlora_key:
+                    try:
+                        c_payload = {'api_key': crawlora_key, 'url': target_url}
+                        res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=45)
+                        if res is not None and res.status_code in (401, 403, 429):
+                            masked_key = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CONFIG_KEY"
+                            logger.warning(f"⚠️ Crawlora HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Marking key exhausted.")
+                            mark_crawlora_key_exhausted_today(crawlora_key)
+                            res = None
+                    except Exception as crawlora_err:
+                        logger.debug(f"Crawlora fetch failed for {sym}: {crawlora_err}")
+                        res = None
+
+                # 2. Fall back to ScraperAPI if Crawlora is missing or failed
+                if res is None and scraper_key:
+                    payload = {'api_key': scraper_key, 'url': target_url, 'render': 'false'}
+                    try:
+                        res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
+                        if res is not None and res.status_code in (401, 403, 429):
+                            reason = res.text.strip()[:200]
+                            try:
+                                err_dict = res.json()
+                                if isinstance(err_dict, dict) and "error" in err_dict:
+                                    reason = err_dict["error"]
+                            except Exception:
+                                pass
+                            masked_key = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "CONFIG_KEY"
+                            logger.warning(f"❌ ScraperAPI HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Reason: {reason}")
+                            mark_failure('scraperapi', f"HTTP {res.status_code} ({reason}): URL={target_url}")
+                            mark_key_exhausted_today(scraper_key)
+                            return "ERROR"
+                    except Exception as e:
+                        logger.warning(f"ScraperAPI failed for {sym}: {e}")
                             
                 if res is None:
-                    logger.error(f"❌ No valid response received for {sym}")
+                    logger.error(f"❌ No valid response received for {sym} from Crawlora or ScraperAPI")
                     return "ERROR"
                 
                 try:

@@ -140,137 +140,154 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
     with _get_robust_session() as session:
 
         for attempt in range(1, MAX_RETRIES + 1):
-            api_key = get_scraper_api_key()
-            if not api_key:
-                logger.error("❌ No valid SCRAPERAPI_KEY found. Aborting Bhavcopy fetch.")
+            from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
+            crawlora_key = get_crawlora_api_key()
+            scraper_key = get_scraper_api_key()
+
+            if not crawlora_key and not scraper_key:
+                logger.error("❌ No valid Crawlora or SCRAPERAPI_KEY found. Aborting Bhavcopy fetch.")
                 return {}
 
-            payload = {
-                'api_key': api_key,
-                'url': target_url,
-                'render': 'false', # CSVs don't need JS rendering
-                'country_code': 'in' # Prioritize Indian IPs for NSE (Optional, but recommended)
-            }
+            response = None
+            
+            # 1. Try Crawlora First
+            if crawlora_key:
+                try:
+                    c_payload = {'api_key': crawlora_key, 'url': target_url}
+                    logger.info(f"🔄 [Attempt {attempt}] Requesting Bhavcopy CSV via Crawlora: {target_url}")
+                    c_resp = session.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=FETCH_TIMEOUT)
+                    if c_resp is not None and c_resp.status_code in [401, 403, 429]:
+                        logger.warning(f"⚠️ Crawlora key {crawlora_key[:5]}... exhausted or rate limited (HTTP {c_resp.status_code}).")
+                        mark_crawlora_key_exhausted_today(crawlora_key)
+                    elif c_resp is not None and c_resp.status_code == 200:
+                        response = c_resp
+                except Exception as crawlora_err:
+                    logger.debug(f"Crawlora Bhavcopy fetch failed: {crawlora_err}")
 
-            try:
-                logger.info(f"🔄 [Attempt {attempt}] Requesting Bhavcopy CSV via ScraperAPI: {target_url}")
+            # 2. Fall back to ScraperAPI if Crawlora is missing or failed
+            if response is None and scraper_key:
+                payload = {
+                    'api_key': scraper_key,
+                    'url': target_url,
+                    'render': 'false',
+                    'country_code': 'in'
+                }
+                try:
+                    logger.info(f"🔄 [Attempt {attempt}] Requesting Bhavcopy CSV via ScraperAPI: {target_url}")
+                    s_resp = session.get('https://api.scraperapi.com/', params=payload, timeout=FETCH_TIMEOUT)
+                    if s_resp is not None and s_resp.status_code in [401, 403, 429]:
+                        logger.warning(f"⚠️ ScraperAPI key {scraper_key[:5]}... exhausted or rate limited (HTTP {s_resp.status_code}).")
+                        mark_key_exhausted_today(scraper_key)
+                    else:
+                        response = s_resp
+                except Exception as scraper_err:
+                    logger.warning(f"ScraperAPI Bhavcopy fetch failed: {scraper_err}")
+
+            if response is None:
+                logger.warning(f"⚠️ Attempt {attempt} failed via both Crawlora and ScraperAPI. Retrying...")
+                time.sleep(2)
+                continue
+
+            logger.info(f"   -> 📥 CSV Response status: {response.status_code}")
             
-                # Request through ScraperAPI rather than hitting NSE directly
-                response = session.get('https://api.scraperapi.com/', params=payload, timeout=FETCH_TIMEOUT)
-            
-                logger.info(f"   -> 📥 CSV Response status: {response.status_code}")
-            
-                if response.status_code in [401, 403, 429]:
-                    logger.warning(f"⚠️ ScraperAPI key {api_key[:5]}... exhausted or rate limited (HTTP {response.status_code}).")
-                    mark_key_exhausted_today(api_key)
+            # 404 Not Found means Bhavcopy file does not exist yet for this date
+            if response.status_code == 404:
+                logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet for {date_str}.")
+                try:
+                    mark_failure('nse_bhavcopy', '404')
+                except Exception: pass
+                return {}
+                
+            if response.status_code == 200:
+                logger.info(f"   -> ✅ Successfully downloaded Bhavcopy data from NSE.")
+                raw_data = response.text
+                if len(raw_data) < 1000:
+                    logger.warning("⚠️ Received suspiciously small response. Retrying...")
+                    time.sleep(1)
+                    continue
+                
+                if "<html" in raw_data.lower() or "<body" in raw_data.lower() or "<!doctype" in raw_data.lower():
+                    logger.warning("⚠️ Scraper returned an HTML block page instead of CSV. Retrying...")
                     time.sleep(2)
                     continue
+                
+                try:
+                    df = pd.read_csv(io.StringIO(raw_data))
+                    df.columns = [c.strip().upper() for c in df.columns]
+                
+                    # NSE introduced a new Bhavcopy schema format. Map it back to standard legacy headers.
+                    rename_map = {
+                        "DATE1": "TIMESTAMP",
+                        "PREV_CLOSE": "PREVCLOSE",
+                        "OPEN_PRICE": "OPEN",
+                        "HIGH_PRICE": "HIGH",
+                        "LOW_PRICE": "LOW",
+                        "LAST_PRICE": "LAST",
+                        "CLOSE_PRICE": "CLOSE",
+                        "TTL_TRD_QNTY": "TOTTRDQTY",
+                        "TURNOVER_LACS": "TOTTRDVAL",
+                        "NO_OF_TRADES": "TOTALTRADES"
+                    }
+                    df.rename(columns=rename_map, inplace=True)
+                except Exception as e:
+                    logger.warning(f"⚠️ Parse Error: {e}")
+                    return {}
+
+                pipeline = val_registry.get_pipeline(DatasetType.BHAVCOPY)
+                engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
+                ctx = ValidationContext(provider="NSE_BHAVCOPY")
             
-                # ScraperAPI returns the target's status code. So if NSE returns 404, ScraperAPI returns 404.
-                if response.status_code == 404:
-                    logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet for {date_str}.")
-                    try:
-                        mark_failure('nse_bhavcopy', '404')
-                    except Exception: pass
+                validated_dataset = engine.process(df, context=ctx)
+            
+                # Record to history
+                history_recorder.record_single(DatasetType.BHAVCOPY, validated_dataset)
+            
+                if validated_dataset.status == ValidationStatus.INVALID:
+                    logger.error(f"❌ Bhavcopy Validation Failed: {validated_dataset.result.critical_failures}")
                     return {}
                 
-                if response.status_code == 200:
-                    logger.info(f"   -> ✅ Successfully downloaded Bhavcopy data from NSE.")
-                    raw_data = response.text
-                    if len(raw_data) < 1000:
-                        logger.warning("⚠️ Received suspiciously small response. Retrying...")
-                        time.sleep(1)
-                        continue
-                    
-                    if "<html" in raw_data.lower() or "<body" in raw_data.lower() or "<!doctype" in raw_data.lower():
-                        logger.warning("⚠️ ScraperAPI returned an HTML block page instead of CSV. Retrying...")
-                        time.sleep(2)
-                        continue
-                    
-                    try:
-                        df = pd.read_csv(io.StringIO(raw_data))
-                        df.columns = [c.strip().upper() for c in df.columns]
-                    
-                        # NSE introduced a new Bhavcopy schema format. Map it back to standard legacy headers.
-                        rename_map = {
-                            "DATE1": "TIMESTAMP",
-                            "PREV_CLOSE": "PREVCLOSE",
-                            "OPEN_PRICE": "OPEN",
-                            "HIGH_PRICE": "HIGH",
-                            "LOW_PRICE": "LOW",
-                            "LAST_PRICE": "LAST",
-                            "CLOSE_PRICE": "CLOSE",
-                            "TTL_TRD_QNTY": "TOTTRDQTY",
-                            "TURNOVER_LACS": "TOTTRDVAL",
-                            "NO_OF_TRADES": "TOTALTRADES"
-                        }
-                        df.rename(columns=rename_map, inplace=True)
-                    except Exception as e:
-                        logger.warning(f"⚠️ Parse Error: {e}")
-                        return {}
+                if validated_dataset.status == ValidationStatus.DEGRADED:
+                    logger.warning(f"⚠️ Bhavcopy Validation Degraded. Score: {validated_dataset.score}. Warnings: {validated_dataset.result.warnings}")
+                elif validated_dataset.result.has_warnings:
+                    logger.warning(f"⚠️ Bhavcopy Validation Warnings: {validated_dataset.result.warnings}")
                 
-                    pipeline = val_registry.get_pipeline(DatasetType.BHAVCOPY)
-                    engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
-                    ctx = ValidationContext(provider="NSE_BHAVCOPY")
+                logger.info(f"✅ ValidationEngine: Bhavcopy Validated | Date: {date_str} | Symbols: {len(df)}")
+            
+                # Consumer-specific extraction from the validated cross-sectional snapshot
+                if "DELIV_PER" not in df.columns:
+                    logger.error("❌ Bhavcopy is valid, but missing DELIV_PER column required for delivery extraction.")
+                    return {}
                 
-                    validated_dataset = engine.process(df, context=ctx)
-                
-                    # Record to history
-                    history_recorder.record_single(DatasetType.BHAVCOPY, validated_dataset)
-                
-                    if validated_dataset.status == ValidationStatus.INVALID:
-                        logger.error(f"❌ Bhavcopy Validation Failed: {validated_dataset.result.critical_failures}")
-                        return {}
-                    
-                    if validated_dataset.status == ValidationStatus.DEGRADED:
-                        logger.warning(f"⚠️ Bhavcopy Validation Degraded. Score: {validated_dataset.score}. Warnings: {validated_dataset.result.warnings}")
-                    elif validated_dataset.result.has_warnings:
-                        logger.warning(f"⚠️ Bhavcopy Validation Warnings: {validated_dataset.result.warnings}")
-                    
-                    logger.info(f"✅ ValidationEngine: Bhavcopy Validated | Date: {date_str} | Symbols: {len(df)}")
-                
-                    # Consumer-specific extraction from the validated cross-sectional snapshot
-                    if "DELIV_PER" not in df.columns:
-                        logger.error("❌ Bhavcopy is valid, but missing DELIV_PER column required for delivery extraction.")
-                        return {}
-                    
-                    df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
-                    df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
-                
-                    # Filter for valid series
-                    df["SERIES"] = df["SERIES"].astype(str).str.strip()
-                    df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
-                
-                    # Drop NaN values to prevent PostgreSQL invalid JSON token errors
-                    df = df.dropna(subset=["DELIV_PER"])
-                
-                    # [VERSION: BHAVCOPY_SERIES_PRIORITY_v1.0] Prioritize EQ > BE > SM > BZ when a symbol appears across multiple series
-                    series_order = {'EQ': 0, 'BE': 1, 'SM': 2, 'BZ': 3}
-                    df['_series_rank'] = df['SERIES'].map(lambda s: series_order.get(s, 99))
-                    df = df.sort_values(by=['_series_rank']).drop_duplicates(subset=['SYMBOL'], keep='first')
-                    df.drop(columns=['_series_rank'], inplace=True, errors='ignore')
+                df["DELIV_PER"] = pd.to_numeric(df["DELIV_PER"], errors="coerce")
+                df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
+            
+                # Filter for valid series
+                df["SERIES"] = df["SERIES"].astype(str).str.strip()
+                df = df[df['SERIES'].isin(['EQ', 'BE', 'SM', 'BZ'])].copy()
+            
+                # Drop NaN values to prevent PostgreSQL invalid JSON token errors
+                df = df.dropna(subset=["DELIV_PER"])
+            
+                # [VERSION: BHAVCOPY_SERIES_PRIORITY_v1.0] Prioritize EQ > BE > SM > BZ when a symbol appears across multiple series
+                series_order = {'EQ': 0, 'BE': 1, 'SM': 2, 'BZ': 3}
+                df['_series_rank'] = df['SERIES'].map(lambda s: series_order.get(s, 99))
+                df = df.sort_values(by=['_series_rank']).drop_duplicates(subset=['SYMBOL'], keep='first')
+                df.drop(columns=['_series_rank'], inplace=True, errors='ignore')
 
-                    final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
-                
-                    # 2. Save to database cache
-                    if not skip_db_save:
-                        save_bhavcopy_cache(trading_date, final_dict)
-                    else:
-                        logger.info(f"⏭️ Skipping DB save for {trading_date} (fallback fetching mode).")
-                
-                    if final_dict:
-                        try:
-                            mark_success('nse_bhavcopy')
-                        except Exception: pass
-                        registry.put(registry_key, final_dict)
-                        return final_dict
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Bhavcopy attempt {attempt} failed via ScraperAPI for {date_str}: {e}")
-                try:
-                    mark_failure('nse_bhavcopy', str(e))
-                except Exception:
-                    pass
+                final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
+            
+                # 2. Save to database cache
+                if not skip_db_save:
+                    save_bhavcopy_cache(trading_date, final_dict)
+                else:
+                    logger.info(f"⏭️ Skipping DB save for {trading_date} (fallback fetching mode).")
+            
+                if final_dict:
+                    try:
+                        mark_success('nse_bhavcopy')
+                    except Exception: pass
+                    registry.put(registry_key, final_dict)
+                    return final_dict
                 
             if attempt < MAX_RETRIES:
                 time.sleep(2)

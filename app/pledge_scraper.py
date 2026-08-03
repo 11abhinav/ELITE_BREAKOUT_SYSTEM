@@ -31,6 +31,22 @@ def get_scraper_api_key() -> str:
     # If all are exhausted, return empty string so the worker knows to stop
     return ""
 
+def get_crawlora_api_key() -> str:
+    """Parse comma-separated CRAWLORA_API_KEY env var and return the first non-exhausted key."""
+    keys_str = os.getenv("CRAWLORA_API_KEY", "")
+    if not keys_str:
+        return ""
+    keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+    
+    for k in keys:
+        if not _is_key_exhausted_today(f"crawlora_{k}"):
+            return k
+            
+    return ""
+
+def mark_crawlora_key_exhausted_today(key: str):
+    mark_key_exhausted_today(f"crawlora_{key}")
+
 def _get_exhausted_keys_file():
     return os.path.join(DATA_DIR, "exhausted_keys.json")
 
