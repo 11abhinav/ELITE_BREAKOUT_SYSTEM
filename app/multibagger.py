@@ -695,8 +695,8 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             
         age_days = (now_dt - fetched_at).days
         # Fundamentals (ROE, OPM, D/E, Piotroski) only update quarterly.
-        # Accept cached fundamentals up to 7 days old to prevent YFinance IP rate-limiting stalls.
-        if age_days < 7:
+        # Accept cached fundamentals up to 60 days old to prevent YFinance IP rate-limiting stalls.
+        if age_days < 60:
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
@@ -1635,10 +1635,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                         if fetched_count % 10 == 0 or fetched_count == fetch_total:
                             logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
                         
-                        # Save in chunks to prevent data loss if restarted (sync to DB deferred until final save)
-                        if fetched_count % 50 == 0:
-                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals locally...")
-                            save_fundamentals_cache(cache, sync_to_db=False)
+                        # Save in chunks to prevent data loss if restarted
+                        if fetched_count % 25 == 0:
+                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
+                            save_fundamentals_cache(cache, sync_to_db=True)
                     else:
                         logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
                 except Exception as e:
