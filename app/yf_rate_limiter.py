@@ -25,7 +25,7 @@ _MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
 _MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "1.25"))  # minimal spacing between calls
 _RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
 _RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "3"))      # trip circuit if >= in window
-_COOLDOWN_SCHEDULE_S = list(range(30, 330, 30)) # [30, 60, 90, 120, ... 300]
+_COOLDOWN_SCHEDULE_S = [10, 20, 30, 45, 60]  # Capped at 60s max cooldown
 _current_cooldown_idx = 0
 
 _semaphore = threading.BoundedSemaphore(_MAX_CONCURRENCY)
@@ -117,7 +117,9 @@ def record_rate_limit(context: str = "Unknown") -> None:
         _rate_count += 1
         logger.warning(f"YF rate-limit event recorded ({_rate_count}/{_RATE_THRESHOLD}) in window (Context: {context})")
         if _rate_count >= _RATE_THRESHOLD:
-            cooldown = _COOLDOWN_SCHEDULE_S[_current_cooldown_idx]
+            base_cooldown = _COOLDOWN_SCHEDULE_S[_current_cooldown_idx]
+            jitter = random.uniform(1.0, 5.0)
+            cooldown = round(base_cooldown + jitter, 1)
             _circuit_tripped_until = now + cooldown
             logger.error(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events (Context: {context})")
             _current_cooldown_idx = min(_current_cooldown_idx + 1, len(_COOLDOWN_SCHEDULE_S) - 1)
