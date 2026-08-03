@@ -140,18 +140,35 @@ class FyersAdapter(BaseProviderAdapter):
         candidates.extend([
             f"NSE:{sym}-EQ",
             f"BSE:{sym}-EQ",
+            f"NSE:{sym}-BE",
+            f"NSE:{sym}-BZ",
             f"NSE:{sym}-SM",
             f"NSE:{sym}-ST",
+            f"BSE:{sym}-B",
+            f"BSE:{sym}-Z",
+            f"BSE:{sym}-T",
+            f"BSE:{sym}-P",
             f"BSE:{sym}-M",
             f"BSE:{sym}-X",
             f"BSE:{sym}-XC",
             f"BSE:{sym}-XD",
             f"BSE:{sym}-A",
-            f"BSE:{sym}-B",
         ])
 
         if metadata and metadata.bse_scrip_code:
             candidates.append(f"BSE:{metadata.bse_scrip_code}-EQ")
+            candidates.append(f"BSE:{metadata.bse_scrip_code}-B")
+
+        # Dynamic BSE Scrip Code fallback lookup for surveillance/BE/BZ tickers like GVKPIL
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            bse_code = bse_map.get(sym) or bse_map.get(f"{sym}.NS") or bse_map.get(f"{sym}.BO")
+            if bse_code:
+                candidates.append(f"BSE:{bse_code}-EQ")
+                candidates.append(f"BSE:{bse_code}-B")
+        except Exception:
+            pass
 
         candidates = list(dict.fromkeys(candidates))
 
@@ -205,7 +222,16 @@ class UpstoxAdapter(BaseProviderAdapter):
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
-        candidates = [f"NSE_EQ|{sym}", f"BSE_EQ|{sym}"]
+        candidates = [f"NSE_EQ|{sym}", f"BSE_EQ|{sym}", f"NSE_BE|{sym}", f"NSE_BZ|{sym}"]
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            bse_code = bse_map.get(sym) or bse_map.get(f"{sym}.NS") or bse_map.get(f"{sym}.BO")
+            if bse_code:
+                candidates.append(f"BSE_EQ|{bse_code}")
+        except Exception:
+            pass
+        candidates = list(dict.fromkeys(candidates))
         try:
             from market_data.providers.upstox_provider import UpstoxProvider
             up = UpstoxProvider()
