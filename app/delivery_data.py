@@ -70,7 +70,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             while candidate.weekday() >= 5:
                 candidate -= timedelta(days=1)
                 
-            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data via ScraperAPI for date: {candidate}")
+            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data (Crawlora primary) for date: {candidate}")
             result = fetch_delivery_data(candidate)
             if result:
                 logger.info(f"📦 Previous-day delivery loaded | Date={candidate}")
