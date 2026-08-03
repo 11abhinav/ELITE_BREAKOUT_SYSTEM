@@ -304,7 +304,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             else:
                 try:
                     from push_service import send_push_to_all
-                    send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via ScraperAPI")
+                    send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via Crawlora & ScraperAPI")
                 except Exception: pass
             
         return {}
