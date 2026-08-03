@@ -391,8 +391,10 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
         mock_cursor = MagicMock()
         mock_get_conn.return_value.__enter__.return_value = mock_conn
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        # 11 columns: symbol, company_name, added_at, last_scanned_at, health_score,
+        #             status, notes, last_deep_analysis_at, deep_analysis_result, cmp, cmp_updated_at
         mock_cursor.fetchall.return_value = [
-            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 88.0, "MONITORING", "Notes", datetime.now(), None)
+            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 88.0, "MONITORING", "Notes", datetime.now(), None, None, None)
         ]
 
         from database import get_user_watchlist
@@ -400,11 +402,20 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["symbol"], "TATAMOTORS")
+        # Find the watchlist SELECT among all execute() calls
+        # Must contain BOTH 'user_watchlists' AND 'user_id = %s' to skip CREATE TABLE DDL calls
+        watchlist_sql_call = None
+        for call in mock_cursor.execute.call_args_list:
+            args = call[0]
+            if args and "user_watchlists" in args[0] and "user_id = %s" in args[0]:
+                watchlist_sql_call = args
+                break
+        self.assertIsNotNone(watchlist_sql_call, "No SELECT on user_watchlists with user_id = %s found")
         # Ensure query strictly bound user_id '57880' — no ::text cast (defeats index)
-        execute_args = mock_cursor.execute.call_args[0]
-        self.assertIn("user_id = %s", execute_args[0])
-        self.assertNotIn("user_id::text", execute_args[0])
-        self.assertEqual(execute_args[1], ("57880",))
+        self.assertIn("user_id = %s", watchlist_sql_call[0])
+        self.assertNotIn("user_id::text", watchlist_sql_call[0])
+        self.assertEqual(watchlist_sql_call[1], ("57880",))
+
 
 
 class TestMasterSymbolsRegistry(unittest.TestCase):

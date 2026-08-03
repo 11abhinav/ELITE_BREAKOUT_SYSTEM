@@ -50,6 +50,7 @@ def test_user_watchlist_batch_delete_and_clear_all(monkeypatch):
             last_status TEXT,
             notes TEXT,
             last_deep_analysis_at TEXT,
+            deep_analysis_result TEXT,
             PRIMARY KEY (user_id, symbol)
         )
     """)
@@ -60,6 +61,7 @@ def test_user_watchlist_batch_delete_and_clear_all(monkeypatch):
             health_score REAL,
             status TEXT,
             last_deep_analysis_at TEXT,
+            deep_analysis_result TEXT,
             cmp REAL,
             cmp_updated_at TEXT
         )
