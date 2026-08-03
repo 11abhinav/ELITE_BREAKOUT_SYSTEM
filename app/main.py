@@ -1527,12 +1527,12 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 19:00 IST run.")
 
-            # 21:00 - Earnings Calendar Refresh (Night window off-market)
-            if now.hour >= 21 and last_earnings_date != now.date():
+            # 22:30 - 23:59 - Earnings Calendar Refresh (Late night window: 10:30 PM to 11:59 PM IST)
+            if ((now.hour == 22 and now.minute >= 30) or now.hour == 23) and last_earnings_date != now.date():
                 last_earnings_date = now.date()
                 def _run_earnings_night():
                     try:
-                        logger.info("📅 SCHEDULER | [21:00 IST] Earnings Calendar night refresh starting...")
+                        logger.info("📅 SCHEDULER | [10:30 PM - 11:59 PM IST] Earnings Calendar night refresh starting...")
                         run_earnings_calendar_refresh()
                     except Exception as e:
                         logger.error(f"❌ SCHEDULER | Earnings Calendar night refresh failed: {e}")
