@@ -1481,28 +1481,28 @@ def run_system_scheduler():
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         try:
                             if not is_scanner_stopped("EOD"):
-                                logger.info("Starting EOD Scanner (Timeout: 30m)...")
+                                logger.info("Starting EOD Scanner (Timeout: 2h)...")
                                 future_eod = executor.submit(_run_eod_with_retries, today_str)
-                                future_eod.result(timeout=1800)
+                                future_eod.result(timeout=7200)
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
                             
                             if not is_scanner_stopped("REVERSAL"):
-                                logger.info("Starting Reversal Scanner (Timeout: 30m)...")
+                                logger.info("Starting Reversal Scanner (Timeout: 2h)...")
                                 future_rev = executor.submit(_run_reversal_with_retries, today_str)
-                                future_rev.result(timeout=1800)
+                                future_rev.result(timeout=7200)
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
                             
                             if not is_scanner_stopped("PULLBACK"):
-                                logger.info("Starting Pullback Pipeline (Timeout: 30m)...")
+                                logger.info("Starting Pullback Pipeline (Timeout: 2h)...")
                                 future_pb = executor.submit(_run_pullback_with_retries, today_str)
-                                future_pb.result(timeout=1800)
+                                future_pb.result(timeout=7200)
                             else:
                                 logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
                             
                         except concurrent.futures.TimeoutError:
-                            logger.error("🚨 CRITICAL: Evening Batch step exceeded 30-minute timeout! Aborting remaining batch.")
+                            logger.error("🚨 CRITICAL: Evening Batch step exceeded 2-hour timeout! Aborting remaining batch.")
                         except Exception as e:
                             logger.error(f"🚨 CRITICAL: Evening Batch crashed: {e}")
                     
