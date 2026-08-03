@@ -1,6 +1,7 @@
 import os
 import fcntl
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,50 @@ import zlib
 from zoneinfo import ZoneInfo
 from datetime import datetime
 IST = ZoneInfo("Asia/Kolkata")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCANNER IDENTITY CONFIG  — unique emoji + display name per scanner
+# ─────────────────────────────────────────────────────────────────────────────
+SCANNER_CONFIG = {
+    "wealth_engine":      {"emoji": "💰", "display": "WEALTH ENGINE"},
+    "multi_tf_scanner":   {"emoji": "📊", "display": "MULTI-TF SCANNER"},
+    "eod_scanner":        {"emoji": "🌙", "display": "EOD SCANNER"},
+    "reversal_scanner":   {"emoji": "🔄", "display": "REVERSAL SCANNER"},
+    "pullback_scanner":   {"emoji": "📉", "display": "PULLBACK SCANNER"},
+    "multibagger":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER"},
+}
+
+_BAR_LEN = 30
+
+
+def print_scanner_start_banner(scanner_key: str) -> float:
+    """
+    Print a vivid START banner for the given scanner.
+    Returns the current monotonic timestamp so callers can compute runtime.
+    """
+    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper()})
+    emoji, display = cfg["emoji"], cfg["display"]
+    bar = emoji * _BAR_LEN
+    ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+    logger.info(bar)
+    logger.info(f"&&&&& {display} STARTED — {ts} &&&&&")
+    logger.info(bar)
+    return time.monotonic()
+
+
+def print_scanner_end_banner(scanner_key: str, start_mono: float) -> None:
+    """
+    Print a vivid END banner for the given scanner.
+    Must be called BEFORE releasing any locks so log order is guaranteed.
+    """
+    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper()})
+    emoji, display = cfg["emoji"], cfg["display"]
+    bar = emoji * _BAR_LEN
+    ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+    runtime = time.monotonic() - start_mono
+    logger.info(bar)
+    logger.info(f"##### {display} ENDED — {ts} | Runtime: {runtime:.0f}s #####")
+    logger.info(bar)
 
 class ProcessLock:
     """
@@ -71,9 +116,6 @@ class ProcessLock:
                         raise BlockingIOError("Could not acquire Postgres distributed lock")
 
             self.is_acquired = True
-            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized scanner start banner
-            name_display = self.lock_name.replace("_", " ").title()
-            logger.info(f"********************* Starting {name_display} Scanner at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')} *********************")
             return True
         except (BlockingIOError, IOError):
             if self.db_conn:
@@ -101,9 +143,6 @@ class ProcessLock:
 
     def release(self):
         if self.is_acquired:
-            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized scanner completion banner
-            name_display = self.lock_name.replace("_", " ").title()
-            logger.info(f"********************* {name_display} Scanner completed at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')} *********************")
             self.is_acquired = False
 
         # 1. Release Postgres lock by simply closing the dedicated connection

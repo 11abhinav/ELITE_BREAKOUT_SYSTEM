@@ -720,10 +720,11 @@ _global_lock = ProcessLock("global_scanner_lock")
 # =====================================================================================
 def run_wealth_scan(is_test_mode=False):
     from database import is_scanner_stopped, upsert_scanner_health
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("Wealth Engine"):
         logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
         return None
-    
+
     if not _global_lock.acquire(blocking=False):
         logger.info("⏳ [WEALTH ENGINE] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
@@ -734,9 +735,12 @@ def run_wealth_scan(is_test_mode=False):
         _global_lock.release()
         logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
         return None
+
+    _scan_start = print_scanner_start_banner("wealth_engine")
     try:
         return _run_wealth_scan_wrapper(is_test_mode)
     finally:
+        print_scanner_end_banner("wealth_engine", _scan_start)
         _scan_lock.release()
         _global_lock.release()
 

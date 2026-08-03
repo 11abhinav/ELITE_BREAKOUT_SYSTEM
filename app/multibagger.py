@@ -1490,10 +1490,11 @@ _global_lock = ProcessLock("global_scanner_lock")
 
 def start(debug_limit: int = None, is_test_mode: bool = False):
     from database import is_scanner_stopped, upsert_scanner_health
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("MULTIBAGGER"):
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
-    
+
     if not _global_lock.acquire(blocking=False):
         logger.info("⏳ [MULTIBAGGER] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
@@ -1503,9 +1504,12 @@ def start(debug_limit: int = None, is_test_mode: bool = False):
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Multibagger Scanner is already actively running!")
+
+    _scan_start = print_scanner_start_banner("multibagger")
     try:
         return run_scanner(debug_limit, is_test_mode)
     finally:
+        print_scanner_end_banner("multibagger", _scan_start)
         _scan_lock.release()
         _global_lock.release()
 

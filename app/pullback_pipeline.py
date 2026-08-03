@@ -256,10 +256,11 @@ def start(force: bool = False, session=None):
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
     from database import is_scanner_stopped, upsert_scanner_health
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("PULLBACK"):
         logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
         return 0
-    
+
     if not _global_lock.acquire(blocking=False):
         logger.info("⏳ [PULLBACK] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
@@ -269,9 +270,12 @@ def start(force: bool = False, session=None):
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Pullback Scanner is already actively running!")
+
+    _scan_start = print_scanner_start_banner("pullback_scanner")
     try:
         return run_pullback_pipeline(force=force, session=session)
     finally:
+        print_scanner_end_banner("pullback_scanner", _scan_start)
         _scan_lock.release()
         _global_lock.release()
 
