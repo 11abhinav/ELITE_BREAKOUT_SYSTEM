@@ -59,6 +59,7 @@ MEMORY_PROFILER_CONFIG = {
 # =====================================================================================
 
 DISABLE_NSE_SURVEILLANCE_FETCH = False  # Set to True in validation environments to avoid WAF/tarpit timeouts
+CRAWLORA_API_KEY = os.getenv("CRAWLORA_API_KEY")
 
 # =====================================================================================
 # SCORE THRESHOLDS & AI

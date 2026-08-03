@@ -93,6 +93,18 @@ class ConstituentService:
                             if response.status_code == 200:
                                 break
                         except Exception as e:
+                            # Try Crawlora fallback before sleeping
+                            from config import CRAWLORA_API_KEY
+                            if CRAWLORA_API_KEY:
+                                try:
+                                    c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': CRAWLORA_API_KEY, 'url': url}, timeout=30)
+                                    if c_resp.status_code == 200:
+                                        response = c_resp
+                                        logger.info(f"✅ Downloaded {name} via Crawlora fallback.")
+                                        break
+                                except Exception as crawlora_err:
+                                    logger.debug(f"Crawlora fallback failed for {name}: {crawlora_err}")
+
                             if attempt == max_retries - 1:
                                 logger.error(f"Failed to download {name} constituents after {max_retries} attempts: {e}")
                                 try:

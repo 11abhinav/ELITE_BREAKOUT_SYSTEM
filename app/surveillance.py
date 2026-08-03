@@ -92,6 +92,18 @@ def get_live_blacklist() -> set[str]:
                     api_key = get_scraper_api_key()
                     
                     def fetch_nse_json(url: str):
+                        from config import CRAWLORA_API_KEY
+                        if CRAWLORA_API_KEY:
+                            try:
+                                c_payload = {'api_key': CRAWLORA_API_KEY, 'url': url}
+                                c_resp = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=30)
+                                if c_resp.status_code == 200:
+                                    return c_resp.json()
+                                else:
+                                    logger.warning(f"⚠️ Crawlora returned status {c_resp.status_code} for {url}")
+                            except Exception as crawlora_err:
+                                logger.debug(f"Crawlora fetch failed for {url}: {crawlora_err}")
+
                         curr_key = get_scraper_api_key()
                         if curr_key:
                             try:
