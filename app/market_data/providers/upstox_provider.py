@@ -33,6 +33,9 @@ _upstox_session = requests.Session()
 _upstox_session.mount("https://", _upstox_adapter)
 _upstox_session.mount("http://", _upstox_adapter)
 
+# Module-level in-memory RAM cache for resolved Upstox instrument keys
+_inst_key_cache = {}
+
 # [PHASE1_DIAG] Module-level cached resolver references.
 # Resolved once on first call; avoids repeated `from ... import ...` in the hot resolution path.
 _cached_resolver = None
@@ -222,8 +225,6 @@ class UpstoxProvider(ProviderInterface):
         "NIFTYMEDIA":       "NSE_INDEX|Nifty Media",
         "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
     }
-
-    _inst_key_cache = {}
 
     def _get_instrument_key(self, symbol: str) -> str:
         """Maps symbol to official Upstox instrument key using O(1) RAM cache & instrument mapper first."""
