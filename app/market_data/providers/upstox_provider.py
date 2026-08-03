@@ -223,9 +223,14 @@ class UpstoxProvider(ProviderInterface):
         "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
     }
 
+_inst_key_cache = {}
+
     def _get_instrument_key(self, symbol: str) -> str:
-        """Maps symbol to official Upstox instrument key using cached module-level resolvers."""
+        """Maps symbol to official Upstox instrument key using O(1) RAM cache & instrument mapper first."""
         clean = str(symbol).strip().upper()
+        if clean in _inst_key_cache:
+            return _inst_key_cache[clean]
+
         for sfx in (".NS", ".BO", ".BSE"):
             if clean.endswith(sfx):
                 clean = clean[:-len(sfx)]
@@ -233,31 +238,41 @@ class UpstoxProvider(ProviderInterface):
 
         # 1. Fast-path for indices: Always use exact case-sensitive Upstox index keys first
         if clean in self._INDEX_KEY_MAP:
-            return self._INDEX_KEY_MAP[clean]
+            key = self._INDEX_KEY_MAP[clean]
+            _inst_key_cache[clean] = key
+            return key
         raw_clean = str(symbol).strip()
         if raw_clean in self._INDEX_KEY_MAP:
-            return self._INDEX_KEY_MAP[raw_clean]
+            key = self._INDEX_KEY_MAP[raw_clean]
+            _inst_key_cache[clean] = key
+            return key
 
-        # 2. Dynamic symbol resolution service (module-level cached — no hot-path import)
+        # 2. Upstox Instrument Mapper O(1) RAM dict lookup (41,221 pre-loaded keys in RAM)
+        mapper_func = _get_cached_mapper_func()
+        if mapper_func:
+            try:
+                mapped = mapper_func(symbol)
+                if mapped and mapped != f"NSE_EQ|{clean.lstrip('^')}":
+                    _inst_key_cache[clean] = mapped
+                    return mapped
+            except Exception:
+                pass
+
+        # 3. Dynamic symbol resolution service fallback (if mapper didn't match)
         resolver = _get_cached_resolver()
         if resolver:
             try:
                 resolved = resolver.resolve(symbol, provider="upstox")
                 if resolved and resolved.is_valid and resolved.mapped_symbol:
+                    _inst_key_cache[clean] = resolved.mapped_symbol
                     return resolved.mapped_symbol
             except Exception:
                 pass
 
-        # 3. Upstox Instrument Mapper O(1) dict lookup (module-level cached — no hot-path import)
-        mapper_func = _get_cached_mapper_func()
-        if mapper_func:
-            try:
-                return mapper_func(symbol)
-            except Exception:
-                pass
-
         clean_bare = clean.lstrip("^")
-        return f"NSE_EQ|{clean_bare}"
+        fallback_key = f"NSE_EQ|{clean_bare}"
+        _inst_key_cache[clean] = fallback_key
+        return fallback_key
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         import config
@@ -416,7 +431,17 @@ class UpstoxProvider(ProviderInterface):
 
                 # [PHASE1_DIAG] Stage C: JSON Parsing
                 _t_json = time.perf_counter()
-                data = res.json() if res.status_code == 200 else {}
+                data = {}
+                if res.status_code == 200 and res.content:
+                    try:
+                        import ujson
+                        data = ujson.loads(res.content)
+                    except Exception:
+                        try:
+                            import json
+                            data = json.loads(res.content)
+                        except Exception:
+                            data = res.json()
                 json_ms = (time.perf_counter() - _t_json) * 1000
 
                 # [PHASE1_DIAG] Stage D: Quote Merge
