@@ -6455,26 +6455,29 @@ function renderAutocompleteDropdown(items, rawVal) {
     return;
   }
 
-  dropdown.innerHTML = items.map(item => `
-    <div onclick="selectAutocompleteSymbol('${item.symbol}')" 
-         style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; background:var(--card); transition:background 0.15s;"
-         onmouseover="this.style.background='var(--card3)'" onmouseout="this.style.background='var(--card)'">
-      <div>
-        <span style="font-weight:700; color:var(--text); font-family:var(--font-mono);">${item.symbol}</span>
-        <span style="font-size:11px; color:var(--muted); margin-left:8px;">${item.company_name}</span>
+  dropdown.innerHTML = items.map(item => {
+    const safeComp = (item.company_name || item.symbol || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return `
+      <div onclick="selectAutocompleteSymbol('${item.symbol}', '${safeComp}')" 
+           style="padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center; background:var(--card); transition:background 0.15s;"
+           onmouseover="this.style.background='var(--card3)'" onmouseout="this.style.background='var(--card)'">
+        <div>
+          <span style="font-weight:700; color:var(--text); font-family:var(--font-mono);">${item.symbol}</span>
+          <span style="font-size:11px; color:var(--muted); margin-left:8px;">${item.company_name || ''}</span>
+        </div>
+        <span style="font-size:10px; padding:2px 6px; background:var(--card2); border-radius:4px; color:var(--muted); font-weight:600;">${item.sector || 'EQUITY'}</span>
       </div>
-      <span style="font-size:10px; padding:2px 6px; background:var(--card2); border-radius:4px; color:var(--muted); font-weight:600;">${item.sector || 'EQUITY'}</span>
-    </div>
-  `).join('');
+    `;
+  }).join('');
   dropdown.style.display = 'block';
 }
 
-function selectAutocompleteSymbol(sym) {
+function selectAutocompleteSymbol(sym, companyName) {
   const input = document.getElementById('stock-search-input');
   if (input) input.value = sym;
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
   if (dropdown) dropdown.style.display = 'none';
-  triggerStockDiagnostic(sym);
+  saveToUserWatchlist(sym, companyName || sym, 0);
 }
 
 document.addEventListener('click', function(e) {
