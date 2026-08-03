@@ -4,7 +4,7 @@
 > **Target Audience:** Systems Engineers, Quantitative Developers, AI Coding Models
 > **Status:** Absolute Master Technical Specification for 100% self-contained system reconstruction without access to source code.
 > **Target File:** `docs/SYSTEM_ARCHITECTURE.md`
-> **Last Synchronized:** 2026-07-26 (v8.4.6 Master Sync — Bulk Watchlist Vectorization, Fundamental Ratio Parity Sync, 4-Phase Multi-TF Cascade, Diagnostic Execution Logging)
+> **Last Synchronized:** 2026-08-03 (v9.0 Master Sync — Earnings / Result Calendar Post-Market Engine, Priority-1 Today Re-Check, Timeframe-Aware Intraday Cache Staleness, Multibagger Watchlist Fallback, Vivid Emoji Banners & Lock Guarding)
 
 ---
 
@@ -108,6 +108,15 @@ Every background operation is governed by an autonomous 24/7 scheduler loop (`ru
        │                                                            │
  15:30 ── MARKET CLOSE (SessionContext transitions → POST_MARKET)
        │
+ 15:30 ┌────────────────────────────────────────────────────────────┐
+       │ POST-MARKET EARNINGS / RESULT CALENDAR REFRESH             │
+       │ Owner: EarningsCalendarService (app/earnings_calendar.py)   │
+       │ Window: 15:30 - 18:00 IST (Post-market close window)        │
+       │ Priority 1: Stocks scheduled for results TODAY re-checked   │
+       │ Priority 2: Rest of universe (45d TTL known, 7d TTL missing)│
+       │ Execution: Independent background thread (daemon=True)     │
+       └────────────────────────────────────────────────────────────┘
+       │
  18:00 ┌────────────────────────────────────────────────────────────┐
        │ EVENING BATCH SCANNERS (Sequential)                        │
        │                                                            │
@@ -122,6 +131,7 @@ Every background operation is governed by an autonomous 24/7 scheduler loop (`ru
        │ MULTIBAGGER DAILY SCANNER RUN                              │
        │ Owner: Multibagger Engine (app/multibagger.py)             │
        │ Output: DB alerts + candidate ranking                      │
+       │ Fallback: Disk watchlist.parquet if build_manifest empty   │
        └────────────────────────────────────────────────────────────┘
 ```
 
@@ -783,6 +793,31 @@ SL/Target: compute_sl_and_target(mode="EOD") — ATR base 2.0
 
 ---
 
+## 7.7 Result / Earnings Calendar Engine (`app/earnings_calendar.py`)
+
+**Purpose:** Fetches upcoming and declared quarterly earnings dates across the 986-stock universe from Yahoo Finance and updates the `earnings_calendar` PostgreSQL table. Serves corporate action risk badges (`RESULTS IN 2D`, `RESULTS TODAY`, `E 1d ago`) across dashboards and alert payloads.
+
+**Entry Point:** `refresh_earnings_calendar()` called in background thread `EarningsCalendar-PostMarket` daily between **15:30 and 18:00 IST** (post-market close window).
+
+**Priority Execution Logic & TTL Rules:**
+
+```text
+1. Priority 1 (TODAY's Expected Results Re-Check):
+   • Selects all symbols where earnings_date = TODAY.
+   • Re-queries Yahoo Finance post-market close (15:30-18:00 IST) to capture actual declared results on the same evening.
+
+2. Priority 2 (Rest of Universe):
+   • Known / Declared Dates: Skipped if updated within 45 days (45-day TTL).
+   • Missing / Unverified Dates: Retried after 7 days (7-day TTL).
+
+3. Concurrency & Rate Limiting:
+   • Max 2 parallel workers (ThreadPoolExecutor).
+   • 0.3s inter-request pause per worker.
+   • Circuit breaker protection via yf_rate_limiter.py (10-minute cooldown on HTTP 429).
+```
+
+---
+
 # 7A. SL/TARGET ENGINE v7 — COMPLETE SPECIFICATION
 
 **File:** `app/sl_target_helper.py` (1,647 lines) — `ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"`
@@ -1063,6 +1098,13 @@ To optimize network bandwidth while ensuring candlestick accuracy, cache freshne
 - **Market Closed Hours**: Post-15:30 IST on weekdays or weekends, daily timeframe intervals (`1d`, `daily`, `1wk`, `1mo`) automatically cache until the next scheduled NSE market open (09:15 IST) or up to 12 hours post-close (`43200s`).
 - **Intraday Market Hours**: Calculates exact seconds remaining until the next multiple of the active interval (e.g., 15-minute or 1-hour boundaries relative to 09:15 IST) plus a 5-second broker data settling buffer.
 - **Minimum Cache Floors (`CACHE_FLOOR_FIX_v1.0`)**: Enforces a strict expiration floor equal to 50% of the total interval duration (5m $\rightarrow$ 150s, 15m $\rightarrow$ 450s, 30m $\rightarrow$ 900s, 1h $\rightarrow$ 1800s). This prevents cache expiration race conditions and delta re-fetch storms when scanners execute near candle transition boundaries.
+- **Timeframe-Aware Off-Market Staleness Validation (`_is_cache_up_to_date`)**:
+  - When off-market hours or post-market close (after 15:30 IST), candle timestamp cutoffs vary by timeframe.
+  - **1H Interval**: Market close candle is 14:15–15:15 IST (stamped `14:15:00`). Any 1H cache with `last_ts >= 14:15` contains Candle 6 and is validated as **100% UP-TO-DATE** (`is_stale=False`).
+  - **30m Interval**: Final candle is 15:00–15:30 IST (stamped `15:00:00`). `last_ts >= 15:00` is validated as up-to-date.
+  - **15m Interval**: Final candle is 15:15–15:30 IST (stamped `15:15:00`). `last_ts >= 15:15` is validated as up-to-date.
+  - **5m Interval**: Final candle is 15:25–15:30 IST (stamped `15:25:00`). `last_ts >= 15:25` is validated as up-to-date.
+  - Eliminates false `is_stale` triggers during evening batch runs when price data ends correctly at 3:30 PM market close.
 
 ## 10.3 Thundering Herd Protection & Global Serialization
 When scheduled evening scanners or intraday Multi-TF pipelines trigger simultaneously across multiple workers, unregulated network fetches risk overwhelming external broker endpoints (Thundering Herd pattern):
@@ -1358,6 +1400,24 @@ Lock Acquisition Hierarchy (Strict Acquisition Order):
        └── 3. price_cache._fetch_lock (Prevents thundering herd API requests)
            └── 4. price_cache._lock (Protects internal _cache RAM dictionary)
 ```
+
+## 12.1 Standardized Scanner Log Banners & Lock Order
+To guarantee clear log isolation and eliminate overlapping output, every scanner emits standardized, emoji-tagged start/end banners:
+
+- **Emoji Identifiers**:
+  - `💰 Wealth Engine`
+  - `📊 Multi-TF Scanner`
+  - `🌙 EOD Scanner`
+  - `🔄 Reversal Scanner`
+  - `📉 Pullback Pipeline`
+  - `🚀 Multibagger Engine`
+  - `📅 Earnings Calendar`
+  - `🤖 AI Worker`
+  - `⚡ Pledge Worker`
+- **Banner Invariant**:
+  - Start Banner: `********************* Starting <Scanner Name> Scanner at YYYY-MM-DD HH:MM:SS IST *********************`
+  - Completion Banner: `##### <Scanner Name> Scanner ENDED at YYYY-MM-DD HH:MM:SS IST #####`
+  - **Lock Release Rule**: `print_scanner_end_banner()` MUST be called strictly inside `finally:` blocks **BEFORE** `_global_lock` or `ProcessLock` is released. This guarantees that no second scanner can acquire the lock until the preceding scanner's final completion banner is fully flushed to stdout/logs.
 
 ---
 

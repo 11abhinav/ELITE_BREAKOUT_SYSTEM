@@ -85,12 +85,19 @@ Fyers serves as the **Secondary Fallback Provider** if Upstox encounters downtim
 
 ---
 
-## 4. Yahoo Finance Integration (Isolated Fundamentals)
+## 4. Yahoo Finance Integration (Isolated Fundamentals & Earnings Calendar)
 
-Yahoo Finance (`yfinance`) is strictly restricted to **Fundamental Data Fetching** (PE ratio, ROE, Sector, Market Cap).
+Yahoo Finance (`yfinance`) is strictly restricted to **Fundamental Data Fetching** (PE ratio, ROE, Sector, Market Cap) and **Earnings Calendar Dates**.
 
-- **Reason for Isolation:** Mass fetching OHLCV historical prices via Yahoo Finance triggers Cloudflare/WAF IP bans on datacenter VPS providers (Contabo).
-- **Execution Rate:** Fundamentals are fetched **once per day/week** and heavily cached in `fundamentals_cache.py`. This low volume uses negligible bandwidth and avoids triggering WAF penalties.
+- **Reason for Isolation:** Mass fetching OHLCV historical prices via Yahoo Finance triggers Cloudflare/WAF IP bans on datacenter VPS providers (Contabo/Railway).
+- **Concurrency & Rate Limiting (`app/yf_rate_limiter.py`)**:
+  - Max concurrent workers: **2 parallel threads**.
+  - Inter-request delay: **0.3s sleep** between outbound calls.
+  - Circuit Breaker: Automatically opens circuit upon encountering HTTP 429 ("Too Many Requests") or rate limit exceptions, blocking outbound calls for 10 minutes to allow Yahoo rate limit buckets to reset cleanly.
+- **Caching & Skip Logic (45-Day TTL)**:
+  - Known/declared earnings dates are cached and skipped for **45 days**.
+  - Missing/unverified dates are retried after a **7-day cooldown**.
+  - Post-market close window (**15:30 to 18:00 IST**) re-checks stocks with results expected TODAY first to capture declared earnings announcements without wasting API calls.
 
 ---
 

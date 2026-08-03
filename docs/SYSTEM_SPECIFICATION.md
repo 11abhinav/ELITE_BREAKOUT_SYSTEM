@@ -3,7 +3,7 @@
   > **Document Class:** User & Admin Operational Manual
   > **Status:** Canonical Master Guide for system functionality, trading rules, and dashboard operations.
   > **Target File:** `docs/SYSTEM_SPECIFICATION.md`
-  > **Last Synchronized:** 2026-07-25 (v8.4.4 Master Sync)
+  > **Last Synchronized:** 2026-08-03 (v9.0 Master Sync — Earnings / Result Calendar Post-Market Engine, Priority-1 Today Re-Check, Timeframe-Aware Intraday Cache Staleness, Multibagger Watchlist Fallback, Vivid Emoji Banners & Lock Guarding)
 
   ---
 
@@ -16,9 +16,9 @@
   - **3 Real-Time Glassmorphic Dashboards**: User Dashboard, Admin Dashboard, and Performance Tracker Dashboard.
   - **Dynamic Risk & Target Management**: Automated initial stop loss calculation, structural support placement, trailing stop loss management, multi-target profit booking (T1, T2, T3, T4), and exit alerting.
   - **Omnichannel Notification Engine**: Real-time signal delivery via Telegram Channels, Web Push Notifications (VAPID), and In-App Portal Alerts.
-  - **Autonomous 24/7 Execution**: Self-healing scheduler operating around NSE trading hours (09:15 to 15:30 IST) and evening post-market Bhavcopy publication windows.
+  - **Autonomous 24/7 Execution**: Self-healing scheduler operating around NSE trading hours (09:15 to 15:30 IST), post-market Earnings / Result Calendar window (15:30 to 18:00 IST), and evening post-market Bhavcopy publication windows.
 
-  ---
+---
 
   # 2. SCANNER SUITE & STRATEGY SPECIFICATIONS
 
@@ -100,8 +100,17 @@
     - *🟡 Watchlist*: Composite Score $50–64$. **Non-alerting watchlist tier** (tracked in display cache for fundamental monitoring; strictly blocked from generating active BUY alerts).
   - **Category Label Binding**: The `category` column in the database (`alerts`) and alert payloads is strictly bound to the final post-bonus conviction tier (`tier`), ensuring zero mis-stamping of active alerts.
   - **Execution Schedule**: **04:00 AM IST Cold Start** (initial screening with fresh daily watchlist) + **19:00 PM IST Daily Scan** (post-market full scan) + **15-minute intraday exit monitor**.
+  - **Build Manifest Fallback**: If database `build_manifest` is absent (e.g. after container restart or manual trigger), scanner falls back to disk `data/watchlist.parquet` restored from Postgres on boot.
 
-  ---
+  ## 2.7 Result / Earnings Calendar Pipeline (`app/earnings_calendar.py`)
+  - **Market Objective**: Fetches upcoming and declared quarterly results across 986 stocks in the universe.
+  - **Schedule**: Post-market close window (**15:30 to 18:00 IST**).
+  - **Priority Execution Logic**:
+    - **Priority 1**: Stocks scheduled for results **TODAY** (`earnings_date = TODAY`) are re-checked first right after market close to immediately capture declared results.
+    - **Priority 2**: Rest of universe (skipped if known date updated within **45 days**, or missing date updated within **7 days**).
+  - **Rate Limiting & Resiliency**: Throttled to 2 parallel workers with `0.3s` sleep per HTTP request. Enforces circuit breaker on HTTP 429 rate limits.
+
+---
 
   # 3. TRADE EXECUTION, SIGNAL DELIVERY & ALERT LIFECYCLE
 
