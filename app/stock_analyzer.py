@@ -539,12 +539,41 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
         fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER")
 
-        df = fetched_map.get(sym_clean)
-        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-            # Fallback fetch retry with explicit non-ambiguous DataFrame checks
-            df = fetched_map.get(f"{sym_clean}.NS")
+        if isinstance(fetched_map, dict):
+            df = fetched_map.get(sym_clean)
             if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-                df = fetched_map.get(f"{sym_clean}.BO")
+                df = fetched_map.get(f"{sym_clean}.NS")
+                if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                    df = fetched_map.get(f"{sym_clean}.BO")
+
+            # Fuzzy key matching across provider key prefixes (NSE_EQ|..., NSE:..., .NS, .BO)
+            if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                for k, v in fetched_map.items():
+                    if isinstance(v, pd.DataFrame) and not v.empty:
+                        k_clean = str(k).upper().replace('.NS', '').replace('.BO', '').replace('.BSE', '')
+                        if (k_clean == sym_clean or 
+                            k_clean.endswith(f"|{sym_clean}") or 
+                            k_clean.endswith(f":{sym_clean}") or 
+                            k_clean.endswith(f":{sym_clean}-EQ") or
+                            sym_clean in k_clean):
+                            df = v
+                            break
+
+        # Direct yfinance fallback fetch if batch map did not return a valid DataFrame
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            try:
+                import yfinance as yf
+                for yf_sym in [f"{sym_clean}.NS", f"{sym_clean}.BO", sym_clean]:
+                    try:
+                        ticker_obj = yf.Ticker(yf_sym)
+                        ydf = ticker_obj.history(period="1y")
+                        if ydf is not None and not ydf.empty and len(ydf) >= 5:
+                            df = ydf.reset_index()
+                            break
+                    except Exception:
+                        continue
+            except Exception as _yfe:
+                logger.debug(f"Direct yfinance fallback fetch warning for {sym_clean}: {_yfe}")
 
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return {
@@ -1013,12 +1042,26 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
             df = fetched_map.get(f"{sym}.NS")
             if df is None or not isinstance(df, pd.DataFrame) or df.empty:
                 df = fetched_map.get(f"{sym}.BO")
+        if (df is None or not isinstance(df, pd.DataFrame) or df.empty) and isinstance(fetched_map, dict):
+            for k, v in fetched_map.items():
+                if isinstance(v, pd.DataFrame) and not v.empty:
+                    k_clean = str(k).upper().replace('.NS', '').replace('.BO', '').replace('.BSE', '')
+                    if (k_clean == sym or k_clean.endswith(f"|{sym}") or k_clean.endswith(f":{sym}") or k_clean.endswith(f":{sym}-EQ") or sym in k_clean):
+                        df = v
+                        break
                 
         h1_df = fetched_h1_map.get(sym)
         if h1_df is None or not isinstance(h1_df, pd.DataFrame) or h1_df.empty:
             h1_df = fetched_h1_map.get(f"{sym}.NS")
             if h1_df is None or not isinstance(h1_df, pd.DataFrame) or h1_df.empty:
                 h1_df = fetched_h1_map.get(f"{sym}.BO")
+        if (h1_df is None or not isinstance(h1_df, pd.DataFrame) or h1_df.empty) and isinstance(fetched_h1_map, dict):
+            for k, v in fetched_h1_map.items():
+                if isinstance(v, pd.DataFrame) and not v.empty:
+                    k_clean = str(k).upper().replace('.NS', '').replace('.BO', '').replace('.BSE', '')
+                    if (k_clean == sym or k_clean.endswith(f"|{sym}") or k_clean.endswith(f":{sym}") or k_clean.endswith(f":{sym}-EQ") or sym in k_clean):
+                        h1_df = v
+                        break
 
         logger.info(f"🔄 [STOCK ANALYZER BATCH] [{idx}/{len(clean_syms)}] Processing {sym}...")
         results[sym] = analyze_symbol(
