@@ -3390,6 +3390,10 @@ def _run_deep_analysis_bg(sym, uid):
             status = res.get("watchlist_status", "MONITORING")
             update_user_watchlist_scan_result(sym, uid, score, status, res)
             
+            # Clear user watchlist cache so immediate UI reads get fresh score
+            global _user_watchlist_cache
+            _user_watchlist_cache.clear()
+
             # 1. In-App Notification Center (Bell Badge for Admin/User)
             try:
                 insert_notification(
@@ -3551,8 +3555,9 @@ def api_get_user_watchlist():
 def api_add_user_watchlist():
     """Save ticker to user's personal watchlist after strict ticker validation."""
     try:
-        from database import add_to_user_watchlist
-        from stock_analyzer import validate_nse_bse_ticker_fast
+        from database import add_to_user_watchlist, get_stock_master_analysis, bulk_update_cmp
+        from stock_analyzer import validate_nse_bse_ticker_fast, analyze_symbol
+        from live_prices import get_live_prices
         data = request.get_json() or {}
         symbol = data.get("symbol", "").strip().upper()
         company_name = data.get("company_name", symbol)
@@ -3573,10 +3578,35 @@ def api_add_user_watchlist():
                 "error": f"❌ '{symbol}' is not a recognized active NSE/BSE stock ticker symbol. Please select a valid ticker from the autocomplete suggestion list."
             }), 400
 
+        # Fetch live CMP synchronously so new stock immediately has fresh price
+        try:
+            live_map = get_live_prices([symbol])
+            if live_map and symbol in live_map and float(live_map[symbol] or 0) > 0:
+                bulk_update_cmp({symbol: float(live_map[symbol])})
+        except Exception as _pe:
+            logger.debug(f"Initial live price fetch for {symbol} warning: {_pe}")
+
+        # If health_score is missing or <= 0, lookup master scan or compute fast diagnostic score
+        if health_score is None or float(health_score or 0) <= 0:
+            cached_master = get_stock_master_analysis(symbol)
+            if cached_master and cached_master.get("overall_health_score"):
+                health_score = float(cached_master["overall_health_score"])
+                if cached_master.get("watchlist_status"):
+                    status = cached_master["watchlist_status"]
+            else:
+                try:
+                    fast_res = analyze_symbol(symbol, user_id=user_id, is_deep_analysis=False)
+                    if fast_res and fast_res.get("overall_health_score"):
+                        health_score = float(fast_res["overall_health_score"])
+                        if fast_res.get("watchlist_status"):
+                            status = fast_res["watchlist_status"]
+                except Exception as _fae:
+                    logger.debug(f"Fast initial analysis for {symbol} warning: {_fae}")
+
         ok = add_to_user_watchlist(symbol, company_name=company_name, user_id=user_id, notes=notes, health_score=health_score, status=status)
-        _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
+        _user_watchlist_cache.clear()  # Invalidate cache on write
         
-        # Run deep 1-year historical fetch and analysis in background thread so UI doesn't freeze
+        # Run deep 1-year historical fetch and analysis in background thread
         if ok:
             import threading
             threading.Thread(target=_run_deep_analysis_bg, args=(symbol, user_id), daemon=True).start()

@@ -6196,6 +6196,20 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # [FIX SCORE 0] If health_score is None or 0, try to populate from stock_analysis_master
+                if health_score is None or float(health_score or 0) <= 0:
+                    try:
+                        cur.execute("SELECT health_score, status FROM stock_analysis_master WHERE symbol = %s", (sym_clean,))
+                        row = cur.fetchone()
+                        if row and row[0] is not None and float(row[0]) > 0:
+                            health_score = float(row[0])
+                            if row[1]:
+                                status = row[1]
+                    except Exception:
+                        pass
+
+                clean_score = float(health_score) if health_score is not None and float(health_score) > 0 else None
+
                 try:
                     cur.execute("""
                         INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
@@ -6203,10 +6217,16 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
                         ON CONFLICT (user_id, symbol) DO UPDATE
                         SET company_name = EXCLUDED.company_name,
                             last_scanned_at = CURRENT_TIMESTAMP,
-                            last_health_score = COALESCE(EXCLUDED.last_health_score, user_watchlists.last_health_score),
-                            last_status = EXCLUDED.last_status,
+                            last_health_score = CASE 
+                                WHEN EXCLUDED.last_health_score IS NOT NULL AND EXCLUDED.last_health_score > 0 THEN EXCLUDED.last_health_score 
+                                ELSE user_watchlists.last_health_score 
+                            END,
+                            last_status = CASE 
+                                WHEN EXCLUDED.last_status IS NOT NULL AND EXCLUDED.last_status != 'MONITORING' THEN EXCLUDED.last_status 
+                                ELSE COALESCE(user_watchlists.last_status, EXCLUDED.last_status) 
+                            END,
                             notes = COALESCE(EXCLUDED.notes, user_watchlists.notes)
-                    """, (user_id_str, sym_clean, company_name, health_score, status, notes))
+                    """, (user_id_str, sym_clean, company_name, clean_score, status, notes))
                 except Exception as ex:
                     # Fallback if ON CONFLICT fails due to missing unique constraint on existing table
                     conn.rollback()
@@ -6215,7 +6235,7 @@ def add_to_user_watchlist(symbol: str, company_name: str = "", user_id: str = "D
                         fcur.execute("""
                             INSERT INTO user_watchlists (user_id, symbol, company_name, added_at, last_scanned_at, last_health_score, last_status, notes)
                             VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s)
-                        """, (user_id_str, sym_clean, company_name, health_score, status, notes))
+                        """, (user_id_str, sym_clean, company_name, clean_score, status, notes))
             conn.commit()
             return True
     except Exception as e:
@@ -6257,7 +6277,11 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 cur.execute("""
                     SELECT w.symbol, w.company_name, w.added_at,
                            COALESCE(m.last_scanned_at, w.last_scanned_at),
-                           COALESCE(m.health_score, w.last_health_score),
+                           CASE 
+                               WHEN m.health_score IS NOT NULL AND m.health_score > 0 THEN m.health_score 
+                               WHEN w.last_health_score IS NOT NULL AND w.last_health_score > 0 THEN w.last_health_score 
+                               ELSE NULL 
+                           END,
                            COALESCE(m.status, w.last_status),
                            w.notes,
                            COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
@@ -6273,6 +6297,8 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 results = []
                 seen_symbols = set()
                 missing_cmp_syms = []
+
+                now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
 
                 for r in rows:
                     sym = r[0]
@@ -6291,7 +6317,24 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         close_price = deep_res.get("close_price") or deep_res.get("close") or deep_res.get("ltp")
 
                     resolved_cmp = float(r[9]) if len(r) > 9 and r[9] is not None else (float(close_price) if close_price is not None else None)
-                    if resolved_cmp is None:
+                    cmp_ts_raw = r[10] if len(r) > 10 else None
+                    cmp_ts_str = cmp_ts_raw.isoformat() if hasattr(cmp_ts_raw, 'isoformat') else (str(cmp_ts_raw) if cmp_ts_raw else None)
+
+                    # Check if CMP is missing or older than 30 minutes
+                    is_stale = False
+                    if cmp_ts_raw:
+                        try:
+                            ts_dt = pd.to_datetime(cmp_ts_raw)
+                            if hasattr(ts_dt, 'tz') and ts_dt.tz is None:
+                                ts_dt = ts_dt.tz_localize(ZoneInfo("Asia/Kolkata"))
+                            if (now_ist - ts_dt).total_seconds() > 1800:
+                                is_stale = True
+                        except Exception:
+                            is_stale = True
+                    else:
+                        is_stale = True
+
+                    if resolved_cmp is None or is_stale:
                         missing_cmp_syms.append(sym)
 
                     results.append({
@@ -6305,28 +6348,38 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and hasattr(r[7], 'isoformat') else (str(r[7]) if len(r) > 7 and r[7] else None),
                         "deep_analysis_result": deep_res,
                         "close_price": float(close_price) if close_price is not None else None,
-                        # [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master or deep_analysis_result fallback
                         "cmp": resolved_cmp,
-                        "cmp_updated_at": r[10].isoformat() if len(r) > 10 and hasattr(r[10], 'isoformat') else (str(r[10]) if len(r) > 10 and r[10] else None),
+                        "cmp_updated_at": cmp_ts_str,
                     })
 
-                # Batch-fetch live CMP for any symbols missing CMP/close_price
+                # Batch-fetch live CMP for missing or stale symbols
+                missing_cmp_syms = list(dict.fromkeys(missing_cmp_syms))
                 if missing_cmp_syms:
                     try:
                         from live_prices import get_live_prices
                         live_map = get_live_prices(missing_cmp_syms)
                         if live_map:
+                            now_iso = now_ist.isoformat()
+                            fresh_prices_to_persist = {}
                             for item in results:
                                 s = item["symbol"]
-                                if item["cmp"] is None and s in live_map:
-                                    item["cmp"] = float(live_map[s])
-                            # Persist live CMP into stock_analysis_master in background
-                            try:
-                                bulk_update_cmp(live_map)
-                            except Exception:
-                                pass
+                                if s in live_map and live_map[s] is not None:
+                                    try:
+                                        p_val = float(live_map[s])
+                                        if p_val > 0:
+                                            item["cmp"] = p_val
+                                            item["cmp_updated_at"] = now_iso
+                                            fresh_prices_to_persist[s] = p_val
+                                    except (ValueError, TypeError):
+                                        pass
+
+                            if fresh_prices_to_persist:
+                                try:
+                                    bulk_update_cmp(fresh_prices_to_persist)
+                                except Exception:
+                                    pass
                     except Exception as lerr:
-                        logger.warning(f"Could not fetch live CMP for missing watchlist symbols: {lerr}")
+                        logger.warning(f"Could not fetch live CMP for missing/stale watchlist symbols: {lerr}")
 
                 try:
                     from corporate_events import decorate_events

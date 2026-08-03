@@ -3779,7 +3779,7 @@ function _renderUserWatchlistTable() {
         </td>
         <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
         <td class="mono font-bold" style="color:var(--text); text-align:center;">
-          ${item.last_health_score !== null && item.last_health_score !== undefined ? item.last_health_score.toFixed(1) : '—'}
+          ${item.last_health_score !== null && item.last_health_score !== undefined && Number(item.last_health_score) > 0 ? Number(item.last_health_score).toFixed(1) : '<span style="color:var(--muted); font-size:12px;">—</span>'}
         </td>
         <td style="text-align:center;">${statusBadge}</td>
         <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>

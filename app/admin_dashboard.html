@@ -7230,7 +7230,7 @@ function _renderManualWatchlist() {
       ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
       : `<span style="color:var(--muted); font-size:12px;">—</span>`;
 
-    const scoreText = it.last_health_score != null
+    const scoreText = (it.last_health_score != null && Number(it.last_health_score) > 0)
       ? `<span style="font-family:var(--font-mono); font-weight:700; color:${it.last_health_score >= 70 ? '#10b981' : it.last_health_score >= 50 ? '#f59e0b' : 'var(--muted)'}; font-size:13px;">${parseFloat(it.last_health_score).toFixed(1)}</span>`
       : `<span style="color:var(--muted); font-size:12px;">—</span>`;
 
@@ -7375,7 +7375,7 @@ function loadUserWatchlist() {
             </td>
             <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
             <td class="mono font-bold" style="color:var(--text); text-align:center;">
-              ${item.last_health_score !== null && item.last_health_score !== undefined ? item.last_health_score.toFixed(1) : '—'}
+              ${item.last_health_score !== null && item.last_health_score !== undefined && Number(item.last_health_score) > 0 ? Number(item.last_health_score).toFixed(1) : '—'}
             </td>
             <td style="text-align:center;">${statusBadge}</td>
             <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>
