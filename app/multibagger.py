@@ -1587,6 +1587,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             continue
         if price_data.turnover_20d < 1000000.0: # ₹10 Lakhs
             continue
+        # [OPTIMIZATION: TECHNICAL_PREFILTER_v1.0] Skip fundamental fetch for structurally broken stocks
+        # (price < SMA200 AND 6m momentum < -15% AND 5 consecutive closes below SMA200)
+        if price_data.sma_200 and price_data.price < price_data.sma_200 and price_data.mom_6m < -0.15 and price_data.closes_below_sma200_count >= 5:
+            continue
         shortlist_candidates.append(price_data)
         
     # Sort by turnover descending (no arbitrary cap — all liquid stocks get evaluated)
@@ -1596,7 +1600,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     # 3. Phase 2: Fetch Fundamentals
     fundamentals_list = []
     
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {}
         cached_count = 0
         for p in shortlist:

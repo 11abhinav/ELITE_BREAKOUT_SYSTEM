@@ -915,7 +915,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             elif not isinstance(all_data[sym].index, pd.RangeIndex):
                                 all_data[sym].index = all_data[sym].index.astype(str)
 
-                            all_data[sym].to_parquet(file_path)
+                            all_data[sym].to_parquet(file_path, compression='snappy')
 
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             meta = {
