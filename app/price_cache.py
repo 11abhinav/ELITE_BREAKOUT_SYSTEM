@@ -533,7 +533,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     symbols = watchlist["Stock"].tolist()
     all_data: dict[str, pd.DataFrame] = {}
     total = len(symbols)
-    batch_size = BATCH_DOWNLOAD_SIZE
+    if requester == "multibagger":
+        batch_size = int(os.environ.get("MULTIBAGGER_INNER_BATCH_SIZE", "250"))
+    else:
+        batch_size = BATCH_DOWNLOAD_SIZE
     fetcher = get_fetcher()
     rate_limited = False
 
