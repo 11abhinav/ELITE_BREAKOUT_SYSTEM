@@ -273,7 +273,18 @@ class YahooAdapter(BaseProviderAdapter):
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
-        for cand in [f"{sym}.NS", f"{sym}.BO"]:
+        candidates = [f"{sym}.NS", f"{sym}.BO"]
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            bse_code = bse_map.get(sym) or bse_map.get(f"{sym}.NS") or bse_map.get(f"{sym}.BO")
+            if bse_code:
+                candidates.append(f"{bse_code}.BO")
+        except Exception:
+            pass
+        candidates = list(dict.fromkeys(candidates))
+
+        for cand in candidates:
             try:
                 import yfinance as yf
                 t = yf.Ticker(cand)
