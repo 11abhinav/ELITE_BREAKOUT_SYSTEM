@@ -111,6 +111,9 @@ class UpstoxInstrumentMapper:
 
     def _load_cache(self):
         """Loads cached instrument map from DB or local disk if available."""
+        # [PHASE1_DIAG] Track source for warmup log
+        _load_source = None
+
         # 1. Try local disk
         if os.path.exists(_CACHE_FILE):
             try:
@@ -121,26 +124,37 @@ class UpstoxInstrumentMapper:
                     if isinstance(cached, dict) and len(cached) > 100:
                         self._symbol_map.update(cached)
                         self._last_download_ts = mtime
-                        logger.info(f"✅ Loaded {len(cached)} Upstox instrument keys from disk cache.")
-                        return
+                        _load_source = "disk"
             except Exception as e:
                 logger.warning(f"Failed to read disk cache for Upstox instruments: {e}")
 
         # 2. Try DB state
-        try:
-            from database import get_system_state
-            db_raw = get_system_state("upstox_instrument_map")
-            if db_raw:
-                db_data = json.loads(db_raw) if isinstance(db_raw, str) else db_raw
-                if isinstance(db_data, dict) and len(db_data) > 100:
-                    self._symbol_map.update(db_data)
-                    logger.info(f"✅ Loaded {len(db_data)} Upstox instrument keys from DB.")
-                    return
-        except Exception as e:
-            logger.debug(f"DB load for Upstox instrument map failed: {e}")
+        if _load_source is None:
+            try:
+                from database import get_system_state
+                db_raw = get_system_state("upstox_instrument_map")
+                if db_raw:
+                    db_data = json.loads(db_raw) if isinstance(db_raw, str) else db_raw
+                    if isinstance(db_data, dict) and len(db_data) > 100:
+                        self._symbol_map.update(db_data)
+                        _load_source = "db"
+            except Exception as e:
+                logger.debug(f"DB load for Upstox instrument map failed: {e}")
 
-        # If cache missing, trigger background download
-        self.trigger_background_download()
+        # [PHASE1_DIAG] Warmup verification log — confirms map is ready and its size
+        static_count = len(_STATIC_SYMBOL_MAP)
+        total_count = len(self._symbol_map)
+        if _load_source:
+            logger.info(
+                f"[WARMUP] Upstox instrument map ready: {total_count} keys "
+                f"(static={static_count}, dynamic={total_count - static_count}, source={_load_source})"
+            )
+        else:
+            logger.info(
+                f"[WARMUP] Upstox instrument map starting with static fallback only: "
+                f"{total_count} keys — triggering background download"
+            )
+            self.trigger_background_download()
 
     def trigger_background_download(self):
         """Downloads the Upstox complete master CSV in a background thread."""
@@ -217,7 +231,11 @@ class UpstoxInstrumentMapper:
             except Exception as e:
                 logger.warning(f"Could not save upstox_instrument_map to DB: {e}")
 
-            logger.info(f"✅ Upstox Master Instrument Mapper updated with {len(new_map)} keys!")
+            # [PHASE1_DIAG] Post-download warmup log
+            logger.info(
+                f"[WARMUP] Upstox instrument map updated via download: {len(new_map)} keys "
+                f"(static={len(_STATIC_SYMBOL_MAP)}, dynamic={len(new_map) - len(_STATIC_SYMBOL_MAP)})"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to download Upstox master instrument CSV: {e}")

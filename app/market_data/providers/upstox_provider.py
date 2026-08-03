@@ -1,4 +1,5 @@
 import logging
+import time
 import requests
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
@@ -31,6 +32,33 @@ _upstox_adapter = HTTPAdapter(
 _upstox_session = requests.Session()
 _upstox_session.mount("https://", _upstox_adapter)
 _upstox_session.mount("http://", _upstox_adapter)
+
+# [PHASE1_DIAG] Module-level cached resolver references.
+# Resolved once on first call; avoids repeated `from ... import ...` in the hot resolution path.
+_cached_resolver = None
+_cached_mapper_func = None
+
+def _get_cached_resolver():
+    """Returns the SymbolResolutionService instance, cached at module level."""
+    global _cached_resolver
+    if _cached_resolver is None:
+        try:
+            from symbol_resolution_engine import get_symbol_resolver
+            _cached_resolver = get_symbol_resolver()
+        except Exception:
+            _cached_resolver = False  # sentinel: import failed
+    return _cached_resolver if _cached_resolver is not False else None
+
+def _get_cached_mapper_func():
+    """Returns the upstox_instrument_mapper.get_upstox_instrument_key function, cached at module level."""
+    global _cached_mapper_func
+    if _cached_mapper_func is None:
+        try:
+            from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
+            _cached_mapper_func = get_upstox_instrument_key
+        except Exception:
+            _cached_mapper_func = False  # sentinel: import failed
+    return _cached_mapper_func if _cached_mapper_func is not False else None
 
 class UpstoxProvider(ProviderInterface):
     """
@@ -196,7 +224,7 @@ class UpstoxProvider(ProviderInterface):
     }
 
     def _get_instrument_key(self, symbol: str) -> str:
-        """Maps symbol to official Upstox instrument key using SymbolResolutionService."""
+        """Maps symbol to official Upstox instrument key using cached module-level resolvers."""
         clean = str(symbol).strip().upper()
         for sfx in (".NS", ".BO", ".BSE"):
             if clean.endswith(sfx):
@@ -210,22 +238,26 @@ class UpstoxProvider(ProviderInterface):
         if raw_clean in self._INDEX_KEY_MAP:
             return self._INDEX_KEY_MAP[raw_clean]
 
-        # 2. Dynamic symbol resolution service
-        try:
-            from symbol_resolution_engine import get_symbol_resolver
-            resolved = get_symbol_resolver().resolve(symbol, provider="upstox")
-            if resolved and resolved.is_valid and resolved.mapped_symbol:
-                return resolved.mapped_symbol
-        except Exception:
-            pass
+        # 2. Dynamic symbol resolution service (module-level cached — no hot-path import)
+        resolver = _get_cached_resolver()
+        if resolver:
+            try:
+                resolved = resolver.resolve(symbol, provider="upstox")
+                if resolved and resolved.is_valid and resolved.mapped_symbol:
+                    return resolved.mapped_symbol
+            except Exception:
+                pass
 
-        # 3. Dynamic Upstox Instrument Mapper lookup
-        try:
-            from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
-            return get_upstox_instrument_key(symbol)
-        except Exception:
-            clean_bare = clean.lstrip("^")
-            return f"NSE_EQ|{clean_bare}"
+        # 3. Upstox Instrument Mapper O(1) dict lookup (module-level cached — no hot-path import)
+        mapper_func = _get_cached_mapper_func()
+        if mapper_func:
+            try:
+                return mapper_func(symbol)
+            except Exception:
+                pass
+
+        clean_bare = clean.lstrip("^")
+        return f"NSE_EQ|{clean_bare}"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         import config
@@ -350,31 +382,47 @@ class UpstoxProvider(ProviderInterface):
         """Fetches live market quotes for multiple symbols from Upstox v2 API."""
         if not symbols:
             return {}
-            
+
         import config
         import urllib.parse
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         if not token:
             return {}
-            
+
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {token}"
         }
-        
+
         results = {}
         chunk_size = 500
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
-            formatted_keys = ",".join([urllib.parse.quote(self._get_instrument_key(s)) for s in chunk])
+
+            # [PHASE1_DIAG] Stage A: Instrument Key Resolution
+            _t_res = time.perf_counter()
+            formatted_keys_list = [urllib.parse.quote(self._get_instrument_key(s)) for s in chunk]
+            resolution_ms = (time.perf_counter() - _t_res) * 1000
+
+            formatted_keys = ",".join(formatted_keys_list)
             url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={formatted_keys}"
-            
+
             try:
+                # [PHASE1_DIAG] Stage B: HTTP Network Round-Trip
+                _t_http = time.perf_counter()
                 res = _upstox_session.get(url, headers=headers, timeout=10)
+                http_ms = (time.perf_counter() - _t_http) * 1000
+                payload_kb = len(res.content) / 1024 if res.content else 0
+
+                # [PHASE1_DIAG] Stage C: JSON Parsing
+                _t_json = time.perf_counter()
+                data = res.json() if res.status_code == 200 else {}
+                json_ms = (time.perf_counter() - _t_json) * 1000
+
+                # [PHASE1_DIAG] Stage D: Quote Merge
+                _t_merge = time.perf_counter()
                 if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    for key, quote in data.items():
-                        # Save under full key (NSE_EQ:INE...), pipe key (NSE_EQ|INE...), clean sym (INE...), and symbol name
+                    for key, quote in data.get("data", {}).items():
                         results[key] = quote
                         results[key.replace(":", "|")] = quote
                         clean_sym = key.split(":")[-1].split("|")[-1]
@@ -383,11 +431,30 @@ class UpstoxProvider(ProviderInterface):
                             results[str(quote["symbol"]).upper()] = quote
                 else:
                     logger.error(f"Failed live quote batch fetch (Status {res.status_code})")
+                merge_ms = (time.perf_counter() - _t_merge) * 1000
+
+                # [PHASE1_DIAG] Redundant-call detection: warn if calls exceed requested symbols
+                if len(formatted_keys_list) > len(chunk):
+                    logger.warning(
+                        f"[PHASE1_DIAG] Redundant resolution detected: "
+                        f"keys={len(formatted_keys_list)} > requested={len(chunk)}"
+                    )
+
+                logger.info(
+                    f"\U0001f4ca [LIVE_QUOTE_PIPELINE] chunk={len(chunk)} | "
+                    f"status={res.status_code} | payload={payload_kb:.1f}KB\n"
+                    f"   \u251c\u2500\u2500 Resolution stage : {resolution_ms:.1f}ms (calls={len(chunk)})\n"
+                    f"   \u251c\u2500\u2500 HTTP Network     : {http_ms:.1f}ms\n"
+                    f"   \u251c\u2500\u2500 JSON Parsing     : {json_ms:.1f}ms\n"
+                    f"   \u2514\u2500\u2500 Quote Merge      : {merge_ms:.1f}ms\n"
+                    f"   Total pipeline   : {resolution_ms + http_ms + json_ms + merge_ms:.1f}ms"
+                )
+
             except requests.RequestException as e:
                 logger.error(f"Network error fetching live quote batch: {e}", exc_info=True)
             except Exception as e:
                 logger.error(f"Unexpected error fetching live quote batch: {e}", exc_info=True)
-                
+
         return results
 
     def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y", retries: int = 3, range_from = None, range_to = None) -> MarketData:
