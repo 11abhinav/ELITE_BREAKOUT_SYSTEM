@@ -5842,8 +5842,8 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
 
                 p_hash = generate_password_hash(password, method='scrypt')
                 cur.execute("""
-                    INSERT INTO users (username, email, mobile, password_hash, first_name, last_name, role, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
+                    INSERT INTO users (username, email, mobile, password_hash, first_name, last_name, role, is_active, account_status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, 'approved')
                     RETURNING user_id
                 """, (username, email, mobile, p_hash, first_name, last_name, role))
                 user_id = cur.fetchone()[0]
@@ -5913,6 +5913,30 @@ def verify_user(identifier, password, ip_address: str = None, user_agent: str = 
     except Exception as e:
         logger.exception(f"Failed to verify user")
         return None
+
+def update_user_account_status(user_id: int, status: str) -> bool:
+    """Updates user account_status ('approved', 'rejected', 'suspended') and sets is_active accordingly."""
+    try:
+        status_clean = str(status).strip().lower()
+        is_active = (status_clean == 'approved')
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE users 
+                    SET account_status = %s, is_active = %s
+                    WHERE user_id = %s
+                """, (status_clean, is_active, user_id))
+                if not is_active:
+                    # Invalidate active sessions if user was rejected or suspended
+                    cur.execute("""
+                        UPDATE user_sessions SET is_online = FALSE, is_revoked = TRUE, logoff_time = NOW()
+                        WHERE user_id = %s
+                    """, (user_id,))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.exception(f"❌ Failed to update account status for user {user_id}")
+        return False
 
 def search_users(query: str, status_filter: str = "all") -> list:
     try:

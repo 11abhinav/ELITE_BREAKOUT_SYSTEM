@@ -343,10 +343,43 @@ def signup():
     try:
         user_id = database.create_user(username, email, mobile, password, first_name, last_name, role='user')
         if user_id:
-            # Success. Do NOT log them in. 
-            # For simplicity with fetch, just return 200 JSON with a success flag,
-            # or rely on frontend to redirect to a 'pending' page or login page with a message.
-            return jsonify({"success": True, "message": "Account created. Pending admin approval."}), 200
+            # Auto-login newly registered user immediately
+            user_data = database.verify_user(
+                username, 
+                password,
+                ip_address=request.remote_addr,
+                user_agent=request.user_agent.string[:255] if request.user_agent else None
+            )
+            if user_data and not user_data.get('error'):
+                session.clear()
+                session.permanent = True
+                session['user_id'] = user_data['user_id']
+                session['username'] = user_data['username']
+                session['first_name'] = user_data.get('first_name') or first_name
+                session['role'] = user_data['role']
+                session['must_change_password'] = False
+                session['session_token'] = user_data['session_token']
+
+            # Notify Admin in-app & via WebPush
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                display_name = first_name.strip().title() if first_name else username
+                insert_notification(
+                    notif_type="admin",
+                    title=f"👤 New User Signup: {display_name} (@{username})",
+                    message=f"User {first_name} {last_name} (@{username}, email: {email}, mobile: {mobile}) signed up and was auto-approved.",
+                    symbol=None
+                )
+                send_push_to_all(
+                    title=f"👤 New User Signup: @{username}",
+                    body=f"{display_name} ({email}) registered and auto-approved.",
+                    url="/admin"
+                )
+            except Exception as notif_err:
+                logger.warning(f"Could not send signup notification to admin: {notif_err}")
+
+            return jsonify({"success": True, "redirect": "/"}), 200
         
         # Duplicate or DB error
         return jsonify({"error": "Failed to create account"}), 400
@@ -785,6 +818,29 @@ def api_admin_reset_password():
     except Exception as e:
         logger.exception(f"Error resetting password")
         return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/admin/users/update_status", methods=["POST"])
+@admin_required
+@csrf.exempt
+def api_admin_users_update_status():
+    """Allows admin to approve, reject, or suspend a user account."""
+    data = request.json or {}
+    user_id = data.get("user_id")
+    status = str(data.get("status", "")).strip().lower()  # 'approved', 'rejected', 'suspended'
+    
+    if not user_id or status not in ('approved', 'rejected', 'suspended'):
+        return jsonify({"error": "Invalid user_id or status (must be approved, rejected, or suspended)"}), 400
+        
+    try:
+        from database import update_user_account_status
+        success = update_user_account_status(user_id, status)
+        if success:
+            return jsonify({"success": True, "message": f"User status updated to {status}"})
+        return jsonify({"error": "Failed to update user status"}), 500
+    except Exception as e:
+        logger.exception("Error updating user status")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/near_misses", methods=["GET"])

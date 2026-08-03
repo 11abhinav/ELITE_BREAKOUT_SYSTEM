@@ -430,8 +430,7 @@
         }
       } else {
         const data = await res.json();
-        alert('Signup successful! Please login.');
-        window.location.href = `${getApiBase()}/login`;
+        window.location.href = data.redirect || `${getApiBase()}/`;
       }
     } catch (err) {
       document.getElementById('error-msg').textContent = 'Network protocol error. Please try again.';
