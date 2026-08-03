@@ -165,6 +165,9 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                 except Exception as crawlora_err:
                     last_err_msg = str(crawlora_err)
                     logger.debug(f"Crawlora Bhavcopy fetch failed: {crawlora_err}")
+            else:
+                if attempt == 1:
+                    logger.info("ℹ️ CRAWLORA_API_KEY is not set or empty in environment. Falling back to ScraperAPI.")
 
             # 2. Fall back to ScraperAPI if Crawlora is missing or failed
             if response is None and scraper_key:
