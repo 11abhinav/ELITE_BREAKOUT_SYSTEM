@@ -314,9 +314,10 @@ USE_UPSTOX_PROVIDER = os.environ.get("USE_UPSTOX_PROVIDER", "True").lower() == "
 USE_FYERS_PROVIDER = os.environ.get("USE_FYERS_PROVIDER", "True").lower() == "true"
 
 # ── PERFORMANCE ENGINEERING V1 ROADMAP FEATURE FLAGS ──
-FEATURE_PARALLEL_SCANNERS_V1 = os.environ.get("FEATURE_PARALLEL_SCANNERS_V1", "True").lower() == "true"
-FEATURE_ASYNC_SYMBOL_PROBING_V1 = os.environ.get("FEATURE_ASYNC_SYMBOL_PROBING_V1", "True").lower() == "true"
-FEATURE_PROVIDER_LOCK_SPLIT_V1 = os.environ.get("FEATURE_PROVIDER_LOCK_SPLIT_V1", "True").lower() == "true"
+# Conservative production rollout: Default OFF (false) until explicitly enabled via environment variable
+FEATURE_PARALLEL_SCANNERS_V1 = os.environ.get("FEATURE_PARALLEL_SCANNERS_V1", "False").lower() == "true"
+FEATURE_ASYNC_SYMBOL_PROBING_V1 = os.environ.get("FEATURE_ASYNC_SYMBOL_PROBING_V1", "False").lower() == "true"
+FEATURE_PROVIDER_LOCK_SPLIT_V1 = os.environ.get("FEATURE_PROVIDER_LOCK_SPLIT_V1", "False").lower() == "true"
 SCAN_WORKER_THREADS = int(os.environ.get("SCAN_WORKER_THREADS", "4"))
 
 UPSTOX_ACCESS_TOKEN = os.environ.get("UPSTOX_ACCESS_TOKEN")
