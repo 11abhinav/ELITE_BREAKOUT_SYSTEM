@@ -333,6 +333,8 @@ class SymbolResolutionService:
             "probe_hits": 0,
             "negative_hits": 0,
             "total_requests": 0,
+            "latencies_ms": []
+        }
         import concurrent.futures
         self._async_probe_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="AsyncProbeWorker")
 
