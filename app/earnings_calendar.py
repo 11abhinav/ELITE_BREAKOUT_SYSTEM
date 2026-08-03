@@ -85,31 +85,61 @@ class EarningsCalendarService:
 
     def refresh_earnings_calendar(self, symbols: List[str]) -> int:
         """
-        Refreshes earnings calendar for a list of symbols and caches results in PostgreSQL.
-        Intended to run daily at 08:00 AM IST before scanning.
+        Refreshes earnings calendar for symbols and caches results in PostgreSQL.
+        Intended to run daily at 21:00 IST (9:00 PM) off-market window.
+        - Known earnings_date: skip if updated within 45 days.
+        - Missing/unverified: retry if updated older than 7 days.
+        - Gentle rate-limiting: 2 workers, 0.3s delay.
         """
         if not symbols:
             return 0
 
+        # ── 1. Skip symbols using 45-day (known date) / 7-day (missing date) TTL ─────
+        uncached_symbols = []
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Known earnings_date valid for 45 days; missing/unknown date retried after 7 days
+                    cur.execute("""
+                        SELECT symbol FROM earnings_calendar 
+                        WHERE (earnings_date IS NOT NULL AND updated_at >= NOW() - INTERVAL '45 days')
+                           OR (earnings_date IS NULL AND updated_at >= NOW() - INTERVAL '7 days')
+                    """)
+                    recently_updated = {r[0].strip().upper() for r in cur.fetchall()}
+                    uncached_symbols = [s for s in symbols if s.strip().upper() not in recently_updated]
+                    skipped_count = len(symbols) - len(uncached_symbols)
+                    if skipped_count > 0:
+                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing).")
+        except Exception as e:
+            logger.warning(f"⚠️ DB pre-check failed for earnings_calendar: {e}. Processing all symbols.")
+            uncached_symbols = symbols
+
+        if not uncached_symbols:
+            logger.info("✅ [EARNINGS CALENDAR] All symbols fresh in PostgreSQL cache (45d/7d TTL). Nothing to fetch!")
+            return 0
+
         updated_count = 0
-        logger.info(f"📅 [EARNINGS CALENDAR] Starting daily refresh for {len(symbols)} symbols...")
-        
+        logger.info(f"📅 [EARNINGS CALENDAR] Starting 21:00 IST refresh for {len(uncached_symbols)} symbols (2 workers, 0.3s throttle)...")
+
         from concurrent.futures import ThreadPoolExecutor, as_completed
         results = {}
-        
+
         def _fetch_one(sym):
+            time.sleep(0.3)  # Gentle delay between requests
             ed, status = self.provider.fetch_earnings_date(sym)
             return sym, ed, status
 
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(_fetch_one, s) for s in symbols]
+        # Gentle execution with 2 workers to avoid IP throttling
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(_fetch_one, s) for s in uncached_symbols]
             for fut in as_completed(futures):
                 try:
                     sym, ed, status = fut.result()
                     if ed:
                         results[sym] = (ed, status)
                 except Exception as e:
-                    logger.debug(f"Error fetching earnings date: {e}")
+                    logger.debug(f"Error fetching earnings date for {sym}: {e}")
 
         # Batch insert/upsert into PostgreSQL
         if results:
