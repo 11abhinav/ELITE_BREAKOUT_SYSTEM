@@ -149,6 +149,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                 return {}
 
             response = None
+            last_err_msg = None
             
             # 1. Try Crawlora First
             if crawlora_key:
@@ -162,6 +163,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     elif c_resp is not None and c_resp.status_code == 200:
                         response = c_resp
                 except Exception as crawlora_err:
+                    last_err_msg = str(crawlora_err)
                     logger.debug(f"Crawlora Bhavcopy fetch failed: {crawlora_err}")
 
             # 2. Fall back to ScraperAPI if Crawlora is missing or failed
@@ -181,10 +183,15 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     else:
                         response = s_resp
                 except Exception as scraper_err:
+                    last_err_msg = str(scraper_err)
                     logger.warning(f"ScraperAPI Bhavcopy fetch failed: {scraper_err}")
 
             if response is None:
                 logger.warning(f"⚠️ Attempt {attempt} failed via both Crawlora and ScraperAPI. Retrying...")
+                if attempt == MAX_RETRIES and last_err_msg:
+                    try:
+                        mark_failure('nse_bhavcopy', last_err_msg)
+                    except Exception: pass
                 time.sleep(2)
                 continue
 
