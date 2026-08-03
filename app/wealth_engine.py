@@ -1265,15 +1265,20 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         _stage_ms_concall = (time.perf_counter() - _t_concall) * 1000
         logger.info(f"⏱ [STAGE] concall_prefetch: {_stage_ms_concall:.0f}ms for {len(all_symbols_to_fetch)} symbols")
 
+        # [VERSION: BULK_PREFETCH_OPT_v1.0] Single-pass bulk fetch for all watchlist symbols.
+        # PriceCache handles provider-level batching internally while populating per-symbol RAM cache.
+        logger.info(f"💰 [WEALTH ENGINE] Pre-fetching 1D historical data for {len(all_symbols_to_fetch)} symbols...")
+        _t_hist_bulk = time.perf_counter()
+        all_historical_data = fetch_unified_historical(list(all_symbols_to_fetch), period="1y", interval="1d", requester="WEALTH_ENGINE_1D") or {}
+        _stage_ms_hist_bulk = (time.perf_counter() - _t_hist_bulk) * 1000
+        logger.info(f"⏱ [STAGE] 1D bulk_historical_fetch: {_stage_ms_hist_bulk:.0f}ms for {len(all_symbols_to_fetch)} symbols")
+
         _t_hist_total = time.perf_counter()
         _t_indicator_total_ms = 0.0
         for batch_num, chunk in enumerate(chunk_iterable(all_symbols_to_fetch, BATCH_SIZE), start=1):
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
-                # [VERSION: PERF_PHASE0_v1.0] Stage timing: historical fetch per batch
-                _t_hist_batch = time.perf_counter()
-                chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
-                _stage_ms_hist_batch = (time.perf_counter() - _t_hist_batch) * 1000
-                logger.debug(f"⏱ [STAGE] historical_fetch batch {batch_num}: {_stage_ms_hist_batch:.0f}ms ({len(chunk)} symbols)")
+                # Slice chunk historical data from bulk pre-fetched dictionary
+                chunk_historical_data = {sym: all_historical_data[sym] for sym in chunk if sym in all_historical_data}
 
                 # Slice from pre-fetched dicts — no additional API/DB calls per batch
                 chunk_live_prices = {sym: all_live_prices.get(sym) for sym in chunk}
