@@ -25,8 +25,8 @@ _upstox_retry = Retry(
     raise_on_status=False,
 )
 _upstox_adapter = HTTPAdapter(
-    pool_connections=2,
-    pool_maxsize=12,
+    pool_connections=4,
+    pool_maxsize=50,
     max_retries=_upstox_retry,
 )
 _upstox_session = requests.Session()
@@ -371,7 +371,7 @@ class UpstoxProvider(ProviderInterface):
         results = {}
         if not symbols:
             return results
-        max_workers = min(10, len(symbols))
+        max_workers = min(25, len(symbols))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
                 executor.submit(self.fetch_ohlcv, sym, timeframe, range_from, range_to): sym
@@ -543,7 +543,7 @@ class UpstoxProvider(ProviderInterface):
             return results
 
         prefix = f"[{caller}] " if caller else ""
-        max_workers = min(10, len(symbols))
+        max_workers = min(25, len(symbols))
         logger.info(f"{prefix}📥 Upstox: batch fetching {len(symbols)} symbols ({interval}, {period}) concurrently (workers={max_workers})...")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
