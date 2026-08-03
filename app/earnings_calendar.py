@@ -212,3 +212,104 @@ class EarningsCalendarService:
 
 # Global Singleton
 earnings_calendar_service = EarningsCalendarService()
+
+
+# =====================================================================================
+# STANDALONE RUNNER  (called by scheduler at 08:00 & 18:00 IST and by admin trigger)
+# =====================================================================================
+import threading
+_scan_lock = threading.Lock()
+
+
+def run_earnings_calendar_refresh() -> dict:
+    """
+    Refresh earnings_calendar table for all watchlist + excluded symbols.
+    Lock-protected to prevent concurrent runs.
+    Tracks progress in scanner_health table.
+    Returns: { "total_count": N, "updated_count": M }
+    """
+    if not _scan_lock.acquire(blocking=False):
+        logger.warning("📅 Earnings Calendar refresh already running. Skipping.")
+        raise RuntimeError("Earnings Calendar is already actively running!")
+
+    try:
+        from database import upsert_scanner_health
+        from config import WATCHLIST_PATH
+        import os
+
+        upsert_scanner_health(
+            "Earnings Calendar", "RUNNING",
+            error_msg="Earnings Calendar refresh in progress..."
+        )
+        logger.info("📅 [EARNINGS CALENDAR] Starting scheduled refresh...")
+
+        # ── Build symbol universe ────────────────────────────────────────────────
+        symbols_set: set = set()
+
+        if os.path.exists(WATCHLIST_PATH):
+            try:
+                df = pd.read_parquet(WATCHLIST_PATH)
+                if "Stock" in df.columns:
+                    symbols_set.update(df["Stock"].dropna().unique().tolist())
+            except Exception as e:
+                logger.warning(f"📅 Failed to read watchlist parquet: {e}")
+
+        excluded_paths = [
+            os.path.join(os.path.dirname(WATCHLIST_PATH), "elite_fundamental_watchlist_excluded.csv"),
+            os.path.join(os.path.dirname(WATCHLIST_PATH), "elite_fundamental_watchlist-excluded.csv"),
+            WATCHLIST_PATH.replace(".parquet", "_excluded.csv"),
+        ]
+        for exc_path in excluded_paths:
+            if os.path.exists(exc_path):
+                try:
+                    df_ex = pd.read_csv(exc_path)
+                    if "Stock" in df_ex.columns:
+                        symbols_set.update(df_ex["Stock"].dropna().tolist())
+                    break
+                except Exception as e:
+                    logger.warning(f"📅 Failed to read exclusion list {exc_path}: {e}")
+
+        symbols = sorted(symbols_set)
+        total_count = len(symbols)
+
+        if not symbols:
+            logger.warning("📅 [EARNINGS CALENDAR] No symbols found — watchlist may not be ready yet.")
+            upsert_scanner_health(
+                "Earnings Calendar", "OK",
+                last_success=datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S"),
+                total_count=0, processed_count=0,
+                error_msg="No symbols in watchlist"
+            )
+            return {"total_count": 0, "updated_count": 0}
+
+        logger.info(f"📅 [EARNINGS CALENDAR] Refreshing for {total_count} symbols via Yahoo Finance...")
+
+        # ── Run the refresh ─────────────────────────────────────────────────────
+        updated_count = earnings_calendar_service.refresh_earnings_calendar(symbols)
+
+        # ── Update health ────────────────────────────────────────────────────────
+        upsert_scanner_health(
+            "Earnings Calendar", "OK",
+            last_success=datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S"),
+            total_count=total_count,
+            processed_count=updated_count,
+            error_msg=f"Updated {updated_count}/{total_count} symbols"
+        )
+        logger.info(f"✅ [EARNINGS CALENDAR] Refresh complete — {updated_count}/{total_count} symbols updated.")
+        return {"total_count": total_count, "updated_count": updated_count}
+
+    except RuntimeError:
+        raise  # propagate lock-contention error cleanly
+    except Exception as e:
+        logger.exception("❌ [EARNINGS CALENDAR] Refresh failed")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health(
+                "Earnings Calendar", "DOWN",
+                error_msg=str(e)[:500]
+            )
+        except Exception:
+            pass
+        raise
+    finally:
+        _scan_lock.release()

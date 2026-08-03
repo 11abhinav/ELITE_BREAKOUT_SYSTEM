@@ -1332,6 +1332,8 @@ def run_system_scheduler():
     last_rotation_date = None
     evening_scanners_ran = False
     warmup_ran = False
+    earnings_calendar_morning_ran = False
+    earnings_calendar_evening_ran = False
     
     try:
         from stock_analyzer import refresh_master_symbols_universe
@@ -1397,7 +1399,21 @@ def run_system_scheduler():
                     logger.warning(f"⚠️ [07:00 AM IST] Master symbols refresh warning: {_mse}")
 
             now = datetime.now(IST)
-            
+
+            # 8:00 AM - Earnings Calendar Morning Refresh
+            if now.hour == 8 and now.minute >= 0 and not earnings_calendar_morning_ran:
+                earnings_calendar_morning_ran = True
+                def _run_earnings_morning():
+                    try:
+                        logger.info("📅 SCHEDULER | [08:00 IST] Earnings Calendar morning refresh starting...")
+                        run_earnings_calendar_refresh()
+                    except Exception as e:
+                        logger.error(f"❌ SCHEDULER | Earnings Calendar morning refresh failed: {e}")
+                import threading as _t
+                _t.Thread(target=_run_earnings_morning, name="EarningsCalendar-Morning", daemon=True).start()
+            elif now.hour != 8:
+                earnings_calendar_morning_ran = False
+
             # 8:30 AM - Verify Scans
             if now.hour == 8 and now.minute >= 30 and not verify_scans_ran:
                 verify_scans_ran = True
@@ -1466,7 +1482,20 @@ def run_system_scheduler():
             if now.hour >= 18 and not evening_scanners_ran:
                 from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
                 evening_scanners_ran = True
-                
+
+                # 18:00 - Earnings Calendar Evening Refresh (runs once before evening batch)
+                if not earnings_calendar_evening_ran:
+                    earnings_calendar_evening_ran = True
+                    def _run_earnings_evening():
+                        try:
+                            logger.info("📅 SCHEDULER | [18:00 IST] Earnings Calendar evening refresh starting...")
+                            run_earnings_calendar_refresh()
+                        except Exception as e:
+                            logger.error(f"❌ SCHEDULER | Earnings Calendar evening refresh failed: {e}")
+                    import threading as _t
+                    _t.Thread(target=_run_earnings_evening, name="EarningsCalendar-Evening", daemon=True).start()
+
+
                 def _run_evening_batch_async():
                     import concurrent.futures
                     wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
@@ -1505,6 +1534,7 @@ def run_system_scheduler():
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
             elif now.hour < 18:
                 evening_scanners_ran = False
+                earnings_calendar_evening_ran = False
                 
             # 18:55 - Hard Release for Evening Batch Lock
             if now.hour == 18 and now.minute >= 55:
@@ -1655,6 +1685,7 @@ def check_scanner_staleness(now):
 # [VERSION: TRIGGER_AI_WORKER_v1.2] Uncomment AI Worker thread and imports to enable background concall worker daemon
 from ai_worker import run_worker_loop
 from pledge_worker import worker_loop as run_pledge_loop
+from earnings_calendar import run_earnings_calendar_refresh
 
 def run_multibagger_exit_monitor():
     """Independent background daemon to monitor multibagger exits every 15 minutes."""
@@ -1879,6 +1910,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
         "MULTIBAGGER_EXIT": _trigger_multibagger_exit,
         "WEALTH_EXIT": _trigger_wealth_exit,
+        "Earnings Calendar": _trigger_earnings_calendar,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -1898,6 +1930,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
         "MULTIBAGGER_EXIT": lambda: scanner_execution_lock,
         "WEALTH_EXIT": lambda: scanner_execution_lock,
+        "Earnings Calendar": lambda: __import__('earnings_calendar')._scan_lock,
     }
     
     lock_fn = LOCK_MAP.get(scanner_key)
@@ -2030,6 +2063,12 @@ def _trigger_multibagger():
 def _trigger_ai_worker():
     from ai_worker import run_ai_worker_scan_once
     return run_ai_worker_scan_once()
+
+
+def _trigger_earnings_calendar():
+    from earnings_calendar import run_earnings_calendar_refresh
+    result = run_earnings_calendar_refresh()
+    return {"total_count": result.get("total_count", 0), "processed_count": result.get("updated_count", 0)}
 
 def _trigger_performance_tracker():
     from performance_tracker import build_performance_data
