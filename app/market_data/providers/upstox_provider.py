@@ -223,7 +223,7 @@ class UpstoxProvider(ProviderInterface):
         "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
     }
 
-_inst_key_cache = {}
+    _inst_key_cache = {}
 
     def _get_instrument_key(self, symbol: str) -> str:
         """Maps symbol to official Upstox instrument key using O(1) RAM cache & instrument mapper first."""
