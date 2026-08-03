@@ -98,7 +98,27 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
 
 _cache: dict[tuple, dict] = {}
 _lock = threading.Lock()
-_fetch_lock = threading.Lock()  # CRITICAL: Global lock to serialize API fetches across all scanners (prevents thundering herd)
+_fetch_lock = threading.Lock()  # Monolithic global fallback lock
+
+# [PHASE4_ISOLATION_v1.0] Per-provider lock split for parallel fetch pipeline
+_provider_locks = {
+    "upstox": threading.Lock(),
+    "fyers": threading.Lock(),
+    "bse": threading.Lock(),
+    "yahoo": threading.Lock(),
+}
+
+def get_provider_fetch_lock(requester: str = None) -> threading.Lock:
+    """Returns provider-specific lock when FEATURE_PROVIDER_LOCK_SPLIT_V1 is True, else monolithic fallback."""
+    from config import FEATURE_PROVIDER_LOCK_SPLIT_V1, DATA_PROVIDER
+    if not FEATURE_PROVIDER_LOCK_SPLIT_V1:
+        return _fetch_lock
+    prov = str(requester or DATA_PROVIDER or "fyers").lower()
+    if "upstox" in prov: return _provider_locks["upstox"]
+    if "fyers" in prov: return _provider_locks["fyers"]
+    if "bse" in prov: return _provider_locks["bse"]
+    return _provider_locks["yahoo"]
+
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
 # Cache metrics tracking
@@ -279,12 +299,11 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
             _cache_misses += len(missing_symbols)
             logger.debug(f"📦 Price cache partial/miss | {interval} | {period} | Cached: {len(cached_result)}, Fetching: {len(missing_symbols)}")
 
-    # CRITICAL FIX: Use global lock to serialize API fetches across all scanners
-    # This prevents thundering herd where 5+ scanners fetch simultaneously
-    # Lock ensures only 1 scanner fetches at a time; others hit cache (reducing API load 10-25×)
-    logger.debug(f"🔒 Attempting to acquire global fetch lock for {interval}|{period}...")
-    with _fetch_lock:
-        logger.debug(f"🔓 Global fetch lock acquired for {interval}|{period}")
+    # [PHASE4_ISOLATION_v1.0] Provider lock isolation to serialize per-provider API fetches
+    fetch_lock = get_provider_fetch_lock(requester)
+    logger.debug(f"🔒 Attempting to acquire fetch lock for {interval}|{period}...")
+    with fetch_lock:
+        logger.debug(f"🔓 Fetch lock acquired for {interval}|{period}")
         
         # Double-check cache for missing symbols in case concurrent thread populated them while waiting for lock
         with _lock:

@@ -296,11 +296,23 @@ class SymbolResolutionService:
             "probe_hits": 0,
             "negative_hits": 0,
             "total_requests": 0,
-            "latencies_ms": []
-        }
+        import concurrent.futures
+        self._async_probe_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="AsyncProbeWorker")
 
         # Initialize Memory Index Store from DB
         self.reload_memory_indexes()
+
+    def _enqueue_async_probe(self, provider: str, symbol: str, adapter: BaseProviderAdapter, metadata: Optional[InstrumentMetadata]):
+        """Dispatches non-blocking symbol probing to background worker thread."""
+        def _async_probe_job():
+            try:
+                resolved = adapter.probe_candidates(symbol, metadata)
+                if resolved and resolved.is_valid:
+                    self._cache_and_persist_mapping(provider, symbol, resolved)
+                    logger.info(f"✅ [AsyncProbeJob] Resolved {symbol} on {provider} → {resolved.mapped_symbol}")
+            except Exception as e:
+                logger.debug(f"Async probe job failed for {symbol}: {e}")
+        self._async_probe_executor.submit(_async_probe_job)
 
     def reload_memory_indexes(self):
         """
@@ -419,6 +431,13 @@ class SymbolResolutionService:
                 return resolved
 
             # ── LEVEL 3: Smart Series Probing ─────────────────────────────────────────
+            from config import FEATURE_ASYNC_SYMBOL_PROBING_V1
+            if FEATURE_ASYNC_SYMBOL_PROBING_V1:
+                self._enqueue_async_probe(prov, symbol.strip().upper(), adapter, metadata)
+                fallback_cand = f"NSE:{sym_clean}-EQ" if prov == "fyers" else f"NSE_EQ|{sym_clean}"
+                logger.info(f"🚀 [AsyncProbe] Dispatched non-blocking probe for {sym_clean} on {prov}. Using fallback {fallback_cand}")
+                return ResolvedInstrument(f"EQ:{sym_clean}", sym_clean, prov, fallback_cand, "NSE", "EQ", 70, "PROBING_ASYNC")
+
             resolved = adapter.probe_candidates(symbol, metadata)
             if resolved and resolved.is_valid:
                 self._cache_and_persist_mapping(prov, symbol.strip().upper(), resolved)

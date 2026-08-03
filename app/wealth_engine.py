@@ -1328,15 +1328,33 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 
                 tracker.mark_fetch_complete(row_count=rows_fetched)
                 
-                # [VERSION: PERF_PHASE0_v1.0] Stage timing: indicator calc per symbol
-                for i, sym in enumerate(chunk):
-                    try:
-                        _t_sym = time.perf_counter()
-                        result = process_symbol(i, sym, chunk_historical_data, chunk_concalls)
-                        technicals.append(result)
-                        _t_indicator_total_ms += (time.perf_counter() - _t_sym) * 1000
-                    except Exception as e:
-                        logger.error(f"❌ Error processing symbol {sym}: {e}")
+                # [VERSION: PERF_PHASE0_v1.0 & PHASE2_v1.0] Stage timing: indicator calc per symbol
+                from config import FEATURE_PARALLEL_SCANNERS_V1, SCAN_WORKER_THREADS
+                if FEATURE_PARALLEL_SCANNERS_V1 and len(chunk) > 1:
+                    _t_parallel = time.perf_counter()
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=SCAN_WORKER_THREADS, thread_name_prefix="WealthWorker") as executor:
+                        future_to_sym = {
+                            executor.submit(process_symbol, i, sym, chunk_historical_data, chunk_concalls): sym
+                            for i, sym in enumerate(chunk)
+                        }
+                        for future in concurrent.futures.as_completed(future_to_sym):
+                            sym = future_to_sym[future]
+                            try:
+                                result = future.result()
+                                technicals.append(result)
+                            except Exception as e:
+                                logger.error(f"❌ Error processing symbol {sym} in parallel: {e}")
+                    _parallel_ms = (time.perf_counter() - _t_parallel) * 1000
+                    logger.info(f"⚡ [PARALLEL_SCANNER] Batch {batch_num}/{total_batches}: processed {len(chunk)} symbols in {_parallel_ms:.1f}ms (workers={SCAN_WORKER_THREADS})")
+                else:
+                    for i, sym in enumerate(chunk):
+                        try:
+                            _t_sym = time.perf_counter()
+                            result = process_symbol(i, sym, chunk_historical_data, chunk_concalls)
+                            technicals.append(result)
+                            _t_indicator_total_ms += (time.perf_counter() - _t_sym) * 1000
+                        except Exception as e:
+                            logger.error(f"❌ Error processing symbol {sym}: {e}")
                     
                 # Explicit cleanup of large DataFrame references
                 del chunk_historical_data
