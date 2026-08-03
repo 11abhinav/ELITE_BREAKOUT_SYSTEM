@@ -1592,13 +1592,18 @@ async function markNotificationSeen(id, symbol, title) {
     try {
         await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
         fetchNotifications(); // refresh
-        // Also pre-fill the search/filter if the user clicked it
+        document.getElementById('notif-dropdown').classList.remove('show');
         if(symbol && symbol !== 'null') {
             title = title || '';
             const upTitle = title.toUpperCase();
-            if (!(upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED')) {
-                window.location.href = '/admin?sym=' + encodeURIComponent(symbol);
+            if (upTitle.includes('DEEP ANALYSIS READY') || upTitle.includes('ANALYSIS READY') || upTitle.includes('ANALYSIS DONE') || upTitle.includes('WATCHLIST')) {
+                // Redirect to main/admin dashboard with watchlist_sym parameter
+                window.location.href = '/admin?watchlist_sym=' + encodeURIComponent(symbol);
                 return;
+            }
+            // Wealth alert → switch to Alert History tab and filter symbol
+            if (typeof openTab === 'function') {
+                openTab('alert-history');
             }
             const filterInput = document.getElementById('filter-alert-symbol');
             if(filterInput) {
@@ -1607,7 +1612,6 @@ async function markNotificationSeen(id, symbol, title) {
                 filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
             }
         }
-        document.getElementById('notif-dropdown').classList.remove('show');
     } catch (e) {
         console.error(e);
     }
@@ -1643,6 +1647,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const sym = urlParams.get('sym');
     if (sym) {
         setTimeout(() => {
+            if (typeof openTab === 'function') {
+                openTab('alert-history');
+            }
             const filterInput = document.getElementById('filter-alert-symbol');
             if (filterInput) {
                 filterInput.value = sym;

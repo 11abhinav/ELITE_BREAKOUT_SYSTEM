@@ -5902,8 +5902,15 @@ fetchNotifications().then(scheduleNextNotificationFetch);
 
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
+    const watchlistSym = urlParams.get('watchlist_sym');
     const sym = urlParams.get('sym');
-    if (sym) {
+
+    if (watchlistSym) {
+        setTimeout(() => {
+            if (typeof switchAdminTab === 'function') switchAdminTab('watchlist-users');
+            openSavedWatchlistAnalysis(watchlistSym);
+        }, 600);
+    } else if (sym) {
         const filterInput = document.getElementById('filterSymbol');
         if (filterInput) {
             filterInput.value = sym;
@@ -7425,9 +7432,9 @@ function showAnalysisInfoModal(sym) {
 }
 
 function openSavedWatchlistAnalysis(target) {
-  // Switch to watchlist tab so user is redirected regardless of current active tab
-  if (typeof switchTab === 'function') {
-    switchTab('watchlist-users');
+  // Switch to watchlist tab
+  if (typeof switchAdminTab === 'function') {
+    switchAdminTab('watchlist-users');
   }
 
   let item = null;
