@@ -25,7 +25,7 @@ _upstox_retry = Retry(
     raise_on_status=False,
 )
 _upstox_adapter = HTTPAdapter(
-    pool_connections=4,
+    pool_connections=25,
     pool_maxsize=50,
     max_retries=_upstox_retry,
 )
