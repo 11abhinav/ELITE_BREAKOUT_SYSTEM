@@ -1109,10 +1109,22 @@ def export_watchlist(list_type):
     if list_type == "fundamental":
         file_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
         filename = "elite_fundamental_watchlist.csv"
-    elif list_type == "excluded":
-        # The excluded file is still generated as CSV in daily_builder
-        file_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
-        filename = "elite_fundamental_watchlist_excluded.csv"
+    elif list_type == "manual":
+        from database import get_user_watchlist
+        import pandas as pd
+        import io
+        user_id = str(session.get("user_id", "DEFAULT_USER"))
+        items = get_user_watchlist(user_id=user_id)
+        if not items:
+            return jsonify({"error": "Your manual watchlist is empty."}), 404
+        df = pd.DataFrame(items)
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-disposition": f"attachment; filename=manual_watchlist_{user_id}.csv"}
+        )
     else:
         return jsonify({"error": "Invalid list type requested."}), 400
         
