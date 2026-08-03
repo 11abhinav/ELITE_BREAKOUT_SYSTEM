@@ -2456,16 +2456,27 @@ async function markNotificationSeen(id, symbol, title) {
     try {
         await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
         fetchNotifications(); // refresh
-        // Also pre-fill the search/filter if the user clicked it
-        if(symbol && symbol !== 'null') {
+        document.getElementById('notif-dropdown').classList.remove('show');
+
+        if (symbol && symbol !== 'null') {
             title = title || '';
             const upTitle = title.toUpperCase();
+
+            // Watchlist deep analysis notification → switch to watchlist tab and open modal
+            if (upTitle.includes('DEEP ANALYSIS READY') || upTitle.includes('ANALYSIS READY') || upTitle.includes('ANALYSIS DONE')) {
+                openSavedWatchlistAnalysis(symbol);
+                return;
+            }
+
+            // Wealth / position closed → redirect to wealth page
             if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
                 window.location.href = '/wealth?sym=' + encodeURIComponent(symbol);
                 return;
             }
+
+            // Default → filter trade table
             const filterInput = document.getElementById('filterSymbol');
-            if(filterInput) {
+            if (filterInput) {
                 document.getElementById('filterDate').value = 'ALL';
                 document.getElementById('filterScanner').value = '';
                 const statusInput = document.getElementById('filterStatus');
@@ -2474,7 +2485,6 @@ async function markNotificationSeen(id, symbol, title) {
                 if (catInput) catInput.value = '';
                 filterInput.value = symbol;
                 renderTradeTable();
-                
                 filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
                 const table = document.querySelector('.tbl-wrap table');
                 if (table) {
@@ -2484,7 +2494,6 @@ async function markNotificationSeen(id, symbol, title) {
                 }
             }
         }
-        document.getElementById('notif-dropdown').classList.remove('show');
     } catch (e) {
         console.error(e);
     }
@@ -3474,6 +3483,8 @@ function saveToUserWatchlist(sym, company, score) {
   .then(res => res.json())
   .then(res => {
     if (res.success) {
+      const searchInput = document.getElementById('stock-search-input');
+      if (searchInput) searchInput.value = '';
       closeDiagnosticModal();
       showCustomToast(`⭐ #${sym} saved! Deep analysis running. <a href="#" onclick="openSavedWatchlistAnalysis('${sym}'); return false;" style="color:#3b82f6; font-weight:800; text-decoration:underline; margin-left:6px;">View Analysis ➔</a>`, 'success');
       if (btnContainer) {
