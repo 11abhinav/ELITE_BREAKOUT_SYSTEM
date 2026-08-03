@@ -2666,6 +2666,7 @@
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit signals for Swing/EOD/Reversal alerts · 5m' },
       'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit signals for Multibagger positions · 15m' },
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit signals for Wealth positions · 5m' },
+      'Earnings Calendar': { label: 'Earnings Calendar', desc: 'Quarterly results refresh · 15:30–18:00' },
     };
 
     // [VERSION: SCANNER_PERF_v1.0] In-memory grouped errors map – populated once per render cycle
@@ -2792,7 +2793,7 @@
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -2923,7 +2924,7 @@
           let dismissBtn = "";
           
           if (data.total_count != null) {
-              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED' || sc === 'Pledge Worker' || sc === 'AI Worker') {
+              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED' || sc === 'Pledge Worker' || sc === 'AI Worker' || sc === 'Earnings Calendar') {
                   alertLabel = "Processed / Watchlist";
                   const proc = data.processed_count != null ? data.processed_count : data.today_alerts;
                   alertHtml = `
