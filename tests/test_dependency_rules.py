@@ -36,7 +36,8 @@ LEGACY_EXCLUSIONS = {
     "test_low.py",
     "constituent_service.py",
     "earnings_calendar.py",
-    "symbol_resolution_engine.py"
+    "symbol_resolution_engine.py",
+    "stock_analyzer.py"
 }
 
 

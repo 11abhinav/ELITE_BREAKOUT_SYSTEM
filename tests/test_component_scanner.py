@@ -57,7 +57,7 @@ def test_scanner_promotion_happy_path(mock_compute_sl, mock_strip, mock_upsert, 
     df_5m["SWING_LOW"] = 95.0
     
     # Mock data fetch (it requests 30m, 15m, 5m, daily)
-    def fetch_side_effect(symbols_df, period, interval):
+    def fetch_side_effect(symbols_df, period, interval, **kwargs):
         return {"TEST.NS": df_5m}
         
     mock_fetch.side_effect = fetch_side_effect
@@ -93,7 +93,7 @@ def test_scanner_rejection_low_volume(mock_om_class, mock_market_open, mock_fetc
     df_5m["EMA9"] = 99.5
     df_5m["ATR20"] = 1.0
     
-    def fetch_side_effect(symbols_df, period, interval):
+    def fetch_side_effect(symbols_df, period, interval, **kwargs):
         if interval == "5m":
             return {"TEST.NS": df_5m}
         return {}
@@ -130,7 +130,7 @@ def test_scanner_duplicate_suppression(mock_check_recent, mock_om_class, mock_ma
     df_5m["EMA9"] = 99.5
     df_5m["ATR20"] = 1.0
     
-    def fetch_side_effect(symbols_df, period, interval):
+    def fetch_side_effect(symbols_df, period, interval, **kwargs):
         if interval == "5m":
             return {"TEST.NS": df_5m}
         return {}
