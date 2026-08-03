@@ -284,21 +284,22 @@ def load_cache() -> dict:
             logger.warning(f"⚠️ Failed to load fundamentals cache: {e}")
     return {}
 
-def save_fundamentals_cache(cache_data: dict):
+def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
     """Write current fundamentals to local JSON cache file."""
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
     try:
         with open(CACHE_PATH, "w") as f:
-            json.dump(cache_data, f, indent=4)
+            json.dump(cache_data, f, separators=(',', ':'))
         logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
         
-        # Backup to Postgres DB so it survives Railway restarts
-        try:
-            from database import upload_parquet_to_db
-            upload_parquet_to_db("multibagger_cache", CACHE_PATH)
-            logger.info("☁️ [CACHE] Uploaded multibagger fundamentals cache to Postgres DB")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to backup multibagger cache to DB: {e}")
+        if sync_to_db:
+            # Backup to Postgres DB so it survives Railway restarts
+            try:
+                from database import upload_parquet_to_db
+                upload_parquet_to_db("multibagger_cache", CACHE_PATH)
+                logger.info("☁️ [CACHE] Uploaded multibagger fundamentals cache to Postgres DB")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to backup multibagger cache to DB: {e}")
             
     except Exception as e:
         logger.exception(f"❌ Failed to save fundamentals cache")
@@ -1634,10 +1635,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                         if fetched_count % 10 == 0 or fetched_count == fetch_total:
                             logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
                         
-                        # Save in chunks to prevent data loss if restarted
+                        # Save in chunks to prevent data loss if restarted (sync to DB deferred until final save)
                         if fetched_count % 50 == 0:
-                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
-                            save_fundamentals_cache(cache)
+                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals locally...")
+                            save_fundamentals_cache(cache, sync_to_db=False)
                     else:
                         logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
                 except Exception as e:
@@ -1647,7 +1648,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                 
         if fetched_count > 0:
             logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")
-            save_fundamentals_cache(cache)
+            save_fundamentals_cache(cache, sync_to_db=True)
         
         # Now that cache is fully populated concurrently, run exit monitor on open positions
         run_exit_monitor(price_data_map, cache, is_test_mode)
