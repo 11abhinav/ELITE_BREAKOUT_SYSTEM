@@ -1273,6 +1273,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 bw_df.to_parquet(MULTI_TF_PATH)
                 upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
                 logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+                
+                # Upload intraday history bundles to DB for instant cold-start boot recovery (<0.5s)
+                from database import upload_history_bundle_to_db
+                for _tf in ("1h", "30m", "15m", "5m"):
+                    upload_history_bundle_to_db(_tf)
         except Exception as _mtf_pe:
             logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
 

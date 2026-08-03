@@ -1219,8 +1219,8 @@ def run_system_scheduler():
         # 0. Restore Historical Parquet Cache from DB (<0.5s cold boot restoration)
         try:
             from database import restore_history_bundle_from_db
-            restore_history_bundle_from_db("1d")
-            restore_history_bundle_from_db("15m")
+            for _tf in ("1d", "1h", "30m", "15m", "5m"):
+                restore_history_bundle_from_db(_tf)
         except Exception as hb_err:
             logger.debug(f"History bundle restore check at boot: {hb_err}")
 
