@@ -35,13 +35,17 @@ def get_crawlora_api_key() -> str:
     """Parse comma-separated CRAWLORA_API_KEY env var and return the first non-exhausted key."""
     keys_str = os.getenv("CRAWLORA_API_KEY", "")
     if not keys_str:
+        logger.warning("⚠️ [CRAWLORA] CRAWLORA_API_KEY environment variable is EMPTY or NOT SET!")
         return ""
     keys = [k.strip() for k in keys_str.split(',') if k.strip()]
     
     for k in keys:
         if not _is_key_exhausted_today(f"crawlora_{k}"):
+            masked_key = f"{k[:4]}...{k[-4:]}" if len(k) > 8 else "CONFIG_KEY"
+            logger.info(f"🔑 [CRAWLORA] Using active API key [{masked_key}] (out of {len(keys)} total key(s))")
             return k
             
+    logger.warning("⚠️ [CRAWLORA] All provided Crawlora API keys are marked EXHAUSTED for today!")
     return ""
 
 def mark_crawlora_key_exhausted_today(key: str):
