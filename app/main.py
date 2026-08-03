@@ -1159,11 +1159,18 @@ def run_system_scheduler():
                     logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (15-min BUY alert cycle)")
                     from telemetry_manager import telemetry
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
-                    _w_exec_start = time.time()
                     with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
                         from wealth_engine import run_wealth_scan
                         run_wealth_scan()
-                    duration_sec = round(time.time() - _w_exec_start, 1)
+                    duration_sec = round(time.time() - start_time, 1)
+                    now_str = datetime.now(IST).isoformat()
+                    upsert_scanner_health(
+                        "Wealth Engine",
+                        status="OK",
+                        last_success=now_str,
+                        scheduled_for="Every 15m (9:15 AM - 3:30 PM)",
+                        duration_seconds=duration_sec
+                    )
                     logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
                 else:
                     logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 15-min BUY scan.")
