@@ -38,6 +38,7 @@
   <title>Abhinav's Screener Dashboard</title>
 
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/shared.css">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
@@ -7051,7 +7052,7 @@ function loadUserWatchlist() {
         }
 
         return `<tr>
-          <td>${item.symbol}</td>
+          <td>${item.symbol}${typeof renderEventBadges === 'function' ? renderEventBadges(item.event_badges) : ''}</td>
           <td style="text-align:center;">${item.health_score || '—'}</td>
           <td style="text-align:center;">${statusBadge}</td>
           <td style="text-align:center;">${formatISTDate(item.added_at)}</td>
@@ -7807,6 +7808,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 </script>
+<script src="/static/shared_ui.js"></script>
 </body>
 
 </html>

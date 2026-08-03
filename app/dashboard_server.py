@@ -3456,6 +3456,12 @@ def api_analyze_stock():
                 logger.info(f"⚡ Non-blocking deep scan triggered for {sym_clean}. Returning instant cache and spawning background refresh thread.")
                 threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
 
+            try:
+                from corporate_events import decorate_events
+                cached_master = decorate_events([cached_master])[0]
+            except Exception as _ce_err:
+                logger.debug(f"Event decoration error in analyze_stock: {_ce_err}")
+
             return jsonify(cached_master)
 
         # 2. If no cache exists, return instant live CMP and spawn background deep analysis

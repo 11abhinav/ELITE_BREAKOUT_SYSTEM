@@ -6328,6 +6328,12 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     except Exception as lerr:
                         logger.warning(f"Could not fetch live CMP for missing watchlist symbols: {lerr}")
 
+                try:
+                    from corporate_events import decorate_events
+                    results = decorate_events(results)
+                except Exception as _ce_err:
+                    logger.debug(f"Corporate event decoration warning for watchlist: {_ce_err}")
+
                 return results
     except Exception as e:
         logger.error(f"Failed to fetch user watchlist for {user_id}: {e}")
