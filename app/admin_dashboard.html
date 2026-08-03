@@ -6673,6 +6673,8 @@ document.addEventListener('keydown', function(e) {
 function renderStockDiagnosticModal(data) {
   let container = document.getElementById('stock-diagnostic-main-container');
   if (!container) return;
+  container.style.display = 'flex';
+
 
   const realSym = (data.symbol || '').trim().toUpperCase();
   const isActuallyInWatchlist = WATCHLIST_ITEMS_CACHE.some(x => x && x.symbol && x.symbol.toUpperCase() === realSym);
@@ -6899,7 +6901,7 @@ function saveToUserWatchlist(sym, company, score) {
   .then(res => {
     if (res.success) {
       closeDiagnosticModal();
-      showCustomToast(`⭐ #${sym} saved! Deep analysis started in background.`, 'success');
+      showCustomToast(`⭐ #${sym} saved! Deep analysis running. <a href="#" onclick="openSavedWatchlistAnalysis('${sym}'); return false;" style="color:#3b82f6; font-weight:800; text-decoration:underline; margin-left:6px;">View Analysis ➔</a>`, 'success');
       if (btnContainer) {
         btnContainer.innerHTML = `
           <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
@@ -7413,6 +7415,11 @@ function showAnalysisInfoModal(sym) {
 }
 
 function openSavedWatchlistAnalysis(target) {
+  // Switch to watchlist tab so user is redirected regardless of current active tab
+  if (typeof switchTab === 'function') {
+    switchTab('watchlist-users');
+  }
+
   let item = null;
   let sym = '';
 
