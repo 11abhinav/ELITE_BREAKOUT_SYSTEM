@@ -7200,12 +7200,12 @@ function _renderManualWatchlist() {
       statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode.">🔍 ${it.last_status || 'MONITORING'}</span>`;
     }
 
-    const cmp = it.cmp;
+    const cmp = (it.cmp !== null && it.cmp !== undefined && !isNaN(it.cmp)) ? it.cmp : ((it.close_price !== null && it.close_price !== undefined && !isNaN(it.close_price)) ? it.close_price : null);
     const cmpAge = it.cmp_updated_at ? Math.round((Date.now() - new Date(it.cmp_updated_at).getTime()) / 60000) : null;
     const cmpStale = cmpAge !== null && cmpAge > 30;
     const cmpText = cmp != null
       ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
-      : (it.close_price ? `<span style="font-family:var(--font-mono); color:var(--muted); font-size:12px;">₹${parseFloat(it.close_price).toFixed(2)}</span>` : `<span style="color:var(--muted); font-size:12px;">—</span>`);
+      : `<span style="color:var(--muted); font-size:12px;">—</span>`;
 
     const scoreText = it.last_health_score != null
       ? `<span style="font-family:var(--font-mono); font-weight:700; color:${it.last_health_score >= 70 ? '#10b981' : it.last_health_score >= 50 ? '#f59e0b' : 'var(--muted)'}; font-size:13px;">${parseFloat(it.last_health_score).toFixed(1)}</span>`

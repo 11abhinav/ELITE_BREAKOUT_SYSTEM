@@ -3736,7 +3736,7 @@ function _renderUserWatchlistTable() {
       statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Monitoring Mode.">🔍 ${item.last_status}</span>`;
     }
 
-    const cmp = item.cmp;
+    const cmp = (item.cmp !== null && item.cmp !== undefined && !isNaN(item.cmp)) ? item.cmp : ((item.close_price !== null && item.close_price !== undefined && !isNaN(item.close_price)) ? item.close_price : null);
     const cmpAge = item.cmp_updated_at ? Math.round((Date.now() - new Date(item.cmp_updated_at).getTime()) / 60000) : null;
     const cmpStale = cmpAge !== null && cmpAge > 30;
     const cmpText = cmp != null

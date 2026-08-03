@@ -6261,7 +6261,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                            COALESCE(m.status, w.last_status),
                            w.notes,
                            COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
-                           NULL as deep_analysis_result,
+                           COALESCE(m.deep_analysis_result, w.deep_analysis_result) as deep_analysis_result,
                            m.cmp,
                            m.cmp_updated_at
                     FROM user_watchlists w
@@ -6272,6 +6272,8 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 rows = cur.fetchall()
                 results = []
                 seen_symbols = set()
+                missing_cmp_syms = []
+
                 for r in rows:
                     sym = r[0]
                     if sym in seen_symbols:
@@ -6288,6 +6290,10 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     if deep_res and isinstance(deep_res, dict):
                         close_price = deep_res.get("close_price") or deep_res.get("close") or deep_res.get("ltp")
 
+                    resolved_cmp = float(r[9]) if len(r) > 9 and r[9] is not None else (float(close_price) if close_price is not None else None)
+                    if resolved_cmp is None:
+                        missing_cmp_syms.append(sym)
+
                     results.append({
                         "symbol": sym,
                         "company_name": r[1] or sym,
@@ -6299,14 +6305,34 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "last_deep_analysis_at": r[7].isoformat() if len(r) > 7 and hasattr(r[7], 'isoformat') else (str(r[7]) if len(r) > 7 and r[7] else None),
                         "deep_analysis_result": deep_res,
                         "close_price": float(close_price) if close_price is not None else None,
-                        # [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master
-                        "cmp": float(r[9]) if len(r) > 9 and r[9] is not None else None,
+                        # [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master or deep_analysis_result fallback
+                        "cmp": resolved_cmp,
                         "cmp_updated_at": r[10].isoformat() if len(r) > 10 and hasattr(r[10], 'isoformat') else (str(r[10]) if len(r) > 10 and r[10] else None),
                     })
+
+                # Batch-fetch live CMP for any symbols missing CMP/close_price
+                if missing_cmp_syms:
+                    try:
+                        from live_prices import get_live_prices
+                        live_map = get_live_prices(missing_cmp_syms)
+                        if live_map:
+                            for item in results:
+                                s = item["symbol"]
+                                if item["cmp"] is None and s in live_map:
+                                    item["cmp"] = float(live_map[s])
+                            # Persist live CMP into stock_analysis_master in background
+                            try:
+                                bulk_update_cmp(live_map)
+                            except Exception:
+                                pass
+                    except Exception as lerr:
+                        logger.warning(f"Could not fetch live CMP for missing watchlist symbols: {lerr}")
+
                 return results
     except Exception as e:
         logger.error(f"Failed to fetch user watchlist for {user_id}: {e}")
         return []
+
 
 def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None, deep_analysis_result: dict = None) -> bool:
     """Update last scan timestamp, score, status, and full deep analysis outcome JSON in stock_analysis_master repository and user watchlists."""
@@ -6319,6 +6345,15 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
         except Exception as je:
             logger.warning(f"Could not serialize deep_analysis_result to JSON: {je}")
 
+    extracted_close = None
+    if deep_analysis_result and isinstance(deep_analysis_result, dict):
+        extracted_close = deep_analysis_result.get("close_price") or deep_analysis_result.get("close") or deep_analysis_result.get("ltp")
+        if extracted_close is not None:
+            try:
+                extracted_close = float(extracted_close)
+            except (ValueError, TypeError):
+                extracted_close = None
+
     try:
         init_db()
         with get_connection() as conn:
@@ -6326,16 +6361,19 @@ def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER"
                 # 1. Upsert into Master Global Stock Scan Repository
                 if analysis_json_str is not None:
                     cur.execute("""
-                        INSERT INTO stock_analysis_master (symbol, health_score, status, deep_analysis_result, last_scanned_at, last_deep_analysis_at, updated_at)
-                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        INSERT INTO stock_analysis_master (symbol, health_score, status, deep_analysis_result, cmp, cmp_updated_at, last_scanned_at, last_deep_analysis_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         ON CONFLICT (symbol) DO UPDATE SET
                             health_score = COALESCE(EXCLUDED.health_score, stock_analysis_master.health_score),
                             status = COALESCE(EXCLUDED.status, stock_analysis_master.status),
                             deep_analysis_result = COALESCE(EXCLUDED.deep_analysis_result, stock_analysis_master.deep_analysis_result),
+                            cmp = COALESCE(EXCLUDED.cmp, stock_analysis_master.cmp),
+                            cmp_updated_at = COALESCE(EXCLUDED.cmp_updated_at, stock_analysis_master.cmp_updated_at),
                             last_scanned_at = CURRENT_TIMESTAMP,
                             last_deep_analysis_at = CURRENT_TIMESTAMP,
                             updated_at = CURRENT_TIMESTAMP
-                    """, (sym_clean, health_score, status, analysis_json_str))
+                    """, (sym_clean, health_score, status, analysis_json_str, extracted_close, extracted_close))
+
                 else:
                     cur.execute("""
                         INSERT INTO stock_analysis_master (symbol, health_score, status, last_scanned_at, updated_at)
