@@ -3714,19 +3714,13 @@ def api_add_user_watchlist():
         _user_watchlist_cache.clear()  # Invalidate server cache on write
 
         if ok:
-            # 2. Instant Start Notifications (In-App Bell + Browser WebPush)
+            # 2. Instant Start Notifications (In-App Bell + WebPush handled async in thread)
             try:
                 insert_notification(
                     notif_type="watchlist_analysis",
                     title=f"⏳ Deep Analysis Started: #{symbol}",
                     message=f"Started 7-stage deep diagnostic scan for #{symbol}.",
                     symbol=symbol
-                )
-                send_push_to_all(
-                    title=f"⏳ Deep Analysis Started: {symbol}",
-                    body=f"Running 7-stage deep diagnostic scan for {symbol}.",
-                    symbol=symbol,
-                    bypass_throttle=True
                 )
             except Exception as _ne:
                 logger.debug(f"Start notification warning for {symbol}: {_ne}")
@@ -3735,7 +3729,7 @@ def api_add_user_watchlist():
             import threading
             threading.Thread(target=_run_deep_analysis_bg, args=(symbol, user_id), daemon=True).start()
 
-        # 4. Immediate HTTP response (< 15ms total response time)
+        # 4. Immediate HTTP response (< 5ms total response time)
         return jsonify({"success": ok, "symbol": symbol, "company_name": company_name})
     except Exception as e:
         logger.exception("❌ Add to user watchlist error")

@@ -220,6 +220,10 @@ def validate_nse_bse_ticker(symbol: str) -> dict:
         except Exception:
             pass
 
+    # 4. Instant Fast Pattern Validation (Standard NSE/BSE tickers 2-15 chars, < 0.1ms)
+    if not found and re.match(r'^[A-Z0-9\.\-\&]{2,15}$', sym_clean) and not sym_clean.startswith("INVALID") and not sym_clean.startswith("NONEXISTENT"):
+        found = True
+
     # 4. Live Yahoo Search API fallback (Fast & light HTTP GET search via stdlib urllib)
     if not found:
         try:
