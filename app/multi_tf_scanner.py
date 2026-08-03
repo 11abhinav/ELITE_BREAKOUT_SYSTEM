@@ -336,8 +336,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
 
     # [VERSION: BULK_PREFETCH_OPT_v1.0] Single-pass bulk fetch for all watchlist symbols.
     # PriceCache handles provider-level batching internally while populating per-symbol RAM cache.
-    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data for {len(watchlist)} symbols...")
-    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="3mo", interval="1h", requester="MULTI_TF_1H")
+    # Requesting 15d (75+ 1H bars) is sufficient for 50-bar indicator calculation while reducing network payload by 80%.
+    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (15d) for {len(watchlist)} symbols...")
+    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="15d", interval="1h", requester="MULTI_TF_1H")
 
     for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
         with BatchMemoryTracker(SCANNER_MULTI_TF, batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
@@ -582,26 +583,30 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     needs_15m = ladder_symbols
     needs_5m  = ladder_symbols
     
+    import concurrent.futures
     import pandas as pd
-    profiler_fetch2 = MemoryProfiler("MTF Price Fetch")
-    profiler_fetch2.__enter__()
-    try:
-        data_30m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_30m}), period="10d", interval="30m") if needs_30m else {}
-    finally:
-        profiler_fetch2.__exit__(None, None, None)
-    if data_30m is None:
-        data_30m = {}
-    data_15m = fetch_watchlist_data(pd.DataFrame({"Stock": needs_15m}), period="5d", interval="15m") if needs_15m else {}
-    if data_15m is None:
-        data_15m = {}
-    data_5m  = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}),  period="5d", interval="5m") if needs_5m  else {}
-    if data_5m is None:
-        data_5m = {}
-        
-    # [VERSION: MTF_DAILY_PIVOTS_FIX] Fetch daily data for 5m pivot points
-    data_daily = fetch_watchlist_data(pd.DataFrame({"Stock": needs_5m}), period="5d", interval="1d") if needs_5m else {}
-    if data_daily is None:
-        data_daily = {}
+
+    def _fetch_tf(tf_label, period_val, interval_val, symbols_list):
+        if not symbols_list:
+            return {}
+        try:
+            res = fetch_watchlist_data(pd.DataFrame({"Stock": symbols_list}), period=period_val, interval=interval_val, requester=f"MULTI_TF_{tf_label}")
+            return res if res is not None else {}
+        except Exception as _e:
+            logger.warning(f"Parallel fetch warning for {tf_label}: {_e}")
+            return {}
+
+    logger.info(f"⚡ [MULTI_TF] Parallel fetching 30m, 15m, 5m, and 1d intraday timeframes for {len(ladder_symbols)} symbols...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MTFFetcher") as executor:
+        f_30m = executor.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
+        f_15m = executor.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
+        f_5m  = executor.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
+        f_1d  = executor.submit(_fetch_tf, "1d", "5d", "1d", needs_5m)
+
+        data_30m = f_30m.result()
+        data_15m = f_15m.result()
+        data_5m  = f_5m.result()
+        data_daily = f_1d.result()
         
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
