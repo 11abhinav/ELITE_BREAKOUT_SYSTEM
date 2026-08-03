@@ -3523,6 +3523,7 @@ function saveToUserWatchlist(sym, company, score) {
       _watchlistFetchCacheUser = null; // Invalidate on write
       _watchlistFetchCacheUser_ts = 0;
       loadUserWatchlist();
+      if (typeof fetchNotifications === 'function') fetchNotifications();
     } else {
       if (btn) {
         btn.disabled = false;

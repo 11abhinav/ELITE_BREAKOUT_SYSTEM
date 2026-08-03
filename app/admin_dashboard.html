@@ -6946,8 +6946,10 @@ function saveToUserWatchlist(sym, company, score) {
         currentDiagnosticData.is_in_watchlist = true;
       }
       _watchlistFetchCache = null; // Invalidate cache so next load re-fetches
+      _watchlistFetchCache_ts = 0;
       loadUserWatchlist();
       if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
+      if (typeof fetchNotifications === 'function') fetchNotifications();
     }
   })
   .catch(err => {
