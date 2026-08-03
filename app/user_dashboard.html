@@ -447,7 +447,7 @@ function playDing() {
     <div class="header-brand">
       <div class="header-dot"></div>
       <div>
-        <h1>Abhinav's <span>Screener Dashboard</span></h1>
+        <h1><span id="user-display-name">Abhinav</span>'s <span>Screener Dashboard</span></h1>
         <div class="header-sub" id="gen-time">—</div>
       </div>
     </div>
@@ -2510,9 +2510,24 @@ async function markAllNotificationsSeen(e) {
     }
 }
 
+async function fetchUserInfo() {
+    try {
+        const res = await fetch('/api/user_info');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.first_name) {
+                const el = document.getElementById('user-display-name');
+                if (el) el.textContent = data.first_name;
+                document.title = `${data.first_name}'s Screener Dashboard`;
+            }
+        }
+    } catch(e) {}
+}
+
 // Poll every 5 seconds
 setInterval(fetchNotifications, 5000);
 fetchNotifications();
+fetchUserInfo();
 
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);

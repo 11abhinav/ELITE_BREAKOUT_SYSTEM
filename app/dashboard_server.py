@@ -297,6 +297,7 @@ def login():
         session.permanent = True
         session['user_id'] = user_data['user_id']
         session['username'] = user_data['username']
+        session['first_name'] = user_data.get('first_name')
         session['role'] = user_data['role']
         session['must_change_password'] = user_data['must_change_password']
         session['session_token'] = user_data['session_token']
@@ -568,6 +569,37 @@ def api_messages_read():
     return jsonify({"status": "success" if success else "error"})
 
 
+@app.route('/api/user_info', methods=['GET'])
+@login_required
+def api_user_info():
+    """Returns profile & display name info for logged-in user."""
+    user_id = session.get('user_id')
+    username = session.get('username', '')
+    first_name = session.get('first_name')
+    role = session.get('role', 'user')
+
+    if not first_name:
+        try:
+            from database import get_user_first_name
+            first_name = get_user_first_name(user_id)
+            if first_name:
+                session['first_name'] = first_name
+        except Exception as e:
+            logger.debug(f"Could not fetch first_name for user {user_id}: {e}")
+
+    if not first_name:
+        parts = username.replace("_", " ").replace(".", " ").strip().split()
+        first_name = parts[0].title() if parts else "User"
+    else:
+        first_name = first_name.strip().title()
+
+    return jsonify({
+        "user_id": user_id,
+        "username": username,
+        "first_name": first_name,
+        "role": role
+    })
+
 # =====================================================================================
 # NOTIFICATIONS API
 # =====================================================================================
@@ -577,14 +609,27 @@ def get_notifications():
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
+        user_role = session.get('role', 'user')
+
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute('''
-                    SELECT id, type, title, message, symbol, is_seen, created_at 
-                    FROM global_notifications
-                    ORDER BY created_at DESC
-                    LIMIT 50
-                ''')
+                if user_role == 'admin':
+                    cur.execute('''
+                        SELECT id, type, title, message, symbol, is_seen, created_at 
+                        FROM global_notifications
+                        ORDER BY created_at DESC
+                        LIMIT 50
+                    ''')
+                else:
+                    # User role: ONLY stock alerts & watchlist analysis notifications (no background scanner logs)
+                    cur.execute('''
+                        SELECT id, type, title, message, symbol, is_seen, created_at 
+                        FROM global_notifications
+                        WHERE type IN ('watchlist_analysis', 'deep_analysis', 'stock_alert', 'alert', 'buy_alert', 'sell_alert', 'breakout', 'target_hit', 'sl_hit', 'pullback')
+                           OR (symbol IS NOT NULL AND TRIM(symbol) != '' AND type NOT IN ('info', 'admin', 'scanner_down', 'error', 'warning'))
+                        ORDER BY created_at DESC
+                        LIMIT 50
+                    ''')
                 notifications = [dict(row) for row in cur.fetchall()]
                 
                 # Format timestamps

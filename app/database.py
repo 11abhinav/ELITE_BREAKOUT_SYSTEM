@@ -4889,6 +4889,27 @@ def get_user_id_by_username(username: str) -> Optional[int]:
         logger.exception(f"❌ Failed to get user_id for {username}")
         return None
 
+def get_user_first_name(user_id) -> Optional[str]:
+    """Retrieve first_name or fallback name for a given user_id."""
+    if not user_id:
+        return None
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT first_name, username FROM users WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                if row:
+                    first_name, username = row
+                    if first_name and str(first_name).strip():
+                        return str(first_name).strip().title()
+                    if username and str(username).strip():
+                        parts = str(username).replace("_", " ").replace(".", " ").strip().split()
+                        return parts[0].title() if parts else str(username).strip().title()
+                return None
+    except Exception as e:
+        logger.exception(f"❌ Failed to get first_name for user_id {user_id}")
+        return None
+
 def ping_user_session(user_id: int, ip_address: str):
     """Update active session or create new one."""
     try:
@@ -5844,7 +5865,7 @@ def verify_user(identifier, password, ip_address: str = None, user_agent: str = 
             with conn.cursor() as cur:
                 identifier_lower = identifier.lower() if identifier else identifier
                 cur.execute("""
-                    SELECT user_id, username, password_hash, role, is_active, must_change_password
+                    SELECT user_id, username, password_hash, role, is_active, must_change_password, first_name
                     FROM users
                     WHERE LOWER(username) = %s OR LOWER(email) = %s
                 """, (identifier_lower, identifier_lower))
@@ -5869,9 +5890,11 @@ def verify_user(identifier, password, ip_address: str = None, user_agent: str = 
                             WHERE user_id = %s
                         """, (user_id,))
                         conn.commit()
+                        first_name = row[6] if len(row) > 6 and row[6] else None
                         return {
                             'user_id': user_id,
                             'username': row[1],
+                            'first_name': first_name,
                             'role': row[3],
                             'must_change_password': row[5],
                             'session_token': new_token
