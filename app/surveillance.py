@@ -132,7 +132,7 @@ def get_live_blacklist() -> set[str]:
                             import nsepython
                             return nsepython.nsefetch(url)
                         except Exception as nse_err:
-                            raise Exception(f"Failed to fetch {url} via ScraperAPI & nsepython fallback: {nse_err}")
+                            raise Exception(f"Failed to fetch {url} via Crawlora, ScraperAPI & nsepython fallback: {nse_err}")
 
                     asm_res = fetch_nse_json("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):

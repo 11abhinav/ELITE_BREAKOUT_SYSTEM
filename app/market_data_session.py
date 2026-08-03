@@ -439,8 +439,8 @@ class MarketDataSession:
                 )
                 return today_data, ist_date, "FRESH"
 
-            # ── Path 2: Live ScraperAPI fetch ───────────────────────────────
-            logger.info(f"[SESSION] 🔄 Delivery: Attempting live fetch for {ist_date} via ScraperAPI...")
+            # ── Path 2: Live Crawlora / ScraperAPI fetch ───────────────────────────────
+            logger.info(f"[SESSION] 🔄 Delivery: Attempting live fetch for {ist_date} (Crawlora primary)...")
             try:
                 from delivery_data import fetch_delivery_data
                 live_data = fetch_delivery_data(ist_date, skip_db_save=False)
