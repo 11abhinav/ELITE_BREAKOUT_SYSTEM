@@ -1163,11 +1163,15 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     # ── VALIDATE UPSTREAM MANIFEST ──
     try:
         from database import get_latest_build_manifest
+        from config import WATCHLIST_PATH
         manifest = get_latest_build_manifest(today_str)
         if not manifest or manifest.get("status") not in ("SUCCESS", "FALLBACK_SUCCESS"):
-            logger.error(f"🛑 [MULTIBAGGER] Aborting run: No successful upstream build manifest found for {today_str}.")
-            upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=f"Upstream manifest invalid/missing for {today_str}")
-            return {}
+            if os.path.exists(WATCHLIST_PATH) or is_test_mode:
+                logger.warning(f"⚠️ [MULTIBAGGER] No build_manifest record for {today_str}, but valid watchlist parquet file exists. Proceeding with scan...")
+            else:
+                logger.error(f"🛑 [MULTIBAGGER] Aborting run: No build manifest or watchlist file found for {today_str}.")
+                upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=f"Upstream manifest invalid/missing for {today_str}")
+                return {}
     except Exception as e:
         logger.warning(f"⚠️ [MULTIBAGGER] Failed to validate upstream manifest: {e}. Proceeding cautiously.")
     
