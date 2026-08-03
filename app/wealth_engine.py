@@ -34,6 +34,7 @@ from collections import defaultdict
 import concurrent.futures
 import database
 from database import get_recent_concall_analysis
+from perf_utils import stage_timer, flush_timing_report, reset_stage_timers, log_api_cost
 
 # Concurrency and retry tuning
 WORKER_COUNT = 3  # Hardcoded to 3 to prevent OOM kills on Railway (500MB RAM limit)
@@ -1077,6 +1078,8 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 def _run_wealth_scan_wrapper(is_test_mode=False):
     import time
     start_time = time.time()
+    # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
+    reset_stage_timers()
     from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
     from datetime import datetime
@@ -1236,26 +1239,41 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # [VERSION: WEALTH_SPEEDUP_v1.0] Replace 5m snapshot bulk fetch with direct live_prices fetch.
         # Fetching 1D of 5m historical data for 300 stocks took too long and defeated the purpose
         # of just getting the current CMP delta. We now use UnifiedFetcher directly.
+        # [VERSION: PERF_PHASE0_v1.0] Stage timing: live CMP fetch
         logger.info(f"💰 [WEALTH ENGINE] Fetching live CMP for {len(all_symbols_to_fetch)} symbols...")
+        _t_live = time.perf_counter()
         try:
             from live_prices import get_live_prices
             all_live_prices = get_live_prices(list(all_symbols_to_fetch)) or {}
+            log_api_cost("live_quotes", cache_hit=False)
         except Exception as _snap_e:
             logger.warning(f"⚠️ [WEALTH ENGINE] Live price fetch failed: {_snap_e}. Falling back to 1D close.")
             all_live_prices = {}
+        _stage_ms_live = (time.perf_counter() - _t_live) * 1000
+        logger.info(f"⏱ [STAGE] live_quote_fetch: {_stage_ms_live:.0f}ms for {len(all_symbols_to_fetch)} symbols")
 
         # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch concall data for ALL symbols once.
         # Previously caused 7 separate DB round-trips (one per batch). Single bulk query is faster.
+        # [VERSION: PERF_PHASE0_v1.0] Stage timing: concall DB prefetch
         logger.info(f"💰 [WEALTH ENGINE] Pre-fetching concall cache for {len(all_symbols_to_fetch)} symbols...")
+        _t_concall = time.perf_counter()
         try:
             all_concalls = get_bulk_recent_concall_analysis(all_symbols_to_fetch, max_age_days=60) or {}
         except Exception as _concall_e:
             logger.warning(f"⚠️ [WEALTH ENGINE] Concall pre-fetch failed: {_concall_e}. AI_Confidence defaults to 0.")
             all_concalls = {}
+        _stage_ms_concall = (time.perf_counter() - _t_concall) * 1000
+        logger.info(f"⏱ [STAGE] concall_prefetch: {_stage_ms_concall:.0f}ms for {len(all_symbols_to_fetch)} symbols")
 
+        _t_hist_total = time.perf_counter()
+        _t_indicator_total_ms = 0.0
         for batch_num, chunk in enumerate(chunk_iterable(all_symbols_to_fetch, BATCH_SIZE), start=1):
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
+                # [VERSION: PERF_PHASE0_v1.0] Stage timing: historical fetch per batch
+                _t_hist_batch = time.perf_counter()
                 chunk_historical_data = fetch_unified_historical(chunk, period="1y", interval="1d")
+                _stage_ms_hist_batch = (time.perf_counter() - _t_hist_batch) * 1000
+                logger.debug(f"⏱ [STAGE] historical_fetch batch {batch_num}: {_stage_ms_hist_batch:.0f}ms ({len(chunk)} symbols)")
 
                 # Slice from pre-fetched dicts — no additional API/DB calls per batch
                 chunk_live_prices = {sym: all_live_prices.get(sym) for sym in chunk}
@@ -1310,10 +1328,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 
                 tracker.mark_fetch_complete(row_count=rows_fetched)
                 
+                # [VERSION: PERF_PHASE0_v1.0] Stage timing: indicator calc per symbol
                 for i, sym in enumerate(chunk):
                     try:
+                        _t_sym = time.perf_counter()
                         result = process_symbol(i, sym, chunk_historical_data, chunk_concalls)
                         technicals.append(result)
+                        _t_indicator_total_ms += (time.perf_counter() - _t_sym) * 1000
                     except Exception as e:
                         logger.error(f"❌ Error processing symbol {sym}: {e}")
                     
@@ -1663,6 +1684,53 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             logger.debug(f"Wealth Engine memory purge failed: {me}")
 
         logger.info(f"✅ [STOP] WEALTH ENGINE COMPLETED | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
+        # [VERSION: PERF_PHASE0_v1.0] Human-readable stage summary for log-based verification
+        try:
+            _hist_total_ms   = (time.perf_counter() - _t_hist_total) * 1000 if '_t_hist_total' in dir() else 0
+            _live_ms         = _stage_ms_live if '_stage_ms_live' in dir() else 0
+            _concall_ms      = _stage_ms_concall if '_stage_ms_concall' in dir() else 0
+            _indicator_ms    = _t_indicator_total_ms if '_t_indicator_total_ms' in dir() else 0
+            _sym_count       = len(all_symbols_to_fetch) if 'all_symbols_to_fetch' in dir() else 0
+            _total_s         = time.time() - start_time
+            _total_ms        = _total_s * 1000
+            logger.info(
+                "\n"
+                "┌─────────────────────────────────────────────────────────────────┐\n"
+                "│           📊 WEALTH ENGINE — PERF STAGE SUMMARY (Phase 0)       │\n"
+                "├──────────────────────────────────────┬──────────────────────────┤\n"
+                f"│  Symbols processed                   │  {_sym_count:<24} │\n"
+                f"│  Total scan time                     │  {_total_s:.1f}s{' '*(22 - len(f'{_total_s:.1f}s'))} │\n"
+                "├──────────────────────────────────────┼──────────────────────────┤\n"
+                f"│  [STAGE] live_quote_fetch            │  {_live_ms:.0f}ms{' '*(22 - len(f'{_live_ms:.0f}ms'))} │\n"
+                f"│  [STAGE] concall_prefetch            │  {_concall_ms:.0f}ms{' '*(22 - len(f'{_concall_ms:.0f}ms'))} │\n"
+                f"│  [STAGE] historical_fetch (total)    │  {_hist_total_ms:.0f}ms{' '*(22 - len(f'{_hist_total_ms:.0f}ms'))} │\n"
+                f"│  [STAGE] indicator_calc  (total)     │  {_indicator_ms:.0f}ms{' '*(22 - len(f'{_indicator_ms:.0f}ms'))} │\n"
+                "├──────────────────────────────────────┼──────────────────────────┤\n"
+                f"│  Phase 1 target (live_quote ≤1%)     │  ≤ {_total_ms * 0.01:.0f}ms{' '*(20 - len(f'≤ {_total_ms * 0.01:.0f}ms'))} │\n"
+                f"│  live_quote % of total               │  {(_live_ms / _total_ms * 100) if _total_ms else 0:.1f}%{' '*(21 - len(f'{(_live_ms / _total_ms * 100) if _total_ms else 0:.1f}%'))} │\n"
+                "└──────────────────────────────────────┴──────────────────────────┘"
+            )
+        except Exception as _log_e:
+            logger.debug(f"Non-critical: Stage summary log failed: {_log_e}")
+
+        # [VERSION: PERF_PHASE0_v1.0] Flush Phase 0 JSON timing report to artifacts/profiling/
+        try:
+            flush_timing_report(
+                phase="Phase0_Baseline",
+                run_type="cold_start",
+                feature_flags=[],
+                extra={
+                    "scanner": "WealthEngine",
+                    "symbols_processed": _sym_count,
+                    "stage_live_quote_ms": round(_live_ms, 1),
+                    "stage_concall_prefetch_ms": round(_concall_ms, 1),
+                    "stage_historical_fetch_ms": round(_hist_total_ms, 1),
+                    "stage_indicator_calc_ms": round(_indicator_ms, 1),
+                    "total_scan_s": round(_total_s, 2),
+                }
+            )
+        except Exception as _perf_e:
+            logger.debug(f"Non-critical: Failed to write timing report: {_perf_e}")
 
     except Exception as e:
 

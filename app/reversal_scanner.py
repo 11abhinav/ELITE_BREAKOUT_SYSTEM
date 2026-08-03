@@ -58,10 +58,11 @@ from config import (
 from sl_target_helper import compute_sl_and_target
 from surveillance import get_live_blacklist, force_refresh_blacklist
 
-# [VERSION: PERF_PROFILER_v1.0] Stage timing + filter rejection observability
+# [VERSION: PERF_PROFILER_v2.0] Stage timing + filter rejection observability
 # profile_timing logs wall-clock duration + RSS delta for each reversal scan run.
 # FilterStats captures per-filter rejection CSV to artifacts/profiling/ each run.
-from perf_utils import profile_timing, FilterStats
+# stage_timer / flush_timing_report emit schema_version:1 baseline reports (Phase 0).
+from perf_utils import profile_timing, FilterStats, flush_timing_report, reset_stage_timers
 
 
 logger = logging.getLogger(__name__)
@@ -1267,6 +1268,11 @@ def _run_scan(force: bool = False, session=None):
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
 
+    # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer + capture scan start
+    import time as _time_mod
+    _scan_start = _time_mod.perf_counter()
+    reset_stage_timers()
+
     ist_now = datetime.now(IST)
     logger.info("\n" + "=" * 80)
     logger.info(f"🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀")
@@ -1440,7 +1446,11 @@ def _run_scan(force: bool = False, session=None):
                         for _, row in chunk_df.iterrows()
                     }
                 else:
+                    # [VERSION: PERF_PHASE0_v1.0] Stage timing: historical fetch per batch
+                    _t_fetch = _time_mod.perf_counter()
                     all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                    _fetch_ms = (_time_mod.perf_counter() - _t_fetch) * 1000
+                    logger.debug(f"⏱ [STAGE] reversal.historical_fetch batch {batch_num}: {_fetch_ms:.0f}ms ({len(chunk_df)} symbols)")
 
             except Exception as fetch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} fetch error: {fetch_err}")
@@ -1834,7 +1844,47 @@ def _run_scan(force: bool = False, session=None):
             except Exception:
                 pass
             logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
+            # [VERSION: PERF_PHASE0_v1.0] Human-readable stage summary for log-based verification
+            try:
+                _scan_total_ms = (_time_mod.perf_counter() - _scan_start) * 1000
+                _scan_total_s  = _scan_total_ms / 1000
+                logger.info(
+                    "\n"
+                    "┌─────────────────────────────────────────────────────────────────┐\n"
+                    "│         📊 REVERSAL SCANNER — PERF STAGE SUMMARY (Phase 0)      │\n"
+                    "├──────────────────────────────────────┬──────────────────────────┤\n"
+                    f"│  Symbols processed                   │  {total_symbols:<24} │\n"
+                    f"│  Alerts generated                    │  {total_alerts:<24} │\n"
+                    f"│  Total scan time                     │  {_scan_total_s:.1f}s{' '*(22 - len(f'{_scan_total_s:.1f}s'))} │\n"
+                    "├──────────────────────────────────────┼──────────────────────────┤\n"
+                    f"│  [STAGE] historical_fetch (batched)  │  see batch logs above    │\n"
+                    f"│  [STAGE] candidate_eval              │  included in total       │\n"
+                    f"│  [STAGE] db_persistence              │  included in total       │\n"
+                    "├──────────────────────────────────────┼──────────────────────────┤\n"
+                    f"│  Phase 1 gate: fetch ≤40% total      │  ≤ {_scan_total_ms * 0.40:.0f}ms{' '*(18 - len(f'≤ {_scan_total_ms * 0.40:.0f}ms'))} │\n"
+                    "│  (check '⏱ [STAGE] reversal' lines above for per-batch times)  │\n"
+                    "└─────────────────────────────────────────────────────────────────┘"
+                )
+            except Exception as _log_e:
+                logger.debug(f"Non-critical: Stage summary log failed: {_log_e}")
+
+            # [VERSION: PERF_PHASE0_v1.0] Flush Phase 0 JSON timing report to artifacts/profiling/
+            try:
+                flush_timing_report(
+                    phase="Phase0_Baseline",
+                    run_type="cold_start",
+                    feature_flags=[],
+                    extra={
+                        "scanner": "ReversalScanner",
+                        "symbols_processed": total_symbols,
+                        "alerts_generated": total_alerts,
+                        "total_scan_ms": round(_scan_total_ms, 1),
+                    }
+                )
+            except Exception as _perf_e:
+                logger.debug(f"Non-critical: Failed to write reversal timing report: {_perf_e}")
             return total_alerts
+
 
 
 def _validate_config():

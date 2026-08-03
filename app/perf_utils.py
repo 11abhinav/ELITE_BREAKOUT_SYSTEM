@@ -1,14 +1,16 @@
 """
-[VERSION: PERF_PROFILER_v1.0]
+[VERSION: PERF_PROFILER_v2.0]
 Stage 2 Audit — Performance & Observability Utilities
 
 Provides:
-  @profile_timing(name)     — decorator that logs stage timing + memory
-  FilterStats               — per-filter rejection counter singleton
+  @profile_timing(name)           — decorator that logs stage timing + memory (v1.0)
+  @stage_timer(label)             — fine-grained per-stage timer with ring-buffer telemetry (v2.0)
+  flush_timing_report(path, ...)  — writes schema_version:1 JSON report from ring buffer (v2.0)
+  FilterStats                     — per-filter rejection counter singleton
   log_api_cost(provider, hit_or_miss) — API cost tracker
 
 Usage in scanners:
-    from perf_utils import profile_timing, FilterStats
+    from perf_utils import profile_timing, FilterStats, stage_timer, flush_timing_report
 
     @profile_timing("eod_scanner.run")
     def run_eod_scanner(...):
@@ -271,3 +273,186 @@ def reset_api_cost():
     """Reset counters (call at start of each market cycle)."""
     with _api_cost_lock:
         _api_cost.clear()
+
+
+# ─── Stage Timer Ring Buffer (v2.0) ───────────────────────────────────────────
+# Thread-safe ring buffer accumulating per-stage call telemetry within a scan run.
+# Flushed to disk via flush_timing_report() at end of each run.
+
+_RING_BUFFER_MAX = 10_000
+_stage_buffer: list = []
+_stage_buffer_lock = threading.Lock()
+
+
+def _get_sys_metrics() -> dict:
+    """Capture lightweight system metrics. Returns empty dict if psutil unavailable."""
+    if not _psutil_available:
+        return {}
+    try:
+        import psutil, gc
+        proc = psutil.Process(os.getpid())
+        mem = proc.memory_info()
+        gc_stats = gc.get_count()
+        return {
+            "rss_mb": round(mem.rss / 1024 / 1024, 1),
+            "open_fds": proc.num_fds() if hasattr(proc, "num_fds") else None,
+            "thread_count": proc.num_threads(),
+            "gc_gen0": gc_stats[0],
+            "gc_gen1": gc_stats[1],
+            "gc_gen2": gc_stats[2],
+        }
+    except Exception:
+        return {}
+
+
+def stage_timer(label: str):
+    """
+    [VERSION: PERF_PROFILER_v2.0]
+    Fine-grained per-stage decorator. Records each call's:
+      - wall-clock duration (ms)
+      - RSS start/end
+      - timestamp (IST)
+
+    All entries accumulate in a thread-safe ring buffer.
+    Call flush_timing_report() at end of scan to emit the schema_version:1 report.
+
+    Usage:
+        @stage_timer("wealth_engine.indicator_calc")
+        def calculate_wealth_technicals(sym, ...):
+            ...
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            rss_before = _rss_mb()
+            t0 = time.perf_counter()
+            error = None
+            try:
+                return fn(*args, **kwargs)
+            except Exception as exc:
+                error = str(exc)
+                raise
+            finally:
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                rss_after = _rss_mb()
+                entry = {
+                    "label": label,
+                    "ts": datetime.now(IST).isoformat(),
+                    "duration_ms": round(elapsed_ms, 3),
+                    "rss_before_mb": round(rss_before, 1),
+                    "rss_after_mb": round(rss_after, 1),
+                    "error": error,
+                }
+                with _stage_buffer_lock:
+                    _stage_buffer.append(entry)
+                    if len(_stage_buffer) > _RING_BUFFER_MAX:
+                        _stage_buffer.pop(0)
+        return wrapper
+    return decorator
+
+
+def reset_stage_timers():
+    """Clear ring buffer — call at the start of each scan run."""
+    with _stage_buffer_lock:
+        _stage_buffer.clear()
+
+
+def flush_timing_report(
+    phase: str,
+    run_type: str = "cold_start",
+    feature_flags: list = None,
+    extra: dict = None,
+) -> str:
+    """
+    [VERSION: PERF_PROFILER_v2.0]
+    Aggregates ring buffer entries into a schema_version:1 timing report and
+    writes it to artifacts/profiling/perf_<phase>_<date>.json.
+
+    Returns the path of the written report file.
+
+    Args:
+        phase: Phase label e.g. "Phase0_Baseline", "Phase1_O1Lookup"
+        run_type: "cold_start" or "warm_cache"
+        feature_flags: list of active FEATURE_* flag names
+        extra: additional fields to merge into report root
+    """
+    import gc
+
+    with _stage_buffer_lock:
+        entries = list(_stage_buffer)
+
+    # Aggregate per-label stats
+    from collections import defaultdict
+    label_groups: dict = defaultdict(list)
+    for e in entries:
+        label_groups[e["label"]].append(e["duration_ms"])
+
+    stages = {}
+    for lbl, durations in label_groups.items():
+        durations_sorted = sorted(durations)
+        n = len(durations_sorted)
+        stages[lbl] = {
+            "calls": n,
+            "total_ms": round(sum(durations_sorted), 2),
+            "min_ms": round(durations_sorted[0], 3) if n else None,
+            "p50_ms": round(durations_sorted[int(n * 0.50)], 3) if n else None,
+            "p95_ms": round(durations_sorted[int(n * 0.95)], 3) if n else None,
+            "p99_ms": round(durations_sorted[min(int(n * 0.99), n - 1)], 3) if n else None,
+        }
+
+    total_ms = sum(s["total_ms"] for s in stages.values())
+
+    # System metrics snapshot
+    sys_metrics: dict = {}
+    if _psutil_available:
+        try:
+            import psutil
+            proc = psutil.Process(os.getpid())
+            mem = proc.memory_info()
+            gc_counts = gc.get_count()
+            sys_metrics = {
+                "rss_mb": round(mem.rss / 1024 / 1024, 1),
+                "thread_count": proc.num_threads(),
+                "open_fds": proc.num_fds() if hasattr(proc, "num_fds") else None,
+                "gc_gen0_count": gc_counts[0],
+                "gc_gen1_count": gc_counts[1],
+                "gc_gen2_count": gc_counts[2],
+            }
+            try:
+                conns = proc.connections(kind="inet")
+                sys_metrics["socket_count"] = len(conns)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    api_report = get_api_cost_report()
+
+    report = {
+        "schema_version": 1,
+        "phase": phase,
+        "run_timestamp": datetime.now(IST).isoformat(),
+        "run_type": run_type,
+        "feature_flags_active": feature_flags or [],
+        "environment": sys_metrics,
+        "stages": stages,
+        "http": {
+            prov: {"calls": d["calls"], "cache_hits": d["cache_hits"], "hit_ratio_pct": d["hit_ratio_pct"]}
+            for prov, d in api_report.items()
+        },
+        "total_scan_wall_clock_ms": round(total_ms, 2),
+    }
+    if extra:
+        report.update(extra)
+
+    date_str = datetime.now(IST).strftime("%Y%m%d_%H%M%S")
+    fname = f"perf_{phase}_{date_str}.json"
+    fpath = os.path.join(_ARTIFACT_DIR, fname)
+    try:
+        with open(fpath, "w") as f:
+            json.dump(report, f, indent=2)
+        logger.info(f"📊 [PERF REPORT] Phase={phase} run_type={run_type} → {fpath} | Total={total_ms:.0f}ms")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to write timing report: {e}")
+
+    return fpath
