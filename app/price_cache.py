@@ -393,35 +393,78 @@ from config import DATA_DIR
 from datetime import timedelta
 
 def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
-    """Checks if the cached data already contains the most recent market close."""
+    """
+    Checks if the cached data contains up-to-date data for the given interval:
+    - Daily (1d): Up to date if last candle date >= last market close date.
+    - Intraday (1h, 30m, 15m, 5m):
+        * During Active Market Hours (09:15-15:30 IST): Must be within 1 candle interval of now.
+        * Off Market Hours / Weekend / Pre-market: Up to date if last candle has the final bar of the trading day:
+            - 1h:  >= 14:15 on last trading day
+            - 30m: >= 15:00 on last trading day
+            - 15m: >= 15:15 on last trading day
+            - 5m:  >= 15:25 on last trading day
+    """
     now_dt = datetime.now(IST)
     market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
     
     is_weekend = now_dt.weekday() >= 5
     is_market_active = not is_weekend and (market_open <= now_dt <= market_close)
-    
-    # If the market is currently OPEN, the cache is NEVER fully up to date
-    # for intraday candles (because new candles are forming right now).
-    # However, for 1D candles, we consider them up to date if they have yesterday's close,
-    # as live intraday CMP will be stitched natively in memory by scanners.
-    if is_market_active and interval.lower() not in ('1d', 'daily', '1wk', '1mo'):
-        return False
-        
-    if is_weekend:
-        last_close = market_close - timedelta(days=now_dt.weekday() - 4)
-    elif now_dt > market_close:
-        last_close = market_close
-    elif now_dt.weekday() == 0:
-        last_close = market_close - timedelta(days=3)
-    else:
-        last_close = market_close - timedelta(days=1)
-        
-    if interval.lower() in ('1d', 'daily', '1wk', '1mo'):
+
+    inv_lower = interval.lower()
+
+    # 1D or higher timeframe daily candles
+    if inv_lower in ('1d', 'daily', '1wk', '1mo'):
+        if is_weekend:
+            last_close = market_close - timedelta(days=now_dt.weekday() - 4)
+        elif now_dt > market_close:
+            last_close = market_close
+        elif now_dt.weekday() == 0:
+            last_close = market_close - timedelta(days=3)
+        else:
+            last_close = market_close - timedelta(days=1)
         return last_ts.date() >= last_close.date()
-    else:
-        # Intraday candles: allow a 30m buffer for early broker closures (e.g. 15:25 candle)
-        return last_ts >= (last_close - timedelta(minutes=30))
+
+    # Intraday timeframes (1h, 30m, 15m, 5m)
+    # ── CASE A: During active market hours ───────────────────────────────────
+    if is_market_active:
+        interval_buffers = {
+            '1h': 65,   # 1 hour + 5m buffer
+            '60m': 65,
+            '30m': 35,
+            '15m': 20,
+            '5m': 10,
+            '1m': 3,
+        }
+        max_age_min = interval_buffers.get(inv_lower, 30)
+        return (now_dt - last_ts).total_seconds() <= (max_age_min * 60)
+
+    # ── CASE B: Off-market hours (post-market, overnight, weekend, pre-market)
+    if is_weekend:
+        last_close_date = (market_close - timedelta(days=now_dt.weekday() - 4)).date()
+    elif now_dt < market_open:
+        if now_dt.weekday() == 0:  # Mon pre-market -> Fri
+            last_close_date = (now_dt - timedelta(days=3)).date()
+        else:
+            last_close_date = (now_dt - timedelta(days=1)).date()
+    else:  # post-market (now_dt > market_close)
+        last_close_date = now_dt.date()
+
+    if last_ts.date() < last_close_date:
+        return False
+
+    final_bar_cutoffs = {
+        '1h':  (14, 15),
+        '60m': (14, 15),
+        '30m': (15, 0),
+        '15m': (15, 15),
+        '5m':  (15, 25),
+        '1m':  (15, 29),
+    }
+    cutoff_h, cutoff_m = final_bar_cutoffs.get(inv_lower, (15, 0))
+    cutoff_time = last_ts.replace(hour=cutoff_h, minute=cutoff_m, second=0, microsecond=0)
+
+    return last_ts >= cutoff_time
 
 def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -> bool:
     """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
