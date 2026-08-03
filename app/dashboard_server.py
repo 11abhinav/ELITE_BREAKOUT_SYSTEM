@@ -1854,6 +1854,7 @@ def api_get_portfolio():
         return jsonify([])
 
 @app.route("/api/portfolio/add", methods=["POST"])
+@csrf.exempt
 @login_required
 def api_add_portfolio():
     try:
@@ -1874,6 +1875,7 @@ def api_add_portfolio():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/portfolio/remove", methods=["POST"])
+@csrf.exempt
 @login_required
 def api_remove_portfolio():
     try:
@@ -3606,6 +3608,7 @@ def api_analyze_stock():
 
 
 @app.route("/api/v1/create_manual_alert", methods=["POST"])
+@csrf.exempt
 @admin_required
 def api_create_manual_alert():
     """Promotes a qualified setup to an ACTIVE BUY alert."""
@@ -3652,6 +3655,7 @@ def api_get_user_watchlist():
 
 
 @app.route("/api/v1/user_watchlist/add", methods=["POST"])
+@csrf.exempt
 @login_required
 def api_add_user_watchlist():
     """Save ticker to user's personal watchlist after strict ticker validation."""
@@ -3678,6 +3682,11 @@ def api_add_user_watchlist():
                 "success": False,
                 "error": f"❌ '{symbol}' is not a recognized active NSE/BSE stock ticker symbol. Please select a valid ticker from the autocomplete suggestion list."
             }), 400
+
+        if v_res.get("symbol"):
+            symbol = v_res["symbol"]
+        if v_res.get("company_name") and company_name == data.get("symbol", ""):
+            company_name = v_res["company_name"]
 
         # Fetch live CMP synchronously so new stock immediately has fresh price
         try:
@@ -3712,13 +3721,14 @@ def api_add_user_watchlist():
             import threading
             threading.Thread(target=_run_deep_analysis_bg, args=(symbol, user_id), daemon=True).start()
 
-        return jsonify({"success": ok})
+        return jsonify({"success": ok, "symbol": symbol, "company_name": company_name})
     except Exception as e:
         logger.exception("❌ Add to user watchlist error")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/v1/user_watchlist/remove", methods=["DELETE", "POST"])
+@csrf.exempt
 @login_required
 def api_remove_user_watchlist():
     """Remove single ticker, batch tickers, or clear all entries from user's personal watchlist."""
@@ -3743,6 +3753,7 @@ def api_remove_user_watchlist():
 
 
 @app.route("/api/v1/user_watchlist/deep_analysis", methods=["POST"])
+@csrf.exempt
 @login_required
 def api_watchlist_deep_analysis():
     """Executes full 7-stage deep diagnostic analysis on all stocks saved in user's watchlist using fast 1-pass bulk batch fetching."""

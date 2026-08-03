@@ -85,16 +85,17 @@ def validate_nse_bse_ticker_fast(symbol: str) -> dict:
         }
 
     sym_clean = raw.replace('.NS', '').replace('.BO', '').replace('.BSE', '')
+    sym_nospace = sym_clean.replace(' ', '')
     import re
-    if not re.match(r"^[A-Z0-9&\-]{2,20}$", sym_clean):
+    if not re.match(r"^[A-Z0-9&\-\s]{2,30}$", sym_clean):
         return {"is_valid": False, "error": f"Invalid ticker format '{symbol}'."}
 
     found = False
     company_name = sym_clean
     sector_name = "EQUITY"
 
-    # Multi-variant symbol candidates (handles M&M / M_M / M-M parity)
-    candidates = [sym_clean, sym_clean.replace('&', '_'), sym_clean.replace('_', '&'), sym_clean.replace('&', '-'), sym_clean.replace('-', '&')]
+    # Multi-variant symbol candidates (handles spaces, M&M / M_M / M-M parity)
+    candidates = [sym_clean, sym_nospace, sym_clean.replace('&', '_'), sym_clean.replace('_', '&'), sym_clean.replace('&', '-'), sym_clean.replace('-', '&')]
     candidates = list(dict.fromkeys(candidates))
 
     # 1. Master dictionary (instant, in-memory)
@@ -103,6 +104,7 @@ def validate_nse_bse_ticker_fast(symbol: str) -> dict:
         for cand in candidates:
             if cand in master:
                 found = True
+                sym_clean = master[cand].get("symbol", cand)
                 company_name = master[cand].get("company_name", sym_clean)
                 sector_name = master[cand].get("sector", "EQUITY")
                 break
