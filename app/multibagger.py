@@ -783,8 +783,8 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     info, fast_info, fin, bs, cf = None, None, None, None, None
     success = False
     
-    # Small spacing delay to respect YFinance request quotas
-    time.sleep(0.2)
+    # Spacing delay to respect YFinance request quotas
+    time.sleep(0.4)
     
     for attempt in range(3):
         try:
@@ -1597,7 +1597,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     # 3. Phase 2: Fetch Fundamentals
     fundamentals_list = []
     
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {}
         cached_count = 0
         for p in shortlist:
