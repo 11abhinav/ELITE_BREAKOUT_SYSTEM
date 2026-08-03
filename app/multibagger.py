@@ -694,9 +694,9 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
-        # Fundamentals (ROE, OPM, D/E, Piotroski) only update quarterly.
-        # Accept cached fundamentals up to 60 days old to prevent YFinance IP rate-limiting stalls.
-        if age_days < 60:
+        # Fundamentals (ROE, OPM, D/E, Piotroski) refreshed every 15 days.
+        # Accept cached fundamentals up to 15 days old.
+        if age_days < 15:
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
