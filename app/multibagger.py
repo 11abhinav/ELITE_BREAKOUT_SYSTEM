@@ -694,9 +694,11 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
             fetched_at = fetched_at.replace(tzinfo=IST)
             
         age_days = (now_dt - fetched_at).days
-        # Fundamentals (ROE, OPM, D/E, Piotroski) refreshed every 15 days.
-        # Accept cached fundamentals up to 15 days old.
-        if age_days < 15:
+        # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
+        is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
+        max_age_days = 7 if is_saturday_window else 15
+
+        if age_days < max_age_days:
             return {k: v for k, v in data.items() if k != "fetched_at"}
     except Exception as e:
         logger.debug(f"Failed to parse cache entry for {symbol}: {e}")

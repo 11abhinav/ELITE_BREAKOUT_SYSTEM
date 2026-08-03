@@ -1333,6 +1333,7 @@ def run_system_scheduler():
     evening_scanners_ran = False
     warmup_ran = False
     last_earnings_date = None
+    saturday_mb_refresh_ran = False
     
     try:
         from stock_analyzer import refresh_master_symbols_universe
@@ -1548,6 +1549,18 @@ def run_system_scheduler():
                     logger.info("🌙 [SESSION_ARCH] Midnight rotation complete — old session destroyed.")
                 except Exception as _me:
                     logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
+
+        # Saturday Morning (06:00 AM IST) - Fundamental Refresh for data >= 7 days old
+        if now.weekday() == 5:
+            if now.hour == 6 and now.minute >= 0 and not saturday_mb_refresh_ran:
+                saturday_mb_refresh_ran = True
+                if not is_scanner_stopped("MULTIBAGGER"):
+                    logger.info("🕒 SCHEDULER | [Saturday 06:00 AM] Triggering Multibagger 7-day fundamental refresh...")
+                    _run_multibagger_scanner_single()
+                else:
+                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping Saturday 6:00 AM refresh.")
+            elif now.hour != 6:
+                saturday_mb_refresh_ran = False
 
         # Sleep tight, loop runs approximately every 15 seconds for precision timing
         time.sleep(15)
