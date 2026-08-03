@@ -231,12 +231,27 @@ def get_valid_scraper_keys():
     return valid_keys
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
-    """Executes a POST request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    """Executes a POST request to Fyers API. Tries Crawlora FIRST, then ScraperAPI, then direct."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
-    # 1. ScraperAPI Proxy Attempt (Primary: Bypasses Cloudflare WAF using residential proxy pool)
+    # 1. Crawlora Attempt (Primary)
+    try:
+        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
+        crawlora_key = get_crawlora_api_key()
+        if crawlora_key:
+            logger.info(f"🌐 Routing POST request via Crawlora Proxy for {target_url}...")
+            res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=60)
+            if res_crawlora.status_code in (401, 403, 429):
+                mark_crawlora_key_exhausted_today(crawlora_key)
+            elif res_crawlora.status_code in (200, 201) and not res_crawlora.text.strip().startswith("<!doctype"):
+                logger.info(f"✅ Crawlora Proxy successfully fetched POST {target_url}!")
+                return res_crawlora
+    except Exception as c_err:
+        logger.warning(f"Crawlora POST attempt failed: {c_err}")
+
+    # 2. ScraperAPI Proxy Attempt (Secondary)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
@@ -245,7 +260,6 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
             res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=60)
             body_scraper = res_scraper.text.strip()
             
-            # Blacklist dead / exhausted / invalid keys project-wide for today
             if res_scraper.status_code in (401, 403, 429, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
                 logger.warning(f"❌ ScraperAPI key ({scraper_key[:5]}...) is EXHAUSTED/DEAD (Status {res_scraper.status_code}). Blacklisting key project-wide for today.")
                 try:
@@ -264,7 +278,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         except Exception as s_err:
             logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}")
 
-    # 2. Direct Connection Fallback (If ScraperAPI key is not configured or all keys failed)
+    # 3. Direct Connection Fallback
     logger.info(f"Attempting direct POST connection to {target_url}...")
     try:
         return session.post(target_url, json=payload, headers=headers, timeout=10)
@@ -273,11 +287,27 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         raise
 
 def fyers_get_with_scraper_fallback(session, target_url, headers=None):
-    """Executes a GET request to Fyers API. Tries ScraperAPI proxy FIRST (with keep_headers=true) to guarantee Cloudflare WAF bypass, then falls back to direct connection."""
+    """Executes a GET request to Fyers API. Tries Crawlora FIRST, then ScraperAPI, then direct."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
+    # 1. Crawlora Attempt (Primary)
+    try:
+        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
+        crawlora_key = get_crawlora_api_key()
+        if crawlora_key:
+            logger.info(f"🌐 Routing GET request via Crawlora Proxy for {target_url}...")
+            res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=60)
+            if res_crawlora.status_code in (401, 403, 429):
+                mark_crawlora_key_exhausted_today(crawlora_key)
+            elif res_crawlora.status_code in (200, 301, 302, 303, 307, 308) and not res_crawlora.text.strip().startswith("<!doctype"):
+                logger.info(f"✅ Crawlora Proxy successfully fetched GET {target_url}!")
+                return res_crawlora
+    except Exception as c_err:
+        logger.warning(f"Crawlora GET attempt failed: {c_err}")
+
+    # 2. ScraperAPI Attempt (Secondary)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
@@ -286,7 +316,6 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
             res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=60)
             body_scraper = res_scraper.text.strip()
             
-            # Blacklist dead / exhausted / invalid keys project-wide for today
             if res_scraper.status_code in (401, 403, 429, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
                 logger.warning(f"❌ ScraperAPI key ({scraper_key[:5]}...) is EXHAUSTED/DEAD (Status {res_scraper.status_code}). Blacklisting key project-wide for today.")
                 try:

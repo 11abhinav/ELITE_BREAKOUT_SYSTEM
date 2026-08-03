@@ -82,6 +82,20 @@ def get_institutional_buys() -> dict[str, list[str]]:
             try:
                 logger.info(f"🔄 Attempting to fetch {deal_type} deals from {url} (Attempt {attempt+1})")
                 r = session.get(url, timeout=15)
+                
+                # If direct request fails or gets HTML block page, try Crawlora
+                if r.status_code != 200 or "<html" in r.text.lower() or "<!doctype" in r.text.lower():
+                    from pledge_scraper import get_crawlora_api_key
+                    crawlora_key = get_crawlora_api_key()
+                    if crawlora_key:
+                        try:
+                            logger.info(f"🔄 Attempting Crawlora fetch for {deal_type} deals...")
+                            c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
+                            if c_resp.status_code == 200:
+                                r = c_resp
+                        except Exception as crawlora_err:
+                            logger.debug(f"Crawlora fetch failed for {deal_type}: {crawlora_err}")
+
                 if r.status_code == 200:
                     text = r.text.strip()
                     if not text or "NO RECORDS" in text or len(text.splitlines()) < 2:

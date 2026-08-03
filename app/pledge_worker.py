@@ -66,45 +66,72 @@ def discover_trendlyne_url(symbol: str) -> str:
         
     fast_url = f"https://trendlyne.com/stock/{clean_symbol}/"
     
-    api_key = get_scraper_api_key()
-    if not api_key:
+    from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
+    crawlora_key = get_crawlora_api_key()
+    scraper_key = get_scraper_api_key()
+    
+    if not crawlora_key and not scraper_key:
         return fast_url
 
-    # 1. Attempt fast HEAD request
-    payload = {'api_key': api_key, 'url': fast_url, 'render': 'false'}
-    try:
-        # Note: ScraperAPI sometimes ignores HEAD, so we do a quick GET with a short timeout
-        res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
-        if res.status_code == 200:
-            return fast_url
-    except Exception:
-        pass
+    # 1. Attempt fast HEAD/GET request via Crawlora first, then ScraperAPI
+    res = None
+    if crawlora_key:
+        try:
+            c_payload = {'api_key': crawlora_key, 'url': fast_url}
+            res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=15)
+            if res is not None and res.status_code in (401, 403, 429):
+                mark_crawlora_key_exhausted_today(crawlora_key)
+                res = None
+            elif res is not None and res.status_code == 200:
+                return fast_url
+        except Exception:
+            res = None
 
-    # 2. If it 404s, use ScraperAPI to search Google for the proper trendlyne URL
+    if res is None and scraper_key:
+        payload = {'api_key': scraper_key, 'url': fast_url, 'render': 'false'}
+        try:
+            res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
+            if res is not None and res.status_code == 200:
+                return fast_url
+        except Exception:
+            pass
+
+    # 2. If direct URL 404s/fails, search Google via Crawlora first, then ScraperAPI
     logger.info(f"🔍 Direct URL failed for {clean_symbol}. Searching Google...")
     search_url = f"https://www.google.com/search?q=site:trendlyne.com/equity/+{clean_symbol}"
-    payload = {'api_key': api_key, 'url': search_url, 'render': 'false'}
-    try:
-        res = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                # Check if it looks like a trendlyne equity link and contains the symbol
-                if "trendlyne.com/equity/" in href and clean_symbol.upper() in href.upper():
-                    actual_url = href.split("q=")[-1].split("&")[0] if "/url?q=" in href else href
-                    if actual_url.startswith("https://trendlyne.com"):
-                        # If Google returns a sub-page (e.g. /equity/asm-status/1415/... or /equity/financials/...) 
-                        # We must strip out the sub-page path to hit the main equity page where the pledge text lives.
-                        import re
-                        m = re.search(r'(https://trendlyne\.com/equity/)(?:[a-z\-]+/)?(\d+/[^/]+/[^/]+/?)', actual_url)
-                        if m:
-                            actual_url = m.group(1) + m.group(2)
-                            
-                        logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
-                        return actual_url
-    except Exception as e:
-        logger.warning(f"Google search fallback failed for {clean_symbol}: {e}")
+    
+    search_res = None
+    if crawlora_key:
+        try:
+            c_payload = {'api_key': crawlora_key, 'url': search_url}
+            search_res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=30)
+            if search_res is not None and search_res.status_code in (401, 403, 429):
+                mark_crawlora_key_exhausted_today(crawlora_key)
+                search_res = None
+        except Exception:
+            search_res = None
+
+    if search_res is None and scraper_key:
+        payload = {'api_key': scraper_key, 'url': search_url, 'render': 'false'}
+        try:
+            search_res = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
+        except Exception as e:
+            logger.warning(f"Google search fallback failed for {clean_symbol}: {e}")
+
+    if search_res is not None and search_res.status_code == 200:
+        soup = BeautifulSoup(search_res.text, 'html.parser')
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if "trendlyne.com/equity/" in href and clean_symbol.upper() in href.upper():
+                actual_url = href.split("q=")[-1].split("&")[0] if "/url?q=" in href else href
+                if actual_url.startswith("https://trendlyne.com"):
+                    import re
+                    m = re.search(r'(https://trendlyne\.com/equity/)(?:[a-z\-]+/)?(\d+/[^/]+/[^/]+/?)', actual_url)
+                    if m:
+                        actual_url = m.group(1) + m.group(2)
+                        
+                    logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
+                    return actual_url
 
 def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False):
     """Save or update promoter pledge cache with single connection checkout."""

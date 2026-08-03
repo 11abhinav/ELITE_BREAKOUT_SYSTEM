@@ -32,8 +32,27 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
         import time
         time.sleep(2.5)
         
-        response = s.get(pdf_url, headers=headers, stream=True, timeout=60)
-        response.raise_for_status()
+        response = None
+        try:
+            response = s.get(pdf_url, headers=headers, stream=True, timeout=60)
+            if response.status_code != 200:
+                response = None
+        except Exception:
+            response = None
+
+        if response is None:
+            from pledge_scraper import get_crawlora_api_key
+            crawlora_key = get_crawlora_api_key()
+            if crawlora_key:
+                try:
+                    c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': pdf_url}, stream=True, timeout=60)
+                    if c_resp.status_code == 200:
+                        response = c_resp
+                except Exception as crawlora_err:
+                    logger.debug(f"Crawlora PDF fetch failed: {crawlora_err}")
+
+        if response is None:
+            raise Exception(f"Failed to fetch PDF from {pdf_url} via direct session & Crawlora")
         
         # Write to a temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:

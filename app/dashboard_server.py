@@ -2626,13 +2626,31 @@ def api_notices(symbol):
                     s.get('https://www.nseindia.com', headers=headers, timeout=25)
                     time.sleep(2.5)
                 r = s.get(url, headers=headers, timeout=30)
-                if r.status_code == 200:
+                if r is not None and r.status_code == 200:
                     break
                 else:
-                    logger.warning(f"NSE returned {r.status_code} for {symbol}, retrying...")
+                    from pledge_scraper import get_crawlora_api_key
+                    crawlora_key = get_crawlora_api_key()
+                    if crawlora_key:
+                        try:
+                            c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
+                            if c_resp is not None and c_resp.status_code == 200:
+                                r = c_resp
+                                break
+                        except Exception: pass
+                    logger.warning(f"NSE returned {r.status_code if r else 'None'} for {symbol}, retrying...")
                     time.sleep((attempt + 1) * 3)
             except Exception as e:
-                if attempt == max_retries - 1:
+                from pledge_scraper import get_crawlora_api_key
+                crawlora_key = get_crawlora_api_key()
+                if crawlora_key:
+                    try:
+                        c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
+                        if c_resp is not None and c_resp.status_code == 200:
+                            r = c_resp
+                            break
+                    except Exception: pass
+                if attempt == max_retries - 1 and r is None:
                     raise
                 logger.warning(f"NSE timeout for {symbol} (attempt {attempt+1}): {e}, retrying...")
                 time.sleep((attempt + 1) * 3)
