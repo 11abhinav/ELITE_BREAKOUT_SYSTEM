@@ -1970,14 +1970,18 @@ _global_lock = ProcessLock("global_scanner_lock")
 
 
 def start(force: bool = False, session=None) -> int:
-    from database import is_scanner_stopped
+    from database import is_scanner_stopped, upsert_scanner_health
     if is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
-    logger.info("⏳ [REVERSAL] Waiting for global scanner lock...")
-    if not _global_lock.acquire(blocking=True):
-        raise RuntimeError("Failed to acquire global scanner lock.")
+    
+    if not _global_lock.acquire(blocking=False):
+        logger.info("⏳ [REVERSAL] Global lock busy — marking status QUEUED and waiting...")
+        upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if not _global_lock.acquire(blocking=True):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Scanner is already actively running!")

@@ -1301,13 +1301,17 @@ _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(run_once=False, is_test_mode=False):
-    from database import is_scanner_stopped
+    from database import is_scanner_stopped, upsert_scanner_health
     if is_scanner_stopped("MULTI_TF"):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         return
-    logger.info("⏳ [MULTI_TF] Waiting for global scanner lock...")
-    if not _global_lock.acquire(blocking=True):
-        raise RuntimeError("Failed to acquire global scanner lock.")
+    
+    if not _global_lock.acquire(blocking=False):
+        logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
+        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if not _global_lock.acquire(blocking=True):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+
     if run_once:
         if not _scan_lock.acquire(blocking=False):
             _global_lock.release()
