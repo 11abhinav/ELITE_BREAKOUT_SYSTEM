@@ -86,29 +86,41 @@ class EarningsCalendarService:
     def refresh_earnings_calendar(self, symbols: List[str]) -> int:
         """
         Refreshes earnings calendar for symbols and caches results in PostgreSQL.
-        Intended to run daily at 21:00 IST (9:00 PM) off-market window.
-        - Known earnings_date: skip if updated within 45 days.
-        - Missing/unverified: retry if updated older than 7 days.
+        Intended to run daily post-market close (15:30-18:00 IST).
+        - Priority 1: Stocks with results expected TODAY (re-checked post-market close).
+        - Priority 2: Symbols uncached / older than 45d (known dates) or 7d (missing dates).
         - Gentle rate-limiting: 2 workers, 0.3s delay.
         """
         if not symbols:
             return 0
 
-        # ── 1. Skip symbols using 45-day (known date) / 7-day (missing date) TTL ─────
+        # ── 1. Priority-based Symbol Selection ──────────────────────────────
         uncached_symbols = []
         try:
             from database import get_connection
+            today_date = datetime.now(IST).date()
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Known earnings_date valid for 45 days; missing/unknown date retried after 7 days
+                    # Priority 1: Stocks whose results were scheduled for TODAY
+                    cur.execute("SELECT symbol FROM earnings_calendar WHERE earnings_date = %s", (today_date,))
+                    today_expected = {r[0].strip().upper() for r in cur.fetchall()}
+
+                    # Priority 2: Recently updated symbols to SKIP (45d for known dates != today, 7d for missing)
                     cur.execute("""
                         SELECT symbol FROM earnings_calendar 
-                        WHERE (earnings_date IS NOT NULL AND updated_at >= NOW() - INTERVAL '45 days')
+                        WHERE (earnings_date IS NOT NULL AND earnings_date != %s AND updated_at >= NOW() - INTERVAL '45 days')
                            OR (earnings_date IS NULL AND updated_at >= NOW() - INTERVAL '7 days')
-                    """)
-                    recently_updated = {r[0].strip().upper() for r in cur.fetchall()}
-                    uncached_symbols = [s for s in symbols if s.strip().upper() not in recently_updated]
+                    """, (today_date,))
+                    recently_valid = {r[0].strip().upper() for r in cur.fetchall()}
+
+                    priority_symbols = [s for s in symbols if s.strip().upper() in today_expected]
+                    other_symbols = [s for s in symbols if s.strip().upper() not in recently_valid and s.strip().upper() not in today_expected]
+
+                    uncached_symbols = priority_symbols + other_symbols
                     skipped_count = len(symbols) - len(uncached_symbols)
+
+                    if priority_symbols:
+                        logger.info(f"🎯 [EARNINGS CALENDAR] Priority 1: Re-checking {len(priority_symbols)} stocks scheduled for results TODAY post-market.")
                     if skipped_count > 0:
                         logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing).")
         except Exception as e:
