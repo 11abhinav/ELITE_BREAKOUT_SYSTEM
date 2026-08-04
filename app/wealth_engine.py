@@ -1182,13 +1182,15 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             watchlist_stocks = df["Stock"].tolist()
             
             def prefetch_medians():
+                t_name = threading.current_thread().name
                 try:
-                    logger.info("⏱ [WEALTH ENGINE] Background thread pre-fetching peer medians...")
+                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='WealthEngineMain' | Action='Pre-fetching sector peer medians for {len(watchlist_stocks)} symbols'")
                     _t_start = time.perf_counter()
-                    compute_peer_medians(watchlist_stocks)
-                    logger.info(f"⏱ [WEALTH ENGINE] Background peer medians pre-fetch completed in {time.perf_counter() - _t_start:.1f}s")
+                    res = compute_peer_medians(watchlist_stocks)
+                    dur_s = time.perf_counter() - _t_start
+                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Pre-fetch peer medians' | SymbolsProcessed={len(res)} | Duration={dur_s:.2f}s")
                 except Exception as ex:
-                    logger.warning(f"⚠️ [WEALTH ENGINE] Background peer medians pre-fetch failed: {ex}")
+                    logger.warning(f"⚠️ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Pre-fetch peer medians' | Error={ex}")
             
             import threading
             peer_medians_thread = threading.Thread(target=prefetch_medians, name="PeerMediansPrefetch", daemon=True)
@@ -1480,9 +1482,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         
         if peer_medians_thread is not None:
             logger.info("⏱ [WEALTH ENGINE] Waiting for background peer medians thread to complete...")
-            peer_medians_thread.join(timeout=180.0) # Wait up to 3 mins max
+            peer_medians_thread.join(timeout=15.0) # [PERF OPT] Reduced from 180s to 15s to prevent long scanner stalls
             if peer_medians_thread.is_alive():
-                logger.warning("⚠️ [WEALTH ENGINE] Background peer medians thread timed out. Continuing inline.")
+                logger.warning("⚠️ [WEALTH ENGINE] Background peer medians thread timed out after 15s. Continuing with cached/available data.")
         
         from valuation_utils import compute_peer_medians
         sector_stats = compute_peer_medians(wealth_df["Stock"].tolist() if not wealth_df.empty else [])

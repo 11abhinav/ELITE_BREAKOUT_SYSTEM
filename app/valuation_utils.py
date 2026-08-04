@@ -131,9 +131,16 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 try:
                     from database import upload_parquet_to_db
                     import threading
+                    def upload_job():
+                        t_name = threading.current_thread().name
+                        logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='TradingViewFetcher' | Action='Uploading tradingview_universe to DB parquet_cache'")
+                        _t_start = time.perf_counter()
+                        upload_parquet_to_db("tradingview_universe", UNIVERSE_CACHE_PATH)
+                        dur_s = time.perf_counter() - _t_start
+                        logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded tradingview_universe to DB' | Duration={dur_s:.2f}s")
+
                     threading.Thread(
-                        target=upload_parquet_to_db,
-                        args=("tradingview_universe", UNIVERSE_CACHE_PATH),
+                        target=upload_job,
                         name="TVUniverseUpload",
                         daemon=True
                     ).start()
