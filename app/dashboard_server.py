@@ -2539,7 +2539,7 @@ def api_scanner_status():
                     "outcome":       row.get("outcome"),
                     "provider_stats": row.get("provider_stats"),
                     "duration_seconds": row.get("duration_seconds"),
-                    "duration_formatted": f"{row.get('duration_seconds'):.1f}s" if row.get('duration_seconds') is not None and row.get('duration_seconds') < 60 else (f"{int(row.get('duration_seconds') // 60)}m {int(row.get('duration_seconds') % 60)}s" if row.get('duration_seconds') is not None else None),
+                    "duration_formatted": f"{(row.get('duration_seconds') / 60):.2f} min" if row.get("duration_seconds") is not None else None,
                     "today_trades":  [
                         {
                             "symbol":       t["symbol"],

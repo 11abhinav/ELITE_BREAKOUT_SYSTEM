@@ -3130,7 +3130,7 @@
             </div>` : ''}
             ${data.duration_seconds != null ? `<div class="scanner-stat-item">
               <div class="scanner-stat-label">Last Duration</div>
-              <div class="scanner-stat-value" style="font-size:12px; color:var(--muted); font-weight:600">${data.duration_formatted || (data.duration_seconds < 60 ? data.duration_seconds.toFixed(1) + 's' : Math.floor(data.duration_seconds/60) + 'm ' + Math.round(data.duration_seconds%60) + 's')}</div>
+              <div class="scanner-stat-value" style="font-size:12px; color:var(--muted); font-weight:600">${data.duration_seconds != null ? `${(data.duration_seconds / 60).toFixed(2)} min` : '—'}</div>
             </div>` : ''}
             ${data.provider_stats ? Object.keys(data.provider_stats).length > 0 ? `<div class="scanner-stat-item" title="${Object.entries(data.provider_stats).map(([k,v]) => k+': '+v).join('\\n')}">
               <div class="scanner-stat-label">API Stats</div>
@@ -4720,7 +4720,7 @@ function renderScannerExecutionHistory(data) {
   sehRecordsCache = {};
   for (const r of records) {
     sehRecordsCache[r.run_id] = r;
-    const durStr = r.duration_seconds ? `${r.duration_seconds.toFixed(1)}s` : 'In Progress';
+    const durStr = r.duration_seconds ? `${(r.duration_seconds / 60).toFixed(2)} min` : 'In Progress';
     
     // Lifecycle status badge
     let lcClass = 'background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3);';
