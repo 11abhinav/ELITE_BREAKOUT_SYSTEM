@@ -125,8 +125,18 @@ class ProcessLock:
                 
                 with self.db_conn.cursor() as cur:
                     if blocking:
-                        cur.execute("SELECT pg_advisory_lock(%s)", (self.lock_key,))
-                        locked = True
+                        wait_start = time.monotonic()
+                        last_logged_s = 0
+                        while True:
+                            cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+                            locked = cur.fetchone()[0]
+                            if locked:
+                                break
+                            elapsed = time.monotonic() - wait_start
+                            if int(elapsed) >= last_logged_s + 15:
+                                last_logged_s = int(elapsed)
+                                logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")
+                            time.sleep(1.0)
                     else:
                         cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                         locked = cur.fetchone()[0]

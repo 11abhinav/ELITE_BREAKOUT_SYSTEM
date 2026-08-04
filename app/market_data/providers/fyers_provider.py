@@ -44,9 +44,11 @@ class FyersProvider(ProviderInterface):
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         start_time = datetime.now()
         
+        logger.debug(f"🔄 [Fyers] Fetching {symbol} | {timeframe} | {range_from.date()} → {range_to.date()}")
         try:
             token = self.auth_service.get_valid_token(self.provider_name)
             if not token:
+                logger.warning(f"⚠️ [Fyers] No valid token for {symbol} — skipping fetch.")
                 raise PermissionError("Fyers token invalid")
                 
             import fyers_auth
@@ -98,6 +100,23 @@ class FyersProvider(ProviderInterface):
             
     def fetch_batch_ohlcv(self, symbols: List[str], timeframe: str, range_from: datetime, range_to: datetime) -> Dict[str, NormalizedMarketData]:
         results = {}
-        for sym in symbols:
-            results[sym] = self.fetch_ohlcv(sym, timeframe, range_from, range_to)
+        total = len(symbols)
+        logger.info(f"🔄 [Fyers] Starting batch fetch: {total} symbols | {timeframe} | {range_from.date()} → {range_to.date()}")
+        t_batch_start = datetime.now()
+        errors = 0
+        for idx, sym in enumerate(symbols, 1):
+            t_sym_start = datetime.now()
+            result = self.fetch_ohlcv(sym, timeframe, range_from, range_to)
+            elapsed_ms = int((datetime.now() - t_sym_start).total_seconds() * 1000)
+            results[sym] = result
+            if result.error:
+                errors += 1
+                logger.warning(f"  ⚠️ [Fyers] [{idx}/{total}] {sym} — FAILED in {elapsed_ms}ms: {result.error}")
+            else:
+                logger.debug(f"  ✅ [Fyers] [{idx}/{total}] {sym} — OK in {elapsed_ms}ms")
+            if idx % 25 == 0 or idx == total:
+                batch_elapsed = int((datetime.now() - t_batch_start).total_seconds())
+                logger.info(f"📊 [Fyers] Progress: {idx}/{total} symbols fetched | {errors} errors so far | Elapsed: {batch_elapsed}s")
+        total_elapsed = int((datetime.now() - t_batch_start).total_seconds())
+        logger.info(f"✅ [Fyers] Batch complete: {total - errors}/{total} ok | {errors} errors | Total: {total_elapsed}s")
         return results

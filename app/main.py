@@ -173,6 +173,11 @@ def wait_for_window(name: str):
         if now.time() >= start_time:
             logger.info(f"[{name}] ✅ Window open | {now.strftime('%H:%M:%S')} | Launching scanner")
             return
+        
+        target_dt = datetime.combine(now.date(), start_time).replace(tzinfo=IST)
+        rem_secs = max(0, int((target_dt - now).total_seconds()))
+        rem_m, rem_s = divmod(rem_secs, 60)
+        logger.info(f"⏳ [{name.upper()}] Scan window opens at {start_time.strftime('%H:%M')} IST (in {rem_m}m {rem_s}s)... Checking again in 60s")
         time.sleep(60)
 
 def wait_for_bhavcopy_or_fallback(name: str):

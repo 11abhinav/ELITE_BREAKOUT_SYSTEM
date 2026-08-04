@@ -58,22 +58,32 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
                 sleep_time = _circuit_tripped_until - now
                 
         if sleep_time > 0:
-            logger.warning(f"Yahoo circuit open. Sleeping for {sleep_time:.0f}s... (Context: {context})")
+            logger.warning(f"🚦 [YF_RATE_LIMIT] Yahoo circuit open — cooldown active. Sleeping {sleep_time:.0f}s before retry. (Context: {context})")
             time.sleep(sleep_time)
-            continue # Try again after sleeping
-            
-        # Try to acquire semaphore
-        ok = _semaphore.acquire(timeout=timeout)
-        if not ok:
-            return False
-            
+            continue  # Try again after sleeping
+
+        # Try to acquire semaphore — with heartbeat logging if we have to wait
+        sem_start = _now()
+        last_logged_sem = 0
+        while True:
+            acquired = _semaphore.acquire(timeout=1.0)
+            if acquired:
+                break
+            sem_waited = int(_now() - sem_start)
+            if sem_waited >= last_logged_sem + 10:
+                last_logged_sem = sem_waited
+                logger.info(f"⏳ [YF_RATE_LIMIT] Yahoo semaphore full ({_MAX_CONCURRENCY} slots busy) — queued for {sem_waited}s. (Context: {context})")
+            if timeout is not None and (_now() - sem_start) >= timeout:
+                return False
+        ok = True
+
         # We got the semaphore. Check circuit one more time in case it tripped while we waited.
         with _lock:
             now = _now()
             if _circuit_tripped_until and now < _circuit_tripped_until:
                 _semaphore.release()
                 continue
-                
+
             # Enforce global minimal interval
             since = now - _last_call_ts
             sleep_for = 0
@@ -82,10 +92,11 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
                 _last_call_ts = now + sleep_for
             else:
                 _last_call_ts = now
-                
+
         if sleep_for > 0:
+            logger.debug(f"⏱️ [YF_RATE_LIMIT] Enforcing min-interval spacing — sleeping {sleep_for*1000:.0f}ms. (Context: {context})")
             time.sleep(sleep_for)
-            
+
         return True
 
 
