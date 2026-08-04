@@ -1874,6 +1874,114 @@
           </div>
           <div class="scanner-grid" id="scannerGrid" style="margin-bottom:28px"></div>
 
+          <!-- SCANNER EXECUTION HISTORY & TELEMETRY SECTION -->
+          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center; margin-top:28px;">
+            <span style="font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px;">
+              📜 Scanner Execution History & Telemetry
+              <span style="font-size:11px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3); padding:2px 8px; border-radius:12px; font-weight:700;">
+                Live Quality Audit
+              </span>
+            </span>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button onclick="fetchScannerExecutionHistory(1)" class="btn btn-sm" style="font-size:11px; font-weight:700;">🔄 Refresh History</button>
+            </div>
+          </div>
+
+          <!-- History Telemetry Summary Cards -->
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin-bottom:16px;">
+            <div style="background:var(--card2); border:1px solid var(--border); padding:14px; border-radius:10px;">
+              <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Runs</div>
+              <div id="seh-total-runs" style="font-size:22px; font-weight:800; color:var(--text); margin-top:4px;">--</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); padding:14px; border-radius:10px;">
+              <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Success Rate</div>
+              <div id="seh-success-rate" style="font-size:22px; font-weight:800; color:var(--accent); margin-top:4px;">--%</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); padding:14px; border-radius:10px;">
+              <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Degraded Runs (>25% Stale)</div>
+              <div id="seh-degraded-runs" style="font-size:22px; font-weight:800; color:var(--amber); margin-top:4px;">--</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); padding:14px; border-radius:10px;">
+              <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Failed / Restarted / Timed Out</div>
+              <div id="seh-failed-runs" style="font-size:22px; font-weight:800; color:var(--warn); margin-top:4px;">--</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); padding:14px; border-radius:10px;">
+              <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Avg Stale Ratio</div>
+              <div id="seh-stale-ratio" style="font-size:22px; font-weight:800; color:#3b82f6; margin-top:4px;">--%</div>
+            </div>
+          </div>
+
+          <!-- History Filter Bar -->
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; background:var(--card2); padding:12px; border-radius:10px; border:1px solid var(--border); align-items:center;">
+            <select id="seh-scanner-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Scanners</option>
+              <option value="EOD">EOD Breakout</option>
+              <option value="REVERSAL">Reversal Scanner</option>
+              <option value="PULLBACK">Pullback Pipeline</option>
+              <option value="MULTIBAGGER">Multibagger Scanner</option>
+              <option value="WEALTH_ENGINE">Wealth Engine</option>
+              <option value="MULTI_TF">Multi-TF Scanner</option>
+              <option value="DAILY_BUILDER">Daily Builder</option>
+              <option value="PLEDGE_WORKER">Pledge Worker</option>
+              <option value="AI_WORKER">AI Worker</option>
+            </select>
+            <select id="seh-lifecycle-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Lifecycle Statuses</option>
+              <option value="RUNNING">RUNNING</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="FAILED">FAILED</option>
+              <option value="STOPPED">STOPPED</option>
+              <option value="TIMED_OUT">TIMED_OUT</option>
+              <option value="SERVER_RESTARTED">SERVER_RESTARTED</option>
+            </select>
+            <select id="seh-quality-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Data Qualities</option>
+              <option value="NORMAL">NORMAL</option>
+              <option value="DEGRADED">DEGRADED (>Threshold Stale)</option>
+              <option value="PARTIAL">PARTIAL (Incomplete Data)</option>
+            </select>
+            <select id="seh-date-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="7d">Last 7 Days</option>
+              <option value="today">Today</option>
+              <option value="30d">Last 30 Days</option>
+              <option value="all">All Time</option>
+            </select>
+            <input type="text" id="seh-search-input" onkeyup="if(event.key==='Enter') fetchScannerExecutionHistory(1)" placeholder="🔍 Search Run ID, Error, Reason..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; flex:1; min-width:200px;" />
+            <button onclick="fetchScannerExecutionHistory(1)" class="refresh-btn" style="font-size:12px; padding:6px 14px; font-weight:700;">🔍 Filter</button>
+          </div>
+
+          <!-- History Table -->
+          <div class="card" style="padding:0; overflow:hidden; border:1px solid var(--border); border-radius:10px; margin-bottom:28px; background:var(--card);">
+            <div class="tbl-wrap" style="max-height:500px; overflow-y:auto;">
+              <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                  <tr style="background:var(--card2); color:var(--muted); text-transform:uppercase; font-size:11px;">
+                    <th style="padding:10px 12px; text-align:left;">Run ID / Git</th>
+                    <th style="padding:10px 12px; text-align:left;">Scanner & Trigger</th>
+                    <th style="padding:10px 12px; text-align:left;">Started At</th>
+                    <th style="padding:10px 12px; text-align:left;">Duration</th>
+                    <th style="padding:10px 12px; text-align:center;">Lifecycle</th>
+                    <th style="padding:10px 12px; text-align:center;">Data Quality</th>
+                    <th style="padding:10px 12px; text-align:center;">Stocks (Fresh/Stale/Inc)</th>
+                    <th style="padding:10px 12px; text-align:center;">Alerts</th>
+                    <th style="padding:10px 12px; text-align:right;">Diagnostics / Error</th>
+                  </tr>
+                </thead>
+                <tbody id="seh-table-body">
+                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading scanner execution history...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <!-- Pagination Controls -->
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:var(--card2); border-top:1px solid var(--border); font-size:12px; color:var(--muted);">
+              <span id="seh-pagination-info">Showing 0-0 of 0 runs</span>
+              <div style="display:flex; gap:8px;">
+                <button id="seh-prev-btn" onclick="fetchScannerExecutionHistory(currentSehPage - 1)" class="btn btn-sm" style="font-size:11px; padding:4px 10px;" disabled>Previous</button>
+                <button id="seh-next-btn" onclick="fetchScannerExecutionHistory(currentSehPage + 1)" class="btn btn-sm" style="font-size:11px; padding:4px 10px;" disabled>Next</button>
+              </div>
+            </div>
+          </div>
+
           <!-- SYSTEM LOGS PANEL (Python Errors) -->
           <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
             <span>System Logs (Unhandled Python Errors)</span>
@@ -2173,6 +2281,7 @@
            });
         }
         if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
+        if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
         if (typeof loadApiHealth === 'function') loadApiHealth();
       } else if (tabId === 'db-explorer') {
@@ -4530,6 +4639,142 @@ async function pingViewer() {
         }
       }
     } catch(e) {}
+}
+
+// ── SCANNER EXECUTION HISTORY & TELEMETRY ENGINE ──
+let currentSehPage = 1;
+let sehRecordsCache = {};
+
+async function fetchScannerExecutionHistory(page = 1) {
+  currentSehPage = Math.max(1, page);
+  const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
+  const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
+  const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';
+  const date_range = document.getElementById('seh-date-filter')?.value || '7d';
+  const search = document.getElementById('seh-search-input')?.value || '';
+
+  const tbody = document.getElementById('seh-table-body');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading history page ${currentSehPage}...</td></tr>`;
+
+  try {
+    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderScannerExecutionHistory(data);
+  } catch (e) {
+    console.error("Failed to fetch scanner execution history", e);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
+  }
+}
+
+function renderScannerExecutionHistory(data) {
+  const records = data.records || [];
+  const stats = data.summary_stats || {};
+  const tbody = document.getElementById('seh-table-body');
+
+  // Update summary metrics
+  const totalRunsEl = document.getElementById('seh-total-runs');
+  if (totalRunsEl) totalRunsEl.innerText = (stats.total_runs || 0).toLocaleString();
+  const successRateEl = document.getElementById('seh-success-rate');
+  if (successRateEl) successRateEl.innerText = `${stats.success_rate_pct || 100.0}%`;
+  const degradedRunsEl = document.getElementById('seh-degraded-runs');
+  if (degradedRunsEl) degradedRunsEl.innerText = (stats.degraded_runs || 0).toLocaleString();
+  const failedRunsEl = document.getElementById('seh-failed-runs');
+  if (failedRunsEl) failedRunsEl.innerText = (stats.failed_runs || 0).toLocaleString();
+  const staleRatioEl = document.getElementById('seh-stale-ratio');
+  if (staleRatioEl) staleRatioEl.innerText = `${stats.avg_stale_ratio_pct || 0.0}%`;
+
+  if (!records.length) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No scanner execution history records matching filter criteria.</td></tr>`;
+    updateSehPagination(0, 0, 0);
+    return;
+  }
+
+  let html = '';
+  sehRecordsCache = {};
+  for (const r of records) {
+    sehRecordsCache[r.run_id] = r;
+    const durStr = r.duration_seconds ? `${r.duration_seconds.toFixed(1)}s` : 'In Progress';
+    
+    // Lifecycle status badge
+    let lcClass = 'background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3);';
+    if (r.lifecycle_status === 'FAILED') lcClass = 'background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid rgba(255,77,109,0.3);';
+    else if (r.lifecycle_status === 'RUNNING') lcClass = 'background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);';
+    else if (r.lifecycle_status === 'STOPPED' || r.lifecycle_status === 'SERVER_RESTARTED') lcClass = 'background:rgba(156,163,175,0.15); color:var(--muted); border:1px solid rgba(156,163,175,0.3);';
+    else if (r.lifecycle_status === 'TIMED_OUT') lcClass = 'background:rgba(234,179,8,0.15); color:var(--amber); border:1px solid rgba(234,179,8,0.3);';
+
+    // Quality status badge
+    let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent);';
+    if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:800;';
+    else if (r.quality_status === 'PARTIAL') qClass = 'background:rgba(59,130,246,0.15); color:#3b82f6;';
+
+    const startedStr = r.started_at ? new Date(r.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }) : '--';
+
+    html += `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 12px; font-family:var(--font-mono); font-size:11px;">
+          <strong>${escapeHTML(r.run_id ? r.run_id.substring(0, 8) : 'N/A')}</strong>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;">git: ${escapeHTML(r.git_commit || 'unknown')}</div>
+        </td>
+        <td style="padding:10px 12px;">
+          <strong style="color:var(--text);">${escapeHTML(r.scanner_name)}</strong>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;">${escapeHTML(r.trigger_type || 'SCHEDULED')} (${escapeHTML(r.scheduler_name || 'CRON')})</div>
+        </td>
+        <td style="padding:10px 12px; font-size:11px; white-space:nowrap;">${startedStr}</td>
+        <td style="padding:10px 12px; font-family:var(--font-mono); font-size:11px; font-weight:700;">${durStr}</td>
+        <td style="padding:10px 12px; text-align:center;">
+          <span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:12px; ${lcClass}">
+            ${escapeHTML(r.lifecycle_status)}
+          </span>
+        </td>
+        <td style="padding:10px 12px; text-align:center;">
+          <span style="font-size:10px; font-weight:700; padding:3px 8px; border-radius:12px; ${qClass}">
+            ${escapeHTML(r.quality_status)} (${((r.stale_ratio || 0) * 100).toFixed(0)}% Stale)
+          </span>
+        </td>
+        <td style="padding:10px 12px; text-align:center; font-family:var(--font-mono); font-size:11px;">
+          <strong>${r.total_stocks || 0}</strong>
+          <div style="font-size:10px; margin-top:2px;">
+            <span style="color:var(--accent);">${r.fresh_data_count || 0}</span> /
+            <span style="color:var(--amber);">${r.stale_data_count || 0}</span> /
+            <span style="color:var(--warn);">${r.incomplete_data_count || 0}</span>
+          </div>
+        </td>
+        <td style="padding:10px 12px; text-align:center; font-weight:800; color:${r.alerts_generated > 0 ? 'var(--accent)' : 'var(--muted)'};">
+          ${r.alerts_generated || 0}
+        </td>
+        <td style="padding:10px 12px; text-align:right;">
+          ${r.error_summary || r.error_details ? `
+            <button onclick="showSehErrorModal('${r.run_id}')" class="btn btn-sm" style="font-size:10px; padding:3px 8px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn); font-weight:700;">
+              ⚠️ View Stack Trace
+            </button>
+          ` : '<span style="color:var(--muted); font-size:11px;">Clean</span>'}
+        </td>
+      </tr>
+    `;
+  }
+
+  if (tbody) tbody.innerHTML = html;
+  updateSehPagination(data.page, data.total_records, data.per_page);
+}
+
+function updateSehPagination(page, total, perPage) {
+  const start = total === 0 ? 0 : (page - 1) * perPage + 1;
+  const end = Math.min(total, page * perPage);
+  const infoEl = document.getElementById('seh-pagination-info');
+  if (infoEl) infoEl.innerText = `Showing ${start}-${end} of ${total} runs`;
+
+  const prevBtn = document.getElementById('seh-prev-btn');
+  const nextBtn = document.getElementById('seh-next-btn');
+  if (prevBtn) prevBtn.disabled = page <= 1;
+  if (nextBtn) nextBtn.disabled = end >= total;
+}
+
+function showSehErrorModal(runId) {
+  const r = sehRecordsCache[runId];
+  if (!r) return;
+  alert(`[RUN DIAGNOSTICS: ${r.run_id.substring(0, 8)}]\nScanner: ${r.scanner_name}\nLifecycle: ${r.lifecycle_status}\nQuality: ${r.quality_status}\n\nSummary: ${r.error_summary || r.stop_reason || 'N/A'}\n\nTraceback:\n${r.error_details || 'No detailed stack trace available.'}`);
 }
 
 // ── NON-CRITICAL ERRORS TRACKING

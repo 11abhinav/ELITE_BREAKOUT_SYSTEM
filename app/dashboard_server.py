@@ -2550,6 +2550,35 @@ def api_scanner_status():
         logger.exception("❌ /api/scanner_status failed")
         return jsonify({}), 200
 
+
+@app.route("/api/scanner_execution_history", methods=["GET"])
+@admin_required
+def api_scanner_execution_history():
+    """Returns filterable, paginated scanner execution history with telemetry stats."""
+    try:
+        scanner_name = request.args.get("scanner", "ALL")
+        lifecycle_status = request.args.get("lifecycle_status", "ALL")
+        quality_status = request.args.get("quality_status", "ALL")
+        date_range = request.args.get("date_range", "7d")
+        search = request.args.get("search", "")
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 25))
+
+        from database import get_scanner_execution_history
+        res = get_scanner_execution_history(
+            scanner_name=scanner_name,
+            lifecycle_status=lifecycle_status,
+            quality_status=quality_status,
+            date_range=date_range,
+            search=search,
+            page=page,
+            per_page=per_page
+        )
+        return jsonify(serialize_datetimes(res))
+    except Exception as e:
+        logger.exception("❌ Failed in /api/scanner_execution_history")
+        return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200
+
 # ── Endpoints for Market Ticker & Catalyst News ────────────────────────────────────
 
 def _get_indices_cache():

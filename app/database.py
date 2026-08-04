@@ -1106,6 +1106,42 @@ def init_db():
                         last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # 40. scanner_execution_history
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS scanner_execution_history (
+                        id SERIAL PRIMARY KEY,
+                        run_id VARCHAR(64) UNIQUE NOT NULL,
+                        parent_run_id VARCHAR(64),
+                        retry_attempt INT DEFAULT 0,
+                        scanner_name VARCHAR(50) NOT NULL,
+                        lifecycle_status VARCHAR(30) NOT NULL,
+                        quality_status VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+                        trigger_type VARCHAR(20) DEFAULT 'SCHEDULED',
+                        scheduler_name VARCHAR(30) DEFAULT 'CRON',
+                        system_version VARCHAR(40),
+                        git_commit VARCHAR(64),
+                        started_at TIMESTAMPTZ NOT NULL,
+                        heartbeat_at TIMESTAMPTZ NOT NULL,
+                        completed_at TIMESTAMPTZ,
+                        total_stocks INT DEFAULT 0,
+                        fresh_data_count INT DEFAULT 0,
+                        stale_data_count INT DEFAULT 0,
+                        incomplete_data_count INT DEFAULT 0,
+                        stale_ratio FLOAT DEFAULT 0.0,
+                        alerts_generated INT DEFAULT 0,
+                        api_calls INT DEFAULT 0,
+                        cache_hits INT DEFAULT 0,
+                        cache_misses INT DEFAULT 0,
+                        stop_reason VARCHAR(255),
+                        error_summary VARCHAR(255),
+                        error_details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_seh_scanner_date ON scanner_execution_history(scanner_name, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_lifecycle ON scanner_execution_history(lifecycle_status);
+                    CREATE INDEX IF NOT EXISTS idx_seh_quality ON scanner_execution_history(quality_status);
+                    CREATE INDEX IF NOT EXISTS idx_seh_run_id ON scanner_execution_history(run_id);
+                """)
                 # 39. Trade analytics view mapping JSONB context to columns
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
                 cur.execute("""
@@ -1187,6 +1223,7 @@ def init_db():
                 # Reset any stuck RUNNING/QUEUED scanner statuses on boot.
                 try:
                     cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, updated_at = NOW() WHERE status = 'RUNNING' OR status LIKE 'QUEUED%'")
+                    cleanup_orphaned_scanner_runs_on_boot()
                 except Exception as t_err:
                     logger.warning(f"[STARTUP] Scanner state reset non-critical failure: {t_err}")
 
@@ -6980,5 +7017,260 @@ def log_resolution_event_db(provider: str, original_symbol: str, attempted_symbo
                 conn.commit()
     except Exception as e:
         logger.error(f"❌ Failed to log resolution event for {provider}/{original_symbol}: {e}")
+
+
+# =====================================================================================
+# SCANNER EXECUTION HISTORY & TELEMETRY ENGINE
+# =====================================================================================
+
+def cleanup_orphaned_scanner_runs_on_boot():
+    """
+    On server boot, finds any scanner runs left in 'RUNNING' status.
+    - If heartbeat is older than 2 hours: marks 'TIMED_OUT'.
+    - Otherwise: marks 'SERVER_RESTARTED'.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET completed_at = NOW(),
+                        lifecycle_status = CASE 
+                            WHEN heartbeat_at < NOW() - INTERVAL '2 hours' THEN 'TIMED_OUT'
+                            ELSE 'SERVER_RESTARTED'
+                        END,
+                        error_summary = CASE 
+                            WHEN heartbeat_at < NOW() - INTERVAL '2 hours' THEN 'Scan timed out due to heartbeat inactivity'
+                            ELSE 'Server restarted while scan was in progress'
+                        END,
+                        error_details = 'Automated boot cleanup detected unclosed RUNNING state'
+                    WHERE lifecycle_status = 'RUNNING';
+                """)
+                updated_rows = cur.rowcount
+                conn.commit()
+                if updated_rows > 0:
+                    logger.info(f"🧹 [BOOT CLEANUP] Updated {updated_rows} orphaned RUNNING scanner execution history records.")
+    except Exception as e:
+        logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
+
+
+def start_scanner_execution_run(
+    scanner_name: str,
+    trigger_type: str = "SCHEDULED",
+    scheduler_name: str = "CRON",
+    parent_run_id: str = None,
+    retry_attempt: int = 0,
+    total_stocks: int = 0
+):
+    """Creates a new RUNNING record in scanner_execution_history and returns a ScannerRunContext."""
+    from scanner_run_context import ScannerRunContext
+    ctx = ScannerRunContext(
+        scanner_name=scanner_name,
+        trigger_type=trigger_type,
+        scheduler_name=scheduler_name,
+        parent_run_id=parent_run_id,
+        retry_attempt=retry_attempt,
+        total_stocks=total_stocks
+    )
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO scanner_execution_history (
+                        run_id, parent_run_id, retry_attempt, scanner_name,
+                        lifecycle_status, quality_status, trigger_type, scheduler_name,
+                        system_version, git_commit, started_at, heartbeat_at, total_stocks
+                    ) VALUES (%s, %s, %s, %s, 'RUNNING', 'NORMAL', %s, %s, %s, %s, NOW(), NOW(), %s);
+                """, (
+                    ctx.run_id, ctx.parent_run_id, ctx.retry_attempt, ctx.scanner_name,
+                    ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit, ctx.total_stocks
+                ))
+                conn.commit()
+                logger.info(f"📜 [EXECUTION HISTORY] Started run {ctx.run_id[:8]} for {scanner_name} (Trigger: {trigger_type})")
+    except Exception as e:
+        logger.warning(f"Failed to insert scanner execution history for {scanner_name}: {e}")
+
+    return ctx
+
+
+def update_scanner_run_heartbeat(run_id: str):
+    """Updates the heartbeat_at timestamp for an active scanner run."""
+    if not run_id:
+        return
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET heartbeat_at = NOW()
+                    WHERE run_id = %s AND lifecycle_status = 'RUNNING';
+                """, (run_id,))
+                conn.commit()
+    except Exception as e:
+        logger.debug(f"Failed to update heartbeat for run {run_id}: {e}")
+
+
+def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason: str = None):
+    """Finalizes a scanner execution record with completion stats, quality evaluation, and errors."""
+    if not ctx or not getattr(ctx, 'run_id', None):
+        return
+
+    import traceback
+    if exception is not None:
+        ctx.record_error(str(exception)[:255], traceback.format_exc())
+        lifecycle_status = "FAILED"
+    elif stop_reason is not None:
+        ctx.set_stop_reason(stop_reason)
+        lifecycle_status = "STOPPED"
+    else:
+        lifecycle_status = "COMPLETED"
+
+    quality_status = ctx.evaluate_quality_status()
+    stale_ratio = ctx.compute_stale_ratio()
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET completed_at = NOW(),
+                        lifecycle_status = %s,
+                        quality_status = %s,
+                        total_stocks = %s,
+                        fresh_data_count = %s,
+                        stale_data_count = %s,
+                        incomplete_data_count = %s,
+                        stale_ratio = %s,
+                        alerts_generated = %s,
+                        api_calls = %s,
+                        cache_hits = %s,
+                        cache_misses = %s,
+                        stop_reason = %s,
+                        error_summary = %s,
+                        error_details = %s
+                    WHERE run_id = %s;
+                """, (
+                    lifecycle_status, quality_status, ctx.total_stocks,
+                    ctx.fresh_count, ctx.stale_count, ctx.incomplete_count,
+                    stale_ratio, ctx.alerts_generated, ctx.api_calls,
+                    ctx.cache_hits, ctx.cache_misses, ctx.stop_reason,
+                    ctx.error_summary, ctx.error_details, ctx.run_id
+                ))
+                conn.commit()
+                logger.info(
+                    f"📜 [EXECUTION HISTORY] Completed run {ctx.run_id[:8]} for {ctx.scanner_name} | "
+                    f"Lifecycle: {lifecycle_status} | Quality: {quality_status} | Stale Ratio: {stale_ratio*100:.1f}%"
+                )
+    except Exception as e:
+        logger.warning(f"Failed to complete scanner execution history for run {ctx.run_id}: {e}")
+
+
+def get_scanner_execution_history(
+    scanner_name: str = None,
+    lifecycle_status: str = None,
+    quality_status: str = None,
+    date_range: str = "7d",
+    search: str = None,
+    page: int = 1,
+    per_page: int = 25
+):
+    """
+    Returns filterable, paginated scanner execution history with dynamically computed duration.
+    """
+    from psycopg2.extras import RealDictCursor
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                where_clauses = ["1=1"]
+                params = []
+
+                if scanner_name and scanner_name.upper() != "ALL":
+                    where_clauses.append("scanner_name = %s")
+                    params.append(scanner_name)
+
+                if lifecycle_status and lifecycle_status.upper() != "ALL":
+                    where_clauses.append("lifecycle_status = %s")
+                    params.append(lifecycle_status.upper())
+
+                if quality_status and quality_status.upper() != "ALL":
+                    where_clauses.append("quality_status = %s")
+                    params.append(quality_status.upper())
+
+                if date_range == "today":
+                    where_clauses.append("started_at >= CURRENT_DATE")
+                elif date_range == "7d":
+                    where_clauses.append("started_at >= NOW() - INTERVAL '7 days'")
+                elif date_range == "30d":
+                    where_clauses.append("started_at >= NOW() - INTERVAL '30 days'")
+
+                if search and search.strip():
+                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR error_summary ILIKE %s OR stop_reason ILIKE %s)")
+                    term = f"%{search.strip()}%"
+                    params.extend([term, term, term, term])
+
+                where_sql = " AND ".join(where_clauses)
+
+                # Total Count
+                cur.execute(f"SELECT COUNT(*) as cnt FROM scanner_execution_history WHERE {where_sql}", params)
+                total_records = cur.fetchone()["cnt"]
+
+                # Paginated Rows with dynamic duration calculation
+                offset = (max(1, page) - 1) * per_page
+                query = f"""
+                    SELECT id, run_id, parent_run_id, retry_attempt, scanner_name,
+                           lifecycle_status, quality_status, trigger_type, scheduler_name,
+                           system_version, git_commit, started_at, heartbeat_at, completed_at,
+                           EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - started_at))::float as duration_seconds,
+                           total_stocks, fresh_data_count, stale_data_count, incomplete_data_count,
+                           stale_ratio, alerts_generated, api_calls, cache_hits, cache_misses,
+                           stop_reason, error_summary, error_details
+                    FROM scanner_execution_history
+                    WHERE {where_sql}
+                    ORDER BY started_at DESC
+                    LIMIT %s OFFSET %s;
+                """
+                cur.execute(query, params + [per_page, offset])
+                rows = cur.fetchall()
+
+                # Summary metrics
+                summary_query = f"""
+                    SELECT 
+                        COUNT(*) as total_runs,
+                        SUM(CASE WHEN lifecycle_status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_runs,
+                        SUM(CASE WHEN quality_status = 'DEGRADED' THEN 1 ELSE 0 END) as degraded_runs,
+                        SUM(CASE WHEN lifecycle_status IN ('FAILED', 'TIMED_OUT', 'SERVER_RESTARTED') THEN 1 ELSE 0 END) as failed_runs,
+                        AVG(COALESCE(stale_ratio, 0.0)) as avg_stale_ratio
+                    FROM scanner_execution_history
+                    WHERE {where_sql};
+                """
+                cur.execute(summary_query, params)
+                stats = cur.fetchone()
+
+                total_runs = stats["total_runs"] or 0
+                completed_runs = stats["completed_runs"] or 0
+                degraded_runs = stats["degraded_runs"] or 0
+                failed_runs = stats["failed_runs"] or 0
+                avg_stale = float(stats["avg_stale_ratio"] or 0.0)
+
+                success_rate = round(((completed_runs + degraded_runs) / max(1, total_runs)) * 100, 1) if total_runs > 0 else 100.0
+
+                return {
+                    "records": [dict(r) for r in rows],
+                    "total_records": total_records,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_records + per_page - 1) // per_page if total_records > 0 else 1,
+                    "summary_stats": {
+                        "total_runs": total_runs,
+                        "success_rate_pct": success_rate,
+                        "degraded_runs": degraded_runs,
+                        "failed_runs": failed_runs,
+                        "avg_stale_ratio_pct": round(avg_stale * 100, 1),
+                    }
+                }
+    except Exception as e:
+        logger.error(f"Failed to query scanner execution history: {e}")
+        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "summary_stats": {}}
+
 
 
