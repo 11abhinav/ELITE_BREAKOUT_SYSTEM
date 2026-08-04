@@ -87,7 +87,7 @@ class UnifiedFetcher:
                         resolved = get_symbol_resolver().resolve(symbol, provider="yahoo")
                         yf_symbol = resolved.mapped_symbol if (resolved and resolved.is_valid and resolved.mapped_symbol) else f"{symbol}.NS"
                     except Exception as fmt_err:
-                        logger.error(f"🚫 [YahooFormat] Skipping fetch_historical — invalid Yahoo symbol: {fmt_err}")
+                        logger.error(f"🚫 [YahooFormat] Symbol resolution failed for '{symbol}': {fmt_err} — skipping Yahoo fetch for this symbol")
                         continue
                     logger.info(f"🔄 [Yahoo] Falling back to {yf_symbol}")
                     # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Rate-limited yf.download with strict timeouts & single-threading
@@ -120,7 +120,7 @@ class UnifiedFetcher:
                             }
                         return df
                 except Exception as e:
-                    logger.warning(f"⚠️ [Yahoo] Failed to fetch historical {symbol}: {e}")
+                    logger.error(f"❌ [Yahoo] Failed to fetch historical {symbol}: {e}", exc_info=True)
                     
             elif provider == "bse":
                 try:
@@ -156,7 +156,7 @@ class UnifiedFetcher:
                             }
                         return df
                 except Exception as e:
-                    logger.error(f"❌ [BSE] Failed to fetch historical {symbol}: {e}")
+                    logger.error(f"❌ [BSE] Failed to fetch historical {symbol}: {e}", exc_info=True)
                     
         logger.error(f"❌ Exhausted all providers for historical {symbol}")
         return pd.DataFrame()
@@ -286,11 +286,11 @@ class UnifiedFetcher:
                                                 pending.discard(orig)
                                                 success_count += 1
                                     except Exception as item_err:
-                                        logger.exception(f"⚠️ [Upstox] Quote parsing error for symbol {orig}: {item_err}")
+                                        logger.error(f"❌ [Upstox] Quote parsing error for symbol {orig}: {item_err}", exc_info=True)
                                 if success_count > 0:
                                     logger.info(f"✅ [Upstox] Fetched {success_count}/{len(chunk)} quotes successfully.")
                     except Exception as e:
-                        logger.exception(f"⚠️ [Upstox] Batch quote fetch failed: {e}")
+                        logger.error(f"❌ [Upstox] Batch quote fetch failed: {e}", exc_info=True)
 
                 elif provider == "yahoo":
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
@@ -319,6 +319,7 @@ class UnifiedFetcher:
                                     raw_yf_symbols.append(f"{s}.NS")
                         except Exception:
                             raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
+                            logger.warning(f"⚠️ [Yahoo] Symbol resolver import failed for chunk of {len(chunk)} — using default .NS format")
                         yf_symbols = raw_yf_symbols
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
@@ -346,9 +347,9 @@ class UnifiedFetcher:
                                                 logger.debug(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception as item_err:
-                                        logger.exception(f"⚠️ [Yahoo] Quote parsing error for symbol {orig}: {item_err}")
+                                        logger.error(f"❌ [Yahoo] Quote parsing error for symbol {orig} ({y_sym}): {item_err}", exc_info=True)
                         except Exception as e:
-                            logger.exception(f"⚠️ [Yahoo] Batch quote fetch failed: {e}")
+                            logger.error(f"❌ [Yahoo] Batch quote fetch failed for chunk of {len(chunk)} symbols: {e}", exc_info=True)
                         
                 elif provider == "bse":
                     # Skip BSE provider if there are no pending symbols or if circuit is still open.
@@ -398,10 +399,10 @@ class UnifiedFetcher:
                                                     results[orig] = {"v": {"cmd": {"c": val}}}
                                                     logger.debug(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                     pending.discard(orig)
-                                        except Exception:
-                                            pass
+                                        except Exception as item_err:
+                                            logger.warning(f"⚠️ [BSE] Quote parse error for {orig} ({y_sym}): {item_err}")
                             except Exception as e:
-                                logger.warning(f"⚠️ [BSE] Batch quote fetch failed: {e}")
+                                logger.warning(f"⚠️ [BSE] Batch quote fetch failed for chunk: {e}", exc_info=True)
 
         if pending:
             logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols: {len(pending)}")

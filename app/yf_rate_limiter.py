@@ -103,8 +103,8 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
 def release() -> None:
     try:
         _semaphore.release()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"⚠️ [YF_RATE_LIMIT] Semaphore release error (possible double-release): {e}")
 
 
 def record_success() -> None:

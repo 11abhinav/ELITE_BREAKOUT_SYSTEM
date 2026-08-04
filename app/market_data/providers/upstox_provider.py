@@ -48,7 +48,8 @@ def _get_cached_resolver():
         try:
             from symbol_resolution_engine import get_symbol_resolver
             _cached_resolver = get_symbol_resolver()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"⚠️ [Upstox] SymbolResolutionEngine import failed — symbol resolution disabled: {e}")
             _cached_resolver = False  # sentinel: import failed
     return _cached_resolver if _cached_resolver is not False else None
 
@@ -59,7 +60,8 @@ def _get_cached_mapper_func():
         try:
             from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
             _cached_mapper_func = get_upstox_instrument_key
-        except Exception:
+        except Exception as e:
+            logger.warning(f"⚠️ [Upstox] InstrumentMapper import failed — mapper disabled, will use resolver/fallback: {e}")
             _cached_mapper_func = False  # sentinel: import failed
     return _cached_mapper_func if _cached_mapper_func is not False else None
 
@@ -256,8 +258,8 @@ class UpstoxProvider(ProviderInterface):
                 if mapped and mapped != f"NSE_EQ|{clean.lstrip('^')}":
                     _inst_key_cache[clean] = mapped
                     return mapped
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"⚠️ [Upstox] Instrument mapper failed for '{symbol}': {e} — falling back to resolver")
 
         # 3. Dynamic symbol resolution service fallback (if mapper didn't match)
         resolver = _get_cached_resolver()
@@ -267,8 +269,8 @@ class UpstoxProvider(ProviderInterface):
                 if resolved and resolved.is_valid and resolved.mapped_symbol:
                     _inst_key_cache[clean] = resolved.mapped_symbol
                     return resolved.mapped_symbol
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"⚠️ [Upstox] Symbol resolver failed for '{symbol}': {e} — using NSE_EQ fallback")
 
         clean_bare = clean.lstrip("^")
         fallback_key = f"NSE_EQ|{clean_bare}"
@@ -325,26 +327,36 @@ class UpstoxProvider(ProviderInterface):
                 if response.status_code == 429:
                     self._health_score = max(0, self._health_score - 2)
                     sleep_time = backoff + random.uniform(0.5, 2.0)
-                    logger.warning(f"⚠️ [UPSTOX] Rate Limit hit (429) for {symbol}. Backoff {sleep_time:.2f}s (attempt {attempt+1}/4)...")
+                    logger.warning(
+                        f"🚦 [UPSTOX] HTTP 429 Rate Limit for {symbol} "
+                        f"(attempt {attempt+1}/4) — sleeping {sleep_time:.2f}s before retry. "
+                        f"health_score={self._health_score:.0f}"
+                    )
                     time.sleep(sleep_time)
                     backoff *= 2.0
                     continue
                 break
 
             if response is not None and response.status_code == 429:
-                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit")
+                logger.error(
+                    f"❌ [UPSTOX] HTTP 429 Rate Limit EXHAUSTED for {symbol} after 4 attempts — "
+                    f"giving up. Consider increasing stagger or reducing workers."
+                )
+                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit Exhausted")
                 
             if response.status_code == 401:
                 self._status = ProviderStatus.AUTH_FAILED
                 self._health_score -= 20
-                logger.error("Upstox Analytics Token is INVALID or EXPIRED (401).")
+                logger.error(f"❌ [UPSTOX] HTTP 401 Auth EXPIRED for {symbol} — token is invalid or expired. Re-login required.")
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="401 Auth Expired")
                 
             response.raise_for_status()
             data = response.json()
             
             if data.get("status") != "success":
-                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="API Failure")
+                api_error = data.get("errors") or data.get("message") or data.get("error") or "unknown"
+                logger.error(f"❌ [UPSTOX] API returned non-success for {symbol}: status={data.get('status')!r} | error={api_error!r}")
+                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error=f"API Failure: {api_error}")
                 
             candles = data.get("data", {}).get("candles", [])
             if not candles:
@@ -414,6 +426,7 @@ class UpstoxProvider(ProviderInterface):
         import urllib.parse
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         if not token:
+            logger.error("❌ [UPSTOX] UPSTOX_ACCESS_TOKEN missing — cannot fetch live quotes. Returning empty.")
             return {}
 
         headers = {
@@ -449,10 +462,12 @@ class UpstoxProvider(ProviderInterface):
                         import ujson
                         data = ujson.loads(res.content)
                     except Exception:
+                        # ujson not available or failed — fall through to stdlib json (expected)
                         try:
                             import json
                             data = json.loads(res.content)
-                        except Exception:
+                        except Exception as json_err:
+                            logger.warning(f"⚠️ [Upstox] JSON parse failed for live quote response: {json_err} — falling back to res.json()")
                             data = res.json()
                 json_ms = (time.perf_counter() - _t_json) * 1000
 
@@ -511,13 +526,13 @@ class UpstoxProvider(ProviderInterface):
             days = 365
             if period.endswith("y"):
                 try: days = int(period[:-1]) * 365
-                except: days = 365
+                except Exception as e: logger.warning(f"⚠️ [Upstox] Failed to parse period '{period}' as years: {e} — defaulting to 365d"); days = 365
             elif period.endswith("mo"):
                 try: days = int(period[:-2]) * 30
-                except: days = 30
+                except Exception as e: logger.warning(f"⚠️ [Upstox] Failed to parse period '{period}' as months: {e} — defaulting to 30d"); days = 30
             elif period.endswith("d"):
                 try: days = int(period[:-1])
-                except: days = 10
+                except Exception as e: logger.warning(f"⚠️ [Upstox] Failed to parse period '{period}' as days: {e} — defaulting to 10d"); days = 10
             r_from = now - timedelta(days=days)
             r_to = now
             
@@ -541,7 +556,7 @@ class UpstoxProvider(ProviderInterface):
                 return MarketData(dataframe=None, source="Upstox", quality_report=report, stale=False, used_fallback=False, error="Quality Check Failed")
             return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None)
         except Exception as val_err:
-            logger.warning(f"ValidationEngine exception for Upstox {symbol}: {val_err}")
+            logger.warning(f"⚠️ [Upstox] ValidationEngine exception for {symbol}: {val_err} — returning raw dataframe without quality report", exc_info=True)
             return MarketData(dataframe=df, source="Upstox", quality_report=None, stale=False, used_fallback=False, error=None)
 
     def get_batch_ohlcv(self, symbols: List[str], interval: str = "1d", period: str = "1y", retries: int = 3, range_from = None, range_to = None, caller: str = None) -> Dict:
