@@ -4579,7 +4579,8 @@
         loadAdvancedOutcomeAnalytics(),
         loadValidationHealth(),
         loadApiHealth(),
-        fetchFetchErrors()
+        fetchFetchErrors(),
+        fetchScannerExecutionHistory(currentSehPage)
       ]).catch(e => console.error("Error refreshing background components:", e));
 
       const data = await dataPromise;
@@ -5152,6 +5153,7 @@ async function initDashboard() {
         loadNonCriticalErrors();
       }
     }
+    fetchScannerExecutionHistory(currentSehPage);
   }, 60000);
 
   // Start viewer ping
