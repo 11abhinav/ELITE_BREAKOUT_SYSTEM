@@ -65,7 +65,9 @@ def test_scenario_yahoo_returns_one_row(temp_cache_dir):
                     with patch('app.database.init_db', return_value=None):
                         with patch('app.database.upsert_data_fetch_health', return_value=None):
                             with patch('app.data_fetch_status.mark_failure', return_value=None):
-                                import logging
+                                with patch('app.database.upload_history_bundle_to_db', return_value=None):
+                                    with patch('app.database.restore_history_bundle_from_db', return_value=None):
+                                        import logging
                                 logging.getLogger().setLevel(logging.DEBUG)
                                 # Request data via price_cache just like eod_scanner does
                                 results = fetch_unified_historical([symbol], period="5d", interval="1d")

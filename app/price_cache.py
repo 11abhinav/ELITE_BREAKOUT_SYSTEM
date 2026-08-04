@@ -748,13 +748,18 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
                         # 1. Critical Cache Validation
                         reject_reason = None
-                        if not range_from and new_report:
-                            if new_report.row_count < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
+                        if new_report:
+                            q_score = getattr(new_report, 'quality_score', 100)
+                            if isinstance(q_score, (int, float)) and q_score < 50:
+                                reject_reason = "POOR_QUALITY_SCORE"
+                            elif getattr(new_report, 'is_valid', True) is False:
+                                reject_reason = "INVALID_QUALITY_REPORT"
+                            elif not range_from and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
                                 reject_reason = "HISTORICAL_SHRINK"
 
                         if reject_reason:
                             logger.warning(f"Critical Cache Validation Failed for {sym}: {reject_reason}. REJECTING remote data to protect cache.")
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cached_row_count} | IncomingRows={new_report.row_count} | Threshold={MAX_HISTORY_SHRINK*100}%")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cached_row_count} | IncomingRows={getattr(new_report, 'row_count', 0)} | Threshold={MAX_HISTORY_SHRINK*100}%")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
@@ -932,15 +937,24 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             all_data[sym].to_parquet(file_path, compression='snappy')
 
                             meta_path = file_path.replace('.parquet', '.meta.json')
+                            val_score = getattr(n_rep, 'quality_score', 100) if n_rep else 100
+                            if not isinstance(val_score, (int, float)): val_score = 100
+
+                            val_status = getattr(n_rep, 'status', 'ValidationStatus.VALID') if n_rep else 'ValidationStatus.VALID'
+                            if not isinstance(val_status, str): val_status = str(val_status)
+
+                            val_name = getattr(n_rep, 'validator_name', 'Unknown') if n_rep else 'Unknown'
+                            if not isinstance(val_name, str): val_name = str(val_name)
+
                             meta = {
                                 "schema_version": CACHE_SCHEMA_VERSION,
                                 "indicator_version": INDICATOR_VERSION,
                                 "ohlcv_hash": compute_ohlcv_hash(all_data[sym]),
                                 "generated_at": time.time(),
                                 "row_count": len(all_data[sym]),
-                                "validation_score": n_rep.quality_score if n_rep else 100,
-                                "validation_status": str(n_rep.status) if n_rep else "ValidationStatus.VALID",
-                                "validator_name": n_rep.validator_name if n_rep else "Unknown"
+                                "validation_score": val_score,
+                                "validation_status": val_status,
+                                "validator_name": val_name
                             }
                             with open(meta_path, "w") as f:
                                 json.dump(meta, f)

@@ -321,7 +321,8 @@ def test_validate_schema_success(mocker):
         "build_manifest", "telegram_queue", "earnings_calendar",
         "alert_outcomes", "sector_rankings", "wealth_buy_alert",
         "users", "user_sessions", "user_messages", "capital_history",
-        "user_watchlists", "stock_analysis_master", "watchlist"
+        "user_watchlists", "stock_analysis_master", "watchlist",
+        "scanner_execution_history"
     ]
     mock_cur.fetchall.side_effect = [
         [(t,) for t in required_tables],  # tables query

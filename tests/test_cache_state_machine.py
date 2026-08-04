@@ -20,14 +20,20 @@ IST = ZoneInfo("Asia/Kolkata")
 
 @pytest.fixture(autouse=True)
 def setup_test_env(tmp_path):
-    """Reset the global cache and use a temporary directory for Parquet files."""
+    """Reset the global cache and use a temporary directory for Parquet files.
+    
+    Patches both DB bundle functions to prevent the background HistoryUpload thread
+    (spawned by _download_all_robust) from attempting a real DB connection in tests.
+    """
     _cache.clear()
     
     with patch("app.price_cache.DATA_DIR", str(tmp_path)), \
          patch("app.price_cache.upsert_fetch_error"), \
          patch("app.price_cache.delete_fetch_error_on_success", create=True), \
          patch("app.data_fetch_status.mark_failure"), \
-         patch("app.data_fetch_status.mark_success"):
+         patch("app.data_fetch_status.mark_success"), \
+         patch("app.database.upload_history_bundle_to_db"), \
+         patch("app.database.restore_history_bundle_from_db"):
         yield tmp_path
         
     _cache.clear()
