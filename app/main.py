@@ -1573,17 +1573,20 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 19:00 IST run.")
 
-            # 15:30 - 18:00 - Earnings Calendar Refresh (Post-market close window: 3:30 PM to 6:00 PM IST)
-            if (now.hour == 15 and now.minute >= 30 or now.hour in (16, 17)) and last_earnings_date != now.date():
+            # 22:00 - 23:59 - Earnings Calendar Refresh (Off-peak evening window: 10:00 PM to 12:00 AM IST)
+            if now.hour in (22, 23) and last_earnings_date != now.date():
                 last_earnings_date = now.date()
-                def _run_earnings_post_market():
-                    try:
-                        logger.info("📅 SCHEDULER | [03:30 PM - 06:00 PM IST] Earnings Calendar post-market refresh starting...")
-                        run_earnings_calendar_refresh()
-                    except Exception as e:
-                        logger.error(f"❌ SCHEDULER | Earnings Calendar post-market refresh failed: {e}")
-                import threading as _t
-                _t.Thread(target=_run_earnings_post_market, name="EarningsCalendar-PostMarket", daemon=True).start()
+                if not is_scanner_stopped("Earnings Calendar"):
+                    def _run_earnings_post_market():
+                        try:
+                            logger.info("📅 SCHEDULER | [10:00 PM - 12:00 AM IST] Earnings Calendar off-peak refresh starting...")
+                            run_earnings_calendar_refresh()
+                        except Exception as e:
+                            logger.error(f"❌ SCHEDULER | Earnings Calendar off-peak refresh failed: {e}")
+                    import threading as _t
+                    _t.Thread(target=_run_earnings_post_market, name="EarningsCalendar-PostMarket", daemon=True).start()
+                else:
+                    logger.info("⏭️ Earnings Calendar is STOPPED by Admin. Skipping 22:00 IST refresh.")
 
             # Midnight session rotation — triggered once on date boundary
             if last_rotation_date != now.date():

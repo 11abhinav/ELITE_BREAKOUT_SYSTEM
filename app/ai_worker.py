@@ -30,6 +30,11 @@ def run_ai_worker_scan_once() -> dict:
     """Run a single scan of watchlist and excluded stocks to analyze concalls.
     Protected by _scan_lock to prevent concurrent executions.
     """
+    from database import is_scanner_stopped
+    if is_scanner_stopped("AI Worker"):
+        logger.info("⏭️ AI Worker is PAUSED by Admin. Skipping execution.")
+        return {"total_count": 0, "processed_count": 0}
+
     if not _scan_lock.acquire(blocking=False):
         logger.warning("🤖 AI Worker Scan already running. Skipping execution.")
         raise RuntimeError("AI Worker is already actively running!")
@@ -263,6 +268,12 @@ def run_worker_loop():
             total_watch = total_watch or 0
             processed_count = processed_count or 0
             
+        from database import is_scanner_stopped
+        if is_scanner_stopped("AI Worker"):
+            upsert_scanner_health("AI Worker", "STOPPED", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Stopped by Admin")
+            time.sleep(60)
+            continue
+
         if not is_in_window():
             sleep_secs = wait_until_next_window()
             logger.info(f"🤖 [AI WORKER] Outside active window (04:00 - 05:00 IST). Sleeping {sleep_secs:.1f}s until 4 AM IST...")

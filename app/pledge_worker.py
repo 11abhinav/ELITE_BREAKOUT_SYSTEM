@@ -242,7 +242,8 @@ def worker_loop():
         except Exception as e:
             logger.exception("Failed to check database for stale symbols")
             
-        if mode == 'manual_stop':
+        from database import is_scanner_stopped
+        if mode == 'manual_stop' or is_scanner_stopped("Pledge Worker"):
             upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Stopped by Admin")
             sleep_with_mode_check(60)
             continue

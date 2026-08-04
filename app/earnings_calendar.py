@@ -86,11 +86,16 @@ class EarningsCalendarService:
     def refresh_earnings_calendar(self, symbols: List[str]) -> int:
         """
         Refreshes earnings calendar for symbols and caches results in PostgreSQL.
-        Intended to run daily post-market close (15:30-18:00 IST).
+        Intended to run daily during off-peak hours (22:00-23:59 IST).
         - Priority 1: Stocks with results expected TODAY (re-checked post-market close).
         - Priority 2: Symbols uncached / older than 45d (known dates) or 7d (missing dates).
-        - Gentle rate-limiting: 2 workers, 0.3s delay.
+        - Off-peak serial rate-limiting: 1 worker, 1.5s delay, 100 batch limit.
         """
+        from database import is_scanner_stopped
+        if is_scanner_stopped("Earnings Calendar"):
+            logger.info("⏭️ Earnings Calendar is PAUSED by Admin. Skipping refresh cycle.")
+            return 0
+
         if not symbols:
             return 0
 
@@ -116,42 +121,36 @@ class EarningsCalendarService:
                     priority_symbols = [s for s in symbols if s.strip().upper() in today_expected]
                     other_symbols = [s for s in symbols if s.strip().upper() not in recently_valid and s.strip().upper() not in today_expected]
 
-                    uncached_symbols = (priority_symbols + other_symbols)[:150]
+                    uncached_symbols = (priority_symbols + other_symbols)[:100]
                     skipped_count = len(symbols) - len(uncached_symbols)
 
                     if priority_symbols:
                         logger.info(f"🎯 [EARNINGS CALENDAR] Priority 1: Re-checking {len(priority_symbols)} stocks scheduled for results TODAY post-market.")
                     if skipped_count > 0:
-                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing or batch limit 150).")
+                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing or batch limit 100).")
         except Exception as e:
             logger.warning(f"⚠️ DB pre-check failed for earnings_calendar: {e}. Processing all symbols.")
-            uncached_symbols = symbols[:150]
+            uncached_symbols = symbols[:100]
 
         if not uncached_symbols:
             logger.info("✅ [EARNINGS CALENDAR] All symbols fresh in PostgreSQL cache (45d/7d TTL). Nothing to fetch!")
             return 0
 
         updated_count = 0
-        logger.info(f"📅 [EARNINGS CALENDAR] Starting background refresh for {len(uncached_symbols)} symbols (2 workers, 0.8s throttle)...")
+        logger.info(f"📅 [EARNINGS CALENDAR] Starting off-peak refresh for {len(uncached_symbols)} symbols (1 worker, 1.5s throttle)...")
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         results = {}
-
-        def _fetch_one(sym):
-            time.sleep(0.8)  # Gentle delay to avoid Yahoo Finance rate limits
-            ed, status = self.provider.fetch_earnings_date(sym)
-            return sym, ed, status
-
-        # Gentle execution with 2 workers to avoid IP throttling
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [executor.submit(_fetch_one, s) for s in uncached_symbols]
-            for fut in as_completed(futures):
-                try:
-                    sym, ed, status = fut.result()
-                    if ed:
-                        results[sym] = (ed, status)
-                except Exception as e:
-                    logger.debug(f"Error fetching earnings date for {sym}: {e}")
+        for s in uncached_symbols:
+            if is_scanner_stopped("Earnings Calendar"):
+                logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
+                break
+            time.sleep(1.5)  # Generous delay to avoid Yahoo Finance rate limits
+            try:
+                ed, status = self.provider.fetch_earnings_date(s)
+                if ed:
+                    results[s] = (ed, status)
+            except Exception as e:
+                logger.debug(f"Error fetching earnings date for {s}: {e}")
 
         # Batch insert/upsert into PostgreSQL
         if results:

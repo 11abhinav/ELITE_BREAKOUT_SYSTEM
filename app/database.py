@@ -2546,7 +2546,7 @@ ALL_KNOWN_SCANNERS = [
     'DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL',
     'PULLBACK', 'Wealth Engine', 'MULTIBAGGER',
     'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
-    'Pledge Worker', 'AI Worker'
+    'Pledge Worker', 'AI Worker', 'Earnings Calendar'
 ]
 
 
