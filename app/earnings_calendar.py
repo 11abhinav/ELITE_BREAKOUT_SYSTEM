@@ -116,29 +116,29 @@ class EarningsCalendarService:
                     priority_symbols = [s for s in symbols if s.strip().upper() in today_expected]
                     other_symbols = [s for s in symbols if s.strip().upper() not in recently_valid and s.strip().upper() not in today_expected]
 
-                    uncached_symbols = priority_symbols + other_symbols
+                    uncached_symbols = (priority_symbols + other_symbols)[:150]
                     skipped_count = len(symbols) - len(uncached_symbols)
 
                     if priority_symbols:
                         logger.info(f"🎯 [EARNINGS CALENDAR] Priority 1: Re-checking {len(priority_symbols)} stocks scheduled for results TODAY post-market.")
                     if skipped_count > 0:
-                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing).")
+                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing or batch limit 150).")
         except Exception as e:
             logger.warning(f"⚠️ DB pre-check failed for earnings_calendar: {e}. Processing all symbols.")
-            uncached_symbols = symbols
+            uncached_symbols = symbols[:150]
 
         if not uncached_symbols:
             logger.info("✅ [EARNINGS CALENDAR] All symbols fresh in PostgreSQL cache (45d/7d TTL). Nothing to fetch!")
             return 0
 
         updated_count = 0
-        logger.info(f"📅 [EARNINGS CALENDAR] Starting 21:00 IST refresh for {len(uncached_symbols)} symbols (2 workers, 0.3s throttle)...")
+        logger.info(f"📅 [EARNINGS CALENDAR] Starting background refresh for {len(uncached_symbols)} symbols (2 workers, 0.8s throttle)...")
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
         results = {}
 
         def _fetch_one(sym):
-            time.sleep(0.3)  # Gentle delay between requests
+            time.sleep(0.8)  # Gentle delay to avoid Yahoo Finance rate limits
             ed, status = self.provider.fetch_earnings_date(sym)
             return sym, ed, status
 
