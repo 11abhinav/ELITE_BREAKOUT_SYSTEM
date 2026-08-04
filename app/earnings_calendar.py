@@ -274,14 +274,16 @@ def run_earnings_calendar_refresh() -> dict:
         raise RuntimeError("Earnings Calendar is already actively running!")
 
     try:
-        from database import upsert_scanner_health
+        from database import upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
         from config import WATCHLIST_PATH
         import os
 
+        run_ctx = start_scanner_execution_run(scanner_name="Earnings Calendar", trigger_type="SCHEDULED", scheduler_name="CRON")
         upsert_scanner_health(
             "Earnings Calendar", "RUNNING",
             error_msg="Earnings Calendar refresh in progress..."
         )
+
         logger.info("📅 [EARNINGS CALENDAR] Starting scheduled refresh...")
 
         # ── Build symbol universe ────────────────────────────────────────────────
@@ -329,6 +331,7 @@ def run_earnings_calendar_refresh() -> dict:
         updated_count = earnings_calendar_service.refresh_earnings_calendar(symbols)
 
         # ── Update health ────────────────────────────────────────────────────────
+        complete_scanner_execution_run(run_ctx)
         upsert_scanner_health(
             "Earnings Calendar", "OK",
             last_success=datetime.now(IST).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -339,12 +342,14 @@ def run_earnings_calendar_refresh() -> dict:
         logger.info(f"✅ [EARNINGS CALENDAR] Refresh complete — {updated_count}/{total_count} symbols updated.")
         return {"total_count": total_count, "updated_count": updated_count}
 
-    except RuntimeError:
+    except RuntimeError as r_err:
+        complete_scanner_execution_run(run_ctx, exception=r_err)
         raise  # propagate lock-contention error cleanly
     except Exception as e:
         logger.exception("❌ [EARNINGS CALENDAR] Refresh failed")
         try:
             from database import upsert_scanner_health
+            complete_scanner_execution_run(run_ctx, exception=e)
             upsert_scanner_health(
                 "Earnings Calendar", "DOWN",
                 error_msg=str(e)[:500]
@@ -352,5 +357,6 @@ def run_earnings_calendar_refresh() -> dict:
         except Exception:
             pass
         raise
+
     finally:
         _scan_lock.release()

@@ -1072,6 +1072,8 @@ def run_system_scheduler():
             else:
                 logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
                 from telemetry_manager import telemetry
+                from database import start_scanner_execution_run, complete_scanner_execution_run
+                run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
                 telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_START")
                 # Pre-Daily Builder 4-step defensive memory purge
                 try:
@@ -1080,8 +1082,14 @@ def run_system_scheduler():
                 except Exception:
                     pass
                 from daily_builder import main as build_watchlist
-                with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
-                    build_watchlist()
+                try:
+                    with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
+                        build_watchlist()
+                    complete_scanner_execution_run(run_ctx)
+                except Exception as db_err:
+                    complete_scanner_execution_run(run_ctx, exception=db_err)
+                    raise db_err
+
             
             # Update memory cache
             from watchlist_cache import get_watchlist
@@ -2118,8 +2126,19 @@ def _trigger_daily_builder():
     get_watchlist()
 
 def _trigger_multi_tf():
+    from database import start_scanner_execution_run, complete_scanner_execution_run
+    run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type="SCHEDULED", scheduler_name="CRON")
     import multi_tf_scanner
-    multi_tf_scanner.start(run_once=True)
+    try:
+        stats = multi_tf_scanner.start(run_once=True)
+        if isinstance(stats, dict) and "today_alerts" in stats:
+            run_ctx.add_alert(stats.get("today_alerts", 0))
+        complete_scanner_execution_run(run_ctx)
+        return stats
+    except Exception as e:
+        complete_scanner_execution_run(run_ctx, exception=e)
+        raise e
+
 
 def _trigger_eod():
     import eod_scanner
