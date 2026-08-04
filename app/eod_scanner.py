@@ -1063,9 +1063,9 @@ def _start_wrapper(force: bool = False, session=None):
                                             is_tight_base = True
                                 
                                     if not is_tight_base:
-                                        logger.debug(f"  ⊘ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — skipping")
-                                        rejection_counts["prior_red_candles"] = rejection_counts.get("prior_red_candles", 0) + 1
-                                        continue
+                                        pen = (red_count - max_red) * 2
+                                        technical_penalties["too_many_red_candles"] = pen
+                                        logger.debug(f"⚠️ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — applying -{pen} penalty")
 
                             # ── v5: BASE TIGHTNESS FILTER ──────────────────────────────────────────
                             if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
@@ -1600,6 +1600,13 @@ def _start_wrapper(force: bool = False, session=None):
         logger.info(f"🛑🛑🛑 [COMPLETE] EOD SCANNER DONE | {elapsed_time:.2f}s | Alerts={total_alerts} | Status={status} 🛑🛑🛑")
         logger.info(f"📊 Provider Stats: {dict(provider_stats_counts)}")
         logger.info(f"📊 Final Rejections: {dict(rejection_counts)}")
+        print("\n" + "="*40)
+        print(" EOD SCANNER REJECTION TELEMETRY")
+        print("="*40)
+        for reason, count in sorted(rejection_counts.items(), key=lambda x: x[1], reverse=True):
+            if count > 0:
+                print(f" {reason.ljust(30)} : {count}")
+        print("="*40 + "\n")
         logger.info("=" * 80 + "\n")
 
         try:

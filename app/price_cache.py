@@ -713,7 +713,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         if needs_full:
             if "FULL" not in fetch_groups:
                 fetch_groups["FULL"] = []
-            fetch_groups["FULL"].append((sym, None))
+            fetch_groups["FULL"].append((sym, cached_df))
 
     # Process each group
     for group_key, items in fetch_groups.items():
@@ -1108,14 +1108,17 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         
     try:
         if requester != "multibagger":
-            from database import upload_history_bundle_to_db
             def upload_history_job():
-                t_name = threading.current_thread().name
-                logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='{requester or 'PriceCache'}' | Action='Uploading history bundle for interval={interval} to DB'")
-                _t_start = time.perf_counter()
-                upload_history_bundle_to_db(interval)
-                dur_s = time.perf_counter() - _t_start
-                logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded history bundle for interval={interval} to DB' | Duration={dur_s:.2f}s")
+                try:
+                    from app.database import upload_history_bundle_to_db
+                    t_name = threading.current_thread().name
+                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='{requester or 'PriceCache'}' | Action='Uploading history bundle for interval={interval} to DB'")
+                    _t_start = time.perf_counter()
+                    upload_history_bundle_to_db(interval)
+                    dur_s = time.perf_counter() - _t_start
+                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded history bundle for interval={interval} to DB' | Duration={dur_s:.2f}s")
+                except Exception as e:
+                    logger.exception(f"Background history upload failed: {e}")
 
             threading.Thread(
                 target=upload_history_job,

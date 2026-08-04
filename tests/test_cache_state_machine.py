@@ -207,11 +207,19 @@ def test_provider_returns_one_row_cache_repaired(mock_get_fetcher, base_history,
     bad_df = pd.DataFrame({"Close": [110.0]}, index=[base_history.index[-1] + timedelta(days=1)])
     bad_df.index.name = "Date"
     
+    class MockQR:
+        quality_score = 10
+        row_count = 1
+        is_valid = True
+        status = "OK"
+        warnings = []
+
     mock_fetcher.get_batch_ohlcv.return_value = {
-        "TEST1.NS": MarketData(dataframe=bad_df, quality_report=MagicMock(quality_score=10, row_count=1), source="yf", stale=False, used_fallback=False)
+        "TEST1.NS": MarketData(dataframe=bad_df, quality_report=MockQR(), source="yf", stale=False, used_fallback=False)
     }
     
-    with patch("app.price_cache._is_cache_up_to_date", return_value=False):
+    with patch("app.price_cache._is_cache_up_to_date", return_value=False), \
+         patch("app.price_cache._is_cache_long_enough", return_value=False):
         result = fetch_watchlist_data(watchlist, period="1y", interval="1d")
         
     # Should retain the old cache, marked as stale
