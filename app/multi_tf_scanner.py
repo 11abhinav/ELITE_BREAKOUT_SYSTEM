@@ -1279,11 +1279,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 import threading
                 
                 def bg_upload():
+                    t_name = threading.current_thread().name
+                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MultiTFScanner' | Action='Uploading intraday history bundles (1h, 30m, 15m, 5m) to DB'")
+                    _t_start = time.perf_counter()
                     for _tf in ("1h", "30m", "15m", "5m"):
                         try:
                             upload_history_bundle_to_db(_tf)
                         except Exception as e:
                             logger.warning(f"Failed background bundle upload for {_tf}: {e}")
+                    dur_s = time.perf_counter() - _t_start
+                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded intraday history bundles to DB' | Duration={dur_s:.2f}s")
                 
                 threading.Thread(target=bg_upload, name="MultiTFHistoryBundleUpload", daemon=True).start()
         except Exception as _mtf_pe:

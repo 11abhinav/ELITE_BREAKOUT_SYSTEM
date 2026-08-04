@@ -222,10 +222,15 @@ import threading as _threading
 _watchlist_ready = _threading.Event()
 
 def _build_watchlist_background():
+    t_name = threading.current_thread().name
+    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MainOrchestrator' | Action='Building or restoring fundamental watchlist'")
+    _t_start = time.perf_counter()
     with MemoryProfiler("Startup - Watchlist", force_gc_cleanup=True):
         if os.path.exists(WATCHLIST_PATH):
             logger.info(f"✅ Watchlist found | {WATCHLIST_PATH}")
             _watchlist_ready.set()
+            dur_s = time.perf_counter() - _t_start
+            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Watchlist check complete' | Duration={dur_s:.2f}s")
             return
         logger.info("📋 Watchlist missing | Attempting to restore or build in background thread...")
         try:
@@ -233,8 +238,10 @@ def _build_watchlist_background():
             get_watchlist()
             if os.path.exists(WATCHLIST_PATH):
                 _watchlist_ready.set()
-        except Exception:
-            logger.exception("❌ Daily builder failed — scanners will rebuild at first scan cycle")
+            dur_s = time.perf_counter() - _t_start
+            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Watchlist build complete' | Duration={dur_s:.2f}s")
+        except Exception as ex:
+            logger.exception(f"❌ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Daily builder failed' | Error={ex}")
 
 _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
 

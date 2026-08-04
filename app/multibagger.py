@@ -1571,10 +1571,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     try:
         from database import upload_history_bundle_to_db
         import threading
+        def upload_mb_bundle_job():
+            t_name = threading.current_thread().name
+            logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MultibaggerScanner' | Action='Uploading 1d history bundle to DB'")
+            _t_start = time.perf_counter()
+            upload_history_bundle_to_db("1d", force=True)
+            dur_s = time.perf_counter() - _t_start
+            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded 1d history bundle to DB' | Duration={dur_s:.2f}s")
+
         threading.Thread(
-            target=upload_history_bundle_to_db,
-            args=("1d",),
-            kwargs={"force": True},
+            target=upload_mb_bundle_job,
             name="MultibaggerHistoryBundleUpload",
             daemon=True
         ).start()

@@ -1034,25 +1034,24 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None):
       performance data within seconds of a scanner finishing or an alert action being clicked.
     """
     def _target():
+        t_name = threading.current_thread().name
         # non-blocking lock acquire to prevent storm
         if not _perf_rebuild_lock.acquire(blocking=False):
             logger.info("📈 PERFORMANCE TRACKER | Rebuild already in progress, skipping redundant trigger.")
             return
         try:
-            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized start banner for Exit Monitors / Performance Tracker
-            ist_now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
-            logger.info(f"********************* Starting Exit Monitors / Performance Tracker at {ist_now} *********************")
+            logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker'")
+            _t_start = time.perf_counter()
             build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
+            dur_s = time.perf_counter() - _t_start
+            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Performance metrics rebuild' | Duration={dur_s:.2f}s")
         except Exception as e:
-            logger.exception(f"❌ PERFORMANCE TRACKER | Background rebuild failed: {e}")
+            logger.exception(f"❌ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Performance rebuild failed' | Error={e}")
         finally:
-            # [VERSION: SCANNER_LOCK_BANNERS_v1.0] Standardized completion banner
-            ist_now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
-            logger.info(f"********************* Exit Monitors / Performance Tracker completed at {ist_now} *********************")
             _perf_rebuild_lock.release()
 
     # Spawn thread to run in background so UI / scanners are not blocked
-    threading.Thread(target=_target, name="PerfRebuildThread").start()
+    threading.Thread(target=_target, name="PerfRebuildThread", daemon=True).start()
 
 
 if __name__ == "__main__":
