@@ -43,7 +43,8 @@ class ScannerRunContext:
         self.retry_attempt = retry_attempt
         self.trigger_type = trigger_type
         self.scheduler_name = scheduler_name
-        self.system_version = system_version or "v7.2.2-crawlora-multi-key"
+        import config
+        self.system_version = system_version or getattr(config, "SYSTEM_DEPLOYMENT_VERSION", "v1")
         self.git_commit = git_commit or self._detect_git_commit()
         
         self.total_stocks = total_stocks

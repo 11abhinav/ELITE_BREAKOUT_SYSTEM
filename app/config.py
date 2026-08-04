@@ -77,7 +77,7 @@ SCORE_THRESHOLDS = {
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
 ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
-SYSTEM_DEPLOYMENT_VERSION = "v7.2.2-crawlora-multi-key"
+SYSTEM_DEPLOYMENT_VERSION = "v1"
 
 # =====================================================================================
 # MOMENTUM BONUS CONSTANTS & RULE 10 RATIONALE
