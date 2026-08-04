@@ -1287,7 +1287,8 @@ def validate_schema(cur):
         "build_manifest", "telegram_queue", "earnings_calendar",
         "alert_outcomes", "sector_rankings", "wealth_buy_alert",
         "users", "user_sessions", "user_messages", "capital_history",
-        "user_watchlists", "stock_analysis_master", "watchlist"
+        "user_watchlists", "stock_analysis_master", "watchlist",
+        "scanner_execution_history"
     ]
 
     missing_tables = [t for t in REQUIRED_TABLES if t not in existing_tables]
@@ -7032,6 +7033,37 @@ def cleanup_orphaned_scanner_runs_on_boot():
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS scanner_execution_history (
+                        id SERIAL PRIMARY KEY,
+                        run_id VARCHAR(64) UNIQUE NOT NULL,
+                        parent_run_id VARCHAR(64),
+                        retry_attempt INT DEFAULT 0,
+                        scanner_name VARCHAR(50) NOT NULL,
+                        lifecycle_status VARCHAR(30) NOT NULL,
+                        quality_status VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+                        trigger_type VARCHAR(20) DEFAULT 'SCHEDULED',
+                        scheduler_name VARCHAR(30) DEFAULT 'CRON',
+                        system_version VARCHAR(40),
+                        git_commit VARCHAR(64),
+                        started_at TIMESTAMPTZ NOT NULL,
+                        heartbeat_at TIMESTAMPTZ NOT NULL,
+                        completed_at TIMESTAMPTZ,
+                        total_stocks INT DEFAULT 0,
+                        fresh_data_count INT DEFAULT 0,
+                        stale_data_count INT DEFAULT 0,
+                        incomplete_data_count INT DEFAULT 0,
+                        stale_ratio FLOAT DEFAULT 0.0,
+                        alerts_generated INT DEFAULT 0,
+                        api_calls INT DEFAULT 0,
+                        cache_hits INT DEFAULT 0,
+                        cache_misses INT DEFAULT 0,
+                        stop_reason VARCHAR(255),
+                        error_summary VARCHAR(255),
+                        error_details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
