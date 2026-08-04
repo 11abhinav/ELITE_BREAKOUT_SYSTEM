@@ -65,8 +65,10 @@ class PriceScoreCalculator(BaseScoreCalculator):
                 
         score += max(0, fresh_score)
         
-        # Global Scale Down for severe incompleteness
-        if completeness < 0.10:
+        # Global Scale Down for severe incompleteness (Only for FULL period fetches, not DELTA fetches)
+        is_delta = (context.fetch_mode == "DELTA") or bool(context.range_from)
+        if not is_delta and completeness < 0.10:
             score = score * completeness * 2.0
             
         return int(max(0.0, min(100.0, score)))
+

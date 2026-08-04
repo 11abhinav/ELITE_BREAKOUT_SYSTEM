@@ -161,7 +161,8 @@ class DataQualityValidator:
                          (df["Close"] <= 0) |
                          (df.get("Volume", 0) < 0)).sum()
 
-        score = cls._compute_score(row_count, expected_rows, missing_pct, duplicate_rows, monotonic, invalid_prices, freshness_days, now_dt)
+        is_delta = bool(range_from)
+        score = cls._compute_score(row_count, expected_rows, missing_pct, duplicate_rows, monotonic, invalid_prices, freshness_days, now_dt, is_delta=is_delta)
         
         is_valid = True if score > 0 else False
         reason = "Valid" if is_valid else "Score dropped to 0 due to penalties"
@@ -191,7 +192,7 @@ class DataQualityValidator:
         )
 
     @classmethod
-    def _compute_score(cls, rows: int, expected: int, missing_pct: float, dupes: int, monotonic: bool, invalid_prices: int, freshness_days: int, now_dt: datetime) -> float:
+    def _compute_score(cls, rows: int, expected: int, missing_pct: float, dupes: int, monotonic: bool, invalid_prices: int, freshness_days: int, now_dt: datetime, is_delta: bool = False) -> float:
         w = QUALITY_SCORE_WEIGHTS
         score = 0.0
         
@@ -230,9 +231,10 @@ class DataQualityValidator:
                 
         score += max(0, fresh_score)
         
-        # If completeness is severely lacking, apply a global scale down
+        # If completeness is severely lacking, apply a global scale down (ONLY for full period fetches)
         # A 1-row dataframe for a 1y request should not pass based on its 1 perfect row.
-        if completeness < 0.10:
+        if not is_delta and completeness < 0.10:
             score = score * completeness * 2.0  # Scales it down massively
             
         return max(0.0, min(100.0, score))
+

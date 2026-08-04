@@ -214,9 +214,8 @@ class YFinanceFetcher(DataFetcher):
             pipeline = val_registry.get_pipeline(DatasetType.PRICE)
             engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
             ctx = ValidationContext(provider=source, period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
-            report = engine.validate(df, ctx)
-            
-        return MarketData(df if report.is_valid else None, source, report, False, used_fallback, None if report.is_valid else "Quality Check Failed")
+        return MarketData(df if (report and (report.is_valid or range_from)) else None, source, report, False, used_fallback, None if (report and report.is_valid) else "Quality Check Failed")
+
 
     # [VERSION: YF_DYNAMIC_BSE_FALLBACK_v1.0] Helper to perform the raw batch download
     def _fetch_batch_raw(self, ns_symbols: list[str], period: str, interval: str, range_from: str = None, range_to: str = None) -> dict:
@@ -327,10 +326,11 @@ class YFinanceFetcher(DataFetcher):
             for orig_sym in normalized_map.get(ns_sym, []):
                 if isinstance(df, ProviderResult):
                     final_results[orig_sym] = MarketData(None, source, None, False, used_fallback, error=df.name)
-                elif report is not None and report.is_valid:
-                    final_results[orig_sym] = MarketData(df, source, report, False, used_fallback, None)
+                elif report is not None and (report.is_valid or range_from):
+                    final_results[orig_sym] = MarketData(df, source, report, False, used_fallback, None if report.is_valid else "Quality Warning")
                 else:
                     final_results[orig_sym] = MarketData(None, source, report, False, used_fallback, "Quality Rejected")
+
                 
         for s in symbols:
             if s not in final_results:

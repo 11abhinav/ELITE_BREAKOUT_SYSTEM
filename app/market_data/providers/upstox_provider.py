@@ -552,9 +552,10 @@ class UpstoxProvider(ProviderInterface):
             ctx = ValidationContext(provider="Upstox", period=period, interval=interval, range_from=r_from_str, range_to=r_to_str, fetch_mode="DELTA" if range_from else "FULL")
             report = engine.validate(df, ctx)
             
-            if not report.is_valid:
+            if not report.is_valid and not range_from:
                 return MarketData(dataframe=None, source="Upstox", quality_report=report, stale=False, used_fallback=False, error="Quality Check Failed")
-            return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None)
+            return MarketData(dataframe=df, source="Upstox", quality_report=report, stale=False, used_fallback=False, error=None if report.is_valid else "Quality Warning")
+
         except Exception as val_err:
             logger.warning(f"⚠️ [Upstox] ValidationEngine exception for {symbol}: {val_err} — returning raw dataframe without quality report", exc_info=True)
             return MarketData(dataframe=df, source="Upstox", quality_report=None, stale=False, used_fallback=False, error=None)

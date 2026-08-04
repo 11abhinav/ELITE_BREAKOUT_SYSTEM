@@ -583,11 +583,14 @@ class FyersFetcher(DataFetcher):
                         
                     pipeline = val_registry.get_pipeline(DatasetType.PRICE)
                     engine = ValidationEngine(pipeline.validator, pipeline.score_calculator)
-                    ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=range_from, range_to=range_to, fetch_mode="DELTA" if range_from else "FULL")
+                    r_from_str = range_from.strftime("%Y-%m-%d") if hasattr(range_from, "strftime") else (str(range_from) if range_from else None)
+                    r_to_str = range_to.strftime("%Y-%m-%d") if hasattr(range_to, "strftime") else (str(range_to) if range_to else None)
+                    ctx = ValidationContext(provider="Fyers", period=period, interval=interval, range_from=r_from_str, range_to=r_to_str, fetch_mode="DELTA" if range_from else "FULL")
                     report = engine.validate(df, ctx)
-                    if not report.is_valid:
+                    if not report.is_valid and not range_from:
                         return MarketData(None, "Fyers", report, False, False, "Quality Check Failed")
-                    return MarketData(df, "Fyers", report, False, False, None)
+                    return MarketData(df, "Fyers", report, False, False, None if report.is_valid else "Quality Warning")
+
                     
                 except _FyersPermissionError as perm_err:
                     # -403: non-retryable, break entire candidate loop, return None immediately
