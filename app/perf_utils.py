@@ -456,3 +456,61 @@ def flush_timing_report(
         logger.warning(f"⚠️ Failed to write timing report: {e}")
 
     return fpath
+
+
+# ─── ScannerStageTracker (v3.0) ───────────────────────────────────────────────
+class ScannerStageTracker:
+    """
+    [VERSION: PERF_PROFILER_v3.0]
+    High-visibility per-stage timing & observability tracker for scanners and workers.
+    Produces tagged log output and end-of-run breakdown tables.
+    """
+    def __init__(self, scanner_name: str, total_symbols: int = 0):
+        self.scanner_name = scanner_name.upper()
+        self.total_symbols = total_symbols
+        self.start_time = time.perf_counter()
+        self.stages = []
+        self._current_start = None
+        self._current_num = None
+        self._current_name = None
+        self._current_details = None
+
+    def start_stage(self, stage_num: int, stage_name: str, details: str = ""):
+        self._current_start = time.perf_counter()
+        self._current_num = stage_num
+        self._current_name = stage_name
+        self._current_details = details
+        msg = f"⏱️ [{self.scanner_name}] STAGE {stage_num}: {stage_name} started"
+        if details:
+            msg += f" ({details})"
+        logger.info(msg)
+
+    def end_stage(self, details: str = "") -> float:
+        if not self._current_start:
+            return 0.0
+        dur = time.perf_counter() - self._current_start
+        final_details = details or self._current_details or ""
+        self.stages.append((f"STAGE {self._current_num}: {self._current_name}", dur, final_details))
+        msg = f"✅ [{self.scanner_name}] STAGE {self._current_num}: {self._current_name} completed in {dur:.2f}s"
+        if final_details:
+            msg += f" | {final_details}"
+        logger.info(msg)
+        self._current_start = None
+        return dur
+
+    def print_summary(self, alerts_found: int = 0):
+        total_dur = time.perf_counter() - self.start_time
+        lines = [
+            f"\n{'='*80}",
+            f"📊 [{self.scanner_name}] STAGE-BY-STAGE TIMING BREAKDOWN SUMMARY",
+            f"{'='*80}",
+        ]
+        for name, dur, details in self.stages:
+            pct = (dur / total_dur * 100) if total_dur > 0 else 0.0
+            det = f" ({details})" if details else ""
+            lines.append(f"  • {name:<42} : {dur:>6.2f}s ({pct:>5.1f}%){det}")
+        lines.append(f"{'-'*80}")
+        lines.append(f"⏱️ TOTAL WALL-CLOCK DURATION : {total_dur:.2f}s | Symbols Scanned: {self.total_symbols} | Alerts: {alerts_found}")
+        lines.append(f"{'='*80}\n")
+        logger.info("\n".join(lines))
+

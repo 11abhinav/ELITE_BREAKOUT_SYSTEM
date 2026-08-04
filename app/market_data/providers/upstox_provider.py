@@ -315,16 +315,24 @@ class UpstoxProvider(ProviderInterface):
         start_time = datetime.now()
         
         try:
-            response = _upstox_session.get(url, headers=headers, timeout=10)
-            latency = (datetime.now() - start_time).total_seconds() * 1000
-            
-            if response.status_code == 429:
-                self._health_score = max(0, self._health_score - 5)
-                logger.warning(f"Upstox Rate Limit hit (429) for {symbol}. Backing off 2.0s and retrying...")
-                time.sleep(2.0)
+            import random
+            backoff = 1.0
+            response = None
+            for attempt in range(4):
                 response = _upstox_session.get(url, headers=headers, timeout=10)
+                latency = (datetime.now() - start_time).total_seconds() * 1000
+                
                 if response.status_code == 429:
-                    return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit")
+                    self._health_score = max(0, self._health_score - 2)
+                    sleep_time = backoff + random.uniform(0.5, 2.0)
+                    logger.warning(f"⚠️ [UPSTOX] Rate Limit hit (429) for {symbol}. Backoff {sleep_time:.2f}s (attempt {attempt+1}/4)...")
+                    time.sleep(sleep_time)
+                    backoff *= 2.0
+                    continue
+                break
+
+            if response is not None and response.status_code == 429:
+                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit")
                 
             if response.status_code == 401:
                 self._status = ProviderStatus.AUTH_FAILED

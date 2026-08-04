@@ -1016,13 +1016,17 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     except Exception:
         pass
         
-    # [CENTRALIZED PERSISTENCE] Automatically upload updated history bundle for this interval to Postgres DB
     try:
         if requester != "multibagger":
             from database import upload_history_bundle_to_db
-            upload_history_bundle_to_db(interval)
+            threading.Thread(
+                target=upload_history_bundle_to_db,
+                args=(interval,),
+                name=f"HistoryUpload_{interval}",
+                daemon=True
+            ).start()
     except Exception as _hb_up_err:
-        logger.debug(f"History bundle auto-upload check for {interval}: {_hb_up_err}")
+        logger.debug(f"History bundle auto-upload thread spawn failed: {_hb_up_err}")
     
     return all_data
 

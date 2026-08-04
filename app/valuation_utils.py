@@ -31,15 +31,34 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
         "enterprise_value_ebitda_ratio", "dividend_yield_recent"
     ]
     
-    # Check cache freshness first
-    if os.path.exists(UNIVERSE_CACHE_PATH):
-        try:
-            mtime = os.path.getmtime(UNIVERSE_CACHE_PATH)
-            age_hours = (time.time() - mtime) / 3600
-            if age_hours < 24:
-                return pd.read_pickle(UNIVERSE_CACHE_PATH)
-        except Exception as e:
-            logger.warning(f"Failed to read universe cache age: {e}")
+    # Check local cache freshness first (72 hours TTL)
+    def load_valid_cache():
+        if os.path.exists(UNIVERSE_CACHE_PATH):
+            try:
+                df = pd.read_pickle(UNIVERSE_CACHE_PATH)
+                gen_time = df.attrs.get("generated_at", 0.0)
+                age_hours = (time.time() - gen_time) / 3600
+                if age_hours < 72:
+                    return df
+            except Exception as e:
+                logger.warning(f"Failed to read local universe cache: {e}")
+        return None
+
+    cached_df = load_valid_cache()
+    if cached_df is not None:
+        return cached_df
+
+    # Not found or stale locally. Try downloading from database cache.
+    logger.info("ℹ️ Local TradingView cache missing or stale. Restoring from database...")
+    try:
+        from database import download_parquet_from_db
+        if download_parquet_from_db("tradingview_universe", UNIVERSE_CACHE_PATH):
+            cached_df = load_valid_cache()
+            if cached_df is not None:
+                logger.info("✅ Successfully loaded fresh TradingView universe cache from database.")
+                return cached_df
+    except Exception as db_err:
+        logger.warning(f"Failed to restore TradingView cache from database: {db_err}")
             
     for attempt in range(3):
         try:
@@ -99,6 +118,7 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                     logger.info(f"Universe Refresh: ROE range [{df['return_on_equity_fy'].min():.1f}, {df['return_on_equity_fy'].max():.1f}], Growth range [{df['total_revenue_yoy_growth_ttm'].min():.1f}, {df['total_revenue_yoy_growth_ttm'].max():.1f}]")
                     
                 # Save to cache atomically
+                df.attrs["generated_at"] = time.time()
                 os.makedirs(os.path.dirname(UNIVERSE_CACHE_PATH), exist_ok=True)
                 temp_path = f"{UNIVERSE_CACHE_PATH}.tmp"
                 with open(temp_path, "wb") as f:
@@ -106,21 +126,35 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(temp_path, UNIVERSE_CACHE_PATH)
+
+                # Upload to DB in background so we don't block
+                try:
+                    from database import upload_parquet_to_db
+                    import threading
+                    threading.Thread(
+                        target=upload_parquet_to_db,
+                        args=("tradingview_universe", UNIVERSE_CACHE_PATH),
+                        name="TVUniverseUpload",
+                        daemon=True
+                    ).start()
+                except Exception as up_err:
+                    logger.warning(f"Failed to spawn background upload for TradingView universe: {up_err}")
+
                 return df
         except Exception as e:
             logger.exception(f"Attempt {attempt + 1}: Failed to fetch market universe")
             time.sleep(2 ** attempt)
             
-    # If fetch fails, try loading from cache
+    # Final fallback: return whatever we have in the local cache file, regardless of age
     if os.path.exists(UNIVERSE_CACHE_PATH):
         try:
-            mtime = os.path.getmtime(UNIVERSE_CACHE_PATH)
-            age_hours = (time.time() - mtime) / 3600
-            logger.warning(f"Loading market universe from local cache ({age_hours:.1f} hours old) due to fetch failure.")
             df = pd.read_pickle(UNIVERSE_CACHE_PATH)
+            gen_time = df.attrs.get("generated_at", 0.0)
+            age_hours = (time.time() - gen_time) / 3600 if gen_time else 999.0
+            logger.warning(f"⚠️ Loading stale market universe cache as final fallback ({age_hours:.1f} hours old).")
             return df
         except Exception as e:
-            logger.exception(f"Failed to load universe cache")
+            logger.exception(f"Failed to load stale universe cache: {e}")
             
     return pd.DataFrame()
 

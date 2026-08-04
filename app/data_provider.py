@@ -109,13 +109,7 @@ class YFinanceFetcher(DataFetcher):
     def _get_ohlcv_raw(self, ns_sym: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> pd.DataFrame:
         for attempt in range(retries):
             try:
-                # Add night buffer to avoid rate limits at 1 AM
-                from zoneinfo import ZoneInfo
-                from datetime import datetime
-                IST = ZoneInfo("Asia/Kolkata")
-                now = datetime.now(IST)
-                if 0 <= now.hour <= 6:
-                    time.sleep(1.5)
+
 
                 # Respect global Yahoo rate limiter (may raise CircuitOpenError)
                 yf_acquire(context=f"DataFetcher._get_ohlcv_raw | {ns_sym}")
@@ -228,12 +222,7 @@ class YFinanceFetcher(DataFetcher):
     def _fetch_batch_raw(self, ns_symbols: list[str], period: str, interval: str, range_from: str = None, range_to: str = None) -> dict:
         provider = _price_provider
         try:
-            from zoneinfo import ZoneInfo
-            from datetime import datetime
-            IST = ZoneInfo("Asia/Kolkata")
-            now = datetime.now(IST)
-            if 0 <= now.hour <= 6:
-                time.sleep(1.5)
+
 
             start_date = None
             end_date = None
