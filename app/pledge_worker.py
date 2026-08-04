@@ -294,20 +294,29 @@ def worker_loop():
                 if crawlora_key:
                     try:
                         c_payload = {'api_key': crawlora_key, 'url': target_url}
+                        masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
+                        logger.info(f"🌐 [CRAWLORA] Scraping pledge for {sym} (Key: [{masked_ckey}]): {target_url}")
                         res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=45)
                         if res is not None and res.status_code in (401, 403, 429):
-                            masked_key = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CONFIG_KEY"
-                            logger.warning(f"⚠️ Crawlora HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Marking key exhausted.")
+                            logger.warning(f"⚠️ [CRAWLORA EXHAUSTED] HTTP {res.status_code} for key [{masked_ckey}] URL={target_url}. Reason: {res.text[:150]}. Marking key exhausted.")
                             mark_crawlora_key_exhausted_today(crawlora_key)
                             res = None
+                        elif res is not None and res.status_code == 200:
+                            logger.info(f"✅ [CRAWLORA SUCCESS] HTTP 200 for {sym} ({len(res.content)} bytes)")
+                        else:
+                            status_str = res.status_code if res else "No Response"
+                            logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {sym}: {res.text[:150] if res else ''}")
+                            res = None
                     except Exception as crawlora_err:
-                        logger.debug(f"Crawlora fetch failed for {sym}: {crawlora_err}")
+                        logger.warning(f"❌ [CRAWLORA ERROR] Exception for {sym}: {crawlora_err}")
                         res = None
 
                 # 2. Fall back to ScraperAPI if Crawlora is missing or failed
                 if res is None and scraper_key:
                     payload = {'api_key': scraper_key, 'url': target_url, 'render': 'false'}
+                    masked_skey = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "SCRAPERAPI"
                     try:
+                        logger.info(f"🌐 [SCRAPERAPI] Scraping pledge for {sym} (Key: [{masked_skey}]): {target_url}")
                         res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
                         if res is not None and res.status_code in (401, 403, 429):
                             reason = res.text.strip()[:200]
@@ -317,13 +326,17 @@ def worker_loop():
                                     reason = err_dict["error"]
                             except Exception:
                                 pass
-                            masked_key = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "CONFIG_KEY"
-                            logger.warning(f"❌ ScraperAPI HTTP {res.status_code} for key [{masked_key}] URL={target_url}. Reason: {reason}")
+                            logger.warning(f"❌ [SCRAPERAPI EXHAUSTED] HTTP {res.status_code} for key [{masked_skey}] URL={target_url}. Reason: {reason}")
                             mark_failure('scraperapi', f"HTTP {res.status_code} ({reason}): URL={target_url}")
                             mark_key_exhausted_today(scraper_key)
                             return "ERROR"
+                        elif res is not None and res.status_code == 200:
+                            logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {sym} ({len(res.content)} bytes)")
+                        else:
+                            status_str = res.status_code if res else "No Response"
+                            logger.warning(f"⚠️ [SCRAPERAPI FAIL] HTTP {status_str} for {sym}: {res.text[:150] if res else ''}")
                     except Exception as e:
-                        logger.warning(f"ScraperAPI failed for {sym}: {e}")
+                        logger.warning(f"❌ [SCRAPERAPI ERROR] Exception for {sym}: {e}")
                             
                 if res is None:
                     logger.error(f"❌ No valid response received for {sym} from Crawlora or ScraperAPI")

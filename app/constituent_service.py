@@ -97,13 +97,18 @@ class ConstituentService:
                             from config import CRAWLORA_API_KEY
                             if CRAWLORA_API_KEY:
                                 try:
+                                    masked_ckey = f"{CRAWLORA_API_KEY[:4]}...{CRAWLORA_API_KEY[-4:]}" if len(CRAWLORA_API_KEY) > 8 else "CRAWLORA"
+                                    logger.info(f"🌐 [CRAWLORA] Requesting {name} constituents (Key: [{masked_ckey}]): {url}")
                                     c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': CRAWLORA_API_KEY, 'url': url}, timeout=30)
-                                    if c_resp.status_code == 200:
+                                    if c_resp is not None and c_resp.status_code == 200:
                                         response = c_resp
-                                        logger.info(f"✅ Downloaded {name} via Crawlora fallback.")
+                                        logger.info(f"✅ [CRAWLORA SUCCESS] Downloaded {name} constituents ({len(c_resp.content)} bytes)")
                                         break
+                                    else:
+                                        status_str = c_resp.status_code if c_resp else 'No Response'
+                                        logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {name} constituents: {c_resp.text[:150] if c_resp else ''}")
                                 except Exception as crawlora_err:
-                                    logger.debug(f"Crawlora fallback failed for {name}: {crawlora_err}")
+                                    logger.warning(f"❌ [CRAWLORA ERROR] Crawlora fallback failed for {name}: {crawlora_err}")
 
                             if attempt == max_retries - 1:
                                 logger.error(f"Failed to download {name} constituents after {max_retries} attempts: {e}")

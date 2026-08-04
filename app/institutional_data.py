@@ -89,12 +89,17 @@ def get_institutional_buys() -> dict[str, list[str]]:
                     crawlora_key = get_crawlora_api_key()
                     if crawlora_key:
                         try:
-                            logger.info(f"🔄 Attempting Crawlora fetch for {deal_type} deals...")
+                            masked_key = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
+                            logger.info(f"🌐 [CRAWLORA] Requesting {deal_type} deals (Key: [{masked_key}]): {url}")
                             c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
-                            if c_resp.status_code == 200:
+                            if c_resp is not None and c_resp.status_code == 200:
+                                logger.info(f"✅ [CRAWLORA SUCCESS] HTTP 200 for {deal_type} deals ({len(c_resp.content)} bytes)")
                                 r = c_resp
+                            else:
+                                status_str = c_resp.status_code if c_resp else "No Response"
+                                logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {deal_type} deals: {c_resp.text[:150] if c_resp else ''}")
                         except Exception as crawlora_err:
-                            logger.debug(f"Crawlora fetch failed for {deal_type}: {crawlora_err}")
+                            logger.warning(f"❌ [CRAWLORA ERROR] Crawlora fetch failed for {deal_type}: {crawlora_err}")
 
                 if r.status_code == 200:
                     text = r.text.strip()
