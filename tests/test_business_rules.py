@@ -73,25 +73,26 @@ def test_multi_tf_stale_data_guard():
 
 def test_missing_fcf_behavior():
     """
-    Ensure missing Free Cash Flow defaults to a safe proxy instead of failing hard or returning zero blindly.
+    WEALTH_PROXY_FIX_v1.0: Missing Free Cash Flow must propagate as None.
+    Previously defaulted to +10% proxy which silently inflated FM_Score for data-void stocks.
+    After fix: missing metrics propagate as None so V5 scoring engine handles them conservatively.
     """
     raw_data = {
         'Market Cap Cr': 1000,
         'cmp': 100,
         'PE Ratio': 20,
-        # FCF missing
+        # FCF missing — intentionally absent
     }
-    
+
     v5_data = wealth_engine.map_watchlist_to_v5(raw_data)
-    
-    # With missing FCF margin, it should use a default of 10% (0.10)
-    assert v5_data['fcf_margin'] == 0.10
-    
-    # Free cash flow proxy = EPS * Shares * 1.33 * 0.75 * FCF Margin
-    # EPS = 100/20 = 5
-    # Shares = 1000/100 = 10
-    # Proxy = 5 * 10 * 1.33 * 0.75 * 0.10 = 4.9875
-    assert v5_data['free_cash_flow'] > 0
+
+    # WEALTH_PROXY_FIX_v1.0: missing FCF must be None, NOT the old 0.10 proxy
+    assert v5_data['fcf_margin'] is None, (
+        "fcf_margin should be None when missing (WEALTH_PROXY_FIX_v1.0). "
+        "The old +10% proxy was removed to prevent score inflation on data-void stocks."
+    )
+    # Note: free_cash_flow may still be computed from EPS data independently; that is acceptable.
+    # The key invariant is that fcf_margin does NOT default to the 0.10 proxy.
 
 def test_bb_width_timing():
     """
