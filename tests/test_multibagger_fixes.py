@@ -180,8 +180,12 @@ def test_v5_invalidation_triggers_exit():
         assert "V5 invalidation: Promoter pledge spiked above 25%" in kwargs.get("exit_signal", "")
 
 
-def test_unsupported_financial_gate_never_closes_position():
-    """Test 2 & 8: UNSUPPORTED gate reason issues SELL_REVIEW and does not close position."""
+def test_fin_stock_no_metrics_triggers_sell_review_not_exit():
+    """[MULTIBAGGER_FIN_FALLBACK_v2.0] A financial stock with no quality metrics (no CAR, no ROE,
+    no GNPA) should reach the Data Void floor and be flagged as SELL_REVIEW rather than
+    having its position closed. The 3-tier fallback ensures this is uncertainty-driven,
+    not a hard solvency rejection.
+    """
     today_str = datetime.now(IST).date().isoformat()
     test_price_data = ExitPriceData(
         symbol="HDFCBANK",
@@ -205,7 +209,8 @@ def test_unsupported_financial_gate_never_closes_position():
         "alert_date": today_str
     }]
 
-    unsupported_fund = {
+    # No CAR, no ROE, no GNPA — total data void for a financial stock
+    zero_metrics_fund = {
         "symbol": "HDFCBANK",
         "is_financial": True,
         "capital_adequacy_ratio": None,
@@ -214,7 +219,7 @@ def test_unsupported_financial_gate_never_closes_position():
 
     with patch("multibagger.get_connection") as mock_conn, \
          patch("multibagger.batch_download_market_data", return_value={"HDFCBANK": test_price_data}), \
-         patch("multibagger.get_cached_fundamentals", return_value=unsupported_fund), \
+         patch("multibagger.get_cached_fundamentals", return_value=zero_metrics_fund), \
          patch("multibagger._persist_sell_review") as mock_persist, \
          patch("multibagger.update_alert_outcome") as mock_update_outcome:
 
@@ -224,10 +229,14 @@ def test_unsupported_financial_gate_never_closes_position():
 
         run_exit_monitor(price_data_map, cache={}, is_test_mode=False)
 
+        # Position must NOT be closed — data void is not a confirmed failure
         mock_update_outcome.assert_not_called()
-        mock_persist.assert_called_once_with(
-            202, "SELL_REVIEW: UNSUPPORTED: financial-sector CAR unavailable from yfinance"
-        )
+        # SELL_REVIEW must be triggered with the Data Void reason
+        mock_persist.assert_called_once()
+        call_reason = mock_persist.call_args[0][1]
+        assert call_reason.startswith("SELL_REVIEW:"), f"Expected SELL_REVIEW prefix, got: {call_reason}"
+        assert "Data Void" in call_reason or "metrics" in call_reason or "solvency" in call_reason, \
+            f"Expected data completeness failure reason, got: {call_reason}"
 
 
 def test_sql_exit_query_includes_sell_review():

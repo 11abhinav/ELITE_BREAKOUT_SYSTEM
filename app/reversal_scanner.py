@@ -1778,8 +1778,9 @@ def _run_scan(force: bool = False, session=None):
             )
             return 0
 
+        # [VERSION: REVERSAL_FUNDAMENTAL_ALARM_v1.0] Escalate visibility on high fundamental failure ratio without blocking persistence.
         if fundamental_failure_ratio > FUNDAMENTAL_REJECT_ALARM_PCT:
-            logger.warning(f"⚠️ [REVERSAL] High fundamental outage/failure ratio ({fundamental_failure_ratio*100:.1f}% > {FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%). Blocking persistence and preserving existing alerts.")
+            logger.warning(f"⚠️ [REVERSAL] High fundamental outage/failure ratio ({fundamental_failure_ratio*100:.1f}% > {FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%). Marking health DEGRADED and sending notifications.")
             upsert_scanner_health(
                 "REVERSAL", 
                 "DEGRADED", 
@@ -1788,7 +1789,22 @@ def _run_scan(force: bool = False, session=None):
                 total_count=total_symbols,
                 outcome="PARTIAL"
             )
-            return 0
+            try:
+                from database import insert_notification
+                insert_notification(
+                    "warning",
+                    "⚠️ REVERSAL SCANNER: Fundamental Data Warning",
+                    f"High fundamental outage/failure ratio ({fundamental_failure_ratio*100:.1f}% > {FUNDAMENTAL_REJECT_ALARM_PCT*100:.0f}%). {fundamental_missing} missing, {fundamental_invalid} invalid out of {fundamental_checked} checked."
+                )
+                from push_service import send_push_to_all
+                send_push_to_all(
+                    title="⚠️ REVERSAL SCANNER DEGRADED",
+                    body=f"High fundamental outage ({fundamental_failure_ratio*100:.1f}%). Alerts will still process.",
+                    bypass_throttle=True
+                )
+            except Exception as _notif_err:
+                logger.warning(f"⚠️ Failed to dispatch Reversal fundamental alarm notifications: {_notif_err}")
+
 
         if is_market_open:
             snapshot_ratio = len(valid_snapshot_symbols) / max(len(scan_watchlist), 1)

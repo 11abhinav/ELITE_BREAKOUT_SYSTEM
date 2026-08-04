@@ -409,9 +409,15 @@ def check_core_compounder_rules(score: float, mcap: float, roce: float, roe: flo
     de_ok = True if is_fin else (de <= 0.50)
     return score >= 65 and mcap >= 10000 and prof_ok and de_ok
 
-def check_growth_multiplier_rules(score: float, mcap: float, yoy_sales: float, yoy_profit: float, rs_6m: float, dist_52w: float) -> bool:
-    """Growth Multiplier: ₹2,000 Cr+ emerging leaders."""
-    return score >= 60 and mcap >= 2000 and yoy_sales >= 20.0 and yoy_profit >= 20.0 and rs_6m >= 0 and dist_52w <= 15.0
+def check_growth_multiplier_rules(score: float, mcap: float, yoy_sales: float, yoy_profit: float, rs_6m, dist_52w: float) -> bool:
+    """
+    Growth Multiplier: ₹2,000 Cr+ emerging leaders.
+    [VERSION: WEALTH_RS_NONE_FIX_v1.0] rs_6m=None → UNKNOWN → benefit of doubt.
+    A new stock with insufficient history should not be blocked from this bucket solely
+    because relative strength cannot be computed yet. Score + growth evidence is sufficient.
+    """
+    rs_ok = (rs_6m is None) or (rs_6m >= 0)  # None = UNKNOWN = not actively underperforming
+    return score >= 60 and mcap >= 2000 and yoy_sales >= 20.0 and yoy_profit >= 20.0 and rs_ok and dist_52w <= 15.0
 
 def check_quality_on_sale_rules(score: float, roce: float, roe: float, dist_52w: float, de: float, is_fin: bool) -> bool:
     """Quality-On-Sale: score >= 50, dist_52w >= 10%. Financials omit D/E ceiling."""
@@ -419,8 +425,15 @@ def check_quality_on_sale_rules(score: float, roce: float, roe: float, dist_52w:
     de_ok = True if is_fin else (de <= 1.0)
     return score >= 50 and prof_ok and dist_52w >= 10.0 and de_ok
 
-def check_opportunistic_rules(score: float, yoy_profit: float, rs_6m: float, cats: str) -> bool:
-    """Opportunistic / Turnaround: massive momentum + turnaround growth."""
+def check_opportunistic_rules(score: float, yoy_profit: float, rs_6m, cats: str) -> bool:
+    """
+    Opportunistic / Turnaround: massive momentum + turnaround growth.
+    [VERSION: WEALTH_RS_NONE_FIX_v1.0] rs_6m=None → cannot qualify for Opportunistic.
+    This bucket's core thesis is confirmed momentum — unknown RS is not sufficient evidence.
+    Unlike Growth Multiplier, this is not benefit of doubt; momentum must be demonstrated.
+    """
+    if rs_6m is None:
+        return False  # Momentum evidence required — UNKNOWN ≠ PASS for turnaround thesis
     return score >= 55 and yoy_profit >= 40.0 and rs_6m >= 15.0 and "SME" not in cats
 
 # =====================================================================================
@@ -463,7 +476,20 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
     peg_val = _safe_float_allow_missing(peg_raw)
     
     is_fin = is_financial_sector(raw_data)
-        
+
+    # [VERSION: WEALTH_PROXY_FIX_v1.0] Remove positive proxy defaults for absent growth and FCF
+    # metrics. Previously, missing revenue_cagr_3y/pat_cagr_3y/fcf_margin defaulted to +15%/+10%,
+    # silently inflating FM_Score for data-void stocks and potentially pushing them above BUY thresholds.
+    # Missing data should propagate as None so the V5 scoring engine can apply its own penalty
+    # or neutral treatment rather than assuming healthy financial characteristics.
+    _yoy_rev_raw    = _safe_float_allow_missing(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')))
+    _yoy_profit_raw = _safe_float_allow_missing(raw_data.get('YOY Profit %', raw_data.get('Profit growth')))
+    _fcf_margin_raw = _safe_float_allow_missing(raw_data.get('FCF Margin %', raw_data.get('FCF Margin')))
+    _rev_cagr_3y    = (_yoy_rev_raw    / 100.0) if _yoy_rev_raw    is not None else None
+    _pat_cagr_3y    = (_yoy_profit_raw / 100.0) if _yoy_profit_raw is not None else None
+    _fcf_cagr_3y    = _pat_cagr_3y  # Proxy: FCF growth approximated by profit growth when absent
+    _fcf_margin     = (_fcf_margin_raw / 100.0) if _fcf_margin_raw is not None else None
+
     return {
         'market_cap': market_cap,
         'roce': _safe_float(raw_data.get('ROCE %', raw_data.get('ROCE'))) / 100.0,
@@ -473,15 +499,15 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'operating_margin_ttm': _safe_float(raw_data.get('OPM %', raw_data.get('OPM'))) / 100.0,
         'yoy_revenue': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth'))) / 100.0,
         'yoy_profit': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth'))) / 100.0,
-        'revenue_cagr_3y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')), default=15.0) / 100.0, # [PROXY] 1Y YoY used as 3Y CAGR (not in screener data)
-        'revenue_growth_1y': _safe_float(raw_data.get('YOY Revenue %', raw_data.get('Sales growth')), default=15.0) / 100.0,
-        'pat_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] 1Y YoY used as 3Y CAGR
-        'fcf_cagr_3y': _safe_float(raw_data.get('YOY Profit %', raw_data.get('Profit growth')), default=15.0) / 100.0, # [PROXY] FCF growth proxied with YoY Profit
-        'reinvestment_rate': 0.50, # Proxy 50% retention if missing
+        'revenue_cagr_3y':  _rev_cagr_3y,   # None if absent — V5 pipeline handles UNKNOWN
+        'revenue_growth_1y': _rev_cagr_3y,   # Same YoY Revenue source
+        'pat_cagr_3y':      _pat_cagr_3y,    # None if absent
+        'fcf_cagr_3y':      _fcf_cagr_3y,    # None if absent (proxied from profit growth)
+        'reinvestment_rate': 0.50,            # Portfolio theory assumption — not a stock metric
         'peg': peg_val,
         'pe': pe,
         'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA')), default=pe),
-        'fcf_margin': _safe_float(raw_data.get('FCF Margin %', raw_data.get('FCF Margin')), default=10.0) / 100.0,
+        'fcf_margin': _fcf_margin,            # None if absent — V5 pipeline handles UNKNOWN
         'free_cash_flow': (eps * shares * 1.33 * 0.75) * (_safe_float(raw_data.get('FCF Margin %'), default=10.0) / 100.0), # Proxy FCF based on NOPAT and FCF Margin
         'price_to_book': pb,
         'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability'), default=5.0) / 100.0,
@@ -539,7 +565,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
     import pandas as pd
-    
+
     # [VERSION: WEALTH_BUCKET_FIX_v1.1] Handle pandas NaN semantics for missing data
     score      = _safe_num(r.get("FM_Score", 0))
     mcap       = _safe_num(r.get("Market Cap Cr", 0))
@@ -548,7 +574,10 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     de         = _safe_num(r.get("Debt/Equity", 0))
     yoy_sales  = _safe_num(r.get("YOY Revenue %", 0))
     yoy_profit = _safe_num(r.get("YOY Profit %", 0))
-    rs_6m      = _safe_num(r.get("rs_6m", 0))
+    # [VERSION: WEALTH_RS_NONE_FIX_v1.0] rs_6m propagated as None when absent.
+    # Default 0 silently passed the rs_6m >= 0 Growth Multiplier gate — UNKNOWN ≠ neutral.
+    rs_6m_raw  = r.get("rs_6m")
+    rs_6m      = None if (rs_6m_raw is None or (isinstance(rs_6m_raw, float) and pd.isna(rs_6m_raw))) else float(rs_6m_raw)
     dist_52w   = _safe_num(r.get("dist_52w_high", 0))
     liquidity  = _safe_num(r.get("liquidity", 0))
     cats       = str(r.get("Category", ""))
@@ -556,9 +585,8 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 
     buckets = []
 
-    # Instant Kill Gates
+    # Instant Kill Gate 1: Liquidity Floor
     from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
-    
     if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
         return None
 
@@ -571,6 +599,17 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
                 return None
         except (ValueError, TypeError):
             pass
+
+    # [VERSION: WEALTH_FIN_GNPA_GATE_v1.0] Instant Kill Gate 3 (financial sector only):
+    # The D/E ceiling is waived for banks/NBFCs (correctly — they are naturally leveraged).
+    # That exemption creates a gap: a bank with GNPA=8% and ROE=16% would pass unchecked.
+    # This gate substitutes D/E with a banking-specific NPA quality check.
+    # GNPA present and > 5% → FAIL (known bad).  GNPA absent → UNKNOWN → benefit of doubt.
+    if is_fin:
+        gnpa_raw = r.get("GNPA %", r.get("gnpa"))
+        gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
+        if gnpa is not None and gnpa > 5.0:
+            return None  # Known-bad NPA: FAIL — not a data void, data is present and negative
 
     if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
         buckets.append("Core")
@@ -796,12 +835,22 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
 
     def check_completeness(r):
-        mand_cols = ["cmp", "sma_200", "rs_6m", "FM_Score", "Valuation_Score", "Consistency_Score", "data_quality", "momentum_confidence"]
-        for col in mand_cols:
-            if pd.isna(r.get(col)): return False
-            
+        # [VERSION: WEALTH_COMPLETENESS_SPLIT_v1.0] Tiered mandatory fields.
+        # Previously all 8 fields were treated identically — momentum_confidence=NaN caused
+        # the same hard suppress as cmp=NaN. These are fundamentally different data voids.
+        #
+        # Hard mandatory: missing = cannot produce a valid entry decision → suppress
+        hard_mandatory = ["cmp", "sma_200", "FM_Score"]
+        for col in hard_mandatory:
+            val = r.get(col)
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return False
+        # Soft mandatory: missing = reduce scoring confidence, not suppress.
+        # momentum_confidence, rs_6m, Valuation_Score, Consistency_Score are handled
+        # downstream — missing values get conservative defaults in the entry signal logic,
+        # not a blanket suppress. data_quality is a metadata tag, not a quality metric.
         return True
-        
+
     wealth_df["candidate_complete_for_buy"] = wealth_df.apply(check_completeness, axis=1)
     
     return wealth_df
@@ -1030,9 +1079,15 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         r["hold_trend"] = hold_trend
 
         # 4. Soft Exits & Review Signals
+        # [VERSION: WEALTH_STALE_STATE_v1.0] Expose DATA_STALE as an explicit exit state.
+        # Previously returned Exit_Code="" making two very different situations indistinguishable:
+        # (a) all checks passed → no exit needed  (b) price data too stale to evaluate.
+        # Operators and dashboards can now filter/alert on DATA_STALE rather than seeing silence.
+        # Per design intent: no automatic SELL or SELL_REVIEW is triggered on stale data —
+        # only the state is surfaced. The exit decision is deferred until fresh data arrives.
         if not is_live_valid:
-            r["Exit_Code"] = ""
-            r["Exit_Reason"] = ""
+            r["Exit_Code"] = "DATA_STALE"
+            r["Exit_Reason"] = "Stale/Missing price data — exit evaluation deferred until fresh quote"
             return r
 
         from macro_utils import get_macro_regime

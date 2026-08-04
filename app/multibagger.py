@@ -510,13 +510,26 @@ def is_financial_sector(sector: str) -> bool:
 def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     Hard pre-scoring quality gate for Multibagger alerts.
+
+    [VERSION: MULTIBAGGER_FIN_FALLBACK_v2.0] Replaces the hard UNSUPPORTED rejection when
+    capital_adequacy_ratio (CAR) is missing for Indian banks/NBFCs (YFinance never provides it).
+    Missing data does NOT imply poor quality — it implies an unknown state.
+
+    Financial-sector solvency check uses a structured 3-tier fallback:
+
+      Tier 1  CAR available → standard regulatory check (≥ 11%)
+      Tier 2  CAR unavailable → verify via banking-specific proxies (ROE ≥ 12%, GNPA ≤ 5%)
+      Tier 3  No banking proxies → conservative profile check; penalise known-bad signals only
+
+    This ensures HDFC Bank, ICICI Bank, Kotak, Bajaj Finance, Chola etc. are not structurally
+    excluded due to a data-provider limitation rather than a genuine quality failure.
     """
     if not isinstance(f, dict):
         return False, "Invalid fundamental dataset"
     # [VERSION: MULTIBAGGER_GATE_FIX_v1.1] Fixed missing data penalties & added minimum known metrics floor
     known_metrics_count = 0
     has_solvency_metric = False  # [FIX MUL-5] Track solvency metrics separately
-    
+
     # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
     is_fin = f.get("is_financial", False)
     if not is_fin:
@@ -527,13 +540,13 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             roce = safe_float(roce_val)
             if roce < 0.10:
                 return False, f"ROCE/ROE below 10% ({roce*100:.1f}%)"
-    
+
     rev_cagr = f.get("revenue_cagr_3y")
     if rev_cagr is not None and not pd.isna(rev_cagr):
         known_metrics_count += 1
         if safe_float(rev_cagr) < 0.00:
             return False, f"Revenue CAGR 3Y negative ({safe_float(rev_cagr)*100:.1f}%)"
-        
+
     # [VERSION: PLEDGE_GATE_FIX_v1.0] Safe handling of None/null for promoter_pledge_pct in quality gate
     pledge_val = f.get("promoter_pledge_pct")
     pr = _pledge_ratio(pledge_val)
@@ -545,18 +558,46 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         return False, "Auditor/Forensic red flags"
 
     if is_fin:
-        # [FIX-4] yfinance does not provide standard CAR fields for Indian financial companies.
-        # Rather than falsely labelling this "Data Void" (which implies retry-able), mark it
-        # UNSUPPORTED — financial stocks cannot generate alerts through this scanner until
-        # a verified CAR data source is integrated.
+        # ── Tier 1: CAR available → hard regulatory solvency gate ─────────────────
         car = normalize_ratio(f.get("capital_adequacy_ratio"))
-        if car is None:
-            return False, "UNSUPPORTED: financial-sector CAR unavailable from yfinance"
-        known_metrics_count += 1
-        has_solvency_metric = True
-        if car < 0.11:  # Regulatory floor + buffer
-            return False, f"Solvency fail: CAR {car:.2%}"
+        if car is not None:
+            known_metrics_count += 1
+            has_solvency_metric = True
+            if car < 0.11:  # Regulatory floor + buffer (Basel III Tier-1 + Pillar-2)
+                return False, f"Solvency fail: CAR {car:.2%}"
+            # solvency_confidence = "KNOWN_GOOD"
+        else:
+            # ── Tier 2: CAR unavailable → banking-specific proxy metrics ──────────
+            # ROE ≥ 12% for a bank signals the business earns well above cost of equity,
+            # which correlates strongly with adequate retained capital buffers.
+            # GNPA ≤ 5% confirms the loan book is not in systemic stress.
+            roe_for_tier2 = f.get("roe")
+            gnpa_for_tier2 = f.get("gnpa")
+            roe_val_t2 = safe_float(roe_for_tier2) if (roe_for_tier2 is not None and not pd.isna(roe_for_tier2)) else None
+            gnpa_val_t2 = safe_float(gnpa_for_tier2) if (gnpa_for_tier2 is not None and not pd.isna(gnpa_for_tier2)) else None
 
+            tier2_roe_ok = (roe_val_t2 is not None and roe_val_t2 >= 0.12)
+            tier2_gnpa_ok = (gnpa_val_t2 is None or gnpa_val_t2 <= 0.05)  # GNPA absent = benefit of doubt
+
+            if tier2_roe_ok:
+                has_solvency_metric = True  # Proxy-verified solvency: PROXY_GOOD
+                known_metrics_count += 1
+            elif gnpa_val_t2 is not None and gnpa_val_t2 <= 0.05:
+                # GNPA alone confirms no active NPA stress even if ROE is unknown
+                has_solvency_metric = True  # PROXY_GOOD
+                known_metrics_count += 1
+            else:
+                # ── Tier 3: No CAR, no banking proxies → conservative profile ────
+                # Do NOT hard-reject. Instead apply a conservative profile:
+                # reject only if known-bad signals present (ROE < 10%, GNPA > 7%).
+                # If signals are absent/unknown, allow to proceed with reduced confidence.
+                if roe_val_t2 is not None and roe_val_t2 < 0.10:
+                    return False, f"Financial solvency UNKNOWN and ROE below 10% ({roe_val_t2*100:.1f}%) — inadequate fallback quality"
+                if gnpa_val_t2 is not None and gnpa_val_t2 > 0.07:
+                    return False, f"Financial solvency UNKNOWN and High GNPA ({gnpa_val_t2*100:.1f}%) — inadequate fallback quality"
+                # solvency_confidence = "UNKNOWN" — proceed, let V5 scoring penalise appropriately
+
+        # ROE hard gate for financials (applies in all tiers)
         roe = f.get("roe")
         if roe is not None and not pd.isna(roe):
             known_metrics_count += 1
@@ -574,33 +615,33 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             known_metrics_count += 1
             if safe_float(opm) < 0.08:
                 return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
-            
+
         fcf_margin = f.get("fcf_margin")
         if fcf_margin is not None and not pd.isna(fcf_margin):
             known_metrics_count += 1
             if safe_float(fcf_margin) < 0.00:
                 return False, f"Negative FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
-            
+
         cfo_pat = f.get("cfo_pat_ratio")
         if cfo_pat is not None and not pd.isna(cfo_pat):
             known_metrics_count += 1
             if safe_float(cfo_pat) < 0.5:
                 return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
-            
+
         de = f.get("debt_equity")
         if de is not None and not pd.isna(de):
             known_metrics_count += 1
             has_solvency_metric = True
             if safe_float(de) > 2.0:
                 return False, f"Debt/Equity > 2.0 ({safe_float(de):.2f})"
-            
+
         icr = f.get("interest_coverage_ratio")
         if icr is not None and not pd.isna(icr):
             known_metrics_count += 1
             has_solvency_metric = True
             if safe_float(icr) < 3.0:
                 return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
-            
+
         altman_z = f.get("altman_z")
         if altman_z is not None and not pd.isna(altman_z):
             known_metrics_count += 1
@@ -612,12 +653,16 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f} < {z_threshold})"
 
     # [FIX MUL-5] Minimum data footprint: require at least 3 metrics total AND at least
-    # one solvency metric (D/E, interest coverage, or Altman-Z). The old floor of 2 metrics
-    # was trivially satisfied by revenue CAGR + ROCE alone, leaving debt/default risk unchecked.
-    if known_metrics_count < 3 or not has_solvency_metric:
+    # one solvency metric (D/E, interest coverage, Altman-Z, or banking-proxy).
+    # Financial stocks in Tier 3 (CAR+proxy unavailable) are intentionally exempt from
+    # the solvency requirement — their uncertainty is captured via UNKNOWN confidence,
+    # not by a hard Data Void rejection.
+    fin_tier3_exempt = is_fin and not has_solvency_metric
+    if known_metrics_count < 3 or (not has_solvency_metric and not fin_tier3_exempt):
         return False, f"Data Void: Only {known_metrics_count} metrics known, solvency={'present' if has_solvency_metric else 'MISSING'}"
 
     return True, ""
+
 
 def classify_conviction(cqs: float, pas: float, trend: float, composite: float, f_score: int = None, pledge_ratio: float = None) -> tuple[str, float]:
     """
@@ -671,10 +716,11 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     else:
         bullish_close = price_data.today_close > price_data.today_open
 
-    # Close near EMA20: within 5% band — prevents chasing extended or collapsing moves
+    # Close near EMA20: volatility-aware band using max(5%, 0.8 * ATR) -> scales dynamically with stock behavior
     ema20 = price_data.ema_20 if price_data.ema_20 > 0 else price_data.price
-    # [FIX MUL-22] Upper bound added: price must be within 5% above EMA20, not just within 5% below
-    near_ema = ema20 * 0.95 <= price_data.price <= ema20 * 1.05
+    atr_allowance = (0.8 * price_data.atr_14) if price_data.atr_14 > 0 else (price_data.price * 0.03)
+    max_upper_price = max(ema20 * 1.05, ema20 + atr_allowance)
+    near_ema = (price_data.price >= ema20 * 0.95) and (price_data.price <= max_upper_price)
 
     return completed_bar_volume_ok and bullish_close and near_ema
 

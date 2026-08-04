@@ -628,6 +628,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     db_save_failures = 0
     ist_now = datetime.now(IST)
 
+    # [VERSION: MULTI_TF_DELIVERY_FIX_v1.0] Fetch latest delivery data map for delivery_pct enrichment
+    delivery_map = {}
+    try:
+        from delivery_data import fetch_latest_available_delivery_data
+        delivery_map, _ = fetch_latest_available_delivery_data(ist_now.date())
+    except Exception as _del_e:
+        logger.warning(f"⚠️ Could not fetch delivery data in Multi-TF: {_del_e}")
+
     # Instantiate the in-memory opportunity pool for this scan cycle
     opportunity_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
     end_of_session = ist_now.replace(hour=15, minute=30, second=0, microsecond=0)
@@ -1171,7 +1179,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     "category": cat,
                                     "technical_score": final_score,
                                     "volume_ratio": vol_ratio,
-                                    "delivery_pct": 0.0,
+                                    "delivery_pct": float(delivery_map.get(symbol, 0.0) or 0.0),
                                     "rr_ratio": sl_result.get("natural_rr", sl_result.get("rr_ratio", 0.0)) if sl_result else 0.0,
                                     "market_context": regime_ctx,
                                     "entry_price": close,

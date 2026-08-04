@@ -46,22 +46,36 @@ def test_drawdown_exact_20_percent():
     assert res_19.iloc[0]["Exit_Code"] != "SELL"
 
 def test_missing_prev_close_demotes_auto_sell():
-    """Verify missing prev_close suppresses automated SELL signal."""
+    """
+    Verify missing prev_close surfaces as DATA_STALE (not SELL).
+    [VERSION: WEALTH_STALE_STATE_v1.0] Exit_Code changed from silent "" to explicit DATA_STALE.
+    The core safety guarantee is unchanged: no automated SELL is triggered on stale/incomplete data.
+    """
     row_no_prev = pd.DataFrame([{
         "Stock": "TEST_NO_PREV", "entry_price": 100.0, "cmp": 75.0, "prev_close": None,
         "data_quality": "LIVE", "used_fallback_data": False, "sma_200": 90.0, "rs_6m": 10.0
     }])
     res = evaluate_open_positions(row_no_prev, {})
-    assert res.iloc[0]["Exit_Code"] == ""
+    # DATA_STALE is the explicit observable state — never a blank string
+    assert res.iloc[0]["Exit_Code"] == "DATA_STALE"
+    # Core safety: no automated sell on missing data
+    assert res.iloc[0]["Exit_Code"] != "SELL"
 
 def test_stale_intraday_suppresses_auto_sell():
-    """Verify data_quality == 'STALE_INTRADAY' suppresses auto SELL."""
+    """
+    Verify data_quality == 'STALE_INTRADAY' surfaces as DATA_STALE (not SELL).
+    [VERSION: WEALTH_STALE_STATE_v1.0] Exit_Code changed from silent "" to explicit DATA_STALE.
+    The core safety guarantee is unchanged: no automated SELL is triggered on stale data.
+    """
     row_stale = pd.DataFrame([{
         "Stock": "TEST_STALE", "entry_price": 100.0, "cmp": 70.0, "prev_close": 75.0,
         "data_quality": "STALE_INTRADAY", "used_fallback_data": False, "sma_200": 90.0, "rs_6m": 10.0
     }])
     res = evaluate_open_positions(row_stale, {})
-    assert res.iloc[0]["Exit_Code"] == ""
+    # DATA_STALE is the explicit observable state — never a blank string
+    assert res.iloc[0]["Exit_Code"] == "DATA_STALE"
+    # Core safety: no automated sell on stale intraday data
+    assert res.iloc[0]["Exit_Code"] != "SELL"
 
 def test_catastrophic_trend_priority():
     """Verify CMP < 0.75 * SMA200 triggers SELL (Catastrophic Trend Collapse) before hold score review."""
