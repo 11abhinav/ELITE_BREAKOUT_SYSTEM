@@ -122,6 +122,22 @@ def get_provider_fetch_lock(requester: str = None) -> threading.Lock:
 CACHE_TTL_SECONDS = PRICE_CACHE_TTL_SECONDS
 
 # Cache metrics tracking
+def _mark_cache_staleness(df):
+    if df is None or getattr(df, 'empty', True):
+        return
+    from market_utils import evaluate_data_staleness
+    c_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
+    if c_col:
+        c_last_dt = pd.to_datetime(df[c_col].iloc[-1])
+    else:
+        c_last_dt = pd.to_datetime(df.index[-1]) if not df.index.empty else None
+        
+    is_stale = True
+    if c_last_dt:
+        stale_res = evaluate_data_staleness(c_last_dt)
+        is_stale = stale_res.get("is_stale", True)
+    df.attrs['is_stale'] = is_stale
+
 _cache_hits = 0
 _cache_misses = 0
 
@@ -731,7 +747,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     
                     if md is None:
                         if cached_df is not None and not cached_df.empty:
-                            cached_df.attrs['is_stale'] = True
+                            _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                         else:
                             all_data[sym] = None
@@ -753,7 +769,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         
                     if new_df is None:
                         if cached_df is not None and not cached_df.empty:
-                            cached_df.attrs['is_stale'] = True
+                            _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                         else:
                             all_data[sym] = None
@@ -802,19 +818,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
                         # 1. Critical Cache Validation
                         reject_reason = None
+                        is_delta_fetch = bool(range_from)
                         if new_report:
                             q_score = getattr(new_report, 'quality_score', 100)
-                            if isinstance(q_score, (int, float)) and q_score < 50:
+                            if not is_delta_fetch and not remote_is_current and isinstance(q_score, (int, float)) and q_score < 50:
                                 reject_reason = "POOR_QUALITY_SCORE"
                             elif getattr(new_report, 'is_valid', True) is False:
                                 reject_reason = "INVALID_QUALITY_REPORT"
-                            elif not range_from and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
+                            elif not is_delta_fetch and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
                                 reject_reason = "HISTORICAL_SHRINK"
+
 
                         if reject_reason:
                             logger.warning(f"Critical Cache Validation Failed for {sym}: {reject_reason}. REJECTING remote data to protect cache.")
                             logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cached_row_count} | IncomingRows={getattr(new_report, 'row_count', 0)} | Threshold={MAX_HISTORY_SHRINK*100}%")
-                            cached_df.attrs['is_stale'] = True
+                            _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                             continue
                         elif has_newer_bars or remote_is_current or range_from or remote_score >= cache_score or (not new_report and remote_score == cache_score):
@@ -827,7 +845,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             # Reject Remote Data (genuinely lower quality AND no new/current data)
                             logger.warning(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score} | RemoteLastDate={remote_last_date} | ExpectedDate={expected_trading_date} — marking stale")
-                            cached_df.attrs['is_stale'] = True
+                            _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                             continue
                             
@@ -929,7 +947,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             if not is_valid_struct:
                                 logger.warning(f"⚠️ OHLCV Structure Validation Failed for {sym}: {reason}. Reverting to stale cache if available.")
                                 if cached_df is not None and not cached_df.empty:
-                                    cached_df.attrs['is_stale'] = True
+                                    _mark_cache_staleness(cached_df)
                                     all_data[sym] = cached_df
                                 else:
                                     all_data[sym] = None
@@ -947,7 +965,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     else:
                         # Fallback to stale cached data if fresh fetch returned empty
                         if cached_df is not None and not cached_df.empty:
-                            cached_df.attrs['is_stale'] = True
+                            _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
 
                 # Run indicator calculations concurrently for all symbols in this batch
@@ -1046,7 +1064,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 for sym in batch:
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     if cached_df is not None and not cached_df.empty:
-                        cached_df.attrs['is_stale'] = True
+                        _mark_cache_staleness(cached_df)
                         all_data[sym] = cached_df
                 time.sleep(0.5)
 
