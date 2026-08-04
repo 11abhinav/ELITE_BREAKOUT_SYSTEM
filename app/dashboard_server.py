@@ -1,10 +1,9 @@
 # =====================================================================================
 # app/dashboard_server.py
-# LIGHTWEIGHT WEB DASHBOARD — serves performance_dashboard.html + JSON via Flask
+# FLASK ADMIN & USER DASHBOARD SERVER
 #
-# Railway exposes this on the PORT env var (default 8080).
-# Access via: https://your-app.railway.app/
-# =====================================================================================
+# Coolify exposes this on the PORT env var (default 8080).
+# =======================================================================================
 import os
 import sys
 import json
@@ -3278,15 +3277,14 @@ def clear_scanner_down(scanner_name: str) -> None:
 
 def start_dashboard_server():
     """Called from main.py in a daemon thread."""
-    # Railway injects PORT automatically — never hardcode it.
-    # If PORT is missing the default 8080 is used, but Railway will always set it.
+    # Coolify injects PORT automatically — default 8080 is used if missing.
     port = int(os.getenv("PORT", 8080))
     logger.info(f"🌐 Dashboard server starting on port {port}")
     logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
     # use_reloader=False is critical — Flask reloader forks the process and
-    # breaks Railway's single-process model and our threading setup.
+    # breaks the container single-process model and our threading setup.
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 

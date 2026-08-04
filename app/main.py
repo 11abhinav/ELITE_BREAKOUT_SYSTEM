@@ -2168,7 +2168,7 @@ if __name__ == "__main__":
             logger.info(f"🌐 Dashboard server binding to port {port} (main thread)")
             start_dashboard_server()
         except ImportError:
-            logger.error("❌ dashboard_server.py not found — Railway will show 'failed to respond'")
+            logger.error("❌ dashboard_server.py not found — Container will show 'failed to respond'")
             watchdog_thread.join()
         except Exception:
             logger.exception("❌ Dashboard server crashed")
