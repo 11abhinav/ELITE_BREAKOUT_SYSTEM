@@ -661,28 +661,28 @@ def _run_eod_with_retries(today_str, session=None):
                     # this by re-applying its internal time-window check.
                     total = eod_scanner.start(force=True, session=session)   # returns int
                 duration_sec = round(time.time() - start_time, 1)
-            time.sleep(15)
-            if total == 0:
-                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
-            else:
-                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-            
-            upsert_scanner_health(
-                "EOD",
-                status="OK",
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total,
-                scheduled_for="18:00 IST (After Bhavcopy)",
-                duration_seconds=duration_sec
-            )
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
-            logger.info("✅ EOD SCANNER | Completed successfully for today.")
-            with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
-                pass
+                time.sleep(15)
+                if total == 0:
+                    logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
+                else:
+                    logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
+                
+                upsert_scanner_health(
+                    "EOD",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    today_alerts=total,
+                    scheduled_for="18:00 IST (After Bhavcopy)",
+                    duration_seconds=duration_sec
+                )
+                try:
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+                except Exception as pe:
+                    logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
+                logger.info("✅ EOD SCANNER | Completed successfully for today.")
+                with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
+                    pass
             return
             
         except Exception as exc:
@@ -758,28 +758,28 @@ def _run_reversal_with_retries(today_str, session=None):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
                     total = reversal_scanner.start(force=True, session=session)   # returns int
                 duration_sec = round(time.time() - start_time, 1)
-            time.sleep(15)
-            if total == 0:
-                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
-            else:
-                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-            
-            upsert_scanner_health(
-                "REVERSAL",
-                status="OK",
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total,
-                scheduled_for="18:00 IST (After Bhavcopy)",
-                duration_seconds=duration_sec
-            )
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
-            logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
-            with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
-                pass
+                time.sleep(15)
+                if total == 0:
+                    logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
+                else:
+                    logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
+                
+                upsert_scanner_health(
+                    "REVERSAL",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    today_alerts=total,
+                    scheduled_for="18:00 IST (After Bhavcopy)",
+                    duration_seconds=duration_sec
+                )
+                try:
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+                except Exception as pe:
+                    logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
+                logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
+                with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
+                    pass
             return
             
         except Exception as exc:
@@ -854,9 +854,10 @@ def _run_pullback_with_retries(today_str, session=None):
                     # [VERSION: SCHEDULER_CORRECTNESS_v1.0] force=True: scheduler owns timing.
                     total = pullback_pipeline.start(force=True, session=session)
                 duration_sec = round(time.time() - start_time, 1)
-            time.sleep(5)
-            logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
-            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+                time.sleep(5)
+                logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
+                upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+                logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:
             if "actively running" in str(exc).lower():
@@ -1752,27 +1753,29 @@ def _run_multibagger_scanner_single():
                 stats = multibagger.start() or {}
             dur_mb_single = round(time.time() - start_mb_single, 1)
             time.sleep(15)
+
+            # Mark success in health table INSIDE the lock
+            upsert_scanner_health(
+                "MULTIBAGGER",
+                status="OK",
+                last_success=datetime.now(IST).isoformat(),
+                scheduled_for="Daily 19:00 IST",
+                total_count=stats.get("total_count"),
+                processed_count=stats.get("processed_count"),
+                today_alerts=stats.get("today_alerts", 0),
+                duration_seconds=dur_mb_single
+            )
+            # Rebuild performance data on scanner completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
+            telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
+            telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
+            logger.info("✅ MULTIBAGGER SCANNER | Completed successfully for today.")
         finally:
             scanner_execution_lock.release()
-        # Mark success in health table
-        upsert_scanner_health(
-            "MULTIBAGGER",
-            status="OK",
-            last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Daily 19:00 IST",
-            total_count=stats.get("total_count"),
-            processed_count=stats.get("processed_count"),
-            today_alerts=stats.get("today_alerts", 0),
-            duration_seconds=dur_mb_single
-        )
-        # Rebuild performance data on scanner completion (debounced, async)
-        try:
-            from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild()
-        except Exception as pe:
-            logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
-        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
-        telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
         logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
             
     except Exception as e:
@@ -1966,26 +1969,26 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 stats = fn() or {}
                 duration_sec = round(time.time() - start_time, 1)
-            time.sleep(15)
-            logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
-            now_str = datetime.now(IST).isoformat()
-            upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
-                                  error_msg=None,
-                                  duration_seconds=duration_sec,
-                                  total_count=stats.get("total_count") if isinstance(stats, dict) else None,
-                                  processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
-                                  today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
-            
-            try:
-                from database import insert_notification
-                # We format a nice summary for the admin notification
-                dur_str = f"Time: {format_duration(duration_sec)}"
-                summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
-                # Skip duplicate notification for scanners that emit their own detailed completion notifications
-                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
-                    insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
-            except Exception:
-                pass
+                time.sleep(15)
+                logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
+                now_str = datetime.now(IST).isoformat()
+                upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
+                                      error_msg=None,
+                                      duration_seconds=duration_sec,
+                                      total_count=stats.get("total_count") if isinstance(stats, dict) else None,
+                                      processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
+                                      today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
+                
+                try:
+                    from database import insert_notification
+                    # We format a nice summary for the admin notification
+                    dur_str = f"Time: {format_duration(duration_sec)}"
+                    summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
+                    # Skip duplicate notification for scanners that emit their own detailed completion notifications
+                    if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
+                        insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
+                except Exception:
+                    pass
                 # Rebuild performance data on scan completion (debounced, async)
             try:
                 from performance_tracker import trigger_performance_rebuild
