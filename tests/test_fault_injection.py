@@ -36,8 +36,7 @@ def empty_delivery_cache():
         if "bhavcopy" in k:
             del registry._data[k]
     with patch('database.get_bhavcopy_cache', return_value=None), \
-         patch('delivery_data.fetch_bhavcopy_from_db', return_value=None, create=True), \
-         patch('database.get_latest_bhavcopy_date_from_db', return_value=None, create=True):
+         patch('database.get_latest_bhavcopy_cache', return_value=None):
         yield
 
 # ==============================================================================
