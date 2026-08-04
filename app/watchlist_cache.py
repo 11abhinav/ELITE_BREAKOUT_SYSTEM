@@ -35,6 +35,14 @@ def validate_watchlist_freshness(require_fresh: bool = False) -> bool:
     today_date = datetime.now(IST).date()
     
     if file_date < today_date:
+        # Pre-market / overnight window (before 09:00 AM IST):
+        # Previous day's watchlist is valid for test/boot scans until today's Daily Builder runs.
+        now_time = datetime.now(IST).time()
+        from datetime import time as dt_time
+        if now_time < dt_time(9, 0):
+            logger.info(f"ℹ️ Pre-market window ({now_time.strftime('%H:%M')} IST): using previous day ({file_date}) watchlist until Daily Builder completes.")
+            return True
+
         msg = f"⚠️ STALE WATCHLIST DETECTED: {WATCHLIST_PATH} modified date ({file_date}) is older than today ({today_date})"
         logger.warning(msg)
         if require_fresh:
