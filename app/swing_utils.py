@@ -265,7 +265,13 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
     ps.internal_swing_count = count_internal_pivots(pb)
     
     if 'SMA50' in pb.columns:
-        ps.closed_below_sma50 = bool(np.any(pb['Close'].values < pb['SMA50'].values))
+        # [FIX SHAKEOUT_PULLBACK] Allow minor 1-2 bar undercuts (<= 1.5% below SMA50) during pullback,
+        # unless SMA50 is sloping downward (trend breakdown) or undercut is >1.5% deep.
+        sma50_vals = pb['SMA50'].values
+        sma50_sloping_down = len(sma50_vals) >= 2 and (sma50_vals[-1] < sma50_vals[0])
+        undercut_mask = pb['Close'].values < (sma50_vals * 0.985)
+        closed_too_deep = bool(np.any(pb['Close'].values < (sma50_vals * 0.985)))
+        ps.closed_below_sma50 = bool(np.sum(pb['Close'].values < sma50_vals) > 2 or closed_too_deep or (sma50_sloping_down and np.any(pb['Close'].values < sma50_vals)))
     else:
         ps.closed_below_sma50 = False
         
@@ -358,8 +364,10 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
     range_ = t_high - t_low
     upper_wick = t_high - max(t_open, t_close)
     
+    opens = historical_view['Open'].values
     closes = historical_view['Close'].values
     highs = historical_view['High'].values
+    prev_open = opens[-2] if len(opens) > 1 else t_open
     prev_close = closes[-2] if len(closes) > 1 else t_open
     prev_high = highs[-2] if len(highs) > 1 else t_high
     
@@ -375,6 +383,9 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
     
     vol_mult = t_vol / pb_med_vol if pb_med_vol > 0 else 0
     
+    is_full_high_takeover = bool(t_close > prev_high)
+    is_bullish_engulfing = bool(t_close > prev_open and t_open < prev_close)
+    
     trig = TriggerSignal(
         date=t_date,
         entry_price=round_to_tick(t_close),
@@ -385,7 +396,9 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
         volume_mult=float(vol_mult),
         valid=True,
         rejection_reason=None,
-        close_position=float(close_loc)
+        close_position=float(close_loc),
+        is_full_high_takeover=is_full_high_takeover,
+        is_bullish_engulfing=is_bullish_engulfing
     )
     
     gates = []
@@ -396,7 +409,8 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
     is_bearish = t_close <= t_open
     gates.append(gate("PHASE_C", is_bearish, RejectionReason.REJ_NOT_BULLISH.name, not is_bearish))
     
-    no_takeout = t_close <= prev_high
+    # [FIX PULLBACK_TRIG] Take out yesterday's body/realized price instead of high wick
+    no_takeout = t_close <= max(prev_close, prev_open)
     gates.append(gate("PHASE_C", no_takeout, RejectionReason.REJ_NO_PRIOR_HIGH_TAKEOUT.name, not no_takeout))
     
     gates.append(gate("PHASE_C", body_atr_ratio < config.get("MIN_BODY_ATR", 0.5), RejectionReason.REJ_WEAK_BODY.name,
@@ -426,7 +440,9 @@ def detect_resumption_trigger(historical_view: pd.DataFrame, ps: PullbackStructu
                 volume_mult=trig.volume_mult,
                 valid=False,
                 rejection_reason=RejectionReason[g.gate],
-                close_position=trig.close_position
+                close_position=trig.close_position,
+                is_full_high_takeover=trig.is_full_high_takeover,
+                is_bullish_engulfing=trig.is_bullish_engulfing
             )
             
     return trig

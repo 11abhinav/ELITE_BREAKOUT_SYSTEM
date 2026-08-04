@@ -37,6 +37,8 @@ def compute_pullback_score(
     sector_status: str,
     has_prior_eod: bool,
     has_prior_multi: bool,
+    is_full_high_takeover: bool = False,
+    is_bullish_engulfing: bool = False,
     max_bonus: float = 5.0
 ) -> dict:
     """
@@ -71,15 +73,18 @@ def compute_pullback_score(
     else:
         vol_bonus = 0.0
 
-    # 4. Trigger Strength Bonus (Up to +5)
+    # 4. Trigger Strength & Pattern Bonus (Graduated, Up to +6)
+    trigger_bonus = 0.0
+    if is_full_high_takeover:
+        trigger_bonus += 2.0  # Exceptional reclaim over entire upper wick
+    if is_bullish_engulfing:
+        trigger_bonus += 2.0  # Bullish engulfing structure
     if trigger_close_position >= 0.85 and trigger_volume_mult >= 1.50:
-        trigger_bonus = 5.0
+        trigger_bonus += 3.0
     elif trigger_close_position >= 0.75 and trigger_volume_mult >= 1.30:
-        trigger_bonus = 3.0
+        trigger_bonus += 2.0
     elif trigger_close_position >= 0.80:
-        trigger_bonus = 1.0
-    else:
-        trigger_bonus = 0.0
+        trigger_bonus += 1.0
 
     # 5. Trend maturity penalty
     maturity_penalties = {0: 0, 1: 0, 2: -3, 3: -6}
@@ -200,7 +205,9 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         rs_percentile=rs_percentile,
         sector_status=sector_status,
         has_prior_eod=has_prior_eod,
-        has_prior_multi=has_prior_multi
+        has_prior_multi=has_prior_multi,
+        is_full_high_takeover=getattr(trig, "is_full_high_takeover", False),
+        is_bullish_engulfing=getattr(trig, "is_bullish_engulfing", False)
     )
     final_score = score_breakdown["final_score"]
 
@@ -754,7 +761,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             rs_percentile=rs_pct_val,
             sector_status=sector_status,
             has_prior_eod=has_prior_eod,
-            has_prior_multi=has_prior_multi
+            has_prior_multi=has_prior_multi,
+            is_full_high_takeover=getattr(c.trigger, "is_full_high_takeover", False),
+            is_bullish_engulfing=getattr(c.trigger, "is_bullish_engulfing", False)
         )
         c.base_score = score_breakdown["base_score"]
         c.final_score = score_breakdown["final_score"]

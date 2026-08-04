@@ -125,6 +125,8 @@ class TriggerSignal:
     valid: bool
     rejection_reason: Optional[RejectionReason]
     close_position: float = 0.5
+    is_full_high_takeover: bool = False
+    is_bullish_engulfing: bool = False
 
 @dataclass
 class PullbackCandidate:
