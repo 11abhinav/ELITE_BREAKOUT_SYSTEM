@@ -554,14 +554,16 @@ class UpstoxProvider(ProviderInterface):
             return results
 
         prefix = f"[{caller}] " if caller else ""
-        max_workers = min(15, len(symbols))
+        # Upstox API allows ~10 req/s. 5 workers with micro-staggering prevents HTTP 429 rate-limit backoff sleeps.
+        max_workers = min(5, len(symbols))
         logger.info(f"{prefix}📥 Upstox: batch fetching {len(symbols)} symbols ({interval}, {period}) concurrently (workers={max_workers})...")
 
+        import time
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_sym = {
-                executor.submit(self.get_ohlcv, sym, interval, period, retries, range_from, range_to): sym
-                for sym in symbols
-            }
+            future_to_sym = {}
+            for sym in symbols:
+                future_to_sym[executor.submit(self.get_ohlcv, sym, interval, period, retries, range_from, range_to)] = sym
+                time.sleep(0.02)  # 20ms micro-stagger to smooth API request pacing
             for future in as_completed(future_to_sym):
                 sym = future_to_sym[future]
                 try:
