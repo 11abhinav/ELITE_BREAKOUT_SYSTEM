@@ -2535,11 +2535,23 @@ def stop_scanner(scanner_name: str) -> bool:
 
 
 def resume_scanner(scanner_name: str) -> bool:
-    """Resume scanner from PAUSED state back to IDLE/OK."""
+    """Resume scanner from PAUSED state back to IDLE/OK (preserving RUNNING if active)."""
     norm_name = normalize_scanner_name(scanner_name)
-    upsert_scanner_health(norm_name, status="IDLE", error_msg=None)
+    init_db()
+    current_status = "IDLE"
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status FROM scanner_health WHERE UPPER(scanner_name) = UPPER(%s) LIMIT 1", (norm_name,))
+                row = cur.fetchone()
+                if row and row[0] and str(row[0]).upper() in ("RUNNING", "OK"):
+                    current_status = str(row[0]).upper()
+    except Exception:
+        pass
+    upsert_scanner_health(norm_name, status=current_status, error_msg=None)
     logger.info(f"▶️ Scanner '{norm_name}' has been RESUMED by Admin.")
     return True
+
 
 
 ALL_KNOWN_SCANNERS = [

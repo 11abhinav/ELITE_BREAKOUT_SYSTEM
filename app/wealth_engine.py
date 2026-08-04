@@ -1177,25 +1177,6 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # [PERFORMANCE FIX] Pre-fetch sector peer medians in the background while fetching price history.
         # This overlaps the heavy TradingView API call and local pickle parsing.
         peer_medians_thread = None
-        if "Stock" in df.columns and not df.empty:
-            from valuation_utils import compute_peer_medians
-            watchlist_stocks = df["Stock"].tolist()
-            
-            def prefetch_medians():
-                t_name = threading.current_thread().name
-                try:
-                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='WealthEngineMain' | Action='Pre-fetching sector peer medians for {len(watchlist_stocks)} symbols'")
-                    _t_start = time.perf_counter()
-                    res = compute_peer_medians(watchlist_stocks)
-                    dur_s = time.perf_counter() - _t_start
-                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Pre-fetch peer medians' | SymbolsProcessed={len(res)} | Duration={dur_s:.2f}s")
-                except Exception as ex:
-                    logger.warning(f"⚠️ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Pre-fetch peer medians' | Error={ex}")
-            
-            import threading
-            peer_medians_thread = threading.Thread(target=prefetch_medians, name="PeerMediansPrefetch", daemon=True)
-            peer_medians_thread.start()
-
         # ── DATA FETCH (Candidates + Orphans) ──
         nifty_6m_ret, nifty_dist_52w = fetch_nifty_macro_state()
         if nifty_6m_ret is None:
@@ -1210,6 +1191,25 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         all_symbols_to_fetch = list(candidate_symbols.union(set(orphan_symbols)))
         BATCH_SIZE = int(os.environ.get("WEALTH_BATCH_SIZE", "50"))
         logger.info(f"💰 [WEALTH ENGINE] Processing {len(all_symbols_to_fetch)} symbols in chunks of {BATCH_SIZE}...")
+
+        if all_symbols_to_fetch:
+            from valuation_utils import compute_peer_medians
+            prefetch_symbols = list(all_symbols_to_fetch)
+            
+            def prefetch_medians():
+                t_name = threading.current_thread().name
+                try:
+                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='WealthEngineMain' | Action='Pre-fetching sector peer medians for {len(prefetch_symbols)} symbols'")
+                    _t_start = time.perf_counter()
+                    res = compute_peer_medians(prefetch_symbols)
+                    dur_s = time.perf_counter() - _t_start
+                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Pre-fetch peer medians' | SymbolsProcessed={len(res)} | Duration={dur_s:.2f}s")
+                except Exception as ex:
+                    logger.warning(f"⚠️ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Pre-fetch peer medians' | Error={ex}")
+            
+            peer_medians_thread = threading.Thread(target=prefetch_medians, name="PeerMediansPrefetch", daemon=True)
+            peer_medians_thread.start()
+
         
         from price_cache import fetch_unified_historical, get_intraday_snapshot
         from database import get_bulk_recent_concall_analysis

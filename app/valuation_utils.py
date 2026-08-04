@@ -179,8 +179,16 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     with _peer_medians_lock:
         if _peer_medians_cache["data"] and (now - _peer_medians_cache["ts"]) < 3600:
             cached = _peer_medians_cache["data"]
-            if all(s in cached for s in symbols):
+            missing = [s for s in symbols if s not in cached]
+            if not missing:
                 return {s: cached[s] for s in symbols if s in cached}
+            elif len(missing) < 20 and len(cached) > 0:
+                # Reuse cached data for known symbols; populate empty default entries for missing orphans
+                result = {s: cached[s] for s in symbols if s in cached}
+                for ms in missing:
+                    result[ms] = {"median_pe": None, "median_pb": None, "median_roe": None, "peer_count": 0}
+                return result
+
 
     try:
         universe_df = fetch_full_universe_for_valuation()
