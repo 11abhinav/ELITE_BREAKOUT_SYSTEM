@@ -1615,10 +1615,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
     # Sort by turnover descending (no arbitrary cap — all liquid stocks get evaluated)
     shortlist = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
+    stage_tracker.end_stage(f"Shortlisted {len(shortlist)} liquid stocks")
     logger.info(f"📋 Shortlisted {len(shortlist)}/{len(price_data_map)} liquid stocks for fundamental screening.")
     
     # 3. Phase 2: Fetch Fundamentals
+    stage_tracker.start_stage(2, "Fundamentals DB Cache Validation & Fetch", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
+
     
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = {}
@@ -1741,7 +1744,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     logger.info(f"📊 Detected Market Regime: {market_regime}")
     
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
+    stage_tracker.end_stage(f"Loaded {len(fundamentals_list)} fundamentals ({cached_count if 'cached_count' in locals() else 0} from DB cache)")
+    stage_tracker.start_stage(3, "V5 Quant & Fundamental Evaluation Pipeline", f"Target: {len(fundamentals_list)} stocks")
     from valuation_utils import compute_peer_medians
+
     symbols_to_val = [f.get("symbol") for f in fundamentals_list]
     peer_medians = compute_peer_medians(symbols_to_val)
             
@@ -2226,6 +2232,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             'status': r.status
         })
 
+    stage_tracker.end_stage(f"Evaluated {len(results)} watchlist items")
+    stage_tracker.start_stage(4, "Alert Persistence & Telegram Summary", f"Watchlist items: {len(results)}")
+
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
     
@@ -2237,9 +2246,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
     logger.info("✅ Multibagger Scanner execution finished.")
     try:
+        stage_tracker.end_stage(f"Alerts generated: {alerts_count}")
         stage_tracker.print_summary(alerts_found=alerts_count)
     except Exception:
         pass
+
     # [FIX MUL-16] Count actual DB inserts, not ALERT_TRIGGERED status flags.
     # Before this, the count included candidates suppressed by Top-N or rejected
     # by save_alert_if_new (e.g., duplicate alert within lookback window).

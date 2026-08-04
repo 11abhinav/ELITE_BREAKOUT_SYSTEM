@@ -1763,9 +1763,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         ])
         logger.info("\n".join(summary_lines))
         try:
+            stage_tracker.end_stage(f"BUY signals: {buy_count} | Processed: {total_eval} symbols")
             stage_tracker.print_summary(alerts_found=buy_count)
         except Exception:
             pass
+
 
         try:
             from memory_profiler import run_purge_with_telemetry

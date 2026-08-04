@@ -480,7 +480,7 @@ class ScannerStageTracker:
         self._current_num = stage_num
         self._current_name = stage_name
         self._current_details = details
-        msg = f"⏱️ [{self.scanner_name}] STAGE {stage_num}: {stage_name} started"
+        msg = f"⏱️ [{self.scanner_name}] STEP {stage_num}: {stage_name} started"
         if details:
             msg += f" ({details})"
         logger.info(msg)
@@ -490,13 +490,14 @@ class ScannerStageTracker:
             return 0.0
         dur = time.perf_counter() - self._current_start
         final_details = details or self._current_details or ""
-        self.stages.append((f"STAGE {self._current_num}: {self._current_name}", dur, final_details))
-        msg = f"✅ [{self.scanner_name}] STAGE {self._current_num}: {self._current_name} completed in {dur:.2f}s"
+        self.stages.append((f"STEP {self._current_num}: {self._current_name}", dur, final_details))
+        msg = f"✅ [{self.scanner_name}] STEP {self._current_num}: {self._current_name} complete — time taken {dur:.2f}s"
         if final_details:
             msg += f" | {final_details}"
         logger.info(msg)
         self._current_start = None
         return dur
+
 
     def print_summary(self, alerts_found: int = 0):
         total_dur = time.perf_counter() - self.start_time

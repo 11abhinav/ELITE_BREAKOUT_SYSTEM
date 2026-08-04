@@ -1173,6 +1173,10 @@ def _main_impl(force_rebuild: bool = False):
     logger.info(f"🚀🚀🚀 [START] DAILY BUILDER INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
     logger.info("=" * 80 + "\n")
 
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("DAILY_BUILDER")
+    stage_tracker.start_stage(1, "TradingView Universe & Accumulation Data Fetch", "Fetching 5000 universe stocks from TradingView")
+
     if not state.get("universe_fetched") or not os.path.exists("data/temp_universe.parquet"):
         if state.get("universe_fetched"):
             logger.warning("⚠️ universe_fetched is True in DB, but data/temp_universe.parquet is missing (container restart). Refetching...")
@@ -1243,6 +1247,10 @@ def _main_impl(force_rebuild: bool = False):
         except Exception:
             pass
 
+    stage_tracker.total_symbols = len(universe_df)
+    stage_tracker.end_stage(f"Fetched universe: {len(universe_df)} symbols")
+    stage_tracker.start_stage(2, "Piotroski Fundamentals & Sector Medians Refresh", "Checking DB cache 14d/30d TTL")
+
     if not state.get("fundamentals_refreshed"):
         from fundamentals_cache import refresh_fundamentals_tiered
         logger.info("🔍 [REFRESH] Refreshing fundamentals cache (tiered) for fetched universe...")
@@ -1250,6 +1258,9 @@ def _main_impl(force_rebuild: bool = False):
         logger.info("✅ [REFRESH] Fundamentals refresh completed.")
         save_checkpoint({**state, "fundamentals_refreshed": True})
         state["fundamentals_refreshed"] = True
+
+    stage_tracker.end_stage("Fundamentals & sector medians ready")
+    stage_tracker.start_stage(3, "Equity & Financial Classification Engine (Path A/B)", f"Universe: {len(universe_df)} symbols")
 
     if not state.get("fundamentals_scored"):
         # Calculate Sector Medians for Market Share Gainer logic
@@ -1381,6 +1392,9 @@ def _main_impl(force_rebuild: bool = False):
                 pass
             raise RuntimeError("Daily Builder generated an empty watchlist and fallback failed. Failing to alert admin and scheduler.")
 
+        stage_tracker.end_stage(f"Qualifying winners: {len(winners)} stocks")
+        stage_tracker.start_stage(4, "Watchlist Persistence & Postgres DB Sync", f"Saving {len(winners)} watchlist items")
+
         final_df = (
             pd.DataFrame(winners)
             .sort_values(
@@ -1389,6 +1403,7 @@ def _main_impl(force_rebuild: bool = False):
             )
             .reset_index(drop=True)
         )
+
 
         import hashlib
         checksum = hashlib.md5(pd.util.hash_pandas_object(final_df, index=True).values).hexdigest()
@@ -1447,6 +1462,12 @@ def _main_impl(force_rebuild: bool = False):
             logger.warning(f"⚠️ Failed to upload watchlist to Postgres: {e}")
         
         save_checkpoint({**state, "fundamentals_scored": True})
+        try:
+            stage_tracker.end_stage(f"Saved watchlist ({len(final_df)} stocks) to Postgres DB & Parquet")
+            stage_tracker.print_summary(alerts_found=len(final_df))
+        except Exception:
+            pass
+
         
         logger.info("\n" + "=" * 80)
         logger.info(f"🛑🛑🛑 [END] DAILY BUILDER COMPLETE (SUCCESS) | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')} 🛑🛑🛑")

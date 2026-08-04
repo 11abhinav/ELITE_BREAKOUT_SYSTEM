@@ -405,15 +405,22 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
     try:
         entry_date = datetime.strptime(cache_entry["date"], "%Y-%m-%d").date()
         days_old = (datetime.now(IST).date() - entry_date).days
+        ttl_limit = FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)
         
         # If it failed to fetch (no data), retry on the next run after 2 days (48 hour cooldown)
         if cache_entry.get("failed", False):
-            return days_old > 2
+            stale = days_old > 2
+            if stale:
+                logger.info(f"🔄 [FUNDAMENTALS DB CACHE] Failed entry STALE ({days_old}d > 2d cooldown). Refetching...")
+            return stale
 
-            
-        return days_old > FUNDAMENTAL_REFRESH_SCHEDULE.get(tier, 30)
+        stale = days_old > ttl_limit
+        if stale:
+            logger.info(f"🔄 [FUNDAMENTALS DB CACHE] Entry STALE ({days_old}d > {ttl_limit}d TTL for {tier}). Refetching...")
+        return stale
     except Exception:
         return True
+
 
 def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     logger.info("🔄 Refreshing Piotroski Fundamentals (Tiered)...")
