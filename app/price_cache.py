@@ -784,7 +784,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
 
                         has_newer_bars = (remote_last_date is not None and cached_last_date is not None and remote_last_date > cached_last_date)
 
-                        logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f} | HasNewerBars={has_newer_bars}")
+                        # [VERSION: CACHE_DECISION_FRESHNESS_FIX_v1.0]
+                        # If remote data is dated >= today's expected trading bar, it is genuinely current.
+                        # Do NOT mark it stale just because its quality score is lower than the cached score.
+                        # Surveillance stocks, circuit-hit stocks, and thin-volume stocks all produce lower
+                        # quality scores (fewer bars, compressed OHLCV) but their data is still fresh and valid.
+                        from market_utils import get_expected_latest_trading_date
+                        expected_trading_date = get_expected_latest_trading_date()
+                        remote_is_current = (remote_last_date is not None and remote_last_date >= expected_trading_date)
+
+                        logger.warning(
+                            f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) "
+                            f"| CacheScore={cache_score:.1f} | HasNewerBars={has_newer_bars} "
+                            f"| RemoteLastDate={remote_last_date} | CachedLastDate={cached_last_date} "
+                            f"| RemoteIsCurrent={remote_is_current} | ExpectedDate={expected_trading_date}"
+                        )
 
                         # 1. Critical Cache Validation
                         reject_reason = None
@@ -803,12 +817,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
-                        elif has_newer_bars or range_from or remote_score >= cache_score or (not new_report and remote_score == cache_score):
-                            # Accept and Merge (Remote has newer data, delta range, or higher/equal quality score)
+                        elif has_newer_bars or remote_is_current or range_from or remote_score >= cache_score or (not new_report and remote_score == cache_score):
+                            # Accept and Merge:
+                            # - Remote has newer candles, OR
+                            # - Remote data is dated today (fresh, even if lower quality score), OR
+                            # - This is a DELTA range fetch, OR
+                            # - Remote quality >= cached quality
                             pass
                         else:
-                            # Reject Remote Data (Lower Quality & No New Data)
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score}")
+                            # Reject Remote Data (genuinely lower quality AND no new/current data)
+                            logger.warning(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score} | RemoteLastDate={remote_last_date} | ExpectedDate={expected_trading_date} — marking stale")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
