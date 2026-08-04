@@ -3665,21 +3665,22 @@ def upload_parquet_to_db(name: str, file_path: str):
     today = datetime.now(IST).strftime("%Y-%m-%d")
     init_db()
     try:
+        _t_start = time.perf_counter()
         with open(file_path, "rb") as f:
             binary_data = f.read()
+        size_kb = len(binary_data) / 1024.0
         with get_connection() as conn:
             with conn.cursor() as cur:
-                logger.info(f"🔄 [DB] Attempting to insert/update parquet_cache for name={name}, date={today}")
                 cur.execute("""
                     INSERT INTO parquet_cache (name, date, data)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                 """, (name, today, binary_data))
-                logger.info(f"✅ [DB] Successfully executed ON CONFLICT DO UPDATE for {name}")
             conn.commit()
-        logger.info(f"💾 Uploaded {name} to DB parquet_cache for {today}")
+        dur_s = time.perf_counter() - _t_start
+        logger.info(f"💾 [PARQUET DB SYNC COMPLETE] Uploaded '{name}' ({size_kb:.1f} KB) to Postgres DB parquet_cache in {dur_s:.2f}s")
     except Exception as e:
-        logger.exception(f"❌ Failed to upload {name} to DB")
+        logger.exception(f"❌ Failed to upload '{name}' to DB: {e}")
 
 def download_parquet_from_db(name: str, file_path: str) -> bool:
     """Download the latest binary parquet file from the database."""
