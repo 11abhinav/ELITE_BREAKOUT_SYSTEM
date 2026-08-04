@@ -733,7 +733,24 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         remote_score = (new_report.quality_score if new_report else 0) * SOURCE_RELIABILITY.get(remote_source, 1.0)
                         cache_score = cached_score_raw * SOURCE_RELIABILITY.get("Cache", 0.95)
 
-                        logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f}")
+                        # Check if remote data contains newer candles than disk cache
+                        cached_last_date = None
+                        remote_last_date = None
+                        c_col = 'Date' if 'Date' in cached_df.columns else ('Datetime' if 'Datetime' in cached_df.columns else None)
+                        if c_col and not cached_df.empty:
+                            cached_last_date = pd.to_datetime(cached_df[c_col].iloc[-1]).date()
+                        elif not cached_df.empty and isinstance(cached_df.index, pd.DatetimeIndex):
+                            cached_last_date = cached_df.index[-1].date()
+                            
+                        r_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
+                        if r_col and not new_df.empty:
+                            remote_last_date = pd.to_datetime(new_df[r_col].iloc[-1]).date()
+                        elif not new_df.empty and isinstance(new_df.index, pd.DatetimeIndex):
+                            remote_last_date = new_df.index[-1].date()
+
+                        has_newer_bars = (remote_last_date is not None and cached_last_date is not None and remote_last_date > cached_last_date)
+
+                        logger.debug(f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) | CacheScore={cache_score:.1f} | HasNewerBars={has_newer_bars}")
 
                         # 1. Critical Cache Validation
                         reject_reason = None
@@ -747,11 +764,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df
                             continue
-                        elif remote_score >= cache_score or (not new_report and remote_score == cache_score):
-                            # Accept and Merge
+                        elif has_newer_bars or range_from or remote_score >= cache_score or (not new_report and remote_score == cache_score):
+                            # Accept and Merge (Remote has newer data, delta range, or higher/equal quality score)
                             pass
                         else:
-                            # Reject Remote Data (Lower Quality)
+                            # Reject Remote Data (Lower Quality & No New Data)
                             logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score}")
                             cached_df.attrs['is_stale'] = True
                             all_data[sym] = cached_df

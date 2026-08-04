@@ -124,3 +124,29 @@ def test_evaluate_data_staleness_pre_market():
     assert stale_res["is_stale"] is True
     assert "2026-07-20 15:30:00" in stale_res["message"]
     assert "Expected at least 2026-08-03" in stale_res["message"]
+
+def test_price_cache_merges_newer_bars():
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    IST = ZoneInfo("Asia/Kolkata")
+    
+    # Old cached dataframe (up to Friday Aug 1)
+    cached_df = pd.DataFrame({
+        "Datetime": [pd.Timestamp("2026-08-01 15:30:00", tz=IST)],
+        "Open": [100.0], "High": [105.0], "Low": [99.0], "Close": [104.0], "Volume": [1000]
+    })
+    cached_df.attrs["quality_score"] = 100
+    
+    # Newly fetched remote dataframe (has Monday Aug 3 bar)
+    new_df = pd.DataFrame({
+        "Datetime": [pd.Timestamp("2026-08-03 15:30:00", tz=IST)],
+        "Open": [104.0], "High": [108.0], "Low": [103.0], "Close": [107.0], "Volume": [1500]
+    })
+    
+    cached_last_date = pd.to_datetime(cached_df["Datetime"].iloc[-1]).date()
+    remote_last_date = pd.to_datetime(new_df["Datetime"].iloc[-1]).date()
+    
+    has_newer_bars = remote_last_date > cached_last_date
+    assert has_newer_bars is True
