@@ -559,17 +559,47 @@ class UpstoxProvider(ProviderInterface):
         logger.info(f"{prefix}📥 Upstox: batch fetching {len(symbols)} symbols ({interval}, {period}) concurrently (workers={max_workers})...")
 
         import time
+        t_batch_start = time.monotonic()
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {}
             for sym in symbols:
                 future_to_sym[executor.submit(self.get_ohlcv, sym, interval, period, retries, range_from, range_to)] = sym
                 time.sleep(0.02)  # 20ms micro-stagger to smooth API request pacing
+
+            completed = 0
+            errors = 0
+            last_progress_log_t = time.monotonic()
+            last_progress_log_n = 0
+            total = len(symbols)
+
             for future in as_completed(future_to_sym):
                 sym = future_to_sym[future]
                 try:
-                    results[sym] = future.result()
+                    result = future.result()
+                    results[sym] = result
+                    df = getattr(result, 'dataframe', None)
+                    if df is None or (hasattr(df, 'empty') and df.empty):
+                        errors += 1
                 except Exception as e:
                     logger.error(f"Upstox batch fetch exception for {sym}: {e}")
+                    errors += 1
+
+                completed += 1
+                now_t = time.monotonic()
+                elapsed = now_t - t_batch_start
+                # Log every 10 symbols OR every 30s, whichever comes first
+                symbols_since_log = completed - last_progress_log_n
+                secs_since_log = now_t - last_progress_log_t
+                if symbols_since_log >= 10 or secs_since_log >= 30 or completed == total:
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    eta_s = int((total - completed) / rate) if rate > 0 else 0
+                    logger.info(
+                        f"{prefix}📡 Upstox batch progress: {completed}/{total} done | "
+                        f"{errors} errors | Elapsed: {elapsed:.0f}s | Rate: {rate:.1f} sym/s | "
+                        f"ETA: ~{eta_s}s"
+                    )
+                    last_progress_log_t = now_t
+                    last_progress_log_n = completed
 
         ok_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and not getattr(v.dataframe, 'empty', True))
         logger.info(f"{prefix}📊 Upstox batch complete: {ok_count}/{len(symbols)} ok")
