@@ -390,7 +390,7 @@ class PriceProvider:
                         futures = {}
                         for idx, batch in enumerate(batches):
                             if idx > 0:
-                                time.sleep(3.5)  # Delay between batches to prevent WAF trip
+                                time.sleep(2.0)  # Delay between batches to prevent WAF trip
                             futures[ex.submit(self._download_batch, batch, period, interval, start, end)] = idx
                         for fut in as_completed(futures, timeout=1800):
                             idx = futures[fut]
