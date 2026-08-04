@@ -51,6 +51,7 @@
       - *Thrust Mode*: Price breaks local 5m highs with strong volume confirmation near trigger level.
       - *Pullback Mode*: Breakout level or EMA9 is tested/defended, followed by a strong bullish rejection candle (close position $\ge 0.60$) with volume.
     5. **Late-Session Entry Cutoff**: New Phase D entries are blocked after **14:15 IST** to eliminate late-day slippage and MOC imbalances.
+  - **Delivery Data Enrichment**: **[UPDATED on 2026-08-04 - MULTI_TF_DELIVERY_FIX_v1.0]** ~~`delivery_pct` was hardcoded to `0.0`~~. Now dynamically fetches the latest available NSE/BSE delivery percentage map (`fetch_latest_available_delivery_data`) and threads actual delivery percentages into `opportunity_manager.add()`.
   - **Minimum Score**: Composite Score $\ge 78$ out of 100. Minimum Risk-Reward Ratio $\ge 1.5$.
 
   ## 2.3 Reversal Scanner (`app/reversal_scanner.py`)
@@ -62,11 +63,12 @@
     3. **Oversold RSI Curl**: RSI was $\le 38$ within the lookback window (`REVERSAL_RSI_LOOKBACK = 15`, `REVERSAL_RSI_MAX = 38`) and current RSI is $\ge 50$.
     4. **MACD Momentum**: Bullish MACD histogram crossover occurring within the last 10 trading bars.
     5. **Volume Confirmation**: Volume Ratio $\ge 2.0\text{x}$ 20-day average. 20-bar average volume $\ge 300,000$ shares.
-    6. **Two-Tier Cooldown Architecture**: 
+    6. **Fundamental Outage Alarm Protocol**: **[UPDATED on 2026-08-04 - REVERSAL_FUNDAMENTAL_ALARM_v1.0]** ~~High fundamental outage ratio (>60%) logged warning and returned 0, aborting alert persistence~~. If fundamental failure ratio exceeds 60%, scanner health status is set to `DEGRADED`, Web Push (`send_push_to_all`) & Admin notifications (`insert_notification`) are dispatched, and **execution proceeds to persist valid technical alerts**.
+    7. **Two-Tier Cooldown Architecture**: 
       - *Tier 1 (7-Day Alert Dedup)*: `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` prevents duplicate alert spam for active setups.
       - *Tier 2 (40-Day Fallen Knife Defense)*: `REVERSAL_COOLDOWN_TRADING_DAYS = 40` blocks symbols that recently stopped out from re-triggering for 40 trading days (matching holding lifecycle).
-    7. **Macro Regime Dampening**: In `STRONG_BEAR` macro regimes, the minimum score threshold is elevated to **90 pts** (vs normal 62 pts).
-    8. **Minimum Score**: Composite Score $\ge 62$ out of 100+ (90 in `STRONG_BEAR`). Reward Potential $\ge 3.0R$ (T3-based) and Natural Risk-Reward Ratio $\ge 2.0R$ (T1-based).
+    8. **Macro Regime Dampening**: In `STRONG_BEAR` macro regimes, the minimum score threshold is elevated to **90 pts** (vs normal 62 pts).
+    9. **Minimum Score**: Composite Score $\ge 62$ out of 100+ (90 in `STRONG_BEAR`). Reward Potential $\ge 3.0R$ (T3-based) and Natural Risk-Reward Ratio $\ge 2.0R$ (T1-based).
 
   ## 2.4 Pullback Pipeline (`app/pullback_pipeline.py`)
   - **Market Objective**: Identifies orderly, low-risk pullback entries within established strong uptrends.
@@ -77,14 +79,21 @@
     3. **Orderly Pullback Structure**: Pullback depth must be between **23.6% and 61.8% Fibonacci retracement** of the impulse wave, accompanied by clear **volume contraction** (volume declining during pullback bars).
     4. **Resumption Trigger**: Bullish reversal bar closing above prior high/open (`PREVIOUS_HIGH`, `PREVIOUS_OPEN`, or `INSIDE_BAR`).
     5. **Sanitized Evidence Bonus**: $+3$ pts if stock triggered an active EOD alert in last 30 days; $+2$ pts if stock triggered an active Multibagger/Multi-TF alert (`only_active=True`, excluding stopped-out alerts).
-    6. **Minimum Score**: Composite Score $\ge 75$ out of 100+ (base threshold 75 + regime modifier). Minimum Risk-Reward Ratio $\ge 2.0$.
+    6. **Near-Miss Telemetry Logging**: **[UPDATED on 2026-08-04 - FIX-P4]** Near-miss logging exceptions now surface explicitly at `logger.warning` level instead of being silently swallowed.
+    7. **Minimum Score**: Composite Score $\ge 75$ out of 100+ (base threshold 75 + regime modifier). Minimum Risk-Reward Ratio $\ge 2.0$.
 
   ## 2.5 Wealth Engine (`app/wealth_engine.py`)
   - **Market Objective**: Screens long-term fundamental compounders for positional allocation and manages active positions during market hours.
   - **Dual-Gate Signal Hierarchy**:
     - **Gate 1 (Bucket Prerequisite)**:
-      - *Non-Financial Stocks*: $\text{ROCE} \ge 20.0\%$, $\text{Debt/Equity} \le 1.0$, $\text{YoY Revenue Growth} \ge 10.0\%$.
-      - *Financial Services (Banks/NBFCs)*: $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 3.0$, $\text{YoY Revenue Growth} \ge 10.0\%$.
+      - *Core Compounder*: $\text{Score} \ge 65$, $\text{Mcap} \ge ₹10,000\text{ Cr}$, Non-Financials: $\text{ROCE} \ge 20.0\%$, $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 0.50$; Financials: $\text{ROE} \ge 15.0\%$.
+      - *Growth Multiplier*: $\text{Score} \ge 60$, $\text{Mcap} \ge ₹2,000\text{ Cr}$, $\text{YoY Sales} \ge 20.0\%$, $\text{YoY Profit} \ge 20.0\%$, $\text{RS}_{6m} \ge 0$ (or `None` UNKNOWN benefit-of-doubt), $\text{Dist 52W} \le 15.0\%$.
+      - *Quality-On-Sale*: $\text{Score} \ge 50$, $\text{Dist 52W} \ge 10.0\%$, Non-Financials: $\text{ROCE} \ge 15.0\%$, $\text{Debt/Equity} \le 1.0$; Financials: $\text{ROE} \ge 15.0\%$.
+      - *Opportunistic*: $\text{Score} \ge 55$, $\text{YoY Profit} \ge 40.0\%$, $\text{RS}_{6m} \ge 15.0\%$ (requires confirmed RS evidence).
+      - *Financial Sector Quality Gate*: **[UPDATED on 2026-08-04 - WEALTH_FIN_GNPA_GATE_v1.0]** ~~Financial stocks used non-financial D/E ceiling or passed unchecked~~. Banks/NBFCs omit D/E ceiling and enforce a **GNPA Quality Gate ($\text{GNPA} > 5.0\% \rightarrow \text{FAIL}$; missing GNPA $\rightarrow \text{UNKNOWN}$ benefit-of-doubt)**.
+      - *Proxy Removal Policy*: **[UPDATED on 2026-08-04 - WEALTH_PROXY_FIX_v1.0]** ~~Missing growth/FCF metrics defaulted to +15%/+10% proxies~~. Missing metrics propagate as `None`, ensuring V5 scoring handles data voids without score inflation.
+      - *Tiered Completeness Gate*: **[UPDATED on 2026-08-04 - WEALTH_COMPLETENESS_SPLIT_v1.0]** ~~Binary completeness check required all 8 fields to be non-null~~. Split into **Hard Mandatory** (`cmp`, `sma_200`, `FM_Score`) vs **Soft Mandatory** (`momentum_confidence`, `rs_6m`, etc.) which apply downstream conservative defaults.
+      - *Stale Exit Code*: **[UPDATED on 2026-08-04 - WEALTH_STALE_STATE_v1.0]** ~~Stale price data during exit evaluation returned silent `""`~~. Surfaced explicitly as `"DATA_STALE"`.
       - *Extreme Valuation Ceiling*: $\text{PEG} \le 3.0$ (instant kill-gate for extreme bubble valuations).
     - **Gate 2 (Timing Gate)**:
       - Fundamental Quality Score $\ge 55$, Technical Momentum Score $\ge 25$, and $\text{Price} > \text{SMA}_{200}$.
@@ -98,6 +107,7 @@
     - *🚀 Prime Multibagger*: Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$, and **Piotroski F-Score $\ge 7$** ($₹100,000$ capital allocation). Generates active BUY alert when in buy zone.
     - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$ ($₹50,000$ capital allocation). Generates active BUY alert when in buy zone.
     - *🟡 Watchlist*: Composite Score $50–64$. **Non-alerting watchlist tier** (tracked in display cache for fundamental monitoring; strictly blocked from generating active BUY alerts).
+    - *Financial Sector CAR Fallback*: **[UPDATED on 2026-08-04 - MULTIBAGGER_FIN_FALLBACK_v2.0]** ~~Financial stocks missing Capital Adequacy Ratio (CAR) were permanently hard-rejected with `UNSUPPORTED: financial-sector CAR unavailable`~~. Replaced with tri-state UNKNOWN handling (missing CAR gives benefit of doubt during buying, and triggers `SELL_REVIEW` instead of position close during exit monitoring).
   - **Category Label Binding**: The `category` column in the database (`alerts`) and alert payloads is strictly bound to the final post-bonus conviction tier (`tier`), ensuring zero mis-stamping of active alerts.
   - **Execution Schedule**: **04:00 AM IST Cold Start** (initial screening with fresh daily watchlist) + **19:00 PM IST Daily Scan** (post-market full scan) + **15-minute intraday exit monitor**.
   - **Build Manifest Fallback**: If database `build_manifest` is absent (e.g. after container restart or manual trigger), scanner falls back to disk `data/watchlist.parquet` restored from Postgres on boot.

@@ -843,3 +843,112 @@ All 13 fixes have been implemented across 7 files. Below is a summary of each ch
 ---
 
 *Document generated from source code analysis. All thresholds sourced from `config.py`, individual scanner files, and `stock_analyzer.py`. Fixes applied on 2026-07-28.*
+
+---
+
+## 11. Patch Round 2 — 2026-08-04 Cross-Scanner Correctness Audit (86235de6)
+
+This round focused exclusively on **correctness, observability, and data semantics** without altering investment philosophy. All changes were validated against the 530-test pytest suite (all passing).
+
+### P1 — Wealth Engine: Proxy Removal (`WEALTH_PROXY_FIX_v1.0`)
+
+**File:** `app/wealth_engine.py`
+
+- **Before:** Missing growth/FCF metrics defaulted to proxy values (`+15% CAGR`, `10% FCF margin`), silently inflating `FM_Score` for data-void stocks.
+- **After:** Missing metrics propagate as `None`. V5 scoring engine handles `None` natively with conservative downstream defaults.
+- **Rationale:** Proxy inflation caused data-void stocks to earn higher conviction tiers than their actual fundamentals justified. Score should reflect verified data only.
+
+---
+
+### P2 — Wealth Engine: Completeness Split (`WEALTH_COMPLETENESS_SPLIT_v1.0`)
+
+**File:** `app/wealth_engine.py`
+
+- **Before:** Binary completeness check — all 8 fundamental fields must be non-null or candidate is skipped.
+- **After:** Split into **Hard Mandatory** (`cmp`, `sma_200`, `FM_Score`) vs **Soft Mandatory** (`momentum_confidence`, `rs_6m`, `gnpa_pct`, etc.). Soft-mandatory fields missing apply conservative downstream defaults without skipping the candidate.
+- **Rationale:** Treating `rs_6m` or `gnpa_pct` as hard-mandatory silently dropped valid fundamentally-strong candidates when RS data was unavailable mid-day.
+
+---
+
+### P3 — Wealth Engine: Financial Sector GNPA Gate (`WEALTH_FIN_GNPA_GATE_v1.0`)
+
+**File:** `app/wealth_engine.py`
+
+- **Before:** Financial stocks used the non-financial D/E ceiling or passed unchecked.
+- **After:** Banks/NBFCs/Insurers omit D/E ceiling entirely. Enforce a **GNPA Quality Gate**:
+  - `GNPA > 5.0%` → **FAIL** (asset quality too poor)
+  - `GNPA missing` → **UNKNOWN** (benefit of doubt — soft pass)
+- **Rationale:** Debt/Equity is not a meaningful metric for financial intermediaries. GNPA (Gross Non-Performing Assets ratio) is the correct solvency proxy for banks and NBFCs.
+
+---
+
+### P4 — Wealth Engine: Stale State Surfacing (`WEALTH_STALE_STATE_v1.0`)
+
+**File:** `app/wealth_engine.py`
+
+- **Before:** Stale price data during exit monitor evaluation returned `exit_reason = ""` — a blank string indistinguishable from a successful hold.
+- **After:** Returns explicit `exit_reason = "DATA_STALE"` and flags `is_stale = True`.
+- **Rationale:** Silent blank exit reason made stale state invisible in the admin dashboard and health logs. `DATA_STALE` is now surfaced as a `SELL_REVIEW` status, not an auto-close.
+
+---
+
+### P5 — Multibagger: Financial CAR Tri-State Fallback (`MULTIBAGGER_FIN_FALLBACK_v2.0`)
+
+**File:** `app/multibagger.py`
+
+- **Before:** Financial stocks missing CAR (Capital Adequacy Ratio) were hard-rejected with `UNSUPPORTED: financial-sector CAR unavailable`. Existing positions triggered sell alerts on data absence.
+- **After:** Tri-state UNKNOWN handling:
+  - CAR present and ≥ 11% → **PASS**
+  - CAR present and < 11% → **FAIL**
+  - CAR missing → **UNKNOWN** (benefit of doubt for new buys; `SELL_REVIEW` for open positions — no auto-close)
+- **Rationale:** Hard-rejecting financial positions on missing data caused false sell signals and prevented valid banks/NBFCs from ever generating alerts despite strong fundamentals.
+
+---
+
+### P6 — Reversal: Fundamental Outage Alarm (`REVERSAL_FUNDAMENTAL_ALARM_v1.0`)
+
+**File:** `app/reversal_scanner.py`
+
+- **Before:** If fundamental failure ratio exceeded 60%, scanner logged a warning and returned `0`, aborting all alert persistence (including valid technical setups).
+- **After:**
+  1. Sets scanner health status to `DEGRADED`
+  2. Dispatches Web Push (`send_push_to_all`) and Admin Notification (`insert_notification`) to admin
+  3. **Continues execution** — valid technical alerts are persisted
+- **Rationale:** Data feed outages should not silently discard valid market signals. Admins need immediate visibility into fundamental data failures, and technically-valid setups should still fire.
+
+---
+
+### P7 — Multi-TF: Delivery Data Fix (`MULTI_TF_DELIVERY_FIX_v1.0`)
+
+**File:** `app/multi_tf_scanner.py`
+
+- **Before:** `delivery_pct` was hardcoded to `0.0` in every `opportunity_manager.add()` call. Delivery percentage scored as zero for all Multi-TF candidates.
+- **After:** Calls `fetch_latest_available_delivery_data()` at scan start, threads actual `delivery_pct` from the NSE/BSE delivery map into each `opportunity_manager.add()`.
+- **Rationale:** Delivery percentage is a key volume quality signal used by the scoring engine. Hardcoding `0.0` made the scoring engine blind to institutional vs. retail delivery composition for all intraday signals.
+
+---
+
+### P8 — Pullback: Near-Miss Telemetry (`FIX-P4`)
+
+**File:** `app/pullback_pipeline.py`
+
+- **Before:** Exceptions inside the near-miss telemetry logging block were silently swallowed by a bare `except: pass`.
+- **After:** Exceptions surface at `logger.warning` level with context.
+- **Rationale:** Silent telemetry failures hid pipeline errors. Near-miss logging failures should be visible without crashing the main scan loop.
+
+---
+
+### Summary Table (Patch Round 2)
+
+| Fix ID | Scanner | Type | Severity | Old Behavior | New Behavior |
+|--------|---------|------|----------|--------------|--------------|
+| `WEALTH_PROXY_FIX_v1.0` | Wealth Engine | Correctness | HIGH | Proxy +15% CAGR/10% FCF inflated scores | `None` propagation, no proxies |
+| `WEALTH_COMPLETENESS_SPLIT_v1.0` | Wealth Engine | Correctness | MEDIUM | Binary completeness gate dropped valid candidates | Hard vs. Soft mandatory split |
+| `WEALTH_FIN_GNPA_GATE_v1.0` | Wealth Engine | Correctness | HIGH | Non-financial D/E applied to banks | GNPA gate with UNKNOWN benefit-of-doubt |
+| `WEALTH_STALE_STATE_v1.0` | Wealth Engine | Observability | MEDIUM | Blank `exit_reason = ""` | Explicit `DATA_STALE` code |
+| `MULTIBAGGER_FIN_FALLBACK_v2.0` | Multibagger | Correctness | CRITICAL | Hard reject: missing CAR → `UNSUPPORTED` | Tri-state UNKNOWN — no false exits |
+| `REVERSAL_FUNDAMENTAL_ALARM_v1.0` | Reversal | Observability | HIGH | >60% outage aborted all alert persistence | DEGRADED status + push + continue |
+| `MULTI_TF_DELIVERY_FIX_v1.0` | Multi-TF | Correctness | MEDIUM | `delivery_pct = 0.0` hardcoded | Real NSE/BSE delivery map fetched |
+| `FIX-P4` | Pullback | Observability | LOW | Near-miss exceptions silently swallowed | `logger.warning` surfaced |
+
+*All 530 pytest suite tests passing after this patch round.*
