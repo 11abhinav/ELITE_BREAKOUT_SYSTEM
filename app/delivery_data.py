@@ -103,7 +103,8 @@ def fetch_latest_available_delivery_data(today_ist_date: date) -> tuple[dict[str
 
 def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[str, float]:
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-    from database import get_bhavcopy_cache, save_bhavcopy_cache
+    from database import get_bhavcopy_cache, save_bhavcopy_cache, get_latest_bhavcopy_cache
+    from datetime import datetime as _dt, time as dt_time
     
     # 0. Check in-memory DatasetRegistry first (fastest)
     registry_key = f"bhavcopy_delivery_{trading_date.isoformat()}"
@@ -127,6 +128,18 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
         registry.put(registry_key, cached_data)
         return cached_data
 
+    # [BHAVCOPY_SAVER_v1.0] If requested date is in future or today before 18:00 IST release window,
+    # do NOT waste Crawlora/ScraperAPI keys on an unreleased file. Return latest available DB Bhavcopy!
+    now_ist = _dt.now(IST)
+    today_ist = now_ist.date()
+    if trading_date > today_ist or (trading_date == today_ist and now_ist.time() < dt_time(18, 0)):
+        logger.info(f"ℹ️ [BHAVCOPY] Date {trading_date} is before 18:00 IST release. Falling back to latest available DB Bhavcopy without wasting API keys.")
+        latest = get_latest_bhavcopy_cache()
+        if latest:
+            registry.put(registry_key, latest)
+            return latest
+        return {}
+
     with _delivery_cache_lock:
         # Double-check inside lock to prevent race conditions when multiple scanners start in parallel
         cached_data = get_bhavcopy_cache(trading_date)
@@ -145,7 +158,11 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             scraper_key = get_scraper_api_key()
 
             if not crawlora_key and not scraper_key:
-                logger.error("❌ No valid Crawlora or SCRAPERAPI_KEY found. Aborting Bhavcopy fetch.")
+                logger.warning("⚠️ No valid Crawlora or SCRAPERAPI_KEY found. Falling back to latest available DB Bhavcopy.")
+                latest = get_latest_bhavcopy_cache()
+                if latest:
+                    registry.put(registry_key, latest)
+                    return latest
                 return {}
 
             response = None
@@ -160,6 +177,13 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     if c_resp is not None and c_resp.status_code in [401, 403, 429]:
                         logger.warning(f"⚠️ Crawlora key {crawlora_key[:5]}... exhausted or rate limited (HTTP {c_resp.status_code}).")
                         mark_crawlora_key_exhausted_today(crawlora_key)
+                    elif c_resp is not None and c_resp.status_code == 404:
+                        logger.info(f"ℹ️ Bhavcopy {date_str} returned 404. Falling back to latest available DB Bhavcopy.")
+                        latest = get_latest_bhavcopy_cache()
+                        if latest:
+                            registry.put(registry_key, latest)
+                            return latest
+                        return {}
                     elif c_resp is not None and c_resp.status_code == 200:
                         response = c_resp
                 except Exception as crawlora_err:
@@ -183,6 +207,13 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     if s_resp is not None and s_resp.status_code in [401, 403, 429]:
                         logger.warning(f"⚠️ ScraperAPI key {scraper_key[:5]}... exhausted or rate limited (HTTP {s_resp.status_code}).")
                         mark_key_exhausted_today(scraper_key)
+                    elif s_resp is not None and s_resp.status_code == 404:
+                        logger.info(f"ℹ️ Bhavcopy {date_str} returned 404. Falling back to latest available DB Bhavcopy.")
+                        latest = get_latest_bhavcopy_cache()
+                        if latest:
+                            registry.put(registry_key, latest)
+                            return latest
+                        return {}
                     else:
                         response = s_resp
                 except Exception as scraper_err:
@@ -202,10 +233,14 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             
             # 404 Not Found means Bhavcopy file does not exist yet for this date
             if response.status_code == 404:
-                logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet for {date_str}.")
+                logger.info(f"   -> ❌ Got 404 Not Found. Assuming file does not exist yet for {date_str}. Falling back to latest available DB Bhavcopy.")
                 try:
                     mark_failure('nse_bhavcopy', '404')
                 except Exception: pass
+                latest = get_latest_bhavcopy_cache()
+                if latest:
+                    registry.put(registry_key, latest)
+                    return latest
                 return {}
                 
             if response.status_code == 200:
@@ -307,4 +342,9 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via Crawlora & ScraperAPI")
                 except Exception: pass
             
+        latest = get_latest_bhavcopy_cache()
+        if latest:
+            logger.info(f"📦 [BHAVCOPY] All attempts exhausted for {date_str}. Using latest available DB Bhavcopy cache.")
+            registry.put(registry_key, latest)
+            return latest
         return {}
