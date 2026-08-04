@@ -1110,7 +1110,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         if requester != "multibagger":
             def upload_history_job():
                 try:
-                    from app.database import upload_history_bundle_to_db
+                    from database import upload_history_bundle_to_db
                     t_name = threading.current_thread().name
                     logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='{requester or 'PriceCache'}' | Action='Uploading history bundle for interval={interval} to DB'")
                     _t_start = time.perf_counter()
