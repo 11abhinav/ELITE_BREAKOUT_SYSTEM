@@ -150,8 +150,10 @@ def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False
         logger.error(f"Failed to save pledge cache for {symbol}: {e}")
 
 def worker_loop():
+    import time
     logger.info("🚀 Starting Pledge Worker Daemon")
     init_db()
+    iteration = 0
     
     if not os.getenv("SCRAPERAPI_KEY"):
         logger.error("❌ SCRAPERAPI_KEY env var not set. Scraper daemon will pause.")
@@ -163,8 +165,13 @@ def worker_loop():
             time.sleep(3600)
 
     while True:
+        iteration += 1
+        loop_start = time.time()
         mode = get_worker_mode()
         now = datetime.now(IST_ZONE)
+        logger.info(f"\n{'='*70}")
+        logger.info(f"🔄 [PLEDGE WORKER] Iteration #{iteration} | Mode={mode} | Time={now.strftime('%H:%M:%S IST')}")
+        logger.info(f"{'='*70}")
         
         # [VERSION: PLEDGE_WORKER_PROGRESS_v1.6] Load universe and check DB on every loop iteration
         # to ensure dashboard stats show correct cumulative counts (old + todays) instantly on boot.
@@ -252,11 +259,10 @@ def worker_loop():
                 time.sleep(3600)
                 continue
                 
-            logger.info(f"📋 Loaded {watchlist_count} (watchlist) + {excluded_count} (excluded) + {constituents_count} (constituents) = {total_watch} unique symbols")
-            logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
+            logger.info(f"📋 [PLEDGE WORKER] Universe loaded in {time.time()-loop_start:.1f}s | Watchlist={watchlist_count} | Excluded={excluded_count} | Constituents={constituents_count} | Total={len(symbols_set)} unique symbols")
+            logger.info(f"💾 [PLEDGE WORKER] Checking DB for stale pledge data (threshold: 28 days)...")
+            logger.info(f"🔍 [PLEDGE WORKER] DB Check complete: {len(stale_symbols)} stale symbols need refresh, {total_watch - len(stale_symbols)} already fresh in DB")
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
-                            
-            processed_base = total_watch - len(stale_symbols)
 
             if not stale_symbols:
                 if get_worker_mode() == 'manual_start':
@@ -405,7 +411,9 @@ def worker_loop():
             except Exception as e:
                 pass
             
+            scrape_start = time.time()
             for i, sym in enumerate(stale_symbols):
+                sym_start = time.time()
                 status_res = process_symbol(sym, i+1)
                 
                 if status_res == "QUOTA_EXHAUSTED":
@@ -423,9 +431,10 @@ def worker_loop():
                 else:
                     failed_queue.append(sym)
                     
+                sym_elapsed = round(time.time() - sym_start, 2)
                 processed = i + 1
                 pending = total_stale - processed
-                logger.info(f"📊 PROGRESS: {processed}/{total_stale} Processed | {pending} Pending to fetch | {found_count} Found | {missing_count} Missing | {fail_404_count} Not Found (404) | {error_count} Errors")
+                logger.info(f"📊 PROGRESS: {processed}/{total_stale} | ⏱️ {sym_elapsed}s for {sym} [{status_res}] | Pending={pending} | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={error_count}")
                     
                 # [VERSION: PLEDGE_WORKER_PROGRESS_v1.5] Update upserts to write processed_base + successful_in_first_pass
                 now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -481,6 +490,9 @@ def worker_loop():
                 logger.info(f"✅ Pledge Worker completed successfully for all {total_stale} stale symbols")
             
             upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=err_msg)
+            
+            loop_elapsed = round(time.time() - loop_start, 1)
+            logger.info(f"✅ [PLEDGE WORKER] Iteration #{iteration} complete in {loop_elapsed}s | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={final_error_count} | Total Processed={processed_base + successful_in_first_pass}/{total_watch}")
             
             if quota_exhausted:
                 logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")

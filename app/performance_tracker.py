@@ -499,6 +499,11 @@ def _trade_status(
 # =====================================================================================
 
 def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None):
+    import time as _time
+    _fn_start = _time.time()
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("PERFORMANCE_TRACKER")
+    stage_tracker.start_stage(1, "Load Alerts from DB", "Fetching all alerts from database")
     trigger = "MANUAL_OVERRIDE" if force_live_fetch else "AUTO_BACKGROUND"
     logger.info("=" * 70)
     logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
@@ -517,6 +522,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         return
 
     logger.info(f"📋 {len(raw_alerts)} total alerts in database")
+    stage_tracker.total_symbols = len(raw_alerts)
+    stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
 
     # ── 1. Build trade objects ───────────────────────────────────────────────────────
     trades = []
@@ -579,6 +586,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         })
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
+    stage_tracker.start_stage(2, "Fetch Current Market Prices", f"Fetching live prices for {len(unique_symbols)} unique symbols")
     from market_utils import is_market_open
     is_open = is_market_open() or force_live_fetch
     
@@ -614,7 +622,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.warning(f"⚠️ [CMP_MASTER] Could not update watchlist CMP: {_cmp_err}")
 
 
+    stage_tracker.end_stage(f"Fetched prices for {len(current_prices)} symbols | market_open={is_open}")
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
+    stage_tracker.start_stage(3, "SL/Target Detection & Trade Processing", f"Processing {len(trades)} trades for SL/target hits")
     if is_open and not fast_mode:
         logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")
     else:
@@ -787,7 +797,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         if t.get("is_rejected"):
             t["status"] = "REJECTED"
 
+    stage_tracker.end_stage(f"Processed {len(trades)} trades | open={len(open_p)} | closed={n_judged if 'n_judged' in dir() else '?'}")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
+    stage_tracker.start_stage(4, "Summary Stats & Aggregation", "Computing win rate, P&L stats, scanner/category breakdowns")
     judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL")]
     winners = [t for t in judged if t["status"] == "WIN"]
     losers  = [t for t in judged if t["status"] == "LOSS"]
@@ -958,8 +970,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         f"{len(winners)}W / {len(losers)}L / {len(open_p)} OPEN | "
         f"SL triggers={len(sl_closed)} | Target hits={len(target_closed)}"
     )
-
-
+    try:
+        stage_tracker.end_stage(f"Stats computed | WR={wr}% | AvgReturn={avg_ret}%")
+        stage_tracker.print_summary(alerts_found=len(winners))
+    except Exception:
+        pass
 
 
 # =====================================================================================

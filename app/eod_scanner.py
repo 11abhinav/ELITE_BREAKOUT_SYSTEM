@@ -468,6 +468,9 @@ def _start_wrapper(force: bool = False, session=None):
     logger.info("=" * 80 + "\n")
     
     start_time = datetime.now(IST)
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("EOD_SCANNER")
+    stage_tracker.start_stage(1, "Watchlist & Context Setup", "Loading fundamental watchlist and sector ratings")
 
     # Check if we are outside the valid EOD window (21:00 - 23:59:59)
     now_time = ist_now.time()
@@ -486,6 +489,7 @@ def _start_wrapper(force: bool = False, session=None):
         with StageTimelineTracker("EOD", "1. Watchlist Universe Load"):
             try:
                 watchlist = get_watchlist()
+                stage_tracker.total_symbols = len(watchlist) if watchlist is not None else 0
                 logger.info(f"🛡️ EOD Scanner running on full fundamental watchlist: {len(watchlist)} stocks")
             except Exception as e:
                 logger.exception("❌ Failed to load watchlist")
@@ -1451,6 +1455,10 @@ def _start_wrapper(force: bool = False, session=None):
             "======================================================================"
         ])
         logger.info("\n".join(summary_lines))
+        try:
+            stage_tracker.print_summary(alerts_found=total_alerts)
+        except Exception:
+            pass
 
         # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
         if total_alerts > 0 and not is_test_mode:

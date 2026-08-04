@@ -1524,6 +1524,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     """Main scanning wrapper."""
     import time
     start_time = time.time()
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("MULTIBAGGER_SCANNER")
+    stage_tracker.start_stage(1, "Universe & Market Data Fetch", "Loading constituents and batch downloading prices")
     duration_sec = 0.0
     alerts_count = 0
     results = []
@@ -1541,6 +1544,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
         raise RuntimeError("Failed to fetch NSE constituent stocks. NSE API might be blocking the IP or rate-limiting.")
+
+    stage_tracker.total_symbols = len(symbols)
 
     # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
     import hashlib
@@ -2215,6 +2220,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         queue_telegram_message(msg)
         
     logger.info("✅ Multibagger Scanner execution finished.")
+    try:
+        stage_tracker.print_summary(alerts_found=alerts_count)
+    except Exception:
+        pass
     # [FIX MUL-16] Count actual DB inserts, not ALERT_TRIGGERED status flags.
     # Before this, the count included candidates suppressed by Top-N or rejected
     # by save_alert_if_new (e.g., duplicate alert within lookback window).

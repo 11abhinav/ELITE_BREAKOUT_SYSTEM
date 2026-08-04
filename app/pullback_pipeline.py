@@ -311,6 +311,10 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     logger.info("=" * 80)
     logger.info(f"🚀🚀🚀 [START] PULLBACK SCANNER PIPELINE INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
     logger.info("=" * 80)
+
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("PULLBACK_SCANNER")
+    stage_tracker.start_stage(1, "Regime Check & Config Init", "Computing Nifty regime and loading effective config")
     
     try:
         upsert_scanner_health("PULLBACK", "RUNNING", error_msg="Pullback Scan in progress...")
@@ -339,6 +343,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     }
     required_threshold = regime_thresholds.get(market_regime, 76.0)
 
+    stage_tracker.end_stage(f"Regime={market_regime}")
+    stage_tracker.start_stage(2, "Watchlist & Data Acquisition", "Loading fundamental watchlist and fetching historical price data")
     # ---------------- DATA READINESS & ACQUISITION ----------------
     try:
         watchlist = get_watchlist()
@@ -415,6 +421,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     provider_resolved_symbols = set()
     fresh_valid_symbols = set()
 
+    stage_tracker.end_stage(f"Watchlist={len(watchlist)} stocks loaded")
+    stage_tracker.start_stage(3, "Symbol Evaluation Loop", f"Running pullback structure analysis on {len(watchlist)} stocks")
+    stage_tracker.total_symbols = len(watchlist)
     # ---------------- ORCHESTRATION LOOP ----------------
     symbols_processed = 0
     if session is not None:
@@ -681,6 +690,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         status_val = "DEGRADED"
         err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"
 
+    stage_tracker.end_stage(f"Candidates={len(candidates)} pullback structures found out of {symbols_processed} processed")
+    stage_tracker.start_stage(4, "Scoring & RS/Sector Modifiers", f"Computing pullback scores for {len(candidates)} candidates")
     # ---------------- SCORING & MODIFIERS ----------------
     from macro_utils import compute_nifty_rs_rating, compute_sector_regime_rankings
 
@@ -778,6 +789,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
     survivors = [c for c in scored_candidates if c.status != CandidateState.SUPPRESSED]
 
+    stage_tracker.end_stage(f"Scored={len(scored_candidates)} cleared threshold, {rejected.get('score_below_threshold',0)} rejected")
+    stage_tracker.start_stage(5, "Risk Engine & Alert Persistence", f"Validating SL/target for {len(scored_candidates)} candidates and saving alerts")
     # ---------------- RISK ENGINE VALIDATION ----------------
     valid_risk_candidates = []
     for c in survivors:
@@ -962,6 +975,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         "======================================================================"
     ])
     logger.info("\n".join(summary_lines))
+    try:
+        stage_tracker.end_stage(f"Alerts={alert_count} persisted")
+        stage_tracker.print_summary(alerts_found=alert_count)
+    except Exception:
+        pass
 
     if not is_historical_fallback:
         logger.info(f"✅ [COMPLETE] PULLBACK SCANNER DONE | {elapsed_time:.2f}s | Alerts={alert_count} | Status={status_val}")
