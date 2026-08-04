@@ -725,18 +725,21 @@ def run_wealth_scan(is_test_mode=False):
         logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
         return None
 
+    queued_at = None
     if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
         return None
 
-    _scan_start = print_scanner_start_banner("wealth_engine")
+    _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at)
     try:
         return _run_wealth_scan_wrapper(is_test_mode)
     finally:
@@ -1087,7 +1090,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
     import time
     start_time = time.time()
     # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
+    from perf_utils import reset_stage_timers, ScannerStageTracker
     reset_stage_timers()
+    stage_tracker = ScannerStageTracker("WEALTH_ENGINE")
+    stage_tracker.start_stage(1, "Watchlist & Portfolio Prep", "Loading watchlist parquet and portfolio positions from Postgres")
     from config import WATCHLIST_PATH, DATA_DIR
     from database import upsert_scanner_health
     from datetime import datetime
@@ -1244,6 +1250,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": sym}
 
+        stage_tracker.end_stage(f"Found {len(candidate_symbols)} candidates, {len(portfolio_dict)} portfolio positions")
+        stage_tracker.start_stage(2, "Live Quote CMP Fetch (Upstox)", f"Target: {len(all_symbols_to_fetch)} symbols")
+
         # [VERSION: WEALTH_SPEEDUP_v1.0] Replace 5m snapshot bulk fetch with direct live_prices fetch.
         # Fetching 1D of 5m historical data for 300 stocks took too long and defeated the purpose
         # of just getting the current CMP delta. We now use UnifiedFetcher directly.
@@ -1259,6 +1268,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             all_live_prices = {}
         _stage_ms_live = (time.perf_counter() - _t_live) * 1000
         logger.info(f"⏱ [STAGE] live_quote_fetch: {_stage_ms_live:.0f}ms for {len(all_symbols_to_fetch)} symbols")
+        stage_tracker.end_stage(f"Fetched CMP for {len(all_live_prices)} symbols")
+
+        stage_tracker.start_stage(3, "Historical Candle & Concall Acquisition", f"Pre-fetching 1D candles for {len(all_symbols_to_fetch)} symbols")
 
         # [VERSION: WEALTH_PREFETCH_OPT_v1.0] Pre-fetch concall data for ALL symbols once.
         # Previously caused 7 separate DB round-trips (one per batch). Single bulk query is faster.
@@ -1280,6 +1292,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         all_historical_data = fetch_unified_historical(list(all_symbols_to_fetch), period="1y", interval="1d", requester="WEALTH_ENGINE_1D") or {}
         _stage_ms_hist_bulk = (time.perf_counter() - _t_hist_bulk) * 1000
         logger.info(f"⏱ [STAGE] 1D bulk_historical_fetch: {_stage_ms_hist_bulk:.0f}ms for {len(all_symbols_to_fetch)} symbols")
+        stage_tracker.end_stage(f"Acquired {len(all_historical_data)} historical dataframes")
+
+        stage_tracker.start_stage(4, "Indicator Calculation & Scoring", f"Workers={SCAN_WORKER_THREADS if 'SCAN_WORKER_THREADS' in locals() or 'SCAN_WORKER_THREADS' in globals() else 3}")
 
         _t_hist_total = time.perf_counter()
         _t_indicator_total_ms = 0.0
@@ -1707,6 +1722,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             "======================================================================"
         ])
         logger.info("\n".join(summary_lines))
+        try:
+            stage_tracker.print_summary(alerts_found=buy_count)
+        except Exception:
+            pass
 
         try:
             from memory_profiler import run_purge_with_telemetry
@@ -1784,6 +1803,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     Does NOT re-download or re-calculate full 1Y historical technicals for 300+ symbols.
     """
     start_time = time.time()
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("WEALTH_INTRADAY_5M")
     logger.info("⚡ [WEALTH ENGINE 5M] Starting lightweight intraday portfolio update...")
     
     try:
@@ -1795,6 +1816,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         if wealth_df.empty or "Stock" not in wealth_df.columns:
             return run_wealth_scan(is_test_mode=is_test_mode)
 
+        stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from manual_portfolio and wealth_buy_alert")
         portfolio_dict = {}
         try:
             from database import get_connection
@@ -1811,7 +1833,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             logger.warning(f"Failed to load open portfolio: {_pe}")
 
         open_symbols = list(portfolio_dict.keys())
+        stage_tracker.end_stage(f"Loaded {len(open_symbols)} open positions")
 
+        stage_tracker.start_stage(2, "Live Quote CMP Fetch (Upstox)", f"Target: {len(open_symbols)} positions")
         realtime_metrics = {}
         if open_symbols:
             try:
@@ -1819,7 +1843,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                 realtime_metrics = get_live_prices(open_symbols) or {}
             except Exception as e:
                 logger.warning(f"Failed to fetch live prices for wealth intraday update: {e}")
+        stage_tracker.end_stage(f"Fetched CMP for {len(realtime_metrics)} positions")
 
+        stage_tracker.start_stage(3, "Exit Rule & Trailing Stop Loss Evaluation", "Evaluating exit triggers")
         # Update position CMPs and check exit triggers
         portfolio_rows = []
         for sym, p_info in portfolio_dict.items():
@@ -1832,11 +1858,13 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                 row["used_fallback_data"] = False
             portfolio_rows.append(row)
 
+        sell_signal_count = 0
         if portfolio_rows:
             portfolio_df = pd.DataFrame(portfolio_rows)
             portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
             if not portfolio_df.empty:
                 sell_signals = portfolio_df[portfolio_df["Exit_Code"] == "SELL"]
+                sell_signal_count = len(sell_signals)
                 for _, row in sell_signals.iterrows():
                     symbol = row.get("Stock")
                     cmp = row.get("cmp")
@@ -1860,7 +1888,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         if info.get("Exit_Code") and "Signal_Code" in wealth_df.columns:
                             wealth_df.loc[idx, "Signal_Code"] = info.get("Exit_Code")
                             wealth_df.loc[idx, "Signal_Reason"] = info.get("Exit_Reason")
+        stage_tracker.end_stage(f"Evaluated positions: {sell_signal_count} SELL triggers")
 
+        stage_tracker.start_stage(4, "Dashboard Parquet & Health DB Sync", "Syncing parquet to Postgres")
         # Save updated parquet and DB cache
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             wealth_df.to_parquet(WEALTH_PATH)
@@ -1877,7 +1907,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     today_alerts=today_buys, total_count=len(wealth_df),
                     duration_seconds=duration_sec
                 )
+        stage_tracker.end_stage("Dashboard DB sync completed")
 
+        stage_tracker.print_summary(alerts_found=sell_signal_count)
         duration_sec = round(time.time() - start_time, 1)
         logger.info(f"⚡ [WEALTH ENGINE 5M] Intraday portfolio update completed in {duration_sec}s")
         return wealth_df

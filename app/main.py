@@ -1725,14 +1725,20 @@ def run_multibagger_exit_monitor():
     from database import upsert_scanner_health
     from market_utils import is_market_open
     from multibagger import run_standalone_exit_monitor
+    iteration = 0
     
+    logger.info("🛑 [MULTIBAGGER_EXIT] Monitor daemon started")
     while True:
         if is_market_open():
+            iteration += 1
+            cycle_start = time.time()
+            logger.info(f"🕒 [MULTIBAGGER_EXIT] Cycle #{iteration} | {datetime.now(IST).strftime('%H:%M:%S IST')} | Checking open multibagger positions...")
             try:
-                logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (15min loop)")
                 from telemetry_manager import telemetry
                 telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
                 run_standalone_exit_monitor()
+                elapsed = round(time.time() - cycle_start, 1)
+                logger.info(f"✅ [MULTIBAGGER_EXIT] Cycle #{iteration} complete in {elapsed}s")
                 upsert_scanner_health(
                     "MULTIBAGGER_EXIT", status="OK",
                     last_success=datetime.now(IST).isoformat(),
@@ -1740,7 +1746,8 @@ def run_multibagger_exit_monitor():
                 )
                 telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
             except Exception as e:
-                logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
+                elapsed = round(time.time() - cycle_start, 1)
+                logger.exception(f"❌ [MULTIBAGGER_EXIT] Cycle #{iteration} crashed after {elapsed}s: {e}")
                 from telemetry_manager import telemetry
                 telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
                 if "actively running" not in str(e):
@@ -1748,6 +1755,8 @@ def run_multibagger_exit_monitor():
                         upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
                     except Exception:
                         pass
+        else:
+            logger.debug("⏸️ [MULTIBAGGER_EXIT] Market closed — skipping exit check")
         time.sleep(900)
 
 

@@ -1270,6 +1270,7 @@ def _run_scan(force: bool = False, session=None):
 
     # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer + capture scan start
     import time as _time_mod
+    from perf_utils import reset_stage_timers, ScannerStageTracker
     _scan_start = _time_mod.perf_counter()
     reset_stage_timers()
 
@@ -1277,6 +1278,9 @@ def _run_scan(force: bool = False, session=None):
     logger.info("\n" + "=" * 80)
     logger.info(f"🚀 [START] REVERSAL SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀")
     logger.info("=" * 80 + "\n")
+
+    stage_tracker = ScannerStageTracker("REVERSAL_SCANNER")
+    stage_tracker.start_stage(1, "Macro Regime & Watchlist Prep", "Fetching market regime, weights, delivery map, and pledge data")
 
     try:
         from macro_utils import MarketRegimeEngine, get_macro_regime
@@ -1308,6 +1312,7 @@ def _run_scan(force: bool = False, session=None):
         upsert_scanner_health("REVERSAL", "IDLE", error_msg="Watchlist is empty.")
         return 0
 
+    stage_tracker.total_symbols = len(watchlist)
     logger.info(f"📊 Loaded {len(watchlist)} symbols for REVERSAL scan.")
 
     today_ist_date = ist_now.date()
@@ -1845,6 +1850,10 @@ def _run_scan(force: bool = False, session=None):
             except Exception:
                 pass
             logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
+            try:
+                stage_tracker.print_summary(alerts_found=total_alerts)
+            except Exception:
+                pass
             # [VERSION: PERF_PHASE0_v1.0] Human-readable stage summary for log-based verification
             try:
                 _scan_total_ms = (_time_mod.perf_counter() - _scan_start) * 1000
@@ -1978,17 +1987,20 @@ def start(force: bool = False, session=None) -> int:
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
 
+    queued_at = None
     if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
         logger.info("⏳ [REVERSAL] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [REVERSAL] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Scanner is already actively running!")
 
-    _scan_start = print_scanner_start_banner("reversal_scanner")
+    _scan_start = print_scanner_start_banner("reversal_scanner", queued_at=queued_at)
     try:
         return _start_wrapper(force, session=session)
     finally:

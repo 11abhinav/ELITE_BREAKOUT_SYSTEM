@@ -34,13 +34,17 @@ def run_ai_worker_scan_once() -> dict:
         logger.warning("🤖 AI Worker Scan already running. Skipping execution.")
         raise RuntimeError("AI Worker is already actively running!")
         
+    _fn_start = time.time()
     try:
         from config import WATCHLIST_PATH
         from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis, has_valid_concall_cache, has_error_concall_cache_within_24h
         from dashboard_server import fetch_and_analyze_concall
         
         upsert_scanner_health("AI Worker", "RUNNING", error_msg="AI Worker Scan in progress...")
-        logger.info("🤖 AI Worker: Starting manual concall analysis scan...")
+        now_ist = datetime.now(IST_ZONE)
+        logger.info("=" * 70)
+        logger.info(f"🤖 [AI WORKER] Starting concall analysis scan | {now_ist.strftime('%H:%M:%S IST')}")
+        logger.info("=" * 70)
         
         if not os.path.exists(WATCHLIST_PATH):
             logger.warning("Watchlist parquet file does not exist yet.")
@@ -92,10 +96,11 @@ def run_ai_worker_scan_once() -> dict:
             
         db_processed_count = get_total_cached_concalls()
         if not actual_pending:
-            logger.info(f"🤖 [AI WORKER] All {total_stocks} stocks are already cached today.")
+            elapsed = round(time.time() - _fn_start, 1)
+            logger.info(f"🤖 [AI WORKER] All {total_stocks} stocks already cached today. Nothing to do. ({elapsed}s)")
             return {"total_count": total_stocks, "processed_count": db_processed_count}
             
-        logger.info(f"🤖 [AI WORKER] Found {len(actual_pending)}/{total_stocks} stocks requiring analysis.")
+        logger.info(f"🤖 [AI WORKER] {len(actual_pending)}/{total_stocks} stocks need analysis | {total_stocks - len(actual_pending)} already cached in DB")
         
         max_retries = 3
         global_penalty_idx = 0
@@ -103,17 +108,21 @@ def run_ai_worker_scan_once() -> dict:
         db_processed_count = total_stocks - len(actual_pending)
         
         for attempt in range(max_retries):
+            attempt_start = time.time()
+            logger.info(f"🤖 [AI WORKER] Batch attempt {attempt+1}/{max_retries} | Symbols to process: {len(actual_pending)}")
             failed_stocks = []
             for i, sym in enumerate(actual_pending):
+                sym_start = time.time()
                 try:
                     logger.info(f"🤖 [AI WORKER] Missing cache for {sym} ({i+1}/{len(actual_pending)} in batch). Fetching live...")
                     result = fetch_and_analyze_concall(sym)
                     
                     if result and "error" not in result:
+                        sym_elapsed = round(time.time() - sym_start, 2)
                         global_penalty_idx = 0
                         conf = result.get("management_confidence", "N/A")
                         key_used = result.get("key_used", "Key 1")
-                        logger.info(f"✅ [AI WORKER] Successfully cached analysis for {sym} | Confidence: {conf} | {key_used}")
+                        logger.info(f"✅ [AI WORKER] {sym} ({i+1}/{len(actual_pending)}) ✔ Cached | Conf={conf} | {key_used} | {sym_elapsed}s")
                         db_processed_count += 1
                         upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
                     else:
@@ -150,6 +159,8 @@ def run_ai_worker_scan_once() -> dict:
                     failed_stocks.append(sym)
                     time.sleep(10)
                     
+            attempt_elapsed = round(time.time() - attempt_start, 1)
+            logger.info(f"🤖 [AI WORKER] Attempt {attempt+1} done in {attempt_elapsed}s | Processed={len(actual_pending)-len(failed_stocks)} | Failed={len(failed_stocks)}")
             if not failed_stocks:
                 break
             actual_pending = failed_stocks
@@ -166,6 +177,10 @@ def run_ai_worker_scan_once() -> dict:
                     except Exception as inner_e:
                         logger.exception(f"Failed to upsert final fetch_error for {fsym}: {inner_e}")
                         
+        total_elapsed = round(time.time() - _fn_start, 1)
+        logger.info("=" * 70)
+        logger.info(f"🤖 [AI WORKER] Scan complete in {total_elapsed}s | Total={total_stocks} | Processed={db_processed_count} | Failed={final_failed_count}")
+        logger.info("=" * 70)
         return {"total_count": total_stocks, "processed_count": db_processed_count}
         
     finally:

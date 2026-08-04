@@ -261,17 +261,20 @@ def start(force: bool = False, session=None):
         logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
         return 0
 
+    queued_at = None
     if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
         logger.info("⏳ [PULLBACK] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Pullback Scanner is already actively running!")
 
-    _scan_start = print_scanner_start_banner("pullback_scanner")
+    _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
     try:
         return run_pullback_pipeline(force=force, session=session)
     finally:

@@ -130,7 +130,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
 
     # [BHAVCOPY_SAVER_v1.0] If requested date is in future or today before 18:00 IST release window,
     # do NOT waste Crawlora/ScraperAPI keys on an unreleased file. Return latest available DB Bhavcopy!
-    now_ist = _dt.now(IST)
+    now_ist = _dt.now(__import__('zoneinfo').ZoneInfo("Asia/Kolkata"))
     today_ist = now_ist.date()
     if trading_date > today_ist or (trading_date == today_ist and now_ist.time() < dt_time(18, 0)):
         logger.info(f"ℹ️ [BHAVCOPY] Date {trading_date} is before 18:00 IST release. Falling back to latest available DB Bhavcopy without wasting API keys.")

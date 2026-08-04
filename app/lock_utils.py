@@ -17,29 +17,48 @@ IST = ZoneInfo("Asia/Kolkata")
 # SCANNER IDENTITY CONFIG  — unique emoji + display name per scanner
 # ─────────────────────────────────────────────────────────────────────────────
 SCANNER_CONFIG = {
-    "wealth_engine":      {"emoji": "💰", "display": "WEALTH ENGINE"},
-    "multi_tf_scanner":   {"emoji": "📊", "display": "MULTI-TF SCANNER"},
-    "eod_scanner":        {"emoji": "🌙", "display": "EOD SCANNER"},
-    "reversal_scanner":   {"emoji": "🔄", "display": "REVERSAL SCANNER"},
-    "pullback_scanner":   {"emoji": "📉", "display": "PULLBACK SCANNER"},
-    "multibagger":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER"},
+    "wealth_engine":      {"emoji": "💰", "display": "WEALTH ENGINE",      "db_name": "Wealth Engine"},
+    "multi_tf_scanner":   {"emoji": "📊", "display": "MULTI-TF SCANNER",    "db_name": "MULTI_TF"},
+    "eod_scanner":        {"emoji": "🌙", "display": "EOD SCANNER",          "db_name": "EOD"},
+    "reversal_scanner":   {"emoji": "🔄", "display": "REVERSAL SCANNER",     "db_name": "REVERSAL"},
+    "pullback_scanner":   {"emoji": "📉", "display": "PULLBACK SCANNER",     "db_name": "PULLBACK"},
+    "multibagger":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",   "db_name": "MULTIBAGGER"},
 }
 
 _BAR_LEN = 30
 
 
-def print_scanner_start_banner(scanner_key: str) -> float:
+def print_scanner_start_banner(scanner_key: str, queued_at: float = None) -> float:
     """
-    Print a vivid START banner for the given scanner.
+    Print a vivid START banner and immediately mark scanner as RUNNING in DB.
+    This fixes the QUEUED-stuck UI bug — status transitions QUEUED → RUNNING
+    the instant the global lock is acquired, before any scan logic runs.
     Returns the current monotonic timestamp so callers can compute runtime.
     """
-    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper()})
+    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper(), "db_name": None})
     emoji, display = cfg["emoji"], cfg["display"]
+    db_name = cfg.get("db_name")
     bar = emoji * _BAR_LEN
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    queue_wait_str = ""
+    if queued_at is not None:
+        queue_wait_secs = round(time.monotonic() - queued_at, 1)
+        queue_wait_str = f" | Queue Wait: {queue_wait_secs}s"
+    
     logger.info(bar)
-    logger.info(f"&&&&& {display} STARTED — {ts} &&&&&")
+    logger.info(f"&&&&& {display} STARTED — {ts}{queue_wait_str} &&&&&")
     logger.info(bar)
+    
+    # ✅ CRITICAL FIX: Immediately transition QUEUED → RUNNING in DB so UI reflects reality
+    if db_name:
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...")
+            logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
+        except Exception as _e:
+            logger.warning(f"⚠️ Could not update scanner status to RUNNING: {_e}")
+    
     return time.monotonic()
 
 

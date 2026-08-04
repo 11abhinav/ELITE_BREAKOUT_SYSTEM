@@ -1307,11 +1307,14 @@ def start(run_once=False, is_test_mode=False):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         return
 
+    queued_at = None
     if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
         logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     if run_once:
         if not _scan_lock.acquire(blocking=False):
@@ -1322,7 +1325,7 @@ def start(run_once=False, is_test_mode=False):
             import time
             time.sleep(60)
 
-    _scan_start = print_scanner_start_banner("multi_tf_scanner")
+    _scan_start = print_scanner_start_banner("multi_tf_scanner", queued_at=queued_at)
     try:
         return _start_wrapper(run_once, is_test_mode=is_test_mode)
     finally:
@@ -1332,6 +1335,8 @@ def start(run_once=False, is_test_mode=False):
 
 def _start_wrapper(run_once=False, is_test_mode=False):
     from datetime import time as dt_time
+    from perf_utils import ScannerStageTracker
+    stage_tracker = ScannerStageTracker("MULTI_TF_SCANNER")
     while True:
         try:
             ist_now = datetime.now(IST)
@@ -1371,6 +1376,7 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 
             # Cache regime once per cycle
             # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 1] Pass nifty_ret explicitly to get_macro_regime to avoid redundant API calls
+            stage_tracker.start_stage(1, "Macro Regime & Policy Evaluation", "Fetching Nifty 20D return")
             try:
                 nifty_ret = get_nifty_20d_return()
                 regime_ctx = MarketRegimeEngine.get_regime_context(nifty_ret)
@@ -1379,22 +1385,30 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             except Exception as e:
                 logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
                 regime_ctx = {"trend": "NEUTRAL", "biases": {}}
+            stage_tracker.end_stage(f"Macro regime: {regime_ctx.get('trend', 'NEUTRAL')}")
             
             from memory_profiler import MemoryProfiler
             with MemoryProfiler("MULTI_TF_SCANNER", force_gc_cleanup=True):
                 # 1. Sweep old states
+                stage_tracker.start_stage(2, "Stale Watchlist Sweep", "Sweeping expired breakout setups")
                 run_sweeper(is_test_mode=is_test_mode)
+                stage_tracker.end_stage("State sweep completed")
                 
                 # 2. Hourly phase (Phase A): Only runs on 15-min candle boundaries or manual trigger
+                stage_tracker.start_stage(3, "Hourly Phase A (1H Trend Scanner)", "Scanning 1H trend permission")
                 if run_once or (ist_now.minute % 15 == 0):
                     metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
                 else:
                     metrics_a = {"fetched": 0, "total": 0, "stale": 0, "approved": 0, "skipped": True}
+                stage_tracker.end_stage(f"1H Approved: {metrics_a.get('approved', 0)}")
                 
                 # 3. Lower TF updater (Phases B, C & D): Runs EVERY 5 mins to deliver fast 5m breakout alerts
+                stage_tracker.start_stage(4, "Lower TF Phase B/C/D Scanner", "Evaluating 30m/15m/5m triggers")
                 metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
+                stage_tracker.end_stage(f"Lower TF Triggered: {metrics_b.get('triggered', 0) if isinstance(metrics_b, dict) else 0}")
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()
+            stage_tracker.print_summary(alerts_found=metrics_b.get("triggered", 0) if isinstance(metrics_b, dict) else 0)
             logger.info("=========================================")
             logger.info(f"📊 Hourly Phase: {dict(metrics_a)}")
             logger.info(f"📊 Lower TF Phase: {dict(metrics_b)}")
