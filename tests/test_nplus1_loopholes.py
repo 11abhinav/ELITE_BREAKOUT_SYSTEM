@@ -41,7 +41,8 @@ def test_no_nplus1_read_queries_in_scanner_loops():
         "get_bulk_recent_concall_analysis", 
         "get_ai_concall_stats", 
         "get_promoter_pledge_stats",
-        "get_latest_weights" # Cached or fast single-row fetch
+        "get_latest_weights", # Cached or fast single-row fetch
+        "is_scanner_stopped"   # Fast status check for admin pause controls
     }
     read_funcs = read_funcs - allowed
     
