@@ -1122,6 +1122,8 @@ def run_system_scheduler():
     def safe_run_wealth_scan_initial():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         start_time = time.time()
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
         try:
             logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
@@ -1131,6 +1133,7 @@ def run_system_scheduler():
                 run_wealth_scan()
             
             duration_sec = round(time.time() - start_time, 1)
+            complete_scanner_execution_run(run_ctx)
             # Mark success
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(
@@ -1147,6 +1150,7 @@ def run_system_scheduler():
                 pass
             return True
         except Exception as e:
+            complete_scanner_execution_run(run_ctx, exception=e)
             if "actively running" in str(e).lower():
                 logger.info("⏳ Wealth Engine is actively running.")
                 return False
@@ -1181,20 +1185,27 @@ def run_system_scheduler():
                 if not is_scanner_stopped("Wealth Engine"):
                     logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (15-min BUY alert cycle)")
                     from telemetry_manager import telemetry
+                    from database import start_scanner_execution_run, complete_scanner_execution_run
+                    run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
-                    with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                        from wealth_engine import run_wealth_scan
-                        run_wealth_scan()
-                    duration_sec = round(time.time() - start_time, 1)
-                    now_str = datetime.now(IST).isoformat()
-                    upsert_scanner_health(
-                        "Wealth Engine",
-                        status="OK",
-                        last_success=now_str,
-                        scheduled_for="Every 15m (9:15 AM - 3:30 PM)",
-                        duration_seconds=duration_sec
-                    )
-                    logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
+                    try:
+                        with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
+                            from wealth_engine import run_wealth_scan
+                            run_wealth_scan()
+                        duration_sec = round(time.time() - start_time, 1)
+                        complete_scanner_execution_run(run_ctx)
+                        now_str = datetime.now(IST).isoformat()
+                        upsert_scanner_health(
+                            "Wealth Engine",
+                            status="OK",
+                            last_success=now_str,
+                            scheduled_for="Every 15m (9:15 AM - 3:30 PM)",
+                            duration_seconds=duration_sec
+                        )
+                        logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
+                    except Exception as run_err:
+                        complete_scanner_execution_run(run_ctx, exception=run_err)
+                        raise run_err
                 else:
                     logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 15-min BUY scan.")
                 last_wealth_full_scan_run = now
