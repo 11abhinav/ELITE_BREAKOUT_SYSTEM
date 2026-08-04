@@ -415,15 +415,9 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
 
     # 1D or higher timeframe daily candles
     if inv_lower in ('1d', 'daily', '1wk', '1mo'):
-        if is_weekend:
-            last_close = market_close - timedelta(days=now_dt.weekday() - 4)
-        elif now_dt > market_close:
-            last_close = market_close
-        elif now_dt.weekday() == 0:
-            last_close = market_close - timedelta(days=3)
-        else:
-            last_close = market_close - timedelta(days=1)
-        return last_ts.date() >= last_close.date()
+        from market_utils import get_expected_latest_trading_date
+        expected_date = get_expected_latest_trading_date(now_dt)
+        return last_ts.date() >= expected_date
 
     # Intraday timeframes (1h, 30m, 15m, 5m)
     # ── CASE A: During active market hours ───────────────────────────────────

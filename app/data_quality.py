@@ -143,8 +143,9 @@ class DataQualityValidator:
                 else:
                     last_dt = last_dt.tz_convert(IST)
                 now_dt = datetime.now(IST)
-                freshness_days = (now_dt.date() - last_dt.date()).days
-                if freshness_days < 0: freshness_days = 0
+                from market_utils import get_expected_latest_trading_date
+                expected_date = get_expected_latest_trading_date(now_dt)
+                freshness_days = max(0, (expected_date - last_dt.date()).days)
         except Exception:
             freshness_days = 999
             now_dt = datetime.now(IST)

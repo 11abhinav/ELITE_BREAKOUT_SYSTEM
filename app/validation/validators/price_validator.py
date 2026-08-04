@@ -128,7 +128,9 @@ class PriceValidator(BaseValidator):
                         last_dt = last_dt.tz_localize(IST)
                     else:
                         last_dt = last_dt.tz_convert(IST)
-                    freshness_days = max(0, (now_dt.date() - last_dt.date()).days)
+                    from market_utils import get_expected_latest_trading_date
+                    expected_date = get_expected_latest_trading_date(now_dt)
+                    freshness_days = max(0, (expected_date - last_dt.date()).days)
             result.metrics.stale_days = freshness_days
             
             # Historical Shrink detection is handled by cache engine currently
