@@ -446,8 +446,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                         
                     from config import ADX_MIN_THRESHOLD
                     adx_ok = adx_val >= ADX_MIN_THRESHOLD
-                    # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 2% ABOVE the breakout level to catch live momentum
-                    dist_ok = -0.02 <= dist_to_breakout <= 0.05
+                    # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 4% ABOVE the breakout level to catch live momentum
+                    dist_ok = -0.04 <= dist_to_breakout <= 0.05
             
                     if ema_ok:
                         funnel["ema_only_pass"] += 1
@@ -776,7 +776,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             bb_pctile_recent_squeeze = True
                             break
 
-                    is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.015 <= dist_to_breakout <= 0.025)
+                    is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.03 <= dist_to_breakout <= 0.035)
                     is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
                 
                     if is_consolidation or is_fast_breakout:
@@ -968,16 +968,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     defense_level = trigger_level
                     if not is_ready and low <= defense_level + (0.15 * atr20):
                         # PULLBACK_TRIGGER_MODE Logic
-                        trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
+                        trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_BODY")
                         
-                        if trigger_mode == "PREVIOUS_HIGH":
+                        if trigger_mode == "PREVIOUS_BODY":
+                            c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
+                        elif trigger_mode == "PREVIOUS_HIGH":
                             c_engulf = close > float(prev["High"])
                         elif trigger_mode == "PREVIOUS_OPEN":
                             c_engulf = close > float(prev["Open"])
                         elif trigger_mode == "INSIDE_BAR":
-                            # [FIX MTF-22] True inside-bar: prev candle must be fully contained
-                            # within the mother candle (df.iloc[-3]). The original expression
-                            # A ∨ (B ∧ A) = A was logically identical to PREVIOUS_HIGH.
                             mother = df.iloc[-3]
                             is_inside = (
                                 float(prev["High"]) < float(mother["High"])
@@ -985,7 +984,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             )
                             c_engulf = is_inside and close > float(prev["High"])
                         else:
-                            c_engulf = close > float(prev["High"])
+                            c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
                             
                         if close >= trigger_level and c_engulf and close > open_px and vol_ratio > 1.0:
                             if close_position >= 0.6:  # strong interaction/engulfing
@@ -996,13 +995,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         # Log reasons only if stock has touched/entered the trigger zone
                         if close >= (trigger_level - buffer_val) or low <= trigger_level + (0.15 * atr20):
                             # Boolean evaluations for decision trace
-                            trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_HIGH")
-                            if trigger_mode == "PREVIOUS_HIGH":
+                            trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_BODY")
+                            if trigger_mode == "PREVIOUS_BODY":
+                                c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
+                            elif trigger_mode == "PREVIOUS_HIGH":
                                 c_engulf = close > float(prev["High"])
                             elif trigger_mode == "PREVIOUS_OPEN":
                                 c_engulf = close > float(prev["Open"])
                             else:
-                                c_engulf = close > float(prev["High"])
+                                c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
                             
                             c_vol = vol_ratio > 1.0
                             c_close_pos = close_position >= 0.6
