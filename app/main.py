@@ -1179,6 +1179,7 @@ def run_system_scheduler():
         start_time = time.time()
         try:
             now = datetime.now(IST)
+            start_time = time.time()
             # Only run once per 5 minutes (300 seconds)
             if last_wealth_market_run and (now - last_wealth_market_run).total_seconds() < 300:
                 return False
@@ -1195,11 +1196,12 @@ def run_system_scheduler():
                     from database import start_scanner_execution_run, complete_scanner_execution_run
                     run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
+                    _scan_start_t = time.time()
                     try:
                         with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
                             from wealth_engine import run_wealth_scan
                             run_wealth_scan()
-                        duration_sec = round(time.time() - start_time, 1)
+                        duration_sec = round(time.time() - _scan_start_t, 1)
                         complete_scanner_execution_run(run_ctx)
                         now_str = datetime.now(IST).isoformat()
                         upsert_scanner_health(
@@ -1221,10 +1223,11 @@ def run_system_scheduler():
                 logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
                 from telemetry_manager import telemetry
                 telemetry.log_scheduler_event("WEALTH_ENGINE_5M", "CYCLE_START")
+                _exit_start_t = time.time()
                 with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                     from wealth_engine import run_wealth_intraday_update
                     run_wealth_intraday_update(write_health=not should_run_full_scan)
-                duration_sec = round(time.time() - start_time, 1)
+                duration_sec = round(time.time() - _exit_start_t, 1)
                 logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
                 upsert_scanner_health(
                     "WEALTH_EXIT",
