@@ -43,8 +43,11 @@ class ScannerRunContext:
         self.retry_attempt = retry_attempt
         self.trigger_type = trigger_type
         self.scheduler_name = scheduler_name
-        import config
-        self.system_version = system_version or getattr(config, "SYSTEM_DEPLOYMENT_VERSION", "v1")
+        try:
+            import config
+        except ImportError:
+            from . import config
+        self.system_version = system_version or getattr(config, "get_system_version", lambda: getattr(config, "SYSTEM_DEPLOYMENT_VERSION", "v1"))()
         self.git_commit = git_commit or self._detect_git_commit()
         
         self.total_stocks = total_stocks
@@ -66,6 +69,19 @@ class ScannerRunContext:
         self._lock = threading.RLock()
 
     def _detect_git_commit(self) -> str:
+        # Check local version.json first
+        try:
+            import json, os
+            import config
+            ver_file = os.path.join(getattr(config, "BASE_DIR", "."), "app", "version.json")
+            if os.path.exists(ver_file):
+                with open(ver_file, "r") as f:
+                    data = json.load(f)
+                    if data.get("commit"):
+                        return data["commit"]
+        except Exception:
+            pass
+
         try:
             import subprocess
             res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2)

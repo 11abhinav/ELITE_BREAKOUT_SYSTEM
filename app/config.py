@@ -77,7 +77,43 @@ SCORE_THRESHOLDS = {
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
 ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
-SYSTEM_DEPLOYMENT_VERSION = "v1"
+
+def get_system_version() -> str:
+    """Dynamically resolves deployment version incorporating git commit hash."""
+    env_ver = os.getenv("DEPLOYMENT_VERSION") or os.getenv("SYSTEM_DEPLOYMENT_VERSION")
+    if env_ver:
+        return env_ver
+
+    base_ver = "v1"
+    commit_sha = ""
+
+    # Check local version.json if generated during build/deployment
+    import json
+    ver_file = os.path.join(BASE_DIR, "app", "version.json")
+    if os.path.exists(ver_file):
+        try:
+            with open(ver_file, "r") as f:
+                data = json.load(f)
+                if data.get("version"):
+                    return data["version"]
+                commit_sha = data.get("commit", "")
+        except Exception:
+            pass
+
+    if not commit_sha:
+        try:
+            import subprocess
+            res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout:
+                commit_sha = res.stdout.strip()
+        except Exception:
+            pass
+
+    if commit_sha:
+        return f"{base_ver}-{commit_sha}"
+    return base_ver
+
+SYSTEM_DEPLOYMENT_VERSION = get_system_version()
 
 # =====================================================================================
 # MOMENTUM BONUS CONSTANTS & RULE 10 RATIONALE
