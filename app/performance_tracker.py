@@ -22,11 +22,13 @@
 import os
 import json
 import logging
+import time
 import pandas as pd
 from typing import Union, Optional, Tuple
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, date, timedelta, time as time_cls
 from zoneinfo import ZoneInfo
 from price_cache import fetch_watchlist_data
+
 
 
 from config import MIN_STOCK_PRICE
@@ -105,8 +107,9 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         # If the alert was recorded after market close (e.g. delayed run or EOD),
         # the entry is effectively the next trading day. We advance to the next day at 09:15
         # instead of replacing the time on the same day (which would incorrectly test that day's intraday dips).
-        if alert_dt_ist.time() >= time(15, 30):
+        if alert_dt_ist.time() >= time_cls(15, 30):
             alert_dt_ist = (alert_dt_ist + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
+
 
         # Guard: if alert is from today and market hasn't opened yet (before 09:15 IST),
         # no 5m bars exist — return None immediately to avoid yfinance "delisted" noise.
