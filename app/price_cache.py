@@ -598,14 +598,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             try:
                 cached_df = pd.read_parquet(file_path)
                 meta_path = file_path.replace('.parquet', '.meta.json')
-                is_degraded = False
+                is_invalid = False
                 if os.path.exists(meta_path):
                     try:
                         with open(meta_path, "r") as f:
                             meta = json.load(f)
-                        cached_df.attrs["quality_score"] = meta.get("validation_score", 100)
-                        if meta.get("validation_status") == "ValidationStatus.DEGRADED":
-                            is_degraded = True
+                        score = meta.get("validation_score", 100)
+                        cached_df.attrs["quality_score"] = score
+                        val_status = str(meta.get("validation_status", ""))
+                        if "INVALID" in val_status or score < 50:
+                            is_invalid = True
                     except Exception: pass
                     
                 if not cached_df.empty:
@@ -629,9 +631,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     is_up_to_date = _is_cache_up_to_date(last_ts, interval)
                     is_long_enough = _is_cache_long_enough(cached_df, period, sym)
                     
-                    if is_degraded:
+                    if is_invalid:
                         is_up_to_date = False
-                        logger.info(f"CACHE_POLICY | {sym} is marked DEGRADED. Forcing retry despite timestamp {last_ts}.")
+                        logger.warning(f"CACHE_POLICY | {sym} is marked INVALID (score={cached_df.attrs.get('quality_score')}). Forcing retry despite timestamp {last_ts}.")
                     
                     if is_up_to_date:
                         if is_long_enough:
