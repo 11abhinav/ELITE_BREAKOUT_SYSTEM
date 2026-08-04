@@ -320,8 +320,11 @@ class UpstoxProvider(ProviderInterface):
             
             if response.status_code == 429:
                 self._health_score = max(0, self._health_score - 5)
-                logger.warning("Upstox Rate Limit hit (429)")
-                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit")
+                logger.warning(f"Upstox Rate Limit hit (429) for {symbol}. Backing off 2.0s and retrying...")
+                time.sleep(2.0)
+                response = _upstox_session.get(url, headers=headers, timeout=10)
+                if response.status_code == 429:
+                    return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="429 Rate Limit")
                 
             if response.status_code == 401:
                 self._status = ProviderStatus.AUTH_FAILED
@@ -371,7 +374,7 @@ class UpstoxProvider(ProviderInterface):
         results = {}
         if not symbols:
             return results
-        max_workers = min(50, len(symbols))
+        max_workers = min(15, len(symbols))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_sym = {
                 executor.submit(self.fetch_ohlcv, sym, timeframe, range_from, range_to): sym
@@ -543,7 +546,7 @@ class UpstoxProvider(ProviderInterface):
             return results
 
         prefix = f"[{caller}] " if caller else ""
-        max_workers = min(50, len(symbols))
+        max_workers = min(15, len(symbols))
         logger.info(f"{prefix}📥 Upstox: batch fetching {len(symbols)} symbols ({interval}, {period}) concurrently (workers={max_workers})...")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
