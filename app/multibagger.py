@@ -785,8 +785,8 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     info, fast_info, fin, bs, cf = None, None, None, None, None
     success = False
     
-    # Spacing delay to respect YFinance request quotas
-    time.sleep(0.4)
+    # Spacing delay is regulated by global yf_rate_limiter.py instead of hardcoded sleeps
+
     
     for attempt in range(3):
         try:
@@ -1570,9 +1570,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     # after all 750 symbols finish downloading, replacing 15 redundant sub-batch uploads.
     try:
         from database import upload_history_bundle_to_db
-        upload_history_bundle_to_db("1d", force=True)
+        import threading
+        threading.Thread(
+            target=upload_history_bundle_to_db,
+            args=("1d",),
+            kwargs={"force": True},
+            name="MultibaggerHistoryBundleUpload",
+            daemon=True
+        ).start()
     except Exception as _up_err:
-        logger.debug(f"Post-multibagger bundle upload check: {_up_err}")
+        logger.debug(f"Post-multibagger bundle upload thread spawn failed: {_up_err}")
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
