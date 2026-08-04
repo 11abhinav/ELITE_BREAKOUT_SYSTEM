@@ -3662,6 +3662,7 @@ def upload_parquet_to_db(name: str, file_path: str):
     """Upload a binary parquet file to the database for today."""
     if not os.path.exists(file_path):
         return
+    import time
     today = datetime.now(IST).strftime("%Y-%m-%d")
     init_db()
     try:
