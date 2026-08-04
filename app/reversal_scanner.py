@@ -757,10 +757,14 @@ def _evaluate_candidate(
     is_quality_cat = any(kw in cat_str.lower() for kw in ("wealth", "blue chip", "debt-free"))
     effective_min_drop = QUALITY_CAT_MIN_DROP if is_quality_cat else MIN_DROP_FROM_52W_HIGH
 
-    if drop_pct < effective_min_drop or drop_pct > MAX_DROP_FROM_52W_HIGH:
+    # [FIX CONDITIONAL_52W_DROP] Allow drawdowns up to 55% only for structurally sound stocks near SMA200 (<= 10% below SMA200)
+    pct_below_sma200_approx = ((sma200 - close_price) / sma200) * 100.0 if sma200 and sma200 > 0 else 0.0
+    max_allowed_drop = 55.0 if (pct_below_sma200_approx <= 10.0) else MAX_DROP_FROM_52W_HIGH
+
+    if drop_pct < effective_min_drop or drop_pct > max_allowed_drop:
         return {
             "passed": False,
-            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {MAX_DROP_FROM_52W_HIGH:.1f}%]",
+            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {max_allowed_drop:.1f}%]",
             "reject_code": "drop_band",
             "score": 0,
             "raw_score": 0,
@@ -843,9 +847,11 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # Plausibility boundary validations
-    if roe_val is not None and (roe_val < MIN_ROE or not -100.0 <= roe_val <= 500.0):
-        reason = f"ROE {roe_val:.1f}% < {MIN_ROE}% minimum threshold" if roe_val < MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
+    # Plausibility boundary validations: hard floor at 8.0% ROE and 4.0% YoY Revenue Growth for turnaround reversals
+    TURNAROUND_MIN_ROE = 8.0
+    TURNAROUND_MIN_REV_GROWTH = 4.0
+    if roe_val is not None and (roe_val < TURNAROUND_MIN_ROE or not -100.0 <= roe_val <= 500.0):
+        reason = f"ROE {roe_val:.1f}% < {TURNAROUND_MIN_ROE}% turnaround floor" if roe_val < TURNAROUND_MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
         return {
             "passed": False,
             "reject_reason": reason,
@@ -856,8 +862,8 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if rev_growth is not None and (rev_growth < MIN_YOY_REVENUE_GROWTH or not -100.0 <= rev_growth <= 1000.0):
-        reason = f"YoY Revenue Growth {rev_growth:.1f}% < {MIN_YOY_REVENUE_GROWTH}% minimum threshold" if rev_growth < MIN_YOY_REVENUE_GROWTH else f"YoY Revenue Growth {rev_growth:.1f}% out of plausible range"
+    if rev_growth is not None and (rev_growth < TURNAROUND_MIN_REV_GROWTH or not -100.0 <= rev_growth <= 1000.0):
+        reason = f"YoY Revenue Growth {rev_growth:.1f}% < {TURNAROUND_MIN_REV_GROWTH}% turnaround floor" if rev_growth < TURNAROUND_MIN_REV_GROWTH else f"YoY Revenue Growth {rev_growth:.1f}% out of plausible range"
         return {
             "passed": False,
             "reject_reason": reason,
@@ -960,8 +966,11 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    if is_synthetic_no_vol or vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
-        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Current volume ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x minimum volume confirmation"
+    # [FIX REVERSAL_VOL_CONTRADICTION] Pass volume gate if today's volume >= 1.5x OR rolling max volume ratio >= 2.0x
+    min_gate_vol = 1.5
+    vol_pass = (vol_ratio is not None and vol_ratio >= min_gate_vol) or (vol_ratio_max >= MIN_VOLUME_RATIO)
+    if is_synthetic_no_vol or not vol_pass:
+        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Volume ratio {vol_ratio if vol_ratio else 0.0:.2f}x (5D max {vol_ratio_max:.2f}x) < {min_gate_vol}x threshold"
         return {
             "passed": False,
             "reject_reason": reason,
