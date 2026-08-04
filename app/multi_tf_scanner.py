@@ -648,6 +648,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             state = item["current_state"]
             cat = item["category"]
             breakout_level = item["breakout_level"] or 0
+            # [FIX-M2] Track which phases actually passed in THIS cycle (independent of persisted state).
+            # Using `state` after it is set to TRADE_ACTIVE always grants all phase bonuses incorrectly.
+            passed_phase_b = False  # Set True only when Phase B (30m squeeze) is confirmed this cycle
+            passed_phase_c = False  # Set True only when Phase C (15m alignment) is confirmed this cycle
 
             if breakout_level <= 0:
                 continue
@@ -798,6 +802,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             )
                         lower_funnel["armed"] += 1
                         state = "SETUP_ARMED"
+                        passed_phase_b = True  # [FIX-M2] Phase B confirmed this cycle — eligible for +10 bonus
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
             # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
@@ -856,6 +861,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             )
                         lower_funnel["entry_ready"] += 1
                         state = "ENTRY_READY"
+                        passed_phase_c = True  # [FIX-M2] Phase C confirmed this cycle — eligible for +5 bonus
                         logger.info(f"🟡 {symbol} promoted to ENTRY_READY "
                                     f"(15m e9={e9_15:.2f} > e20={e20_15:.2f}, "
                                     f"dist={dist_to_breakout*100:.2f}%)")
@@ -1113,19 +1119,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 inserted, reason = True, "TEST_MODE"
                                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {symbol}")
                             else:
-                                # [FIX P2-6] Weighted phase scoring: base 60 + phase bonuses.
+                                # [FIX P2-6] [FIX-M2] Weighted phase scoring: base 60 + phase bonuses.
                                 # Phase A (mandatory): base = 60
-                                # Phase B (30m squeeze): +10
-                                # Phase C (15m alignment): +5
-                                # Phase D (5m trigger): +10
-                                # Total max = 85, threshold = 75
+                                # Phase B (30m squeeze): +10 — only if Phase B passed THIS cycle or already persisted
+                                # Phase C (15m alignment): +5  — only if Phase C passed THIS cycle or already persisted
+                                # Phase D (5m trigger): +10   — always (we are executing Phase D by definition)
+                                # Total max = 85
                                 phase_score = 60
-                                if state in ("SETUP_ARMED", "ENTRY_READY", "TRADE_ACTIVE"):
+                                # Phase B: awarded if confirmed this cycle OR if stock arrived pre-validated (persisted SETUP_ARMED/ENTRY_READY)
+                                if passed_phase_b or item.get("m30_status") == "PASSED":
                                     phase_score += 10  # Phase B bonus
-                                if state in ("ENTRY_READY", "TRADE_ACTIVE"):
+                                # Phase C: awarded if confirmed this cycle OR if stock arrived pre-validated (persisted ENTRY_READY)
+                                if passed_phase_c or item.get("m15_status") == "PASSED":
                                     phase_score += 5   # Phase C bonus
-                                if state == "TRADE_ACTIVE":
-                                    phase_score += 10  # Phase D bonus
+                                phase_score += 10      # Phase D bonus (always — Phase D is executing by definition)
                                 base_score = phase_score
                                 
                                 # ── Bayesian Pledge Penalty ──

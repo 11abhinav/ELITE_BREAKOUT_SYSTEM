@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -777,7 +778,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     target_1=float(c.sl_result.get("target_1", 0.0)) if hasattr(c, 'sl_result') and c.sl_result and c.sl_result.get("target_1") else None,
                 )
             except Exception as _nm_e:
-                logger.debug(f"Pullback near miss log failed: {_nm_e}")
+                # [FIX-P4] Promote to WARNING so near-miss telemetry failures are visible in production logs.
+                logger.warning(f"⚠️ [PULLBACK] Near-miss log failed for {c.symbol}: {_nm_e}")
         else:
             scored_candidates.append(c)
 

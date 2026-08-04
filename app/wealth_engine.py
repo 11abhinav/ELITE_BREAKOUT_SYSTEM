@@ -1268,6 +1268,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     tech["AI_Confidence"] = 0
                 return tech
             except Exception as e:
+                # [FIX-W3] Log full traceback so per-symbol failures are never silently swallowed.
+                logger.exception(f"❌ [WEALTH ENGINE] process_symbol failed for {sym}: {e}")
                 with _rejection_lock:
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
                 return {"Stock": sym}
@@ -1539,14 +1541,16 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         try:
             from database import save_wealth_buy_alert, DONT_SAVE_WEALTH
             buy_signals = wealth_df[wealth_df["Signal_Code"] == "BUY"]
+            # [FIX-W6] Read admission state ONCE before the loop to prevent race-condition inconsistency
+            # where some signals are saved and others blocked within the same run.
+            try:
+                from config import get_wealth_admission_state
+                allow_new_admissions = get_wealth_admission_state()
+            except Exception:
+                allow_new_admissions = True
             for _, row in buy_signals.iterrows():
                 if row.get("used_fallback_data", False) or not row.get("candidate_complete_for_buy", False):
                     continue
-                try:
-                    from config import get_wealth_admission_state
-                    allow_new_admissions = get_wealth_admission_state()
-                except Exception:
-                    allow_new_admissions = True
                 if not allow_new_admissions:
                     continue
                     
@@ -1587,7 +1591,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     else:
                         saved_alerts_count += 1
 
-        except Exception: pass
+        except Exception:
+            # [FIX-W2] Always log full traceback — never swallow BUY alert persistence failures silently.
+            logger.exception("❌ [WEALTH ENGINE] BUY alert persistence block failed. Alerts may not have been saved.")
 
         passed_layer1 = len(wealth_df[wealth_df["Portfolio_Bucket"] != "REVIEW"]) if "Portfolio_Bucket" in wealth_df.columns else 0
         logger.info(
