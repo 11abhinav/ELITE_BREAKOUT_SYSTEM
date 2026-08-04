@@ -3743,24 +3743,24 @@ def delete_stale_parquet_from_db(name: str) -> bool:
         return False
 
 _last_bundle_upload_time: dict[str, float] = {}
+_last_bundle_checksum: dict[str, str] = {}
 
 def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 300.0, force: bool = False) -> bool:
     """
     Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
     into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
 
-    [OPTIMIZATION: DB_UPLOAD_THROTTLE_v1.0]
+    [OPTIMIZATION: DB_UPLOAD_THROTTLE_v1.0 + CHECKSUM_SKIP_v1.0]
     Throttles uploads so that calls within `min_interval_sec` (default 5 minutes)
-    skip the heavy tar.gz compression and DB upload, unless force=True. This prevents
-    scanners with sub-batch loops (e.g. Multibagger 15 batches) from uploading 35MB
-    bundles 15 times in a single run.
+    or with identical MD5 checksums skip the heavy tar.gz DB upload, unless force=True.
     """
     import io
     import time
     import tarfile
+    import hashlib
     from config import DATA_DIR
 
-    global _last_bundle_upload_time
+    global _last_bundle_upload_time, _last_bundle_checksum
     now_ts = time.time()
     last_ts = _last_bundle_upload_time.get(interval, 0.0)
     if not force and (now_ts - last_ts) < min_interval_sec:
@@ -3783,11 +3783,18 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
     try:
         bio = io.BytesIO()
         with tarfile.open(fileobj=bio, mode="w:gz") as tar:
-            for fname in files:
+            for fname in sorted(files):
                 fpath = os.path.join(history_dir, fname)
                 tar.add(fpath, arcname=fname)
 
         binary_data = bio.getvalue()
+        current_md5 = hashlib.md5(binary_data).hexdigest()
+
+        if not force and _last_bundle_checksum.get(interval) == current_md5:
+            logger.info(f"ℹ️ [DB] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]})")
+            _last_bundle_upload_time[interval] = now_ts
+            return True
+
         name = f"history_bundle_{interval}"
 
         with _DB_WRITE_LOCK:
@@ -3801,7 +3808,8 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
                 conn.commit()
 
         _last_bundle_upload_time[interval] = now_ts
-        logger.info(f"💾 Uploaded {len(files)} files ({len(binary_data)} bytes) for {name} to DB parquet_cache for {today}")
+        _last_bundle_checksum[interval] = current_md5
+        logger.info(f"💾 Uploaded {len(files)} files ({len(binary_data)} bytes, MD5: {current_md5[:8]}) for {name} to DB parquet_cache for {today}")
         return True
     except Exception as e:
         logger.exception(f"❌ Failed to upload history bundle for {interval} to DB")

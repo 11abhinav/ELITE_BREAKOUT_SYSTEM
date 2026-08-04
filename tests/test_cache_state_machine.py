@@ -325,3 +325,36 @@ def test_cache_integrity(base_history, setup_test_env):
     # Verify overwrite (the last 5 days should have the new value 101.0, not the old value)
     assert merged_df["Close"].iloc[-1] == 101.0
     assert merged_df["Close"].iloc[-6] == 101.0
+
+
+def test_institutional_trading_calendar_freshness():
+    """
+    Test edge cases for get_expected_latest_closed_daily_bar & DailyPolicy:
+    1. Monday 09:20 AM (market open) -> expected closed bar is Friday
+    2. Tuesday 08:45 AM (pre-market) -> expected closed bar is Monday
+    3. Tuesday 15:45 PM (post-market) -> expected closed bar is Tuesday
+    4. Saturday 11:00 AM (weekend) -> expected closed bar is Friday
+    """
+    from app.market_utils import get_expected_latest_closed_daily_bar
+    from app.price_cache import DailyPolicy
+
+    # 1. Monday 09:20 AM (market open) - 2026-08-03 was Monday
+    mon_open = datetime(2026, 8, 3, 9, 20, tzinfo=IST)
+    assert get_expected_latest_closed_daily_bar(mon_open) == datetime(2026, 7, 31, tzinfo=IST).date()
+
+    # 2. Tuesday 08:45 AM (pre-market) - 2026-08-04 was Tuesday
+    tue_pre = datetime(2026, 8, 4, 8, 45, tzinfo=IST)
+    assert get_expected_latest_closed_daily_bar(tue_pre) == datetime(2026, 8, 3, tzinfo=IST).date()
+
+    # 3. Tuesday 15:45 PM (post-market)
+    tue_post = datetime(2026, 8, 4, 15, 45, tzinfo=IST)
+    assert get_expected_latest_closed_daily_bar(tue_post) == datetime(2026, 8, 4, tzinfo=IST).date()
+
+    # 4. Saturday 11:00 AM (weekend) - 2026-08-08 was Saturday
+    sat_noon = datetime(2026, 8, 8, 11, 0, tzinfo=IST)
+    assert get_expected_latest_closed_daily_bar(sat_noon) == datetime(2026, 8, 7, tzinfo=IST).date()
+
+    # Test DailyPolicy is_fresh
+    policy = DailyPolicy()
+    fri_ts = pd.Timestamp("2026-07-31")
+    assert policy.is_fresh(fri_ts, mon_open) is True

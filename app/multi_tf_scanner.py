@@ -485,7 +485,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                         funnel["approved"] += 1
                         logger.info(f"📍 PICKED [MULTI-TF: HOURLY_APPROVED]: {symbol} @ ₹{close:.2f} (Dist: {dist_to_breakout*100:.2f}%, ADX: {adx_val:.1f})")
                     else:
-                        logger.info(f"REJECTION: {symbol} (Phase: 1H_TREND_PERMISSION, Reason: Failed 1H EMA/ADX/Distance gate (ema_ok={ema_ok}, adx_ok={adx_ok}, dist_ok={dist_ok}))")
+                        logger.debug(f"REJECTION: {symbol} (Phase: 1H_TREND_PERMISSION, Reason: Failed 1H EMA/ADX/Distance gate (ema_ok={ema_ok}, adx_ok={adx_ok}, dist_ok={dist_ok}))")
     
                 except Exception as e:
                     logger.exception(f"Fault isolation caught exception for Phase A: {e}")
@@ -944,7 +944,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     # [FIX MTF-14] Extension limit uses daily-scale ref_atr (consistent with Phase C admission band)
                     if close > trigger_level + (max_ext_atr * ref_atr):
                         dist_atr = (close - trigger_level) / ref_atr if ref_atr > 0 else 0
-                        logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
+                        logger.debug(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
                         continue
 
                     is_ready = False
@@ -1025,7 +1025,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             reason_str = f"{'|'.join(reasons)} [{trace}]"
                             
                             dist_atr = ((close - trigger_level) / atr20) if atr20 > 0 else 0.0
-                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
+                            logger.debug(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
                 
                     if is_ready:
                         # [FIX MTF-19] Promote state to TRADE_ACTIVE immediately so

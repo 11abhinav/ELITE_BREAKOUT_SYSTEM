@@ -392,56 +392,74 @@ import os
 from config import DATA_DIR
 from datetime import timedelta
 
-def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
+from enum import Enum
+
+class CacheState(Enum):
+    STALE = "STALE"
+    FRESH_HISTORY = "FRESH_HISTORY"
+    FRESH_WITH_LIVE_OVERLAY = "FRESH_WITH_LIVE_OVERLAY"
+    EXPIRED = "EXPIRED"
+
+
+class CacheFreshnessPolicy:
+    """Base interface for timeframe-specific cache freshness policies."""
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        raise NotImplementedError
+
+
+class DailyPolicy(CacheFreshnessPolicy):
     """
-    Checks if the cached data contains up-to-date data for the given interval:
-    - Daily (1d): Up to date if last candle date >= last market close date.
-    - Intraday (1h, 30m, 15m, 5m):
-        * During Active Market Hours (09:15-15:30 IST): Must be within 1 candle interval of now.
-        * Off Market Hours / Weekend / Pre-market: Up to date if last candle has the final bar of the trading day:
-            - 1h:  >= 14:15 on last trading day
-            - 30m: >= 15:00 on last trading day
-            - 15m: >= 15:15 on last trading day
-            - 5m:  >= 15:25 on last trading day
+    Daily 1D Cache Freshness Policy.
+    Uses institutional trading calendar helper `get_expected_latest_closed_daily_bar`.
+    During active market hours or pre-market, the latest completed daily session is from the previous trading day.
     """
-    now_dt = datetime.now(IST)
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        if now_dt is None:
+            now_dt = datetime.now(IST)
+        from market_utils import get_expected_latest_closed_daily_bar
+        expected_closed_bar = get_expected_latest_closed_daily_bar(now_dt)
+        return last_ts.date() >= expected_closed_bar
+
+
+class FifteenMinutePolicy(CacheFreshnessPolicy):
+    """15-Minute Intraday Cache Freshness Policy."""
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        if now_dt is None:
+            now_dt = datetime.now(IST)
+        from market_utils import is_market_open
+        if is_market_open(now_dt):
+            return (now_dt - last_ts).total_seconds() <= (20 * 60)
+        return _is_cache_up_to_date_legacy(last_ts, "15m", now_dt)
+
+
+class FiveMinutePolicy(CacheFreshnessPolicy):
+    """5-Minute Intraday Cache Freshness Policy."""
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        if now_dt is None:
+            now_dt = datetime.now(IST)
+        from market_utils import is_market_open
+        if is_market_open(now_dt):
+            return (now_dt - last_ts).total_seconds() <= (10 * 60)
+        return _is_cache_up_to_date_legacy(last_ts, "5m", now_dt)
+
+
+def _is_cache_up_to_date_legacy(last_ts: pd.Timestamp, interval: str, now_dt: datetime = None) -> bool:
+    """Legacy boundary check for off-market hours."""
+    if now_dt is None:
+        now_dt = datetime.now(IST)
     market_open = now_dt.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = now_dt.replace(hour=15, minute=30, second=0, microsecond=0)
-    
     is_weekend = now_dt.weekday() >= 5
-    is_market_active = not is_weekend and (market_open <= now_dt <= market_close)
-
     inv_lower = interval.lower()
 
-    # 1D or higher timeframe daily candles
-    if inv_lower in ('1d', 'daily', '1wk', '1mo'):
-        from market_utils import get_expected_latest_trading_date
-        expected_date = get_expected_latest_trading_date(now_dt)
-        return last_ts.date() >= expected_date
-
-    # Intraday timeframes (1h, 30m, 15m, 5m)
-    # ── CASE A: During active market hours ───────────────────────────────────
-    if is_market_active:
-        interval_buffers = {
-            '1h': 65,   # 1 hour + 5m buffer
-            '60m': 65,
-            '30m': 35,
-            '15m': 20,
-            '5m': 10,
-            '1m': 3,
-        }
-        max_age_min = interval_buffers.get(inv_lower, 30)
-        return (now_dt - last_ts).total_seconds() <= (max_age_min * 60)
-
-    # ── CASE B: Off-market hours (post-market, overnight, weekend, pre-market)
     if is_weekend:
         last_close_date = (market_close - timedelta(days=now_dt.weekday() - 4)).date()
     elif now_dt < market_open:
-        if now_dt.weekday() == 0:  # Mon pre-market -> Fri
+        if now_dt.weekday() == 0:
             last_close_date = (now_dt - timedelta(days=3)).date()
         else:
             last_close_date = (now_dt - timedelta(days=1)).date()
-    else:  # post-market (now_dt > market_close)
+    else:
         last_close_date = now_dt.date()
 
     if last_ts.date() < last_close_date:
@@ -457,8 +475,26 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str) -> bool:
     }
     cutoff_h, cutoff_m = final_bar_cutoffs.get(inv_lower, (15, 0))
     cutoff_time = last_ts.replace(hour=cutoff_h, minute=cutoff_m, second=0, microsecond=0)
-
     return last_ts >= cutoff_time
+
+
+def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str, now_dt: datetime = None) -> bool:
+    """
+    Checks if the cached data contains up-to-date data for the given interval
+    using timeframe-specific CacheFreshnessPolicy rules.
+    """
+    if now_dt is None:
+        now_dt = datetime.now(IST)
+    inv_lower = interval.lower()
+
+    if inv_lower in ('1d', 'daily', '1wk', '1mo'):
+        return DailyPolicy().is_fresh(last_ts, now_dt)
+    elif inv_lower in ('15m', '15min'):
+        return FifteenMinutePolicy().is_fresh(last_ts, now_dt)
+    elif inv_lower in ('5m', '5min'):
+        return FiveMinutePolicy().is_fresh(last_ts, now_dt)
+    else:
+        return _is_cache_up_to_date_legacy(last_ts, interval, now_dt)
 
 def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -> bool:
     """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
@@ -672,7 +708,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         for i in range(0, group_total, batch_size):
             batch = group_symbols[i : i + batch_size]
             batch_end = min(i + batch_size, group_total)
-            logger.info(f"[{requester}] 📥 Fetching Batch {desc} ({i}–{batch_end}/{group_total}) [{interval}]")
+            import random
+            sample_str = ", ".join(random.sample(batch, min(3, len(batch))))
+            logger.info(f"[{requester}] 📥 Fetching Batch {desc} ({i}–{batch_end}/{group_total}) [{interval}] (e.g., {sample_str})")
             
             batch_results = fetcher.get_batch_ohlcv(batch, interval=interval, period=period, retries=3, range_from=range_from, range_to=range_to, caller=requester)
             

@@ -52,6 +52,31 @@ def get_expected_latest_trading_date(now_dt: datetime = None) -> date:
     return candidate
 
 
+def get_expected_latest_closed_daily_bar(now_dt: datetime = None) -> date:
+    """
+    Institutional trading-calendar helper returning the date of the latest COMPLETED daily session bar.
+    - During active market hours (09:15–15:30 IST) or pre-market (<09:15 IST): today's daily session is NOT closed yet.
+      The latest completed closed daily bar is from the PREVIOUS completed trading session (e.g. Friday for Monday).
+    - After market close (>=15:30 IST) on a weekday: today's daily bar IS closed, so returns today's date.
+    - On weekends/holidays: returns the date of the last completed trading day (e.g. Friday).
+    """
+    if now_dt is None:
+        now_dt = datetime.now(IST)
+    
+    current_time = now_dt.time()
+    
+    # If after 15:30 IST on a weekday, today's session is CLOSED
+    if now_dt.weekday() < 5 and current_time >= dt_time(15, 30):
+        return now_dt.date()
+    
+    # Otherwise (During market hours 09:15-15:30, Pre-market morning < 9:15, or Weekend), 
+    # the latest completed closed daily bar is from the PREVIOUS trading session
+    candidate = now_dt.date() - timedelta(days=1)
+    while candidate.weekday() >= 5:  # 5=Sat, 6=Sun
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 def evaluate_data_staleness(latest_bar_dt, now_dt: datetime = None) -> dict:
     """
     Evaluates whether latest_bar_dt is stale based on current time context.

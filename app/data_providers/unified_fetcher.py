@@ -216,7 +216,7 @@ class UnifiedFetcher:
                                                 with results_lock:
                                                     results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
                                                     pending.discard(orig)
-                                                logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{item['v']['lp']:.2f}")
+                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{item['v']['lp']:.2f}")
                                                 success_count += 1
                                     if success_count > 0:
                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
@@ -242,7 +242,7 @@ class UnifiedFetcher:
                                                                 with results_lock:
                                                                     results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
                                                                     pending.discard(orig)
-                                                                logger.info(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{item['v']['lp']:.2f}")
+                                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{item['v']['lp']:.2f}")
                                                                 success_count += 1
                                                     if success_count > 0:
                                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
@@ -282,7 +282,7 @@ class UnifiedFetcher:
                                                 val = quote_data["ohlc"].get("close")
                                             if val is not None and float(val) > 0:
                                                 results[orig] = {"v": {"cmd": {"c": float(val)}}}
-                                                logger.info(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
+                                                logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
                                                 pending.discard(orig)
                                                 success_count += 1
                                     except Exception as item_err:
@@ -343,7 +343,7 @@ class UnifiedFetcher:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                logger.info(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
+                                                logger.debug(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                 pending.discard(orig)
                                     except Exception as item_err:
                                         logger.exception(f"⚠️ [Yahoo] Quote parsing error for symbol {orig}: {item_err}")
@@ -396,7 +396,7 @@ class UnifiedFetcher:
                                                 val = float(sub_df["Close"].dropna().iloc[-1])
                                                 if val > 0:
                                                     results[orig] = {"v": {"cmd": {"c": val}}}
-                                                    logger.info(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
+                                                    logger.debug(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                                     pending.discard(orig)
                                         except Exception:
                                             pass

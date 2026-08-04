@@ -1602,7 +1602,7 @@ def _run_scan(force: bool = False, session=None):
                         if latest_bar_dt is None:
                             invalid_timestamp_count += 1
                             rejected["invalid_timestamp"] += 1
-                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — invalid/missing timestamp")
+                            logger.debug(f"🚫 [REVERSAL] {symbol} skipped — invalid/missing timestamp")
                             continue
 
                         date_checkable += 1
@@ -1612,7 +1612,7 @@ def _run_scan(force: bool = False, session=None):
                         if staleness["is_stale"]:
                             stale_count += 1
                             rejected["stale_data"] += 1
-                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
+                            logger.debug(f"🚫 [REVERSAL] {symbol} skipped — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
                             continue
 
                         # Check fundamental presence

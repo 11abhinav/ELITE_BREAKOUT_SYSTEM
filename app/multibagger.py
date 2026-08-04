@@ -1820,31 +1820,31 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
-            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
+            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
             append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price)
             continue
 
         # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
-            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
+            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
             append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price)
             continue
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
-            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
+            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
             append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price)
             continue
 
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
         # means the V5 pipeline will impute a neutral score, artificially inflating the result.
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
-            logger.info(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
+            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
             append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price)
             continue
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
-            logger.info(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
+            logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
             status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
             append_rejection(results, sym, status_code, reason, price=price_data.price)
             continue
@@ -1860,7 +1860,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
-            logger.info(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
+            logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
             append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price)
             continue
                 
@@ -1943,7 +1943,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         if alert_triggered:
             skip_alert = False
             if sym in open_symbols:
-                logger.info(f"REJECTION: {sym} (Phase: OPEN_POSITION_SUPPRESSION, Reason: Already an open MULTIBAGGER position)")
+                logger.debug(f"REJECTION: {sym} (Phase: OPEN_POSITION_SUPPRESSION, Reason: Already an open MULTIBAGGER position)")
                 skip_alert = True
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 

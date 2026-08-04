@@ -1350,9 +1350,15 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                                 if t_col:
                                     last_dt = hist_df[t_col].iloc[-1]
                                 
-                                last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
+                                last_dt_ts = pd.to_datetime(last_dt)
+                                last_dt_str = last_dt_ts.strftime("%Y-%m-%d") if last_dt else ""
                                 
-                                if last_dt_str == today_date_str:
+                                # Quote Timestamp Validation: Ensure quote belongs to current session and is newer than last bar
+                                from market_utils import is_market_open
+                                if not is_market_open(now_ist) and last_dt_ts.date() >= now_ist.date():
+                                    # Stale quote outside market hours or older than existing candle — skip overlay
+                                    pass
+                                elif last_dt_str == today_date_str:
                                     # Update today's existing candle (preserve Open, update High/Low/Close)
                                     curr_high = hist_df.iloc[-1]['High']
                                     curr_low = hist_df.iloc[-1]['Low']

@@ -865,7 +865,7 @@ def _start_wrapper(force: bool = False, session=None):
                                 avg_volume = float(ticker["Volume"].iloc[:-1].mean())
 
                             if avg_volume <= 0:
-                                logger.info(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
+                                logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
                                 rejection_counts["zero_avg_volume"] += 1
                                 continue
 
@@ -911,37 +911,37 @@ def _start_wrapper(force: bool = False, session=None):
                                 candle_penalty += pen
                                 logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
                             if volume_ratio < MIN_VOLUME_RATIO:
-                                logger.info(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
+                                logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
                                 rejection_counts["low_volume"] += 1
                                 continue
                             if avg_volume < MIN_AVG_VOLUME_SHARES:
-                                logger.info(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
+                                logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
                                 rejection_counts["low_avg_volume"] += 1
                                 continue
                             if candle_close < MIN_STOCK_PRICE:
-                                logger.info(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
+                                logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
                                 rejection_counts["penny_stock"] += 1
                                 continue
                             if not (MIN_RSI <= rsi_val <= MAX_RSI):
-                                logger.info(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
+                                logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
                                 rejection_counts["rsi_range"] += 1
                                 continue
 
                             # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
                             # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
                             if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
-                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
+                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
                                 rejection_counts["missing_atr"] += 1
                                 continue
 
                             prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
                             if prior_high <= 0:
-                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
+                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
                                 rejection_counts["no_structural_breakout"] += 1
                                 continue
 
                             if candle_close <= prior_high:
-                                logger.info(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
+                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
                                 rejection_counts["no_structural_breakout"] += 1
                                 continue
 
@@ -967,7 +967,7 @@ def _start_wrapper(force: bool = False, session=None):
                             # ATR Expansion
                             min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
                             if candle_range / atr20 < min_atr_expansion:
-                                logger.info(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
+                                logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
                                 rejection_counts["no_atr_expansion"] += 1
                                 continue
 
@@ -979,19 +979,19 @@ def _start_wrapper(force: bool = False, session=None):
 
                             if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
                                 if candle_close < _safe_float(latest.get("EMA20")):
-                                    logger.info(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
+                                    logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
                                     rejection_counts["below_ema20"] += 1
                                     continue
 
                             if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
                                 if candle_close < _safe_float(latest.get("SMA50")):
-                                    logger.info(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
+                                    logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
                                     rejection_counts["below_sma50"] += 1
                                     continue
 
                             if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
                                 if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
-                                    logger.info(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
+                                    logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
                                     rejection_counts["weak_adx"] += 1
                                     continue
 
@@ -1144,7 +1144,7 @@ def _start_wrapper(force: bool = False, session=None):
                             # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                             if score < global_min_score:
                                 rejection_counts["low_score"] += 1
-                                logger.info(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
+                                logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss
                                     log_near_miss(symbol, "EOD", signal_str, "score_threshold", score, global_min_score, score=score)

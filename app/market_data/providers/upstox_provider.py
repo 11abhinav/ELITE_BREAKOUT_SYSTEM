@@ -477,7 +477,7 @@ class UpstoxProvider(ProviderInterface):
                         f"keys={len(formatted_keys_list)} > requested={len(chunk)}"
                     )
 
-                logger.info(
+                logger.debug(
                     f"\U0001f4ca [LIVE_QUOTE_PIPELINE] chunk={len(chunk)} | "
                     f"status={res.status_code} | payload={payload_kb:.1f}KB\n"
                     f"   \u251c\u2500\u2500 Resolution stage : {resolution_ms:.1f}ms (calls={len(chunk)})\n"
