@@ -1315,9 +1315,12 @@ def _run_scan(force: bool = False, session=None):
         return 0
 
     stage_tracker.total_symbols = len(watchlist)
+    stage_tracker.end_stage(f"Loaded {len(watchlist)} symbols")
     logger.info(f"📊 Loaded {len(watchlist)} symbols for REVERSAL scan.")
 
+    stage_tracker.start_stage(2, "Pre-Scan Context & Delivery Fetch", "Pledge map, delivery map, sector ratings")
     today_ist_date = ist_now.date()
+
     resolved_date = today_ist_date
     try:
         from delivery_data import fetch_latest_available_delivery_data
@@ -1438,7 +1441,11 @@ def _run_scan(force: bool = False, session=None):
     fundamental_invalid = 0
     fundamental_valid = 0
 
+    stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(prev_delivery_map)}")
+    stage_tracker.start_stage(3, "Price Fetch & Reversal Pattern Evaluation", f"Batch size: {BATCH_SIZE}")
+
     with MemoryProfiler("Process Symbols"):
+
         for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
             try:
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
@@ -1873,29 +1880,37 @@ def _run_scan(force: bool = False, session=None):
                     f"│  [STAGE] candidate_eval              │  included in total       │\n"
                     f"│  [STAGE] db_persistence              │  included in total       │\n"
                     "├──────────────────────────────────────┼──────────────────────────┤\n"
-                    f"│  Phase 1 gate: fetch ≤40% total      │  ≤ {_scan_total_ms * 0.40:.0f}ms{' '*(18 - len(f'≤ {_scan_total_ms * 0.40:.0f}ms'))} │\n"
                     "│  (check '⏱ [STAGE] reversal' lines above for per-batch times)  │\n"
                     "└─────────────────────────────────────────────────────────────────┘"
                 )
             except Exception as _log_e:
                 logger.debug(f"Non-critical: Stage summary log failed: {_log_e}")
 
-            # [VERSION: PERF_PHASE0_v1.0] Flush Phase 0 JSON timing report to artifacts/profiling/
-            try:
-                flush_timing_report(
-                    phase="Phase0_Baseline",
-                    run_type="cold_start",
-                    feature_flags=[],
-                    extra={
-                        "scanner": "ReversalScanner",
-                        "symbols_processed": total_symbols,
-                        "alerts_generated": total_alerts,
-                        "total_scan_ms": round(_scan_total_ms, 1),
-                    }
-                )
-            except Exception as _perf_e:
-                logger.debug(f"Non-critical: Failed to write reversal timing report: {_perf_e}")
-            return total_alerts
+        try:
+            stage_tracker.end_stage(f"Saved {total_alerts} alerts to DB")
+            stage_tracker.print_summary(alerts_found=total_alerts)
+        except Exception:
+            pass
+
+
+
+        # [VERSION: PERF_PHASE0_v1.0] Flush Phase 0 JSON timing report to artifacts/profiling/
+        try:
+            flush_timing_report(
+                phase="Phase0_Baseline",
+                run_type="cold_start",
+                feature_flags=[],
+                extra={
+                    "scanner": "ReversalScanner",
+                    "symbols_processed": total_symbols,
+                    "alerts_generated": total_alerts,
+                    "total_scan_ms": round(_scan_total_ms, 1),
+                }
+            )
+        except Exception as _perf_e:
+            logger.debug(f"Non-critical: Failed to write reversal timing report: {_perf_e}")
+        return total_alerts
+
 
 
 
