@@ -7209,11 +7209,12 @@ def get_scanner_execution_history(
     quality_status: str = None,
     date_range: str = "7d",
     search: str = None,
+    system_version: str = None,
     page: int = 1,
     per_page: int = 25
 ):
     """
-    Returns filterable, paginated scanner execution history with dynamically computed duration.
+    Returns filterable, paginated scanner execution history with dynamically computed duration and version stats.
     """
     from psycopg2.extras import RealDictCursor
     try:
@@ -7234,6 +7235,10 @@ def get_scanner_execution_history(
                     where_clauses.append("quality_status = %s")
                     params.append(quality_status.upper())
 
+                if system_version and system_version.upper() != "ALL":
+                    where_clauses.append("COALESCE(system_version, 'v1') = %s")
+                    params.append(system_version)
+
                 if date_range == "today":
                     where_clauses.append("started_at >= CURRENT_DATE")
                 elif date_range == "7d":
@@ -7242,11 +7247,20 @@ def get_scanner_execution_history(
                     where_clauses.append("started_at >= NOW() - INTERVAL '30 days'")
 
                 if search and search.strip():
-                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR error_summary ILIKE %s OR stop_reason ILIKE %s)")
+                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR error_summary ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s)")
                     term = f"%{search.strip()}%"
-                    params.extend([term, term, term, term])
+                    params.extend([term, term, term, term, term])
 
                 where_sql = " AND ".join(where_clauses)
+
+                # Fetch available versions for dropdown filter
+                cur.execute("""
+                    SELECT DISTINCT COALESCE(system_version, 'v1') as ver 
+                    FROM scanner_execution_history 
+                    ORDER BY ver DESC;
+                """)
+                ver_rows = cur.fetchall()
+                available_versions = [r["ver"] for r in ver_rows if r.get("ver")]
 
                 # Total Count
                 cur.execute(f"SELECT COUNT(*) as cnt FROM scanner_execution_history WHERE {where_sql}", params)
@@ -7270,7 +7284,7 @@ def get_scanner_execution_history(
                 cur.execute(query, params + [per_page, offset])
                 rows = cur.fetchall()
 
-                # Summary metrics
+                # Summary metrics (respecting ALL active filters)
                 summary_query = f"""
                     SELECT 
                         COUNT(*) as total_runs,
@@ -7298,6 +7312,7 @@ def get_scanner_execution_history(
                     "page": page,
                     "per_page": per_page,
                     "total_pages": (total_records + per_page - 1) // per_page if total_records > 0 else 1,
+                    "available_versions": available_versions,
                     "summary_stats": {
                         "total_runs": total_runs,
                         "success_rate_pct": success_rate,
@@ -7308,7 +7323,7 @@ def get_scanner_execution_history(
                 }
     except Exception as e:
         logger.error(f"Failed to query scanner execution history: {e}")
-        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "summary_stats": {}}
+        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "summary_stats": {}}
 
 
 

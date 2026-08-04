@@ -2560,6 +2560,7 @@ def api_scanner_execution_history():
         quality_status = request.args.get("quality_status", "ALL")
         date_range = request.args.get("date_range", "7d")
         search = request.args.get("search", "")
+        system_version = request.args.get("system_version") or request.args.get("version", "ALL")
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 25))
 
@@ -2570,6 +2571,7 @@ def api_scanner_execution_history():
             quality_status=quality_status,
             date_range=date_range,
             search=search,
+            system_version=system_version,
             page=page,
             per_page=per_page
         )

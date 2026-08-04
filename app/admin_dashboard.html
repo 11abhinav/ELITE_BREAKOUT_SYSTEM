@@ -1925,6 +1925,9 @@
               <option value="PLEDGE_WORKER">Pledge Worker</option>
               <option value="AI_WORKER">AI Worker</option>
             </select>
+            <select id="seh-version-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Versions</option>
+            </select>
             <select id="seh-lifecycle-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
               <option value="ALL">All Lifecycle Statuses</option>
               <option value="RUNNING">RUNNING</option>
@@ -1946,7 +1949,7 @@
               <option value="30d">Last 30 Days</option>
               <option value="all">All Time</option>
             </select>
-            <input type="text" id="seh-search-input" onkeyup="if(event.key==='Enter') fetchScannerExecutionHistory(1)" placeholder="🔍 Search Run ID, Error, Reason..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; flex:1; min-width:200px;" />
+            <input type="text" id="seh-search-input" onkeyup="if(event.key==='Enter') fetchScannerExecutionHistory(1)" placeholder="🔍 Search Run ID, Error, Reason, Version..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; flex:1; min-width:200px;" />
             <button onclick="fetchScannerExecutionHistory(1)" class="refresh-btn" style="font-size:12px; padding:6px 14px; font-weight:700;">🔍 Filter</button>
           </div>
 
@@ -1958,6 +1961,7 @@
                   <tr style="background:var(--card2); color:var(--muted); text-transform:uppercase; font-size:11px;">
                     <th style="padding:10px 12px; text-align:left;">Run ID / Git</th>
                     <th style="padding:10px 12px; text-align:left;">Scanner & Trigger</th>
+                    <th style="padding:10px 12px; text-align:center;">Version</th>
                     <th style="padding:10px 12px; text-align:left;">Started At</th>
                     <th style="padding:10px 12px; text-align:left;">Duration</th>
                     <th style="padding:10px 12px; text-align:center;">Lifecycle</th>
@@ -1968,7 +1972,7 @@
                   </tr>
                 </thead>
                 <tbody id="seh-table-body">
-                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading scanner execution history...</td></tr>
+                  <tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">Loading scanner execution history...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -4645,26 +4649,46 @@ async function pingViewer() {
 let currentSehPage = 1;
 let sehRecordsCache = {};
 
+function updateSehVersionDropdown(versions) {
+  const select = document.getElementById('seh-version-filter');
+  if (!select) return;
+  const currentVal = select.value || 'ALL';
+  
+  let html = `<option value="ALL">All Versions</option>`;
+  const versionSet = new Set(versions);
+  if (!versionSet.has('v1')) versionSet.add('v1');
+  
+  for (const v of Array.from(versionSet).sort().reverse()) {
+    html += `<option value="${escapeHTML(v)}">${escapeHTML(v)}</option>`;
+  }
+  select.innerHTML = html;
+  select.value = versionSet.has(currentVal) ? currentVal : (currentVal === 'ALL' ? 'ALL' : 'ALL');
+}
+
 async function fetchScannerExecutionHistory(page = 1) {
   currentSehPage = Math.max(1, page);
   const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
+  const system_version = document.getElementById('seh-version-filter')?.value || 'ALL';
   const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
   const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';
   const date_range = document.getElementById('seh-date-filter')?.value || '7d';
   const search = document.getElementById('seh-search-input')?.value || '';
 
   const tbody = document.getElementById('seh-table-body');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading history page ${currentSehPage}...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">Loading history page ${currentSehPage}...</td></tr>`;
 
   try {
-    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
+    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=${encodeURIComponent(system_version)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (data.available_versions) {
+      updateSehVersionDropdown(data.available_versions);
+    }
     renderScannerExecutionHistory(data);
   } catch (e) {
     console.error("Failed to fetch scanner execution history", e);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
   }
 }
 
@@ -4673,7 +4697,7 @@ function renderScannerExecutionHistory(data) {
   const stats = data.summary_stats || {};
   const tbody = document.getElementById('seh-table-body');
 
-  // Update summary metrics
+  // Update summary metrics dynamically based on filtered records
   const totalRunsEl = document.getElementById('seh-total-runs');
   if (totalRunsEl) totalRunsEl.innerText = (stats.total_runs || 0).toLocaleString();
   const successRateEl = document.getElementById('seh-success-rate');
@@ -4686,7 +4710,7 @@ function renderScannerExecutionHistory(data) {
   if (staleRatioEl) staleRatioEl.innerText = `${stats.avg_stale_ratio_pct || 0.0}%`;
 
   if (!records.length) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No scanner execution history records matching filter criteria.</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">No scanner execution history records matching filter criteria.</td></tr>`;
     updateSehPagination(0, 0, 0);
     return;
   }
@@ -4720,6 +4744,11 @@ function renderScannerExecutionHistory(data) {
         <td style="padding:10px 12px;">
           <strong style="color:var(--text);">${escapeHTML(r.scanner_name)}</strong>
           <div style="font-size:10px; color:var(--muted); margin-top:2px;">${escapeHTML(r.trigger_type || 'SCHEDULED')} (${escapeHTML(r.scheduler_name || 'CRON')})</div>
+        </td>
+        <td style="padding:10px 12px; text-align:center;">
+          <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">
+            ${escapeHTML(r.system_version || 'v1')}
+          </span>
         </td>
         <td style="padding:10px 12px; font-size:11px; white-space:nowrap;">${startedStr}</td>
         <td style="padding:10px 12px; font-family:var(--font-mono); font-size:11px; font-weight:700;">${durStr}</td>
