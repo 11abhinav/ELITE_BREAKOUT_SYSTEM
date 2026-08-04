@@ -529,12 +529,14 @@ def _start_wrapper(force: bool = False, session=None):
         _wl_stocks = sorted(watchlist["Stock"].tolist())
         _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
         scan_id = str(uuid.uuid4())
-        logger.info(f"📋 [EOD] Watchlist fingerprint: {len(watchlist)} stocks | hash={_wl_hash} | scan_id={scan_id}")
+        stage_tracker.end_stage(f"Loaded watchlist ({len(watchlist)} stocks)")
 
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
         
+        stage_tracker.start_stage(2, "Pre-Scan Context & Macro Setup", "Pledge, delivery data, sector rotation scores")
         with StageTimelineTracker("EOD", "2. Pre-Scan Data (Pledge, Delivery, Sectors)"):
+
             # [VERSION: MARKET_DATA_SESSION_v1.0] Load pledge & delivery from session when available.
             # Session already fetched these in parallel during build(); skip independent fetches.
             if session is not None:
@@ -698,6 +700,8 @@ def _start_wrapper(force: bool = False, session=None):
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
+        stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(delivery_map)}")
+
         import gc, time
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
         
@@ -705,7 +709,9 @@ def _start_wrapper(force: bool = False, session=None):
         cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 1440))
         
         total_fetched_count = 0
+        stage_tracker.start_stage(3, "Price History Fetch & Symbol Evaluation Loop", f"Chunk size: {BATCH_SIZE}")
         # [VERSION: MARKET_DATA_SESSION_v1.0] Log whether session is available
+
         if session is not None:
             logger.info(f"📦 [EOD] Using MarketDataSession | {session.metadata.valid_symbols} symbols pre-fetched")
         else:
@@ -1327,6 +1333,8 @@ def _start_wrapper(force: bool = False, session=None):
                                     logger.exception(f'Failed to upsert fetch error for {symbol}')
                             continue
 
+                logger.info(f"⏳ [EOD SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(approved_candidates)}")
+
         # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
         if approved_candidates:
             logger.info(f"📊 EOD Candidates Discovered: {len(approved_candidates)}")
@@ -1428,8 +1436,10 @@ def _start_wrapper(force: bool = False, session=None):
                 )
 
         # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
-        # [VERSION: EOD_INDENT_FIX_v1.0] Fixed un-indentation of verification, status, telemetry, and return block out of candidate loop
+        stage_tracker.end_stage(f"Evaluated {len(watchlist)} stocks | Alerts found: {total_alerts}")
+        stage_tracker.start_stage(4, "Pipeline Summary & Alert Persistence", f"Total alerts: {total_alerts}")
         fired = {k: v for k, v in rejection_counts.items() if v > 0}
+
         duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
         total_symbols = len(watchlist)
         stale_count = rejection_counts.get("stale_data", 0)
@@ -1462,9 +1472,11 @@ def _start_wrapper(force: bool = False, session=None):
         ])
         logger.info("\n".join(summary_lines))
         try:
+            stage_tracker.end_stage(f"Alerts generated: {total_alerts}")
             stage_tracker.print_summary(alerts_found=total_alerts)
         except Exception:
             pass
+
 
         # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
         if total_alerts > 0 and not is_test_mode:

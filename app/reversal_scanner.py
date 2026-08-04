@@ -1703,6 +1703,8 @@ def _run_scan(force: bool = False, session=None):
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} execution error: {batch_err}")
                 rejected["batch_fetch_failed"] += len(chunk_df)
             finally:
+                total_batches = (len(scan_watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
+                logger.info(f"⏳ [REVERSAL SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(scan_watchlist))}/{len(scan_watchlist)} stocks) | Shortlisted so far: {len(shortlisted_alerts)}")
                 gc.collect()
 
         total_symbols = len(watchlist)

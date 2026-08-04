@@ -497,6 +497,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
                 except Exception as e:
                     logger.exception(f"Failed to execute batch upsert for Phase A: {e}")
                 
+            logger.info(f"⏳ [MULTI-TF SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Approved so far: {funnel['approved']}")
         del ticker_data
         locals().pop('df', None)
             

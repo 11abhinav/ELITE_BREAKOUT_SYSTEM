@@ -1418,6 +1418,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                 del chunk_historical_data
                 del chunk_live_prices
                 del chunk_concalls
+                logger.info(f"⏳ [WEALTH ENGINE] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(all_symbols_to_fetch))}/{len(all_symbols_to_fetch)} stocks) | Technicals evaluated so far: {len(technicals)}")
 
         required_count = int(len(df) * 0.70)
         if global_fetched_count < required_count:

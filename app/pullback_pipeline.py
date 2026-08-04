@@ -637,6 +637,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         continue
             del all_ticker_data
             import gc; gc.collect()
+            logger.info(f"⏳ [PULLBACK SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(candidates)}")
 
     logger.info(f"📊 Pullback Candidates Discovered: {len(candidates)}")
     
