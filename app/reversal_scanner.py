@@ -1602,11 +1602,12 @@ def _run_scan(force: bool = False, session=None):
 
                         date_checkable += 1
 
-                        stale_age = trading_days_between(today_ist, latest_bar_dt.date())
-                        if stale_age > 0 or stale_age < 0:
+                        from market_utils import evaluate_data_staleness
+                        staleness = evaluate_data_staleness(latest_bar_dt, ist_now)
+                        if staleness["is_stale"]:
                             stale_count += 1
                             rejected["stale_data"] += 1
-                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — stale or future data (age={stale_age}b)")
+                            logger.info(f"🚫 [REVERSAL] {symbol} skipped — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
                             continue
 
                         # Check fundamental presence

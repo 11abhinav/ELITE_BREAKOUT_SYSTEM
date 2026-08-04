@@ -98,3 +98,29 @@ def test_boot_cleanup_orphaned_runs():
         sql = mock_cur.execute.call_args[0][0]
         assert "SERVER_RESTARTED" in sql
         assert "TIMED_OUT" in sql
+
+def test_evaluate_data_staleness_pre_market():
+    from datetime import datetime, date
+    from zoneinfo import ZoneInfo
+    from market_utils import evaluate_data_staleness, get_expected_latest_trading_date
+    
+    IST = ZoneInfo("Asia/Kolkata")
+    
+    # Pre-market Tuesday 8:25 AM IST (2026-08-04)
+    pre_market_now = datetime(2026, 8, 4, 8, 25, 0, tzinfo=IST)
+    expected_date = get_expected_latest_trading_date(pre_market_now)
+    # Expected latest bar date for pre-market Tuesday is Friday (2026-08-01) or Monday (2026-08-03)
+    assert expected_date == date(2026, 8, 3)
+    
+    # Data from Friday Aug 1 or Monday Aug 3 should be 100% FRESH (is_stale = False)
+    latest_bar_dt = datetime(2026, 8, 3, 15, 30, 0, tzinfo=IST)
+    res = evaluate_data_staleness(latest_bar_dt, pre_market_now)
+    assert res["is_stale"] is False
+    assert "Data fresh" in res["message"]
+    
+    # Truly stale data (from July 20) should be flagged with exact date and time
+    stale_bar_dt = datetime(2026, 7, 20, 15, 30, 0, tzinfo=IST)
+    stale_res = evaluate_data_staleness(stale_bar_dt, pre_market_now)
+    assert stale_res["is_stale"] is True
+    assert "2026-07-20 15:30:00" in stale_res["message"]
+    assert "Expected at least 2026-08-03" in stale_res["message"]

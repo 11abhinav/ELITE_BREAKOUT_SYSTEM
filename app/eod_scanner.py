@@ -831,45 +831,24 @@ def _start_wrapper(force: bool = False, session=None):
                             # On weekends/holidays, ist_now.date() is a non-trading day and every symbol
                             # would be rejected as stale. Instead, we confirm the last bar is reasonably
                             # recent (within 4 calendar days to cover long weekends).
-                            _expected_max_age_days = 4  # Covers Fri→Mon and long weekends
+                            _last_ts = None
                             _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
                             if _stale_col:
                                 try:
                                     _last_ts = pd.to_datetime(latest[_stale_col])
-                                    # [VERSION: EOD_TZ_STALE_FIX_v1.0] Localize timezone naive timestamp to IST to prevent midnight rollover miscalculation
-                                    if _last_ts.tzinfo is None:
-                                        _last_ts = _last_ts.tz_localize("Asia/Kolkata")
-                                    else:
-                                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                                    _bar_age_days = (ist_now.date() - _last_ts.date()).days
-                                    if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        rejection_counts["stale_data"] += 1
-                                        continue
                                 except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
-                                    rejection_counts["stale_data"] += 1
-                                    continue
+                                    logger.debug(f"⏭️ {symbol} timestamp parse error: {e}")
                             elif isinstance(ticker.index, pd.DatetimeIndex):
                                 try:
                                     _last_ts = pd.Timestamp(ticker.index[-1])
-                                    if _last_ts.tzinfo is not None:
-                                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                                    else:
-                                        # [FIX P0] yfinance .NS returns naive timestamps in IST, not UTC.
-                                        # Localizing as UTC shifts the date by 5.5h and causes valid bars
-                                        # to be rejected near midnight IST.
-                                        _last_ts = _last_ts.tz_localize("Asia/Kolkata")
-                                    _bar_age_days = (ist_now.date() - _last_ts.date()).days
-                                    if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        rejection_counts["stale_data"] += 1
-                                        continue
                                 except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} stale-data check failed (index): {e}")
-                                    rejection_counts["stale_data"] += 1
-                                    continue
-                            else:
-                                logger.debug(f"⏭️ {symbol} no timestamp available (neither column nor DatetimeIndex)")
+                                    logger.debug(f"⏭️ {symbol} index timestamp parse error: {e}")
+
+                            from market_utils import evaluate_data_staleness
+                            _staleness = evaluate_data_staleness(_last_ts, ist_now)
+                            if _staleness["is_stale"]:
                                 rejection_counts["stale_data"] += 1
+                                logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
                                 continue
 
                             # [VERSION: EOD_VOL_RATIO_FIX] Protect against newly listed stocks with <22 bars
