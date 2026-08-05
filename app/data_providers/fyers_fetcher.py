@@ -601,9 +601,9 @@ class FyersFetcher(DataFetcher):
                 except Exception as e:
                     error_str = str(e)
                     
-                    # Record failure for circuit breaker, but ignore expected symbol mismatches, permission errors, or transient 429 rate limits
-                    if "error" in error_str.lower():
-                        if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403", "429", "bad request")):
+                    # Record failure for circuit breaker
+                    if "error" in error_str.lower() or "request" in error_str.lower():
+                        if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403")):
                             _fyers_circuit_breaker.record_failure()
 
                     if "Could not authenticate the user" in error_str:
@@ -694,6 +694,9 @@ class FyersFetcher(DataFetcher):
                             results[orig_sym] = MarketData(None, "Fyers", None, False, False, "Exception")
             except concurrent.futures.TimeoutError:
                 logger.error(f"Fyers batch fetch timed out after {calc_timeout}s. Cancelling remaining fetches.")
+                # Forcibly open the circuit breaker to prevent subsequent batches from hanging
+                for _ in range(_fyers_circuit_breaker.failure_threshold):
+                    _fyers_circuit_breaker.record_failure()
                 pass
                         
         for s in symbols:

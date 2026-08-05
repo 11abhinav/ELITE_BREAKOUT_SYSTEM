@@ -1414,7 +1414,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
         return 0
 
     import gc
-    BATCH_SIZE = 50
+    BATCH_SIZE = 200
 
     # Intraday 5m snapshot optimization: only fetch during market hours Mon-Fri (excluding holidays)
     is_market_open = (

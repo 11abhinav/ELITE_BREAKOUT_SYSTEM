@@ -913,8 +913,22 @@ def _run_pullback_with_retries(today_str, session=None):
 # [VERSION: PULLBACK_MANUAL_TRIGGER_FIX_v1.0] Pass force=True for manual trigger
 def _trigger_pullback():
     import pullback_pipeline
+    from watchlist_cache import get_watchlist
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    wl = get_watchlist()
+    all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
+    session = None
+    if all_symbols:
+        from market_data_session import MarketDataSession
+        try:
+            session = MarketDataSession.build(all_symbols, ist_date=datetime.now(IST).date(), requester="ManualPullback")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to build session for manual Pullback: {e}")
     with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-        return pullback_pipeline.start(force=True)
+        return pullback_pipeline.start(force=True, session=session)
 
 
 
@@ -2143,11 +2157,41 @@ def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
 
 def _trigger_eod():
     import eod_scanner
-    eod_scanner.start(force=True)
+    from watchlist_cache import get_watchlist
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    wl = get_watchlist()
+    all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
+    session = None
+    if all_symbols:
+        from market_data_session import MarketDataSession
+        try:
+            session = MarketDataSession.build(all_symbols, ist_date=datetime.now(IST).date(), requester="ManualEOD")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to build session for manual EOD: {e}")
+    eod_scanner.start(force=True, manual=True, session=session)
 
 def _trigger_reversal():
     import reversal_scanner
-    reversal_scanner.start(force=True)
+    from watchlist_cache import get_watchlist
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    wl = get_watchlist()
+    all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
+    session = None
+    if all_symbols:
+        from market_data_session import MarketDataSession
+        try:
+            session = MarketDataSession.build(all_symbols, ist_date=datetime.now(IST).date(), requester="ManualReversal")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to build session for manual Reversal: {e}")
+    reversal_scanner.start(force=True, manual=True, session=session)
 
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan
