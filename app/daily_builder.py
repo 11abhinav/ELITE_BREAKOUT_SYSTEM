@@ -1289,16 +1289,23 @@ def _main_impl(force_rebuild: bool = False):
             ex_df = pd.DataFrame(exclusion_snapshot).drop_duplicates(subset=["Stock"], keep="first")
             ex_df.to_csv(EXCLUSION_CSV, index=False)
             logger.info(f"📋 Exclusion log saved to {EXCLUSION_CSV} ({len(ex_df)} skipped)")
-            try:
-                from database import upload_parquet_to_db, save_df_to_table
-                upload_parquet_to_db("daily_builder_excluded", EXCLUSION_CSV)
-                logger.info("☁️ [DAILY BUILDER] Backed up exclusion log to Postgres cache.")
-                
-                save_df_to_table("daily_excluded_watchlist", ex_df)
-                logger.info("☁️ [DAILY BUILDER] Saved exclusion log to the 'daily_excluded_watchlist' database table.")
+            def _bg_excl_db_backup(ex_df_copy):
+                try:
+                    from database import upload_parquet_to_db, save_df_to_table
+                    upload_parquet_to_db("daily_builder_excluded", EXCLUSION_CSV)
+                    logger.info("☁️ [DAILY BUILDER] Backed up exclusion log to Postgres cache (background worker).")
+                    save_df_to_table("daily_excluded_watchlist", ex_df_copy)
+                    logger.info("☁️ [DAILY BUILDER] Saved exclusion log to the 'daily_excluded_watchlist' database table (background worker).")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to upload exclusion log to Postgres in background: {e}")
 
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to upload exclusion log to Postgres: {e}")
+            import threading
+            threading.Thread(
+                target=_bg_excl_db_backup,
+                args=(ex_df.copy(),),
+                name="DailyBuilderExclBackup",
+                daemon=True
+            ).start()
 
         # Fallback Logic: check if today's build is materially degraded compared to yesterday's
         build_source_date = None
@@ -1448,18 +1455,28 @@ def _main_impl(force_rebuild: bool = False):
         os.replace(tmp_parquet, OUTPUT_PARQUET)
         logger.info(f"💾 [SAVE] Final watchlist saved: {len(final_df)} stocks (source: {final_df['source_status'].iloc[0]})")
 
-        # Backup to Database to survive server restarts
-        try:
-            from database import upload_parquet_to_db, save_df_to_table, upload_history_bundle_to_db
-            logger.info("☁️ [DB] Uploading watchlist to Postgres cache...")
-            upload_parquet_to_db("daily_builder", OUTPUT_PARQUET)
-            upload_history_bundle_to_db("1d", force=True)
-            logger.info("☁️ [DAILY BUILDER] Backed up fundamental watchlist and 1d history bundle to Postgres cache.")
+        # Backup to Database in background thread to survive server restarts without blocking main thread
+        def _bg_watchlist_db_backup(df_copy):
+            try:
+                from database import upload_parquet_to_db, save_df_to_table, upload_history_bundle_to_db
+                logger.info("☁️ [DB] Uploading watchlist to Postgres cache (background worker)...")
+                _t0 = time.perf_counter()
+                upload_parquet_to_db("daily_builder", OUTPUT_PARQUET)
+                upload_history_bundle_to_db("1d", force=True)
+                logger.info("☁️ [DAILY BUILDER] Backed up fundamental watchlist and 1d history bundle to Postgres cache.")
+                save_df_to_table("daily_watchlist", df_copy)
+                dur_s = time.perf_counter() - _t0
+                logger.info(f"✅ [DAILY BUILDER] Postgres DB watchlist backup complete in {dur_s:.2f}s (background worker)")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to upload watchlist to Postgres in background: {e}")
 
-            save_df_to_table("daily_watchlist", final_df)
-            logger.info("☁️ [DAILY BUILDER] Saved fundamental watchlist to the 'daily_watchlist' database table.")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to upload watchlist to Postgres: {e}")
+        import threading
+        threading.Thread(
+            target=_bg_watchlist_db_backup,
+            args=(final_df.copy(),),
+            name="DailyBuilderDBBackup",
+            daemon=True
+        ).start()
         
         save_checkpoint({**state, "fundamentals_scored": True})
         try:
