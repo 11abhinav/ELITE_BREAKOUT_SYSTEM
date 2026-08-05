@@ -3055,7 +3055,7 @@
           // CRITICAL ERROR: Show warning with dismiss button
           if (isDown && !isAck) {
             alertLabel = "⚠ CRITICAL ERROR";
-            let endpoint = isApi ? `/api/data_fetch_health/acknowledge/${encodeURIComponent(data.raw_source || sc)}` : `/api/scanner_health/acknowledge/${sc}`;
+            let endpoint = isApi ? `/api/data_fetch_health/acknowledge/${encodeURIComponent(data.raw_source || sc)}` : `/api/scanner_health/acknowledge/${encodeURIComponent(sc)}`;
             dismissBtn = `<button onclick="event.stopPropagation(); fetch('${endpoint}',{method:'POST'}).then(()=>doRefresh())" style="margin-top:8px;background:rgba(255,77,109,0.1);color:#ff4d6d;border:1px solid #ff4d6d;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Dismiss Warning</button>`;
 
             alertHtml = `
