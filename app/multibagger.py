@@ -1700,7 +1700,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
     fundamentals_list = []
 
     
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {}
         cached_count = 0
         for p in shortlist:
