@@ -1174,6 +1174,41 @@ def init_db():
                     CREATE INDEX IF NOT EXISTS idx_seh_sysver ON scanner_execution_history(system_version);
                     CREATE INDEX IF NOT EXISTS idx_seh_gitcom ON scanner_execution_history(git_commit);
                 """)
+                
+                # ---------------------------------------------------------------------
+                # SCHEMA MIGRATIONS (ADD COLUMN IF NOT EXISTS)
+                # ---------------------------------------------------------------------
+                try:
+                    # users table
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile VARCHAR(20);")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'pending';")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INT DEFAULT 0;")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;")
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token UUID;")
+                    
+                    # stock_analysis_master table
+                    cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp NUMERIC(12,2);")
+                    cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ;")
+                    
+                    # user_watchlists table
+                    cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ;")
+                    cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT;")
+                    
+                    # watchlist (multibagger)
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS bucket TEXT;")
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS status TEXT;")
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS notes TEXT;")
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_alert_price NUMERIC;")
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_alert_at TIMESTAMPTZ;")
+                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;")
+                except Exception as mig_err:
+                    logger.warning(f"⚠️ Schema migration failed (some columns may not be added): {mig_err}")
                 # 39. Trade analytics view mapping JSONB context to columns
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
                 cur.execute("""
