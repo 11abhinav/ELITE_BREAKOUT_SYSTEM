@@ -1604,7 +1604,12 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
                             ticker_data_by_symbol[can_sym] = hist_df
                             
-                for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
+                import threading
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                _batch_lock = threading.Lock()
+                def _process_row(idx, row):
+                    nonlocal timestamp_checked, invalid_timestamp_count, date_checkable, stale_count, fundamental_checked, fundamental_missing, fundamental_invalid, fundamental_valid
+                    _ = None
                     symbol = row["Stock"]
                     category = row["Category"]
                     can_sym  = _canonical_symbol(symbol)
@@ -1612,18 +1617,21 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                     try:
                         ticker_data = ticker_data_by_symbol.get(can_sym)
                         if ticker_data is None:
-                            rejected["no_data"] += 1
-                            continue
+                            with _batch_lock:
+                                rejected["no_data"] += 1
+                            return
 
-                        timestamp_checked += 1
+                        with _batch_lock:
+                            timestamp_checked += 1
 
                         # Check and reject stale data individually using Date/Datetime supporting helper
                         latest_bar_dt = _latest_bar_timestamp(ticker_data)
                         if latest_bar_dt is None:
                             invalid_timestamp_count += 1
-                            rejected["invalid_timestamp"] += 1
+                            with _batch_lock:
+                                rejected["invalid_timestamp"] += 1
                             logger.debug(f"🚫 [REVERSAL] {symbol} skipped — invalid/missing timestamp")
-                            continue
+                            return
 
                         date_checkable += 1
 
@@ -1631,9 +1639,10 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         staleness = evaluate_data_staleness(latest_bar_dt, ist_now)
                         if staleness["is_stale"]:
                             stale_count += 1
-                            rejected["stale_data"] += 1
+                            with _batch_lock:
+                                rejected["stale_data"] += 1
                             logger.debug(f"🚫 [REVERSAL] {symbol} skipped — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
-                            continue
+                            return
 
                         # Check fundamental presence
                         fundamental_checked += 1
@@ -1665,7 +1674,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         )
 
                         if not verdict["passed"]:
-                            rejected[verdict.get("reject_code", "failed_pattern")] += 1
+                            with _batch_lock:
+                                rejected[verdict.get("reject_code", "failed_pattern")] += 1
                             try:
                                 from near_miss_tracker import log_near_miss
                                 ev_score = verdict.get("score") or verdict.get("raw_score") or 0
@@ -1686,11 +1696,12 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                     )
                             except Exception as _nm_e:
                                 logger.debug(f"Near miss log error: {_nm_e}")
-                            continue
+                            return
 
                         ctx = verdict["context"]
                         target_val = verdict["sl_result"].get("target_1") or verdict["sl_result"].get("target")
-                        shortlisted_alerts.append({
+                        with _batch_lock:
+                            shortlisted_alerts.append({
                             "symbol": symbol,
                             "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
                             "category": category,
@@ -1709,12 +1720,20 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         })
                     except Exception as sym_err:
                         logger.error(f"❌ [REVERSAL] Error processing symbol {symbol} in batch {batch_num}: {sym_err}")
-                        rejected["processing_error"] += 1
+                        with _batch_lock:
+                            rejected["processing_error"] += 1
             except Exception as batch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} execution error: {batch_err}")
-                rejected["batch_fetch_failed"] += len(chunk_df)
+                with _batch_lock:
+                    rejected["batch_fetch_failed"] += len(chunk_df)
             finally:
                 total_batches = (len(scan_watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
+
+
+                with ThreadPoolExecutor(max_workers=10, thread_name_prefix="Reversal_Worker") as executor:
+                    futures = [executor.submit(_process_row, idx, row) for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1)]
+                    for f in as_completed(futures):
+                        f.result()
                 logger.info(f"⏳ [REVERSAL SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(scan_watchlist))}/{len(scan_watchlist)} stocks) | Shortlisted so far: {len(shortlisted_alerts)}")
                 gc.collect()
 

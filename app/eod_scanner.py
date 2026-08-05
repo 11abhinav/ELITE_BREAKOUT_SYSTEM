@@ -761,7 +761,10 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                     tracker.mark_fetch_complete(row_count=rows_fetched)
                 
-                    for idx, row_tuple in enumerate(chunk_df.itertuples(index=False), start=1):
+                    import threading
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    _batch_lock = threading.Lock()
+                    def _process_row(idx, row_tuple):
                         symbol = "UNKNOWN"
                         try:
                             row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
@@ -770,7 +773,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             sector   = row.get("Sector", None)
 
                             if symbol in get_live_blacklist():
-                                continue
+                                return
 
                             # Robust symbol resolution across .NS / .BO suffixes
                             ticker_data = all_ticker_data.get(symbol)
@@ -778,31 +781,40 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
 
                             if ticker_data is None:
-                                rejection_counts["no_data"] += 1
-                                provider_stats_counts["EMPTY_DATA"] += 1
-                                scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_data"] += 1
+                                with _batch_lock:
+                                    provider_stats_counts["EMPTY_DATA"] += 1
+                                with _batch_lock:
+                                    scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
+                                return
 
                             if isinstance(ticker_data, ProviderResult):
                                 res = ticker_data
-                                provider_stats_counts[res.name] += 1
+                                with _batch_lock:
+                                    provider_stats_counts[res.name] += 1
                                 if res != ProviderResult.SUCCESS:
-                                    rejection_counts["no_data"] += 1
-                                    scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
-                                    continue
+                                    with _batch_lock:
+                                        rejection_counts["no_data"] += 1
+                                    with _batch_lock:
+                                        scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
+                                    return
                             else:
-                                provider_stats_counts["SUCCESS"] += 1
+                                with _batch_lock:
+                                    provider_stats_counts["SUCCESS"] += 1
 
                             ticker = ticker_data.copy()
 
                             if ticker.empty:
-                                rejection_counts["no_data"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_data"] += 1
+                                return
 
                             # If provider returned stale data (used as fallback during rate limits), skip EOD buy generation
                             if getattr(ticker, 'attrs', {}).get('is_stale'):
-                                rejection_counts["stale_data"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["stale_data"] += 1
+                                return
 
                             if isinstance(ticker.columns, pd.MultiIndex):
                                 ticker.columns = ticker.columns.get_level_values(0)
@@ -821,19 +833,22 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 ticker[col_name] = pd.Series(ticker[col_name]).astype(float)
 
                             if missing_col:
-                                rejection_counts["missing_col"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["missing_col"] += 1
+                                return
 
                             ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
                             if ticker.empty:
-                                rejection_counts["no_data"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_data"] += 1
+                                return
 
                             # [VERSION: EOD_BAR_LIMIT_FIX] Lowered bar minimum from 200 to 50 to allow IPOs/new listings to be evaluated
                             if len(ticker) < 50:
-                                rejection_counts["insufficient_bars"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["insufficient_bars"] += 1
+                                return
 
                             # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
                             # immediately after downloading the dataset. Doing it once there instead of 
@@ -841,21 +856,24 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             # ticker = apply_indicators(ticker, timeframe="1d")
 
                             if ticker is None or ticker.empty:
-                                rejection_counts["indicator_fail"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["indicator_fail"] += 1
+                                return
 
                             signals = detect_breakouts(ticker, timeframe="1d")
 
                             if len(signals) < MIN_SIGNALS:
-                                rejection_counts["weak_signals"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["weak_signals"] += 1
+                                return
 
                             latest = ticker.iloc[-1]
 
                             if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                                 logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
-                                rejection_counts["indicator_nan"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["indicator_nan"] += 1
+                                return
 
                             # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
                             # [FIX P0] Compare against the last bar's own date rather than ist_now.date().
@@ -878,9 +896,10 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             from market_utils import evaluate_data_staleness
                             _staleness = evaluate_data_staleness(_last_ts, ist_now)
                             if _staleness["is_stale"]:
-                                rejection_counts["stale_data"] += 1
+                                with _batch_lock:
+                                    rejection_counts["stale_data"] += 1
                                 logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
-                                continue
+                                return
 
                             # [VERSION: EOD_VOL_RATIO_FIX] Protect against newly listed stocks with <22 bars
                             if len(ticker) >= 22:
@@ -890,8 +909,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
 
                             if avg_volume <= 0:
                                 logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
-                                rejection_counts["zero_avg_volume"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["zero_avg_volume"] += 1
+                                return
 
                             volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
 
@@ -904,8 +924,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             upper_wick   = candle_high - max(candle_close, candle_open)
 
                             if candle_range <= 0:
-                                rejection_counts["zero_candle_range"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["zero_candle_range"] += 1
+                                return
 
                             body_ratio     = candle_body / candle_range
                             close_position = (candle_close - candle_low) / candle_range
@@ -936,48 +957,57 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
                             if volume_ratio < MIN_VOLUME_RATIO:
                                 logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
-                                rejection_counts["low_volume"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["low_volume"] += 1
+                                return
                             if avg_volume < MIN_AVG_VOLUME_SHARES:
                                 logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
-                                rejection_counts["low_avg_volume"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["low_avg_volume"] += 1
+                                return
                             if candle_close < MIN_STOCK_PRICE:
                                 logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
-                                rejection_counts["penny_stock"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["penny_stock"] += 1
+                                return
                             if not (MIN_RSI <= rsi_val <= MAX_RSI):
                                 logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
-                                rejection_counts["rsi_range"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["rsi_range"] += 1
+                                return
 
                             # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
                             # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
                             if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
-                                rejection_counts["missing_atr"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["missing_atr"] += 1
+                                return
 
                             prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
                             if prior_high <= 0:
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
-                                rejection_counts["no_structural_breakout"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_structural_breakout"] += 1
+                                return
 
                             if candle_close <= prior_high:
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
-                                rejection_counts["no_structural_breakout"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_structural_breakout"] += 1
+                                return
 
                             # Not Extended
                             if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
-                                rejection_counts["missing_atr"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["missing_atr"] += 1
+                                return
 
                             atr20 = _safe_float(latest.get("ATR20"))
                             if atr20 <= 0:
-                                rejection_counts["missing_atr"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["missing_atr"] += 1
+                                return
 
                             # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
                             technical_penalties = {}
@@ -992,8 +1022,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
                             if candle_range / atr20 < min_atr_expansion:
                                 logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
-                                rejection_counts["no_atr_expansion"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["no_atr_expansion"] += 1
+                                return
 
                             # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
                             # The base_too_wide filter at line 776 already checks the PREVIOUS bar's
@@ -1004,20 +1035,23 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
                                 if candle_close < _safe_float(latest.get("EMA20")):
                                     logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
-                                    rejection_counts["below_ema20"] += 1
-                                    continue
+                                    with _batch_lock:
+                                        rejection_counts["below_ema20"] += 1
+                                    return
 
                             if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
                                 if candle_close < _safe_float(latest.get("SMA50")):
                                     logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
-                                    rejection_counts["below_sma50"] += 1
-                                    continue
+                                    with _batch_lock:
+                                        rejection_counts["below_sma50"] += 1
+                                    return
 
                             if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
                                 if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
                                     logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
-                                    rejection_counts["weak_adx"] += 1
-                                    continue
+                                    with _batch_lock:
+                                        rejection_counts["weak_adx"] += 1
+                                    return
 
                             # MACD is no longer mandatory, shifted to scoring engine
 
@@ -1026,8 +1060,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 if high_52w > 0:
                                     pct_from_high = (high_52w - candle_close) / high_52w * 100
                                     if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
-                                        rejection_counts["far_from_52w_high"] += 1
-                                        continue
+                                        with _batch_lock:
+                                            rejection_counts["far_from_52w_high"] += 1
+                                        return
 
                             if len(ticker) >= 2:
                                 prev_close = _safe_float(ticker["Close"].iloc[-2])
@@ -1035,8 +1070,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     single_move_pct = abs(candle_close - prev_close) / prev_close * 100
                                     max_single_day_move_pct = EOD_ADVANCED_CONFIG.get("MAX_SINGLE_DAY_MOVE_PCT", 15.0)
                                     if single_move_pct > max_single_day_move_pct:
-                                        rejection_counts["gap_day"] += 1
-                                        continue
+                                        with _batch_lock:
+                                            rejection_counts["gap_day"] += 1
+                                        return
 
                             # [FIX P1-1] Removed hard 3% gap filter — gap penalty is now
                             # applied as a scoring penalty via technical_penalties below.
@@ -1087,8 +1123,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
                                 if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
                                     logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
-                                    rejection_counts["base_too_wide"] += 1
-                                    continue
+                                    with _batch_lock:
+                                        rejection_counts["base_too_wide"] += 1
+                                    return
 
                             # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
                             # [FINDING-8 FIX] OBV_SLOPE is a 3-bar diff which is noisy on breakout
@@ -1159,29 +1196,32 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
                             forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
                             if forensic_tier == "REJECT":
-                                rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
+                                with _batch_lock:
+                                    rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
                                 logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
-                                continue
+                                return
 
                             signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
 
                             # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
                             if score < global_min_score:
-                                rejection_counts["low_score"] += 1
+                                with _batch_lock:
+                                    rejection_counts["low_score"] += 1
                                 logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss
                                     log_near_miss(symbol, "EOD", signal_str, "score_threshold", score, global_min_score, score=score)
                                 except Exception:
                                     pass
-                                continue
+                                return
 
                             logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
 
                             # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
                             if (symbol, "EOD") in cooldown_alerts:
-                                rejection_counts["duplicate"] += 1
-                                continue
+                                with _batch_lock:
+                                    rejection_counts["duplicate"] += 1
+                                return
 
                             # ── Dynamic S/R and Indicator-based SL + Target (EOD mode) ───────
                             sl_result = compute_sl_and_target(
@@ -1210,7 +1250,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             )
                 
                             if sl_result.get("is_rejected"):
-                                rejection_counts["low_rr"] += 1  # Reusing this counter for engine rejects
+                                with _batch_lock:
+                                    rejection_counts["low_rr"] += 1  # Reusing this counter for engine rejects
                                 from database import save_rejected_alert
                                 if not is_test_mode:
                                     save_rejected_alert(
@@ -1220,7 +1261,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                         engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
                                         context={"category": category, "score": score, "sl_result": sl_result}
                                     )
-                                continue
+                                return
 
                             suggested_stop = sl_result["stop_loss"]
                             target_price = sl_result["target_1"]
@@ -1332,7 +1373,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     "_roe": row.get("ROE %"),
                                     "_ticker": ticker
                                 }
-                                approved_candidates.append(cand)
+                                with _batch_lock:
+                                    approved_candidates.append(cand)
                             else:
                                 pass
 
@@ -1340,14 +1382,21 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                         except Exception as e:
                             error_type = type(e).__name__
                             logger.warning(f"⚠️ Exception ({error_type}) processing {symbol}: {str(e)[:100]}")
-                            rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
+                            with _batch_lock:
+                                rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
                             if not is_test_mode:
                                 try:
                                     upsert_fetch_error('yfinance', 'EOD', symbol, '1d', f'processing_error_{error_type}', str(e)[:500])
                                 except Exception:
                                     logger.exception(f'Failed to upsert fetch error for {symbol}')
-                            continue
+                            return
 
+
+
+                    with ThreadPoolExecutor(max_workers=10, thread_name_prefix="EOD_Worker") as executor:
+                        futures = [executor.submit(_process_row, idx, row) for idx, row in enumerate(chunk_df.itertuples(index=False), start=1)]
+                        for f in as_completed(futures):
+                            f.result() # Raise any exceptions caught in thread
                 logger.info(f"⏳ [EOD SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(approved_candidates)}")
 
         # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────

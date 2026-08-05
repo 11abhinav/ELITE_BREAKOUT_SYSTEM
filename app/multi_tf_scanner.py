@@ -652,7 +652,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
     profiler_proc2 = MemoryProfiler("MTF Process Symbols")
     profiler_proc2.__enter__()
-    for item in active_items:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    _batch_lock = threading.Lock()
+    def _process_item(item):
+        nonlocal stale_30m, stale_15m, stale_5m, db_save_failures
         try:
             symbol = item["symbol"]
             state = item["current_state"]
@@ -664,13 +668,13 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             passed_phase_c = False  # Set True only when Phase C (15m alignment) is confirmed this cycle
 
             if breakout_level <= 0:
-                continue
+                return
 
             # ── EXPIRY + DECAY: applies to both SETUP_ARMED and ENTRY_READY ──
             df_30_decay = data_30m.get(symbol)
             if state in ("SETUP_ARMED", "ENTRY_READY") and df_30_decay is not None:
                 state_change_str = None
-            
+        
                 # Try to get it from context_json first
                 ctx_str = item.get("context_json")
                 if ctx_str:
@@ -679,11 +683,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         state_change_str = ctx_dict.get("last_state_change_at")
                     except Exception:
                         pass
-                    
+                
                 # Fallback to armed_at if not in context
                 if not state_change_str:
                     state_change_str = item.get("armed_at")
-                
+            
                 if state_change_str:
                     try:
                         state_change_ts = datetime.strptime(state_change_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=IST)
@@ -699,14 +703,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (30m decay check) due to stale data.")
-                        stale_30m += 1
-                        continue
+                        with _batch_lock:
+                            stale_30m += 1
+                        return
 
                     df = strip_forming_candle(df, 30, ist_now)
                     if df is not None and len(df) >= 2:
                         close = float(df["Close"].iloc[-1])
                         drift = (breakout_level - close) / breakout_level
-                    
+                
                         is_expired = False
                         if state_change_ts:
                             age_seconds = (ist_now - state_change_ts).total_seconds()
@@ -719,55 +724,59 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
                                 mark_breakout_watchlist_cooldown(symbol, "HOURLY_APPROVED", hours=2)
                             state = "HOURLY_APPROVED"
-                            lower_funnel["demoted"] += 1
+                            with _batch_lock:
+                                lower_funnel["demoted"] += 1
                             logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
                         elif is_expired:
                             if not is_test_mode:
                                 upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
                             state = "HOURLY_APPROVED"
-                            lower_funnel["demoted"] += 1
+                            with _batch_lock:
+                                lower_funnel["demoted"] += 1
                             logger.info(f"⏳ {symbol} {item['current_state']} expired (stale >4h + drifted >1.5%). Downgraded.")
 
             # ── Phase B (30m): HOURLY_APPROVED → SETUP_ARMED ─────────────────
             if state == "HOURLY_APPROVED" and data_30m.get(symbol) is not None and ok_30m:
-                lower_funnel["armed_candidates"] += 1
+                with _batch_lock:
+                    lower_funnel["armed_candidates"] += 1
                 df = data_30m.get(symbol)
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Phase B: no data returned from fetch")
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (30m upgrade check) due to stale data.")
-                        stale_30m += 1
-                        continue
+                        with _batch_lock:
+                            stale_30m += 1
+                        return
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Added defensive checks on strip_forming_candle return value
                     df = strip_forming_candle(df, 30, ist_now)
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase B: insufficient 30m data")
-                        continue
+                        return
                     # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
                     # df = apply_indicators(df, timeframe="30m")
                     if df.empty:
                         logger.debug(f"⏭️ {symbol} phase B: indicators failed to compute")
-                        continue
+                        return
                     latest = df.iloc[-1]
                     # [VERSION: MTF_BB_TIMING_FIX] Evaluate consolidation on previous candle (iloc[-2])
                     # so a breakout on the current candle doesn't invalidate its own base via BB expansion.
                     prev = df.iloc[-2] if len(df) >= 2 else latest
                     _raw_bb = prev.get("BB_WIDTH_PCTILE", 1.0)
                     bb_pctile = float(_raw_bb) if pd.notna(_raw_bb) else 1.0
-                
+            
                     close = _safe_float(latest.get("Close"))
                     dist_to_breakout = (breakout_level - close) / breakout_level
-                
+            
                     # Add 30m Volume Baseline for Fast Breakout Override
                     vol_ratio = 1.0
                     if "Volume" in latest and len(df) > 1:
                         mean_vol = df["Volume"].iloc[-21:-1].mean() if len(df) >= 22 else df["Volume"].iloc[:-1].mean()
                         mean_vol = max(float(mean_vol or 1.0), 1.0)
                         vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
-                
+            
                     # [FIX P2-5] Changed from "squeeze now" to "squeeze recently released".
                     # Previously required bb_pctile < 0.45 on the immediately prior candle.
                     # Now looks back 6-8 bars for a recent squeeze (BB Width Pctile < 0.45)
@@ -787,16 +796,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
                     is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.03 <= dist_to_breakout <= 0.035)
                     is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
-                
+            
                     if is_consolidation or is_fast_breakout:
-                        lower_funnel["bb_pass"] += 1
+                        with _batch_lock:
+                            lower_funnel["bb_pass"] += 1
                         swing_low = float(latest.get("SWING_LOW", close))
                         ema20 = float(latest.get("EMA20", close))
-                    
+                
                         ctx_json = json.dumps({"last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S')})
                         now_iso = ist_now.isoformat()
                         expires_iso = min(ist_now + timedelta(minutes=60), end_of_session).isoformat()
-                    
+                
                         if not is_test_mode:
                             upsert_breakout_watchlist(
                                 symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
@@ -810,34 +820,37 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 expires_at=expires_iso,
                                 timeframe="30m"
                             )
-                        lower_funnel["armed"] += 1
+                        with _batch_lock:
+                            lower_funnel["armed"] += 1
                         state = "SETUP_ARMED"
                         passed_phase_b = True  # [FIX-M2] Phase B confirmed this cycle — eligible for +10 bonus
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
             # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
             if state == "SETUP_ARMED" and data_15m.get(symbol) is not None and ok_15m:
-                lower_funnel["entry_candidates"] += 1
+                with _batch_lock:
+                    lower_funnel["entry_candidates"] += 1
                 df = data_15m.get(symbol)
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Phase C: no data returned from fetch")
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (15m entry check) due to stale data.")
-                        stale_15m += 1
-                        continue
+                        with _batch_lock:
+                            stale_15m += 1
+                        return
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
                     df = strip_forming_candle(df, 15, ist_now)
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase C: insufficient 15m data")
-                        continue
+                        return
                     # [PERFORMANCE_FIX] Pre-calculated by price_cache.py
                     # df = apply_indicators(df, timeframe="15m")
                     if df.empty:
                         logger.debug(f"⏭️ {symbol} phase C: indicators failed to compute")
-                        continue
+                        return
 
                     latest = df.iloc[-1]
                     e9_15 = float(latest.get("EMA9", 0) or 0)
@@ -845,13 +858,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     close = _safe_float(latest.get("Close"))
 
                     if e9_15 <= 0 or e20_15 <= 0:
-                        continue
+                        return
 
                     dist_to_breakout = (breakout_level - close) / breakout_level
 
                     # 15m must show micro-alignment: EMA9 > EMA20, price near level (widened floors to allow coiling on resistance)
                     if e9_15 > e20_15 and (-0.015 <= dist_to_breakout <= 0.025):
-                        lower_funnel["ema15_pass"] += 1
+                        with _batch_lock:
+                            lower_funnel["ema15_pass"] += 1
                         ctx_json = json.dumps({
                             "last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S'),
                             "15m_e9": round(e9_15, 2),
@@ -859,7 +873,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         })
                         now_iso = ist_now.isoformat()
                         expires_iso = min(ist_now + timedelta(minutes=30), end_of_session).isoformat()
-                    
+                
                         if not is_test_mode:
                             upsert_breakout_watchlist(
                                 symbol=symbol, category=cat, current_state="ENTRY_READY",
@@ -869,7 +883,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 expires_at=expires_iso,
                                 timeframe="15m"
                             )
-                        lower_funnel["entry_ready"] += 1
+                        with _batch_lock:
+                            lower_funnel["entry_ready"] += 1
                         state = "ENTRY_READY"
                         passed_phase_c = True  # [FIX-M2] Phase C confirmed this cycle — eligible for +5 bonus
                         logger.info(f"🟡 {symbol} promoted to ENTRY_READY "
@@ -880,46 +895,48 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             # Late-Session Entry Cutoff: Do not generate new intraday entries after 14:15 IST
             if ist_now.time() >= datetime.strptime("14:15", "%H:%M").time() and not run_once:
                 logger.debug(f"⏳ Late-session cutoff (14:15 IST) reached — skipping new Phase D entry for {symbol}")
-                continue
+                return
 
             if state == "ENTRY_READY" and data_5m.get(symbol) is not None and ok_5m:
-                lower_funnel["trigger_candidates"] += 1
+                with _batch_lock:
+                    lower_funnel["trigger_candidates"] += 1
                 df = data_5m.get(symbol)
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Phase D: no data returned from fetch")
                 if df is not None:
                     if getattr(df, 'attrs', {}).get('is_stale') == True:
                         logger.debug(f"⏭️ Skipping {symbol} (5m trigger check) due to stale data.")
-                        stale_5m += 1
-                        continue
+                        with _batch_lock:
+                            stale_5m += 1
+                        return
 
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 12] Defensive check against strip_forming_candle None return
                     df = strip_forming_candle(df, 5, ist_now)
                     # [VERSION: MULTI_TF_PATCH_v1.0] [BUG FIX 11] Added explicit debug logging for empty dataframes rather than silently skipping
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase D: insufficient 5m data")
-                        continue
+                        return
                     # [VERSION: MTF_DAILY_PIVOTS_FIX] Inject daily_ohlc into indicator engine to correctly anchor intraday S/R pivots
                     daily_df = data_daily.get(symbol)
                     df = apply_indicators(df, timeframe="5m", daily_ohlc=daily_df)
                     if df.empty or "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
                         logger.debug(f"⏭️ {symbol} phase D: missing required 5m indicators")
-                        continue
-                    
+                        return
+                
                     latest = df.iloc[-1]
                     prev = df.iloc[-2]
-                
+            
                     trigger_level = float(item.get("trigger_level") or breakout_level)
                     max_ext_atr = float(item.get("max_extension_atr") or 0.8)
-                
+            
                     e9 = float(latest.get("EMA9", 0))
                     close = _safe_float(latest.get("Close"))
                     low = _safe_float(latest.get("Low"))
                     open_px = _safe_float(latest.get("Open"))
                     atr20 = float(latest.get("ATR20", 0.0) or 0.0)
-                
+            
                     if atr20 <= 0:
-                        continue
+                        return
 
                     # [FIX MTF-14] Over-extension cap: use daily ATR (or 3% fallback) to measure
                     # extension against the breakout level. The 5m ATR is ~1/17th of daily ATR,
@@ -935,14 +952,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
 
                     # Micro-buffer uses 5m ATR (appropriate for intraday noise filtering)
                     buffer_val = 0.15 * atr20
-                
+            
                     if len(df) >= 22:
                         mean_vol = _safe_float(df["Volume"].iloc[-21:-1].mean()) or 1.0
                     else:
                         mean_vol = _safe_float(df["Volume"].iloc[:-1].mean()) or 1.0
                     mean_vol = max(mean_vol, 1.0)
                     vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
-                
+            
                     candle_range = _safe_float(latest.get("High")) - _safe_float(latest.get("Low"))
                     if candle_range > 0:
                         close_position = (close - low) / candle_range
@@ -955,11 +972,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     if close > trigger_level + (max_ext_atr * ref_atr):
                         dist_atr = (close - trigger_level) / ref_atr if ref_atr > 0 else 0
                         logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
-                        continue
+                        return
 
                     is_ready = False
                     trigger_type = ""
-                
+            
                     # Thrust/Continuation Trigger
                     # Price breaks local high while still close to level, with volume
                     if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.2:
@@ -968,7 +985,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         if close_position >= 0.65:
                             is_ready = True
                             trigger_type = "thrust"
-                    
+                
                     # [VERSION: MULTI_TF_PATCH_v1.1] Decoupled Pullback Trigger from Thrust Trigger
                     # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
                     # [FIX MTF-21] Defense is tested against trigger_level only (+ micro-buffer for
@@ -978,7 +995,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     if not is_ready and low <= defense_level + (0.15 * atr20):
                         # PULLBACK_TRIGGER_MODE Logic
                         trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_BODY")
-                        
+                    
                         if trigger_mode == "PREVIOUS_BODY":
                             c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
                         elif trigger_mode == "PREVIOUS_HIGH":
@@ -994,7 +1011,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             c_engulf = is_inside and close > float(prev["High"])
                         else:
                             c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
-                            
+                        
                         if close >= trigger_level and c_engulf and close > open_px and vol_ratio > 1.0:
                             if close_position >= 0.6:  # strong interaction/engulfing
                                 is_ready = True
@@ -1013,31 +1030,33 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 c_engulf = close > float(prev["Open"])
                             else:
                                 c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
-                            
+                        
                             c_vol = vol_ratio > 1.0
                             c_close_pos = close_position >= 0.6
                             c_bull_body = close > open_px
                             c_defended = low <= trigger_level + (0.15 * atr20)
                             c_above_trig = close >= trigger_level
-                            
+                        
                             reasons = []
                             if not c_engulf:
                                 reasons.append("PD02")
-                                lower_funnel["pb_fail_engulf"] += 1
+                                with _batch_lock:
+                                    lower_funnel["pb_fail_engulf"] += 1
                             if not c_vol:
                                 reasons.append("PD03")
-                                lower_funnel["pb_fail_vol"] += 1
+                                with _batch_lock:
+                                    lower_funnel["pb_fail_vol"] += 1
                             if not c_close_pos:
                                 reasons.append("PD04")
                             if not reasons:
                                 reasons.append("PD05")
-                                
+                            
                             trace = f"Engulf={c_engulf} BullBody={c_bull_body} Defended={c_defended} AboveTrig={c_above_trig} Vol={c_vol} StrongClose={c_close_pos}"
                             reason_str = f"{'|'.join(reasons)} [{trace}]"
-                            
+                        
                             dist_atr = ((close - trigger_level) / atr20) if atr20 > 0 else 0.0
                             logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
-                
+            
                     if is_ready:
                         # [FIX MTF-19] Promote state to TRADE_ACTIVE immediately so
                         # the phase_score calculation below grants the +10 Phase D bonus.
@@ -1048,16 +1067,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                         # Do not generate new buy alerts on stale data returned by provider
                         if getattr(df, 'attrs', {}).get('is_stale'):
                             logger.info(f"Skipping buy alert for {symbol} because data is stale")
-                            continue
+                            return
                         # Idempotency check before alert
                         if not check_recent_alert(symbol, scanner=SCANNER_MULTI_TF, breakout_type=SCANNER_MULTI_TF, lookback_minutes=390):
                             from sl_target_helper import compute_sl_and_target
-                            
+                        
                             # [VERSION: MTF_VWAP_FALLBACK_FIX] Fallback to EMA20 if VWAP is missing due to lack of intraday volume
                             vwap_val = latest.get("VWAP")
                             if vwap_val is None or pd.isna(vwap_val) or vwap_val <= 0:
                                 vwap_val = _safe_float(latest.get("EMA20", close))
-                                
+                            
                             sl_result = compute_sl_and_target(
                                 entry_price=close,
                                 atr=atr20,
@@ -1095,7 +1114,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                             calc_target = sl_result["target_1"]
 
                             if sl_result.get("is_rejected"):
-                                lower_funnel["rr_rejections"] += 1
+                                with _batch_lock:
+                                    lower_funnel["rr_rejections"] += 1
                                 from database import save_rejected_alert
                                 if not is_test_mode:
                                     save_rejected_alert(
@@ -1106,7 +1126,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                         context={"category": cat, "score": 0, "sl_result": sl_result}
                                     )
                                 logger.info(f"🚫 {symbol} alert SUPPRESSED: {sl_result.get('rejection_reason')}")
-                                continue
+                                return
 
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))
                             ctx = {
@@ -1125,7 +1145,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     "MAX_TARGET_ATR": 5.0
                                 }
                             }
-                        
+                    
                             if is_test_mode:
                                 inserted, reason = True, "TEST_MODE"
                                 logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {symbol}")
@@ -1145,7 +1165,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                     phase_score += 5   # Phase C bonus
                                 phase_score += 10      # Phase D bonus (always — Phase D is executing by definition)
                                 base_score = phase_score
-                                
+                            
                                 # ── Bayesian Pledge Penalty ──
                                 promoter_pledge_pct = pledge_map.get(symbol)
                                 if promoter_pledge_pct is not None and bayesian_weights and "PLEDGE_PENALTY" in bayesian_weights:
@@ -1161,7 +1181,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                             base_score -= pledge_penalty
                                             logger.warning(f"  -{pledge_penalty} [{symbol}] Promoter Pledge Penalty ({promoter_pledge_pct:.1f}% pledge)")
                                             base_score = max(0, base_score)
-                                
+                            
                                 try:
                                     from block_deal_detector import compute_inst_bonus
                                     inst_bonus = compute_inst_bonus(symbol, base_score)
@@ -1206,7 +1226,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                         m5_status="PASSED"
                                     )
                                     mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
-                                lower_funnel["triggered"] += 1
+                                with _batch_lock:
+                                    lower_funnel["triggered"] += 1
                                 # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
                                 _last_bar_date = "unknown"
                                 try:
@@ -1227,12 +1248,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                                 logger.info(f"🚫 {symbol} alert SUPPRESSED: {reason}")
                                 # [VERSION: MTF_DB_SAVE_FIX] Track silent DB save failures and flip health to DEGRADED
                                 if reason != "ALREADY_EXISTS" and reason != "RECENT_ALERT_EXISTS" and "CONFLICT" not in str(reason).upper():
-                                    db_save_failures += 1
+                                    with _batch_lock:
+                                        db_save_failures += 1
                                 # Do NOT advance state or set cooldown so it can try again if data freshness recovers
 
         except Exception as e:
             logger.exception(f"Fault isolation caught exception in Phase B/C/D: {e}")
-            continue
+            return
+
+
+    with ThreadPoolExecutor(max_workers=10, thread_name_prefix="MTF_Worker") as executor:
+        futures = [executor.submit(_process_item, item) for item in active_items]
+        for f in as_completed(futures):
+            f.result()
     # ── Log the funnel so we can see exactly where stocks drop off ────────
     logger.info(f"📊 Phase B/C/D Funnel: "
                 f"30m_cands={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "
