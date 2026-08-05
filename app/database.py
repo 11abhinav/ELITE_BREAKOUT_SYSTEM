@@ -2481,6 +2481,27 @@ def get_all_scanner_health() -> list[dict]:
                 return []
 
 
+def get_scanner_health(scanner_name: str) -> dict:
+    """Return health row for a specific scanner."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                norm_name = normalize_scanner_name(scanner_name)
+                cur.execute("""
+                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count, outcome, provider_stats, duration_seconds
+                    FROM scanner_health
+                    WHERE scanner_name = %s
+                """, (norm_name,))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+                return {}
+            except Exception:
+                logger.exception(f"❌ get_scanner_health failed for {scanner_name}")
+                return {}
+
+
 def normalize_scanner_name(scanner_name: str) -> str:
     """Canonicalize scanner name strings across UI and DB."""
     if not scanner_name:

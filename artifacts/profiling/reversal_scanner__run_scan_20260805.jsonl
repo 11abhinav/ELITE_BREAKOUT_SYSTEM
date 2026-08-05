@@ -1,1 +1,2 @@
 {"stage": "reversal_scanner._run_scan", "timestamp": "2026-08-05T08:40:51.596483+05:30", "duration_s": 7.433, "rss_before_mb": 579.7, "rss_after_mb": 581.7, "rss_delta_mb": 2.0, "error": "Failed to load watchlist for REVERSAL: Simulated crash in Reversal"}
+{"stage": "reversal_scanner._run_scan", "timestamp": "2026-08-05T09:40:53.876210+05:30", "duration_s": 7.807, "rss_before_mb": 655.4, "rss_after_mb": 659.0, "rss_delta_mb": 3.7, "error": "Failed to load watchlist for REVERSAL: Simulated crash in Reversal"}
