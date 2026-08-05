@@ -996,10 +996,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             
                     # Thrust/Continuation Trigger
                     # Price breaks local high while still close to level, with volume
-                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.2:
-                        # close_position + upper_wick_ratio == 1.0 always, so
-                        # close_position >= 0.6 AND upper_wick_ratio < 0.35 collapses to close_position > 0.65
-                        if close_position >= 0.65:
+                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio >= 1.0:
+                        if close_position >= 0.55:
                             is_ready = True
                             trigger_type = "thrust"
                 
