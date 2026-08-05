@@ -121,9 +121,7 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         if not ema_ok:
             checks.append(f"Trend Permission Fail: Requires Close ({close_price:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
 
-    from config import ADX_MIN_THRESHOLD
-    if adx_val < ADX_MIN_THRESHOLD:
-        checks.append(f"ADX {adx_val:.1f} < {ADX_MIN_THRESHOLD:.0f} minimum trend strength threshold")
+    # [VERSION: MULTI_TF_PATCH_v1.9] ADX hard gate removed in favor of scoring model
 
     if prior_high <= 0:
         checks.append("Invalid prior 20-day high level")
@@ -142,7 +140,19 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
             "atr_20": float(latest.get("ATR", close_price * 0.025))
         }
 
-    score = 80.0 if adx_val >= 30.0 else 75.0
+    # Dynamic Scoring Model
+    score = 75.0
+    if adx_val > 30.0:
+        score += 5.0
+    elif 20.0 <= adx_val <= 30.0:
+        pass # Neutral
+    elif 15.0 <= adx_val < 20.0:
+        score -= 5.0
+    else:
+        score -= 10.0
+        
+    if e9 > e20:
+        score += 5.0
     atr_val = float(latest.get("ATR", close_price * 0.025))
 
     # Evaluate 30m (Phase B), 15m (Phase C), and 5m (Phase D) intraday timeframes if available

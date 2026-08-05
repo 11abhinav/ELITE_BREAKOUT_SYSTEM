@@ -861,8 +861,13 @@ def _evaluate_candidate(
         }
 
     # Plausibility boundary validations: Relaxed floors to allow early turnaround assets in mean reversion
-    TURNAROUND_MIN_ROE = 0.0  # Was 8.0
-    TURNAROUND_MIN_REV_GROWTH = -20.0 # Was 4.0
+    TURNAROUND_MIN_ROE = 5.0
+    TURNAROUND_MIN_REV_GROWTH = -5.0
+    
+    # Exception for improving turnarounds
+    yoy_profit = _parse_robust_pct(fund_data, "yoy_profit", "YOY Profit %") if fund_data else None
+    if yoy_profit is not None and yoy_profit > 0:
+        TURNAROUND_MIN_ROE = -100.0  # Bypass ROE >= 5% floor if earnings are improving
     if roe_val is not None and (roe_val < TURNAROUND_MIN_ROE or not -100.0 <= roe_val <= 500.0):
         reason = f"ROE {roe_val:.1f}% < {TURNAROUND_MIN_ROE}% turnaround floor" if roe_val < TURNAROUND_MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
         return {

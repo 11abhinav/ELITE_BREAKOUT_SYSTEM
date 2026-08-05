@@ -124,7 +124,7 @@ MIN_ROE           = 0
 
 # ── JUNK-KILL GATES — These are NON-NEGOTIABLE hard blocks ──────────────────────────
 # Any stock violating these is permanently excluded regardless of momentum or growth.
-MAX_DEBT_EQUITY   = 2.0              # Relaxed from 1.0 to allow heavy-capex compounders
+MAX_DEBT_EQUITY   = 1.5              # Relaxed from 1.0 to allow heavy-capex compounders, capped at 1.5
 MIN_PROMOTER_MCAP = 5_000_000_000    # ₹500 Cr — blocks shell companies with inflated ROE
 
 # PATH A only
@@ -265,8 +265,7 @@ def fetch_universe() -> pd.DataFrame:
             col("exchange").isin(["NSE", "BSE"]),
             col("close")                        >= MIN_PRICE,
             col("market_cap_basic")             >= MIN_MARKET_CAP,
-            # [REMOVED] col("earnings_per_share_basic_ttm") > 0, to allow turnarounds
-            col("return_on_equity_fy")          >= MIN_ROE,
+            col("return_on_equity_fy")          >= 5,
             # [VERSION: DAILY_BUILDER_PATCH_v1.6] Removed col("operating_margin") >= 0
             # Rationale: Python junk gates (opm < 0, roa < 0.8) handle filtering.
             # Keeps financial names (banks/NBFCs) that may have null OPM in the universe.
@@ -440,6 +439,13 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
     # ── JUNK-KILL GATE — Non-negotiable hard blocks ──────────────────────────────────
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED: Promoter Blacklist / NSE Surveillance (ASM/GSM)")
+    
+    eps = fv("earnings_per_share_basic_ttm")
+    if eps is not None and eps <= 0:
+        cfo_pat = fund_data.get("cfo_pat_ratio")
+        is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_sales is not None and yoy_sales > 0) and (cfo_pat is not None and cfo_pat > 0)
+        if not is_turnaround_eps:
+            return skip(f"JUNK BLOCKED: Negative EPS {eps:.2f} (No turnaround exception)")
     
     # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
     if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
@@ -661,6 +667,12 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
     # ── JUNK-KILL GATE (Financial) — Non-negotiable hard blocks ─────────────────────
     if symbol in _BLACKLIST_SYMBOLS:
         return skip(f"JUNK BLOCKED (FIN): Promoter Blacklist / NSE Surveillance (ASM/GSM)")
+
+    eps = fv("earnings_per_share_basic_ttm")
+    if eps is not None and eps <= 0:
+        is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_rev is not None and yoy_rev > 0)
+        if not is_turnaround_eps:
+            return skip(f"JUNK BLOCKED (FIN): Negative EPS {eps:.2f} (No turnaround exception)")
 
     # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
     if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
