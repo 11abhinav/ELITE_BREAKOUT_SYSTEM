@@ -1008,7 +1008,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
             "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    min_rr = MIN_NATURAL_RR.get(scanner, 1.5)
+    min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
     risk_amount = entry - sl_data["raw_sl"]
     
     valid_targets = []

@@ -152,12 +152,12 @@ LIVE_1H_CONFIG = {
 
 EOD_CONFIG = {
     "MIN_SIGNALS":        1,
-    "MIN_BODY_RATIO":     0.45,
-    "MIN_CLOSE_POSITION": 0.65,
+    "MIN_BODY_RATIO":     0.40,
+    "MIN_CLOSE_POSITION": 0.55,
     "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.8,
+    "MIN_VOLUME_RATIO":   1.3,
     "MIN_VOLUME_AVG":     50_000,
-    "MIN_RSI":            55,
+    "MIN_RSI":            50,
     "MAX_RSI":            88,
 }
 
@@ -171,40 +171,31 @@ EOD_ADVANCED_CONFIG = {
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
     "GAP_AND_GO_PENALTY_MULT": 10,
     "GAP_AND_GO_MAX_PENALTY": 20,
-    "MIN_ATR_EXPANSION_RATIO": 0.9,  # [FIX P1] Relaxed from 1.2 — 1.2 rejected steady uptrend breakouts
+    "MIN_ATR_EXPANSION_RATIO": 0.8,
     "MIN_OBV_SLOPE": 0.0,
     
     # ── Prior Context & Tight Bases ──
     "PRE_BREAKOUT_LOOKBACK_BARS": 5,
-    "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
-    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.35,
+    "MAX_PRE_BREAKOUT_RED_CANDLES": 3,
+    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.50,
     
     # ── [FIX] Structural Breakout Constraint Relaxation ──
-    # Previously 0.20, which contradicted the fact that Bollinger Bands expand upon breakout.
     "MAX_BB_WIDTH_PCTILE": 0.80
 }
 
 REVERSAL_CONFIG = {
-    "MIN_DROP_FROM_52W_HIGH": 20.0,
+    "MIN_DROP_FROM_52W_HIGH": 15.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
-    # ── [FIX P3-8] RSI constraint relaxation ──
-    # RSI_CURL_MIN lowered from 50→45: allows stocks that are still building momentum
-    # but have clearly turned up from oversold. Combined with RSI slope condition
-    # (must be rising over last 3 bars) to prevent catching falling knives.
-    "RSI_CURL_MIN": 45,
+    "RSI_CURL_MIN": 40,
     "RSI_OVERSOLD_THRESHOLD": 38,
-    "MIN_VOLUME_RATIO": 2.0,
-    "MIN_AVG_DAILY_VOLUME": 300_000,
-    "MIN_ROE": 12.0,
-    "MIN_YOY_REVENUE_GROWTH": 8.0,
+    "MIN_VOLUME_RATIO": 1.3,
+    "MIN_AVG_DAILY_VOLUME": 100_000,
+    "MIN_ROE": 10.0,
+    "MIN_YOY_REVENUE_GROWTH": 5.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
     "REVERSAL_COOLDOWN_TRADING_DAYS": 40,
-    # [AUDIT-B3] Quality-category drop floor — documented carve-out for Wealth/Blue Chip/Debt-Free;
-    # 15% lets shallower pullbacks qualify for blue-chip-quality stocks.
-    "QUALITY_CAT_MIN_DROP": 15.0,
-    # [AUDIT-A1] Minimum RSI recovery from historical trough to current bar (hard gate).
-    # Ensures a genuine bounce exists, not just a stock sitting at RSI_CURL_MIN.
-    "MIN_RSI_RECOVERY": 5.0,
+    "QUALITY_CAT_MIN_DROP": 12.0,
+    "MIN_RSI_RECOVERY": 3.0,
 }
 
 ALERT_COOLDOWN_MINUTES = {
@@ -227,23 +218,13 @@ SCANNER_MAX_ALERTS = {
 
 # =====================================================================================
 # SCANNER LOOKBACK & THRESHOLD CONSTANTS
-# (All formerly hardcoded inside scanner modules — centralised here for §7 preamble compliance)
 # =====================================================================================
 
-# Reversal Gate 8: RSI must have been below RSI_OVERSOLD_THRESHOLD within this many bars
-# [FIX P3-8] Extended from 15 to 25 bars to capture slower bottoming patterns
-# where RSI oversold condition occurred 3-4 weeks ago during the base formation.
 REVERSAL_RSI_LOOKBACK = 25
 REVERSAL_MAX_TROUGH_AGE = 25
 
-# Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
-# [AUDIT-C1] BB_WIDTH_PCTILE_LOOKBACK is currently NOT used by any scanner.
-# The actual BB_WIDTH_PCTILE rolling window is hardcoded in technical_indicators.py as:
-#   df["BB_WIDTH_PCTILE"] = df["BB_WIDTH"].rolling(window=100, min_periods=50).rank(pct=True)
-# To make this configurable, wire this constant into technical_indicators.py's apply_indicators().
-BB_WIDTH_PCTILE_LOOKBACK = 60  # Target value when wired in
+BB_WIDTH_PCTILE_LOOKBACK = 60
 
-# Multi-TF batch size (number of symbols fetched per provider call)
 MULTI_TF_FETCH_BATCH_SIZE = 100
 
 # =====================================================================================
@@ -251,32 +232,19 @@ MULTI_TF_FETCH_BATCH_SIZE = 100
 # =====================================================================================
 MAX_SL_DISTANCE_PCT = 8.0         # Max allowed stop loss distance % from entry
 ACCOUNT_RISK_BUDGET_PCT = 1.0     # Max portfolio equity risk % per trade (Kelly / risk budget)
-# [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Enforce MAX_POSITION_PCT concentration cap (25% max portfolio capital per single trade)
 MAX_POSITION_PCT = 0.25
 
 PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
-    # [FIX P4-9] CONFIRM reduced from 3→2 to reduce pivot confirmation lag.
-    # 3 bars of confirmation was too conservative, missing valid swing highs
-    # where the pullback started just 2 bars after the high was printed.
     "LOOKBACK": 10, "CONFIRM": 2,
-    "MIN_IMPULSE_GAIN_PCT": 5.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 10.0, "MAX_DEPTH_PCT": 61.8,
-    "MIN_DURATION": 3, "MAX_DURATION": 20,
-    # [FIX P4-9] MAX_INTERNAL_SWINGS relaxed from 2→3. Some valid pullbacks have
-    # 3 minor internal swings during the corrective phase — requiring ≤2 was
-    # rejecting orderly pullbacks with slightly longer consolidation.
-    "MAX_INTERNAL_SWINGS": 3, "MAX_PB_VOLUME_RATIO": 0.75,
-    "TRIGGER_VOL_MULT": 1.3,
-    # [FIX P4-10] MIN_CLOSE_LOCATION relaxed from 0.75→0.65. 0.75 required the close
-    # to be in the top 25% of the candle range, which was too strict for reversal
-    # candles that close in the upper third — still bullish but not extreme.
-    "MIN_CLOSE_LOCATION": 0.65,
-    # [FIX P4-10] MIN_BODY_ATR relaxed from 0.5→0.35. Some valid trigger candles
-    # have moderate bodies (0.35-0.5 ATR) with strong close location and volume.
-    # Requiring ≥0.5 ATR body rejected valid continuation triggers.
-    "MIN_BODY_ATR": 0.35,
-    "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
+    "MIN_IMPULSE_GAIN_PCT": 4.0, "MIN_IMPULSE_ATR": 2.0, "MAX_IMPULSE_BARS": 20,
+    "MIN_DEPTH_PCT": 8.0, "MAX_DEPTH_PCT": 65.0,
+    "MIN_DURATION": 2, "MAX_DURATION": 20,
+    "MAX_INTERNAL_SWINGS": 3, "MAX_PB_VOLUME_RATIO": 0.80,
+    "TRIGGER_VOL_MULT": 1.1,
+    "MIN_CLOSE_LOCATION": 0.55,
+    "MIN_BODY_ATR": 0.30,
+    "MAX_UPPER_WICK": 0.35, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
     "OUTAGE_THRESHOLD_BUMP": 3,
     "MIN_HISTORY": 200,
