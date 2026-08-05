@@ -1264,7 +1264,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
 # [VERSION: PERF_PROFILER_v1.0] Wrap the reversal scan body so every run
 # reports wall-clock time, RSS delta, and any top-level exception via structured log.
 @profile_timing("reversal_scanner._run_scan", log_to_file=True)
-def _run_scan(force: bool = False, session=None):
+def _run_scan(force: bool = False, session=None, run_ctx=None):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     from database import (
         is_scanner_stopped,
@@ -1725,6 +1725,12 @@ def _run_scan(force: bool = False, session=None):
         invalid_timestamp_ratio = invalid_timestamp_count / max(timestamp_checked, 1)
         fundamental_failure_ratio = (fundamental_missing + fundamental_invalid) / max(fundamental_checked, 1)
 
+        if run_ctx:
+            run_ctx.set_total_stocks(total_symbols)
+            run_ctx.fresh_count = total_fetched_count
+            run_ctx.stale_count = stale_count
+            run_ctx.incomplete_count = max(0, total_symbols - total_fetched_count - stale_count)
+
         logger.info(f"📊 [REVERSAL] Batch Fetch Completed: {total_fetched_count}/{total_requested} requested symbols fetched ({fetch_ratio*100:.1f}%)")
         logger.info(f"📊 [REVERSAL] Stale Ratio: {stale_count}/{date_checkable} checkable symbols stale ({stale_ratio*100:.1f}%)")
         logger.info(f"📊 [REVERSAL] Invalid Timestamp Ratio: {invalid_timestamp_count}/{timestamp_checked} ({invalid_timestamp_ratio*100:.1f}%)")
@@ -2023,7 +2029,7 @@ _scan_lock = ProcessLock("reversal_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 
-def start(force: bool = False, session=None) -> int:
+def start(force: bool = False, session=None, run_ctx=None) -> int:
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("REVERSAL"):
@@ -2046,14 +2052,14 @@ def start(force: bool = False, session=None) -> int:
 
     _scan_start = print_scanner_start_banner("reversal_scanner", queued_at=queued_at)
     try:
-        return _start_wrapper(force, session=session)
+        return _start_wrapper(force, session=session, run_ctx=run_ctx)
     finally:
         print_scanner_end_banner("reversal_scanner", _scan_start)
         _scan_lock.release()
         _global_lock.release()
 
 
-def _start_wrapper(force: bool = False, session=None) -> int:
+def _start_wrapper(force: bool = False, session=None, run_ctx=None) -> int:
     """
     Single-shot scan. Called once by main.py at the 21:00 window.
     Returns the number of alerts generated (0 = no setups found).
@@ -2069,7 +2075,7 @@ def _start_wrapper(force: bool = False, session=None) -> int:
     force_refresh_blacklist()
 
     try:
-        return _run_scan(force=force, session=session)
+        return _run_scan(force=force, session=session, run_ctx=run_ctx)
     except Exception as e:
         logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
         import database

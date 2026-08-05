@@ -1966,7 +1966,7 @@
                     <th style="padding:10px 12px; text-align:left;">Duration</th>
                     <th style="padding:10px 12px; text-align:center;">Lifecycle</th>
                     <th style="padding:10px 12px; text-align:center;">Data Quality</th>
-                    <th style="padding:10px 12px; text-align:center;">Stocks (Fresh/Stale/Inc)</th>
+                    <th style="padding:10px 12px; text-align:center;" title="Fresh Data / Stale Data / Incomplete Data">Stocks (Fresh / Stale / Incomplete)</th>
                     <th style="padding:10px 12px; text-align:center;">Alerts</th>
                     <th style="padding:10px 12px; text-align:right;">Diagnostics / Error</th>
                   </tr>
@@ -4764,11 +4764,11 @@ function renderScannerExecutionHistory(data) {
           </span>
         </td>
         <td style="padding:10px 12px; text-align:center; font-family:var(--font-mono); font-size:11px;">
-          <strong>${r.total_stocks || 0}</strong>
-          <div style="font-size:10px; margin-top:2px;">
-            <span style="color:var(--accent);">${r.fresh_data_count || 0}</span> /
-            <span style="color:var(--amber);">${r.stale_data_count || 0}</span> /
-            <span style="color:var(--warn);">${r.incomplete_data_count || 0}</span>
+          <strong style="font-size:12px; color:var(--text);">${r.total_stocks || 0}</strong>
+          <div style="font-size:10px; margin-top:2px;" title="Fresh: ${r.fresh_data_count || 0} | Stale: ${r.stale_data_count || 0} | Incomplete: ${r.incomplete_data_count || 0}">
+            <span style="color:var(--accent);" title="Fresh Data">${r.fresh_data_count || 0}</span> /
+            <span style="color:var(--amber);" title="Stale Data">${r.stale_data_count || 0}</span> /
+            <span style="color:var(--warn);" title="Incomplete Data">${r.incomplete_data_count || 0}</span>
           </div>
         </td>
         <td style="padding:10px 12px; text-align:center; font-weight:800; color:${r.alerts_generated > 0 ? 'var(--accent)' : 'var(--muted)'};">

@@ -82,7 +82,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(force: bool = False, session=None):
+def start(force: bool = False, session=None, run_ctx=None):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("EOD"):
@@ -104,7 +104,7 @@ def start(force: bool = False, session=None):
 
     _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
     try:
-        return _start_wrapper(force, session=session)
+        return _start_wrapper(force, session=session, run_ctx=run_ctx)
     finally:
         print_scanner_end_banner("eod_scanner", _scan_start)
         _scan_lock.release()
@@ -443,7 +443,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 # wall-clock time, memory delta (RSS), and any top-level exception — all without
 # changing any business logic or scanner decision paths.
 @profile_timing("eod_scanner._start_wrapper", log_to_file=True)
-def _start_wrapper(force: bool = False, session=None):
+def _start_wrapper(force: bool = False, session=None, run_ctx=None):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     IST = ZoneInfo("Asia/Kolkata")
@@ -1446,6 +1446,12 @@ def _start_wrapper(force: bool = False, session=None):
         no_data_count = rejection_counts.get("no_data", 0)
         fresh_count = max(0, total_fetched_count - stale_count)
         data_status = "DEGRADED (Stale Data > 30%)" if (stale_count / max(total_symbols, 1)) > 0.30 else "OK"
+
+        if run_ctx:
+            run_ctx.set_total_stocks(total_symbols)
+            run_ctx.fresh_count = fresh_count
+            run_ctx.stale_count = stale_count
+            run_ctx.incomplete_count = no_data_count
 
         summary_lines = [
             "======================================================================",

@@ -670,7 +670,7 @@ def _run_eod_with_retries(today_str, session=None):
                 upsert_scanner_health("EOD", status="RUNNING", error_msg="EOD Scan in progress...")
                 try:
                     with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
-                        total = eod_scanner.start(force=True, session=session)   # returns int
+                        total = eod_scanner.start(force=True, session=session, run_ctx=run_ctx)   # returns int
                     duration_sec = round(time.time() - start_time, 1)
                     if isinstance(total, int):
                         run_ctx.add_alert(total)
@@ -775,7 +775,7 @@ def _run_reversal_with_retries(today_str, session=None):
                 upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal Scan in progress...")
                 try:
                     with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
-                        total = reversal_scanner.start(force=True, session=session)   # returns int
+                        total = reversal_scanner.start(force=True, session=session, run_ctx=run_ctx)   # returns int
                     duration_sec = round(time.time() - start_time, 1)
                     if isinstance(total, int):
                         run_ctx.add_alert(total)

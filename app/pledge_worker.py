@@ -282,6 +282,8 @@ def worker_loop():
                 continue
                 
             logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
+            from database import start_scanner_execution_run, complete_scanner_execution_run
+            worker_run_ctx = start_scanner_execution_run(scanner_name="Pledge Worker", trigger_type="SCHEDULED", scheduler_name="WORKER", total_stocks=len(stale_symbols))
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
             
             def process_symbol(sym, i_total, is_retry=False):
@@ -497,6 +499,13 @@ def worker_loop():
             
             loop_elapsed = round(time.time() - loop_start, 1)
             logger.info(f"✅ [PLEDGE WORKER] Iteration #{iteration} complete in {loop_elapsed}s | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={final_error_count} | Total Processed={processed_base + successful_in_first_pass}/{total_watch}")
+            
+            if 'worker_run_ctx' in locals() and worker_run_ctx:
+                worker_run_ctx.set_total_stocks(total_stale)
+                worker_run_ctx.fresh_count = found_count
+                worker_run_ctx.stale_count = missing_count + fail_404_count
+                worker_run_ctx.incomplete_count = final_error_count
+                complete_scanner_execution_run(worker_run_ctx)
             
             if quota_exhausted:
                 logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")
