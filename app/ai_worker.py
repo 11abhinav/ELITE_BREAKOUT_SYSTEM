@@ -124,53 +124,57 @@ def run_ai_worker_scan_once() -> dict:
             attempt_start = time.time()
             logger.info(f"🤖 [AI WORKER] Batch attempt {attempt+1}/{max_retries} | Symbols to process: {len(actual_pending)}")
             failed_stocks = []
-            for i, sym in enumerate(actual_pending):
-                sym_start = time.time()
-                try:
-                    logger.info(f"🤖 [AI WORKER] Missing cache for {sym} ({i+1}/{len(actual_pending)} in batch). Fetching live...")
-                    result = fetch_and_analyze_concall(sym)
-                    
-                    if result and "error" not in result:
-                        sym_elapsed = round(time.time() - sym_start, 2)
-                        global_penalty_idx = 0
-                        conf = result.get("management_confidence", "N/A")
-                        key_used = result.get("key_used", "Key 1")
-                        logger.info(f"✅ [AI WORKER] {sym} ({i+1}/{len(actual_pending)}) ✔ Cached | Conf={conf} | {key_used} | {sym_elapsed}s")
-                        db_processed_count += 1
-                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
-                    else:
-                        error_msg = result.get('error', 'Unknown Error') if result else 'No result returned'
-                        logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
-                        try:
-                            upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall', error_msg)
-                        except Exception as inner_e:
-                            logger.exception(f"Failed to upsert fetch_error for AI Worker: {inner_e}")
-                        upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
-
-                        # Classify error for retry vs. negative-cache strategy
-                        is_rate_limit = "429" in error_msg or "All AI models" in error_msg
-                        is_transient  = "503" in error_msg or "502" in error_msg or "timeout" in error_msg.lower() or "unavailable" in error_msg.lower()
-
-                        if is_rate_limit or is_transient:
-                            # Transient/rate-limit errors → add to retry queue, back off
-                            failed_stocks.append(sym)
-                            penalty = [300, 900, 1800][min(global_penalty_idx, 2)]
-                            logger.warning(f"⚠️ [AI WORKER] Transient/rate-limit error for {sym}. Backing off {penalty//60}m before retry...")
-                            time.sleep(penalty)
-                            global_penalty_idx += 1
-                        else:
-                            # Persistent error (no PDF, NSE down, etc.) → save negative cache to avoid re-hammering today
-                            logger.warning(f"⚠️ [AI WORKER] Persistent error for {sym}: {error_msg}. Saving 24h negative cache.")
-                            save_concall_analysis(sym, f"NONE_{sym}", {"error": error_msg})
-                    time.sleep(5)
-                except Exception as e:
-                    logger.exception(f"❌ [AI WORKER] Error processing {sym}")
+            import concurrent.futures
+            import threading
+            
+            _db_lock = threading.Lock()
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {executor.submit(fetch_and_analyze_concall, sym): sym for sym in actual_pending}
+                
+                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                    sym = futures[future]
+                    sym_start = time.time()
                     try:
-                        upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall_failure', str(e))
-                    except Exception as inner_e:
-                        logger.exception(f"Failed to upsert fetch_error for {sym}: {inner_e}")
-                    failed_stocks.append(sym)
-                    time.sleep(10)
+                        logger.info(f"🤖 [AI WORKER] Missing cache for {sym} ({i+1}/{len(actual_pending)} in batch). Fetching live...")
+                        result = future.result()
+                        
+                        if result and "error" not in result:
+                            sym_elapsed = round(time.time() - sym_start, 2)
+                            conf = result.get("management_confidence", "N/A")
+                            key_used = result.get("key_used", "Key 1")
+                            logger.info(f"✅ [AI WORKER] {sym} ({i+1}/{len(actual_pending)}) ✔ Cached | Conf={conf} | {key_used} | {sym_elapsed}s")
+                            with _db_lock:
+                                db_processed_count += 1
+                                upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
+                        else:
+                            error_msg = result.get('error', 'Unknown Error') if result else 'No result returned'
+                            logger.warning(f"⚠️ [AI WORKER] Failed to cache {sym}: {error_msg}")
+                            try:
+                                upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall', error_msg)
+                            except Exception as inner_e:
+                                logger.exception(f"Failed to upsert fetch_error for AI Worker: {inner_e}")
+                            
+                            with _db_lock:
+                                upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
+    
+                            is_rate_limit = "429" in error_msg or "All AI models" in error_msg
+                            is_transient  = "503" in error_msg or "502" in error_msg or "timeout" in error_msg.lower() or "unavailable" in error_msg.lower()
+    
+                            if is_rate_limit or is_transient:
+                                failed_stocks.append(sym)
+                                logger.warning(f"⚠️ [AI WORKER] Transient/rate-limit error for {sym}. Adding to retry queue...")
+                            else:
+                                logger.warning(f"⚠️ [AI WORKER] Persistent error for {sym}: {error_msg}. Saving 24h negative cache.")
+                                save_concall_analysis(sym, f"NONE_{sym}", {"error": error_msg})
+                                
+                    except Exception as e:
+                        logger.exception(f"❌ [AI WORKER] Error processing {sym}")
+                        try:
+                            upsert_fetch_error('ai', 'AI Worker', sym, None, 'ai_concall_failure', str(e))
+                        except Exception as inner_e:
+                            logger.exception(f"Failed to upsert fetch_error for {sym}: {inner_e}")
+                        failed_stocks.append(sym)
                     
             attempt_elapsed = round(time.time() - attempt_start, 1)
             logger.info(f"🤖 [AI WORKER] Attempt {attempt+1} done in {attempt_elapsed}s | Processed={len(actual_pending)-len(failed_stocks)} | Failed={len(failed_stocks)}")
