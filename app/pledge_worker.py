@@ -133,6 +133,9 @@ def discover_trendlyne_url(symbol: str) -> str:
                     logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
                     return actual_url
 
+    # Ultimate fallback: Return direct stock URL so discover_trendlyne_url NEVER returns None
+    return fast_url
+
 def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False):
     """Save or update promoter pledge cache with single connection checkout."""
     try:
@@ -283,7 +286,7 @@ def worker_loop():
             
             def process_symbol(sym, i_total, is_retry=False):
                 """Returns 'FOUND', 'MISSING', '404', or 'ERROR'."""
-                target_url = discover_trendlyne_url(sym)
+                target_url = discover_trendlyne_url(sym) or f"https://trendlyne.com/stock/{sym.replace('.NS', '')}/"
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
                 
