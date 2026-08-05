@@ -605,7 +605,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         except Exception as res_err:
             logger.debug(f"History bundle DB restore check: {res_err}")
 
-    for sym in symbols:
+    import concurrent.futures
+    import threading
+    local_lock = threading.Lock()
+    fresh_count_container = [0]
+
+    def process_symbol(sym):
         file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
         needs_full = True
         cached_df = None
@@ -683,10 +688,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 except Exception as e:
                                     logger.warning(f"Failed to resave enriched cache for {sym}: {e}")
                                     
-                            all_data[sym] = cached_df
+                            with local_lock:
+                                all_data[sym] = cached_df
+                                fresh_count_container[0] += 1
                             needs_full = False
-                            fresh_count += 1
-                            continue
+                            return
                         else:
                             # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
                             needs_full = True
@@ -703,17 +709,25 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         range_to = today_str
                         
                         group_key = (range_from, range_to)
-                        if group_key not in fetch_groups:
-                            fetch_groups[group_key] = []
-                        fetch_groups[group_key].append((sym, cached_df))
+                        with local_lock:
+                            if group_key not in fetch_groups:
+                                fetch_groups[group_key] = []
+                            fetch_groups[group_key].append((sym, cached_df))
                         needs_full = False
             except Exception as e:
                 logger.warning(f"Failed to read disk cache for {sym}: {e}")
                 
         if needs_full:
-            if "FULL" not in fetch_groups:
-                fetch_groups["FULL"] = []
-            fetch_groups["FULL"].append((sym, cached_df))
+            with local_lock:
+                if "FULL" not in fetch_groups:
+                    fetch_groups["FULL"] = []
+                fetch_groups["FULL"].append((sym, cached_df))
+
+    max_w = min(32, (os.cpu_count() or 4) + 4)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
+        executor.map(process_symbol, symbols)
+        
+    fresh_count = fresh_count_container[0]
 
     # Process each group
     for group_key, items in fetch_groups.items():

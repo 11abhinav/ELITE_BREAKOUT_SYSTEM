@@ -2013,6 +2013,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Earnings Calendar": lambda: __import__('earnings_calendar')._scan_lock,
     }
     
+    try:
+        from database import get_scanner_health
+        h_info = get_scanner_health(scanner_key)
+        h_status = (h_info.get("status") if h_info else "OK") or "OK"
+        if h_status in ("RUNNING", "QUEUED") or h_status.startswith("QUEUED"):
+            return {"status": "error", "message": f"{scanner_key} is already actively running or queued ({h_status}). Trigger rejected to prevent parallel runs."}
+    except Exception as e:
+        logger.warning(f"Could not verify scanner health status: {e}")
+
     lock_fn = LOCK_MAP.get(scanner_key)
     if lock_fn:
         try:
@@ -2041,22 +2050,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     def _run():
         try:
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
-            from database import start_scanner_execution_run, complete_scanner_execution_run
             with scanner_execution_lock:
                 start_time = time.time()
-                run_ctx = start_scanner_execution_run(scanner_name=scanner_key, trigger_type="MANUAL", scheduler_name="MANUAL")
                 logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
-                upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual trigger in progress...")
                 try:
-                    stats = fn() or {}
+                    import inspect
+                    sig = inspect.signature(fn)
+                    if "trigger_type" in sig.parameters:
+                        stats = fn(trigger_type="MANUAL", scheduler_name="MANUAL") or {}
+                    else:
+                        stats = fn() or {}
                     duration_sec = round(time.time() - start_time, 1)
-                    if isinstance(stats, dict) and "today_alerts" in stats:
-                        run_ctx.add_alert(stats.get("today_alerts", 0))
                     time.sleep(15)
                     logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
-                    complete_scanner_execution_run(run_ctx)
                 except Exception as run_err:
-                    complete_scanner_execution_run(run_ctx, exception=run_err)
                     raise run_err
 
                 now_str = datetime.now(IST).isoformat()
@@ -2129,19 +2136,9 @@ def _trigger_daily_builder():
     from watchlist_cache import get_watchlist
     get_watchlist()
 
-def _trigger_multi_tf():
-    from database import start_scanner_execution_run, complete_scanner_execution_run
-    run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type="SCHEDULED", scheduler_name="CRON")
+def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
     import multi_tf_scanner
-    try:
-        stats = multi_tf_scanner.start(run_once=True)
-        if isinstance(stats, dict) and "today_alerts" in stats:
-            run_ctx.add_alert(stats.get("today_alerts", 0))
-        complete_scanner_execution_run(run_ctx)
-        return stats
-    except Exception as e:
-        complete_scanner_execution_run(run_ctx, exception=e)
-        raise e
+    return multi_tf_scanner.start(run_once=True, trigger_type=trigger_type, scheduler_name=scheduler_name)
 
 
 def _trigger_eod():

@@ -82,12 +82,16 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(force: bool = False, session=None, run_ctx=None):
-    from database import is_scanner_stopped, upsert_scanner_health
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from database import is_scanner_stopped, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("EOD"):
         logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
         return 0
+
+    if not _scan_lock.acquire(blocking=False):
+        logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
+        raise RuntimeError("Scanner is already actively running!")
 
     queued_at = None
     if not _global_lock.acquire(blocking=False):
@@ -95,16 +99,27 @@ def start(force: bool = False, session=None, run_ctx=None):
         logger.info("⏳ [EOD] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
         if not _global_lock.acquire(blocking=True):
+            _scan_lock.release()
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-    if not _scan_lock.acquire(blocking=False):
-        _global_lock.release()
-        raise RuntimeError("Scanner is already actively running!")
+    own_ctx = False
+    if run_ctx is None:
+        run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
+        own_ctx = True
 
     _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
     try:
-        return _start_wrapper(force, session=session, run_ctx=run_ctx)
+        total = _start_wrapper(force, session=session, run_ctx=run_ctx)
+        if own_ctx and isinstance(total, int):
+            run_ctx.add_alert(total)
+        if own_ctx:
+            complete_scanner_execution_run(run_ctx)
+        return total
+    except Exception as e:
+        if own_ctx:
+            complete_scanner_execution_run(run_ctx, exception=e)
+        raise e
     finally:
         print_scanner_end_banner("eod_scanner", _scan_start)
         _scan_lock.release()

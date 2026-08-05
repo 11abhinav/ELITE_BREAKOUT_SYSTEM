@@ -325,26 +325,29 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
                 logger.debug(f"{symbol}: Selected {len(final_peers)} peers using Full Sector Fallback.")
                 
 
-            val_pe = final_peers["price_earnings_ttm"].median()
-            val_pb = final_peers["price_book_ratio"].median()
-            val_roe = final_peers["return_on_equity_fy"].median()
-            
-            val_ev_ebitda = None
-            if "enterprise_value_ebitda_ratio" in final_peers.columns:
-                val_ev_ebitda = final_peers["enterprise_value_ebitda_ratio"].median()
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                val_pe = final_peers["price_earnings_ttm"].median()
+                val_pb = final_peers["price_book_ratio"].median()
+                val_roe = final_peers["return_on_equity_fy"].median()
                 
-            val_div_yield = None
-            if "dividend_yield_recent" in final_peers.columns:
-                val_div_yield = final_peers["dividend_yield_recent"].median()
-            
-            # Compute median PEG
-            median_peg = None
-            if "total_revenue_yoy_growth_ttm" in final_peers.columns:
-                # Note: TradingView returns total_revenue_yoy_growth_ttm in percentage points (e.g., 15 for 15%).
-                # The .clip(lower=1) prevents division by zero or negative growth, relying on the percentage point assumption.
-                peg_series = final_peers["price_earnings_ttm"] / final_peers["total_revenue_yoy_growth_ttm"].clip(lower=1)
-                peg_series = peg_series.apply(lambda x: x if pd.notnull(x) and 0 < x < 10 else np.nan)
-                median_peg = peg_series.median()
+                val_ev_ebitda = None
+                if "enterprise_value_ebitda_ratio" in final_peers.columns:
+                    val_ev_ebitda = final_peers["enterprise_value_ebitda_ratio"].median()
+                    
+                val_div_yield = None
+                if "dividend_yield_recent" in final_peers.columns:
+                    val_div_yield = final_peers["dividend_yield_recent"].median()
+                
+                # Compute median PEG
+                median_peg = None
+                if "total_revenue_yoy_growth_ttm" in final_peers.columns:
+                    # Note: TradingView returns total_revenue_yoy_growth_ttm in percentage points (e.g., 15 for 15%).
+                    # The .clip(lower=1) prevents division by zero or negative growth, relying on the percentage point assumption.
+                    peg_series = final_peers["price_earnings_ttm"] / final_peers["total_revenue_yoy_growth_ttm"].clip(lower=1)
+                    peg_series = peg_series.apply(lambda x: x if pd.notnull(x) and 0 < x < 10 else np.nan)
+                    median_peg = peg_series.median()
                 
             # Compute Dispersion (IQR / Median)
             dispersion = None

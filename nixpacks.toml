@@ -1,0 +1,15 @@
+[providers]
+providers = ['python']
+
+[variables]
+PYTHONUNBUFFERED = '1'
+MALLOC_ARENA_MAX = '2'
+
+[phases.setup]
+aptPkgs = ['build-essential', 'libpq-dev', 'curl']
+
+[phases.install]
+cmds = ['pip install --no-cache-dir -r requirements.txt']
+
+[start]
+cmd = 'bash start.sh'
