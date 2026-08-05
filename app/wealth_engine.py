@@ -764,7 +764,7 @@ _global_lock = ProcessLock("global_scanner_lock")
 # =====================================================================================
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
-def run_wealth_scan(is_test_mode=False):
+def run_wealth_scan(is_test_mode=False, run_ctx=None):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("Wealth Engine"):
@@ -1678,6 +1678,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
             f"Alerts Persisted to DB: {saved_alerts_count}\n"
             f"=========================================="
         )
+        
+        if run_ctx:
+            run_ctx.set_total_stocks(len(candidate_symbols))
+            run_ctx.fresh_count = global_fetched_count
+            run_ctx.stale_count = len(candidate_stale_symbols)
+            run_ctx.incomplete_count = len(candidate_missing_symbols)
+            run_ctx.add_alert(saved_alerts_count)
 
         _prof_l2.__exit__(None, None, None)
 

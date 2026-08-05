@@ -1501,7 +1501,13 @@ def _start_wrapper(run_once=False, is_test_mode=False):
             
             total_stale = (metrics_a.get("stale", 0) + metrics_b.get("stale", 0))
             total_symbols = (metrics_a.get("total", 0) + metrics_b.get("total", 0))
+            total_fetched = (metrics_a.get("fetched", 0) + metrics_b.get("fetched", 0))
             
+            if run_ctx:
+                run_ctx.set_total_stocks(total_symbols)
+                run_ctx.fresh_count = total_fetched
+                run_ctx.stale_count = total_stale
+                
             if total_symbols > 0 and total_stale / total_symbols > 0.05:
                 status = "DEGRADED"
                 error_msg = f"Stale Data: {total_stale}/{total_symbols} symbols"

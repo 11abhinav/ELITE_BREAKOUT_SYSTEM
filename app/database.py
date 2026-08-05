@@ -1170,6 +1170,8 @@ def init_db():
                     CREATE INDEX IF NOT EXISTS idx_seh_lifecycle ON scanner_execution_history(lifecycle_status);
                     CREATE INDEX IF NOT EXISTS idx_seh_quality ON scanner_execution_history(quality_status);
                     CREATE INDEX IF NOT EXISTS idx_seh_run_id ON scanner_execution_history(run_id);
+                    CREATE INDEX IF NOT EXISTS idx_seh_sysver ON scanner_execution_history(system_version);
+                    CREATE INDEX IF NOT EXISTS idx_seh_gitcom ON scanner_execution_history(git_commit);
                 """)
                 # 39. Trade analytics view mapping JSONB context to columns
                 cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
@@ -7317,6 +7319,10 @@ def get_scanner_execution_history(
                 if system_version and system_version.upper() != "ALL":
                     where_clauses.append("COALESCE(system_version, 'v1') = %s")
                     params.append(system_version)
+                    
+                if git_commit and git_commit.upper() != "ALL":
+                    where_clauses.append("git_commit = %s")
+                    params.append(git_commit)
 
                 if date_range == "today":
                     where_clauses.append("started_at >= CURRENT_DATE")
@@ -7326,20 +7332,30 @@ def get_scanner_execution_history(
                     where_clauses.append("started_at >= NOW() - INTERVAL '30 days'")
 
                 if search and search.strip():
-                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR error_summary ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s)")
+                    # [VERSION: PERF_FIX] Removed slow ILIKE on error_details. Focus only on indexed or small columns.
+                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s)")
                     term = f"%{search.strip()}%"
-                    params.extend([term, term, term, term, term])
+                    params.extend([term, term, term, term])
 
                 where_sql = " AND ".join(where_clauses)
 
-                # Fetch available versions for dropdown filter
+                # Fetch available versions and git commits for dropdown filter
+                # We limit to the most recent 1000 rows to prevent slow DISTINCT on huge tables
                 cur.execute("""
                     SELECT DISTINCT COALESCE(system_version, 'v1') as ver 
-                    FROM scanner_execution_history 
+                    FROM (SELECT system_version FROM scanner_execution_history ORDER BY started_at DESC LIMIT 1000) sub
                     ORDER BY ver DESC;
                 """)
                 ver_rows = cur.fetchall()
                 available_versions = [r["ver"] for r in ver_rows if r.get("ver")]
+                
+                cur.execute("""
+                    SELECT DISTINCT git_commit as git 
+                    FROM (SELECT git_commit FROM scanner_execution_history WHERE git_commit IS NOT NULL ORDER BY started_at DESC LIMIT 1000) sub
+                    ORDER BY git DESC;
+                """)
+                git_rows = cur.fetchall()
+                available_commits = [r["git"] for r in git_rows if r.get("git")]
 
                 # Total Count
                 cur.execute(f"SELECT COUNT(*) as cnt FROM scanner_execution_history WHERE {where_sql}", params)

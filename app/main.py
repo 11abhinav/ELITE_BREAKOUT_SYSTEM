@@ -1150,7 +1150,7 @@ def run_system_scheduler():
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_START")
             telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
-                run_wealth_scan()
+                run_wealth_scan(run_ctx=run_ctx)
             
             duration_sec = round(time.time() - start_time, 1)
             complete_scanner_execution_run(run_ctx)
@@ -1213,7 +1213,7 @@ def run_system_scheduler():
                     try:
                         with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
                             from wealth_engine import run_wealth_scan
-                            run_wealth_scan()
+                            run_wealth_scan(run_ctx=run_ctx)
                         duration_sec = round(time.time() - _scan_start_t, 1)
                         complete_scanner_execution_run(run_ctx)
                         now_str = datetime.now(IST).isoformat()
@@ -2151,7 +2151,7 @@ def _trigger_reversal():
 
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan
-    run_wealth_scan()
+    run_wealth_scan(run_ctx=run_ctx)
 
 def _trigger_multibagger():
     import multibagger
