@@ -7324,6 +7324,7 @@ def get_scanner_execution_history(
     date_range: str = "7d",
     search: str = None,
     system_version: str = None,
+    git_commit: str = None,
     page: int = 1,
     per_page: int = 25
 ):
