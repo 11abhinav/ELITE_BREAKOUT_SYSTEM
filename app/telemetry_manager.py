@@ -13,6 +13,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 # Configure logger if not already configured in main app
 logger = logging.getLogger("Telemetry")
+logger.propagate = False
 if not logger.handlers:
     ch = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
