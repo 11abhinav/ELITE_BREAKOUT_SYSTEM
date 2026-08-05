@@ -102,7 +102,7 @@ def _get_pool() -> pool.ThreadedConnectionPool:
                 "Add the Railway Postgres addon and it will be injected automatically."
             )
         # Configure pool size via env override if provided (fallback to 50)
-        maxconn = int(os.getenv("DB_MAXCONN", "50"))
+        maxconn = int(os.getenv("DB_MAXCONN", "100"))
         minconn = int(os.getenv("DB_MINCONN", "2"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,

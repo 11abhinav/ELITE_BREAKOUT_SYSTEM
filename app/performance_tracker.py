@@ -800,7 +800,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         if t.get("is_rejected"):
             t["status"] = "REJECTED"
 
-    stage_tracker.end_stage(f"Processed {len(trades)} trades | open={len(open_p)} | closed={n_judged if 'n_judged' in dir() else '?'}")
+    stage_tracker.end_stage(f"Processed {len(trades)} trades")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
     stage_tracker.start_stage(4, "Summary Stats & Aggregation", "Computing win rate, P&L stats, scanner/category breakdowns")
     judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL")]
