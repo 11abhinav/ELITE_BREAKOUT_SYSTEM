@@ -1744,8 +1744,24 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
                             save_fundamentals_cache(cache, sync_to_db=True)
                     else:
                         logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
+                        # [VERSION: CACHE_FAILURE_v1.0] Cache failures so we don't retry fetching permanently missing stocks every single day
+                        fail_fund = {"symbol": sym, "failed": True, "fetched_at": datetime.now(IST).isoformat()}
+                        cache[sym] = fail_fund
+                        fundamentals_list.append(fail_fund)
+                        
+                        # Still count as fetched so the chunk saves properly
+                        fetched_count += 1
+                        if fetched_count % 25 == 0:
+                            save_fundamentals_cache(cache, sync_to_db=True)
                 except Exception as e:
                     logger.error(f"❌ Error fetching fundamentals for {sym}: {e}")
+                    # Cache the exception failure as well
+                    fail_fund = {"symbol": sym, "failed": True, "fetched_at": datetime.now(IST).isoformat()}
+                    cache[sym] = fail_fund
+                    fundamentals_list.append(fail_fund)
+                    fetched_count += 1
+                    if fetched_count % 25 == 0:
+                        save_fundamentals_cache(cache, sync_to_db=True)
         except concurrent.futures.TimeoutError:
             logger.error("❌ Timeout fetching fundamentals in multibagger. Aborting remaining fetches to prevent deadlock.")
                 
