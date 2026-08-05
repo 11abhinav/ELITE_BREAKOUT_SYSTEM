@@ -860,9 +860,9 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # Plausibility boundary validations: hard floor at 8.0% ROE and 4.0% YoY Revenue Growth for turnaround reversals
-    TURNAROUND_MIN_ROE = 8.0
-    TURNAROUND_MIN_REV_GROWTH = 4.0
+    # Plausibility boundary validations: Relaxed floors to allow early turnaround assets in mean reversion
+    TURNAROUND_MIN_ROE = 0.0  # Was 8.0
+    TURNAROUND_MIN_REV_GROWTH = -20.0 # Was 4.0
     if roe_val is not None and (roe_val < TURNAROUND_MIN_ROE or not -100.0 <= roe_val <= 500.0):
         reason = f"ROE {roe_val:.1f}% < {TURNAROUND_MIN_ROE}% turnaround floor" if roe_val < TURNAROUND_MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
         return {

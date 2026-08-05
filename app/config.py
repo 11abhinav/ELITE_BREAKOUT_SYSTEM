@@ -321,7 +321,7 @@ SOURCE_RELIABILITY = {
 # [FINDING-F FIX] Lowered ADX from 25 to 18. ADX 25+ indicates a trend that has
 # already moved significantly. ADX 18-24 captures the accumulation/developing phase
 # exactly where breakouts occur, while still filtering out choppy (ADX < 18) stocks.
-ADX_MIN_THRESHOLD = 18
+ADX_MIN_THRESHOLD = 15
 MIN_STOCK_PRICE = 100.0    # No penny stocks — matches daily_builder MIN_PRICE
 
 # LIQUIDITY THRESHOLDS (in Rupees)

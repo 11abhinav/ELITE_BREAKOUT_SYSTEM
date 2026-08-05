@@ -113,13 +113,13 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
 
     checks = []
     if s200 > 0:
-        ema_ok = (e9 > e20 > s50 and close_price > s200)
+        ema_ok = (close_price > e20 and e20 > s50 and close_price > s200)
         if not ema_ok:
-            checks.append(f"Trend Permission Fail: Requires EMA9 ({e9:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f}) & Close ({close_price:.2f}) > SMA200 ({s200:.2f})")
+            checks.append(f"Trend Permission Fail: Requires Close ({close_price:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f}) & Close > SMA200 ({s200:.2f})")
     else:
-        ema_ok = (e9 > e20 > s50)
+        ema_ok = (close_price > e20 and e20 > s50)
         if not ema_ok:
-            checks.append(f"Trend Permission Fail: Requires EMA9 ({e9:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
+            checks.append(f"Trend Permission Fail: Requires Close ({close_price:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
 
     from config import ADX_MIN_THRESHOLD
     if adx_val < ADX_MIN_THRESHOLD:

@@ -538,14 +538,14 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         if roce_val is not None and not pd.isna(roce_val):
             known_metrics_count += 1
             roce = safe_float(roce_val)
-            if roce < 0.10:
-                return False, f"ROCE/ROE below 10% ({roce*100:.1f}%)"
+            if roce < 0.05:
+                return False, f"ROCE/ROE below 5% ({roce*100:.1f}%)"
 
     rev_cagr = f.get("revenue_cagr_3y")
     if rev_cagr is not None and not pd.isna(rev_cagr):
         known_metrics_count += 1
-        if safe_float(rev_cagr) < 0.00:
-            return False, f"Revenue CAGR 3Y negative ({safe_float(rev_cagr)*100:.1f}%)"
+        if safe_float(rev_cagr) < -0.10:
+            return False, f"Revenue CAGR 3Y highly negative ({safe_float(rev_cagr)*100:.1f}%)"
 
     # [VERSION: PLEDGE_GATE_FIX_v1.0] Safe handling of None/null for promoter_pledge_pct in quality gate
     pledge_val = f.get("promoter_pledge_pct")
@@ -591,8 +591,8 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 # Do NOT hard-reject. Instead apply a conservative profile:
                 # reject only if known-bad signals present (ROE < 10%, GNPA > 7%).
                 # If signals are absent/unknown, allow to proceed with reduced confidence.
-                if roe_val_t2 is not None and roe_val_t2 < 0.10:
-                    return False, f"Financial solvency UNKNOWN and ROE below 10% ({roe_val_t2*100:.1f}%) — inadequate fallback quality"
+                if roe_val_t2 is not None and roe_val_t2 < 0.05:
+                    return False, f"Financial solvency UNKNOWN and ROE below 5% ({roe_val_t2*100:.1f}%) — inadequate fallback quality"
                 if gnpa_val_t2 is not None and gnpa_val_t2 > 0.07:
                     return False, f"Financial solvency UNKNOWN and High GNPA ({gnpa_val_t2*100:.1f}%) — inadequate fallback quality"
                 # solvency_confidence = "UNKNOWN" — proceed, let V5 scoring penalise appropriately

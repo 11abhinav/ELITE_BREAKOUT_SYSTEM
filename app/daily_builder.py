@@ -120,15 +120,15 @@ from config import MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST as MIN_TRADED_VALUE
 # Removes genuinely insolvent businesses (ROE < 0) and near-zero earners.
 # FM_Score Quality component (ROE >= 15% for +8 pts) handles true quality ranking.
 # Cyclical recovery plays legitimately sit at 8-14% ROE at earnings trough.
-MIN_ROE           = 8
+MIN_ROE           = 0
 
 # ── JUNK-KILL GATES — These are NON-NEGOTIABLE hard blocks ──────────────────────────
 # Any stock violating these is permanently excluded regardless of momentum or growth.
-MAX_DEBT_EQUITY   = 1.0              # D/E > 1.0 = highly leveraged (exempt: Utilities/Banks/NBFCs)
+MAX_DEBT_EQUITY   = 2.0              # Relaxed from 1.0 to allow heavy-capex compounders
 MIN_PROMOTER_MCAP = 5_000_000_000    # ₹500 Cr — blocks shell companies with inflated ROE
 
 # PATH A only
-MIN_OPM_NONFIN    = 10               # 10% OPM — excludes commodity-level margins
+MIN_OPM_NONFIN    = 5                # Relaxed from 10 to allow volume-driven retailers
 
 # PATH B only
 MIN_ROA_FIN       = 0.8              
@@ -265,7 +265,7 @@ def fetch_universe() -> pd.DataFrame:
             col("exchange").isin(["NSE", "BSE"]),
             col("close")                        >= MIN_PRICE,
             col("market_cap_basic")             >= MIN_MARKET_CAP,
-            col("earnings_per_share_basic_ttm") >  0,
+            # [REMOVED] col("earnings_per_share_basic_ttm") > 0, to allow turnarounds
             col("return_on_equity_fy")          >= MIN_ROE,
             # [VERSION: DAILY_BUILDER_PATCH_v1.6] Removed col("operating_margin") >= 0
             # Rationale: Python junk gates (opm < 0, roa < 0.8) handle filtering.
