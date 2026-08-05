@@ -252,6 +252,19 @@ def _latest_bar_timestamp(df: pd.DataFrame) -> Optional[pd.Timestamp]:
         return df.index[-1]
     return None
 
+def _parse_robust_pct(fd: dict, ratio_key: str, percent_key: str) -> Optional[float]:
+    """Safely extracts percentage points from either a V5 decimal ratio or raw Screener percent."""
+    if not isinstance(fd, dict): return None
+    v_ratio = fd.get(ratio_key)
+    if v_ratio is not None and not pd.isna(v_ratio) and v_ratio != "":
+        try: return float(v_ratio) * 100.0
+        except: pass
+    v_pct = fd.get(percent_key)
+    if v_pct is not None and not pd.isna(v_pct) and v_pct != "":
+        try: return float(v_pct)
+        except: pass
+    return None
+
 def parse_percentage(value: object, unit: str) -> Optional[float]:
     if value is None:
         return None
@@ -833,8 +846,8 @@ def _evaluate_candidate(
         }
 
     REQUIRE_FUNDAMENTALS = True
-    roe_val = parse_percentage(fund_data.get("ROE %"), "percentage_points") if fund_data else None
-    rev_growth = parse_percentage(fund_data.get("YOY Revenue %"), "percentage_points") if fund_data else None
+    roe_val = _parse_robust_pct(fund_data, "roe", "ROE %") if fund_data else None
+    rev_growth = _parse_robust_pct(fund_data, "yoy_revenue", "YOY Revenue %") if fund_data else None
 
     if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None):
         return {
@@ -1647,8 +1660,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         # Check fundamental presence
                         fundamental_checked += 1
                         fund_dict = row.to_dict() if hasattr(row, "to_dict") else row
-                        roe_val = parse_percentage(fund_dict.get("ROE %"), "percentage_points") if fund_dict else None
-                        rev_growth = parse_percentage(fund_dict.get("YOY Revenue %"), "percentage_points") if fund_dict else None
+                        roe_val = _parse_robust_pct(fund_dict, "roe", "ROE %") if fund_dict else None
+                        rev_growth = _parse_robust_pct(fund_dict, "yoy_revenue", "YOY Revenue %") if fund_dict else None
                         
                         if roe_val is None or rev_growth is None:
                             fundamental_missing += 1

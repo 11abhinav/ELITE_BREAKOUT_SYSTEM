@@ -76,8 +76,12 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     is_trend_ok = (sma200_val is not None and sma200_val > 0 and close_price > sma200_val)
 
     fd = fund_data or {}
-    roce = _safe_num(fd.get("roce", fd.get("ROCE %", fd.get("roce_val", 0.0))))
-    roe = _safe_num(fd.get("roe", fd.get("ROE %", fd.get("roe_val", 0.0))))
+    
+    # [FIX: WEALTH-1] Use _parse_yoy_percent to handle both decimal ratios (from Stock Analyzer cache) 
+    # and raw percentage points (from standalone Screener data) correctly.
+    roce = _parse_yoy_percent(fd, "roce", "ROCE %") or 0.0
+    roe = _parse_yoy_percent(fd, "roe", "ROE %") or 0.0
+    
     debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
     peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
 
