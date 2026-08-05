@@ -823,7 +823,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         expected_trading_date = get_expected_latest_trading_date()
                         remote_is_current = (remote_last_date is not None and remote_last_date >= expected_trading_date)
 
-                        logger.warning(
+                        logger.debug(
                             f"CACHE_DECISION | Symbol={sym} | RemoteScore={remote_score:.1f} ({remote_source}) "
                             f"| CacheScore={cache_score:.1f} | HasNewerBars={has_newer_bars} "
                             f"| RemoteLastDate={remote_last_date} | CachedLastDate={cached_last_date} "
@@ -858,7 +858,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             pass
                         else:
                             # Reject Remote Data (genuinely lower quality AND no new/current data)
-                            logger.warning(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score} | RemoteLastDate={remote_last_date} | ExpectedDate={expected_trading_date} — marking stale")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason=REMOTE_LOWER_QUALITY | Symbol={sym} | CacheScore={cache_score} | RemoteScore={remote_score} | RemoteLastDate={remote_last_date} | ExpectedDate={expected_trading_date} — marking stale")
                             _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                             continue

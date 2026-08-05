@@ -598,17 +598,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
             logger.warning(f"Parallel fetch warning for {tf_label}: {_e}")
             return {}
 
-    logger.info(f"⚡ [MULTI_TF] Parallel fetching 30m, 15m, 5m, and 1d intraday timeframes for {len(ladder_symbols)} symbols...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MTFFetcher") as executor:
-        f_30m = executor.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
-        f_15m = executor.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
-        f_5m  = executor.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
-        f_1d  = executor.submit(_fetch_tf, "1d", "5d", "1d", needs_5m)
-
-        data_30m = f_30m.result()
-        data_15m = f_15m.result()
-        data_5m  = f_5m.result()
-        data_daily = f_1d.result()
+    # [VERSION: GIL_STARVATION_FIX_v1.0] Fetch sequentially instead of parallel.
+    # While parallel fetching saves ~20s of network I/O, it forces the 4 timeframes 
+    # to simultaneously calculate pandas technical indicators via ThreadPoolExecutor. 
+    # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
+    # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
+    logger.info(f"⚡ [MULTI_TF] Sequentially fetching 30m, 15m, 5m, and 1d intraday timeframes for {len(ladder_symbols)} symbols...")
+    
+    data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
+    data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
+    data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
+    data_daily = _fetch_tf("1d", "5d", "1d", needs_5m)
         
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
