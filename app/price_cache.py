@@ -1374,7 +1374,7 @@ def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d", re
                 continue
             # If we have at least 200 bars in the recent fetch (unlikely for 5d), compute; else leave None
             if len(df) >= 200 and "Close" in df.columns:
-                sma_val = float(df["Close"].rolling(window=200).mean().iloc[-1])
+                sma_val = float(df["Close"].tail(200).mean())
                 result["sma_200"][sym] = sma_val
             else:
                 result["sma_200"][sym] = None

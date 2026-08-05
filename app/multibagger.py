@@ -102,8 +102,8 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     except Exception as _v5e:
         logger.warning(f"Could not compute V5 score for {symbol}: {_v5e}")
 
-    sma50 = float(ticker["Close"].rolling(50).mean().iloc[-1]) if len(ticker) >= 50 else close_price
-    sma200 = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else close_price
+    sma50 = float(ticker["Close"].tail(50).mean()) if len(ticker) >= 50 else close_price
+    sma200 = float(ticker["Close"].tail(200).mean()) if len(ticker) >= 200 else close_price
     if len(ticker) >= 200:
         is_uptrend = (close_price > sma50 > sma200)
     elif len(ticker) >= 50:
@@ -440,15 +440,15 @@ def batch_download_market_data(symbols: list) -> dict:
                     close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
                     mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
                     
-                    high_20d = float(close_series.rolling(20).max().iloc[-1])
-                    high_60d = float(close_series.rolling(60).max().iloc[-1]) if len(close_series) >= 60 else high_20d
+                    high_20d = float(close_series.tail(20).max())
+                    high_60d = float(close_series.tail(60).max()) if len(close_series) >= 60 else high_20d
                 
                     hist_idx = min(60, len(close_series) - 1)
                     close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
                     mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
                 
                     latest_volume = float(vol_series.iloc[-1])
-                    volume_sma20 = float(vol_series.rolling(20).mean().iloc[-1]) if len(vol_series) >= 20 else latest_volume
+                    volume_sma20 = float(vol_series.tail(20).mean()) if len(vol_series) >= 20 else latest_volume
                 
                     from indicator_manager import manager
                     bundle = manager.compute_base_indicators(ticker_df, sym)
@@ -1776,7 +1776,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             if isinstance(close_col, pd.DataFrame):
                 close_col = close_col.iloc[:, 0]
             nifty_close = float(close_col.iloc[-1])
-            nifty_sma200 = float(close_col.rolling(200).mean().iloc[-1])
+            nifty_sma200 = float(close_col.tail(200).mean())
             if nifty_close > nifty_sma200:
                 market_regime = "BULL"
             else:

@@ -79,9 +79,11 @@ class MarketRegimeEngine:
         
         try:
             price = float(df["Close"].iloc[idx])
-            sma20 = float(df["Close"].rolling(window=20).mean().iloc[idx])
-            sma50 = float(df["Close"].rolling(window=50).mean().iloc[idx])
-            sma200 = float(df["Close"].rolling(window=200).mean().iloc[idx])
+            end_idx = len(df) + idx + 1 if idx < 0 else idx + 1
+            hist_slice = df["Close"].iloc[:end_idx]
+            sma20 = float(hist_slice.tail(20).mean())
+            sma50 = float(hist_slice.tail(50).mean())
+            sma200 = float(hist_slice.tail(200).mean())
             
             nifty_ago = float(df["Close"].iloc[idx - 20])
             n_ret = ((price - nifty_ago) / nifty_ago) * 100.0 if nifty_ago > 0 else 0.0

@@ -53,7 +53,7 @@ class IndicatorManager:
                     high_low = df['High'] - df['Low']
                     high_close = np.abs(df['High'] - prev_close)
                     low_close = np.abs(df['Low'] - prev_close)
-                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                    tr = np.maximum(high_low, np.maximum(high_close, low_close))
                     bundle.atr_14 = tr.rolling(window=14).mean()
 
                 # RSI 14

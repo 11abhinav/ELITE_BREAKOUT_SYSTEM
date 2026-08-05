@@ -71,7 +71,7 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     if "SMA200" in ticker.columns and not pd.isna(latest.get("SMA200")):
         sma200_val = float(latest["SMA200"])
     else:
-        sma200_val = float(ticker["Close"].rolling(200).mean().iloc[-1]) if len(ticker) >= 200 else None
+        sma200_val = float(ticker["Close"].tail(200).mean()) if len(ticker) >= 200 else None
 
     is_trend_ok = (sma200_val is not None and sma200_val > 0 and close_price > sma200_val)
 
@@ -268,7 +268,8 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             tr1 = hist['High'] - hist['Low']
             tr2 = (hist['High'] - hist['Prev_Close']).abs()
             tr3 = (hist['Low'] - hist['Prev_Close']).abs()
-            hist['TR'] = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
+            import numpy as np
+            hist['TR'] = np.maximum(tr1, np.maximum(tr2, tr3))
             hist['ATR'] = hist['TR'].rolling(window=14).mean()
             
             last_row = hist.iloc[-1]
