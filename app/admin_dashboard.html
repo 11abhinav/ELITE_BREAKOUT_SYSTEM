@@ -4796,7 +4796,16 @@ function updateSehPagination(page, total, perPage) {
 function showSehErrorModal(runId) {
   const r = sehRecordsCache[runId];
   if (!r) return;
-  alert(`[RUN DIAGNOSTICS: ${r.run_id.substring(0, 8)}]\nScanner: ${r.scanner_name}\nLifecycle: ${r.lifecycle_status}\nQuality: ${r.quality_status}\n\nSummary: ${r.error_summary || r.stop_reason || 'N/A'}\n\nTraceback:\n${r.error_details || 'No detailed stack trace available.'}`);
+  const modal = document.getElementById('tracebackModal');
+  const title = document.getElementById('tracebackModalTitle');
+  const summary = document.getElementById('tracebackModalSummary');
+  const content = document.getElementById('tracebackModalContent');
+  
+  title.innerText = `[RUN DIAGNOSTICS: ${r.run_id.substring(0, 8)}] ${r.scanner_name}`;
+  summary.innerHTML = `<strong>Lifecycle:</strong> ${r.lifecycle_status} &nbsp;|&nbsp; <strong>Quality:</strong> ${r.quality_status}<br><br><strong>Summary:</strong> ${r.error_summary || r.stop_reason || 'N/A'}`;
+  content.innerText = r.error_details || 'No detailed stack trace available.';
+  
+  modal.style.display = 'flex';
 }
 
 // ── NON-CRITICAL ERRORS TRACKING
@@ -6613,6 +6622,21 @@ function renderMultibaggerWatchlist() {
       <div style="display:flex; gap:12px; justify-content:flex-end;">
         <button onclick="closeCustomConfirm(false)" style="padding:10px 18px; background:var(--card2); border:1px solid var(--border); border-radius:8px; cursor:pointer; color:var(--text); font-weight:600; transition:all 0.2s;">Cancel</button>
         <button onclick="closeCustomConfirm(true)" style="padding:10px 18px; background:var(--accent); border:none; border-radius:8px; cursor:pointer; color:#fff; font-weight:600; box-shadow:0 4px 12px rgba(0,212,161,0.3); transition:all 0.2s;">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Traceback / Stack Trace Modal -->
+  <div id="tracebackModal" style="display:none; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid rgba(255,77,109,0.3); border-radius:12px; width:800px; max-width:90%; padding:24px; box-shadow:0 8px 32px rgba(255,77,109,0.2); display:flex; flex-direction:column; max-height:85vh;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+        <h2 id="tracebackModalTitle" style="margin:0; font-size:18px; color:var(--warn); display:flex; align-items:center; gap:8px;">⚠️ Stack Trace Details</h2>
+        <button onclick="document.getElementById('tracebackModal').style.display='none'" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:24px; line-height:1;">&times;</button>
+      </div>
+      <div id="tracebackModalSummary" style="font-size:14px; color:var(--text); margin-bottom:16px; padding:12px; background:var(--bg); border-radius:6px; border-left:4px solid var(--warn);">
+      </div>
+      <div style="flex:1; overflow-y:auto; background:#111; padding:16px; border-radius:8px; border:1px solid #333;">
+        <pre id="tracebackModalContent" style="margin:0; font-family:var(--font-mono); font-size:12px; color:#f87171; white-space:pre-wrap; word-break:break-all;"></pre>
       </div>
     </div>
   </div>

@@ -2,3 +2,8 @@
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:40:27.842303+05:30", "duration_s": 17.26, "rss_before_mb": 587.5, "rss_after_mb": 652.0, "rss_delta_mb": 64.4, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:49:23.562259+05:30", "duration_s": 18.391, "rss_before_mb": 467.5, "rss_after_mb": 560.0, "rss_delta_mb": 92.5, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:59:10.391846+05:30", "duration_s": 16.107, "rss_before_mb": 534.4, "rss_after_mb": 582.7, "rss_delta_mb": 48.4, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T16:44:11.779943+05:30", "duration_s": 12.276, "rss_before_mb": 395.7, "rss_after_mb": 459.6, "rss_delta_mb": 63.9, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T17:08:58.508656+05:30", "duration_s": 14.041, "rss_before_mb": 361.3, "rss_after_mb": 400.5, "rss_delta_mb": 39.1, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T17:49:40.376368+05:30", "duration_s": 16.917, "rss_before_mb": 359.9, "rss_after_mb": 425.4, "rss_delta_mb": 65.5, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T18:07:14.216467+05:30", "duration_s": 17.09, "rss_before_mb": 360.0, "rss_after_mb": 418.8, "rss_delta_mb": 58.8, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T18:23:04.697818+05:30", "duration_s": 13.724, "rss_before_mb": 346.7, "rss_after_mb": 408.4, "rss_delta_mb": 61.7, "error": null}
