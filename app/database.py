@@ -4773,6 +4773,32 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
         logger.exception(f"❌ Failed to fetch wealth positions from _get_wealth_positions")
         return []
 
+def get_multibagger_alerts() -> list:
+    """Retrieve all multibagger alerts from the main alerts table."""
+    try:
+        from psycopg2.extras import RealDictCursor
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM alerts 
+                    WHERE scanner = 'MULTIBAGGER'
+                    ORDER BY timestamp DESC
+                """)
+                rows = cur.fetchall()
+                
+                # Convert date/decimal
+                import decimal, datetime
+                for row in rows:
+                    for k, v in list(row.items()):
+                        if isinstance(v, decimal.Decimal):
+                            row[k] = float(v)
+                        elif isinstance(v, (datetime.datetime, datetime.date)):
+                            row[k] = v.isoformat()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.exception("❌ Failed to fetch multibagger alerts")
+        return []
+
 def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
     """Retrieve wealth buy alerts, optionally filtered by symbol."""
     return _get_wealth_positions(is_closed=False, symbol=symbol, days_back=days_back)
@@ -6856,22 +6882,27 @@ def get_all_database_tables_summary() -> list:
                 """)
                 tables = [r[0] for r in cur.fetchall()]
                 
+                # [VERSION: PERF_FIX] Bulk fetch row counts and column counts instead of N+1 queries.
+                # 1. Fetch approximate row counts (instantly fast on huge tables)
+                cur.execute("""
+                    SELECT relname, reltuples::bigint 
+                    FROM pg_class 
+                    WHERE relkind = 'r' AND relname = ANY(%s)
+                """, (tables,))
+                row_counts = {r[0]: r[1] for r in cur.fetchall()}
+
+                # 2. Fetch column counts
+                cur.execute("""
+                    SELECT table_name, count(*) 
+                    FROM information_schema.columns 
+                    WHERE table_name = ANY(%s) 
+                    GROUP BY table_name
+                """, (tables,))
+                col_counts = {r[0]: r[1] for r in cur.fetchall()}
+
                 for t in tables:
-                    try:
-                        cur.execute(f"SELECT COUNT(*) FROM {t}")
-                        row_cnt = cur.fetchone()[0]
-                    except Exception:
-                        row_cnt = 0
-                        
-                    try:
-                        cur.execute("""
-                            SELECT COUNT(*) 
-                            FROM information_schema.columns 
-                            WHERE table_name = %s
-                        """, (t,))
-                        col_cnt = cur.fetchone()[0]
-                    except Exception:
-                        col_cnt = 0
+                    row_cnt = row_counts.get(t, 0)
+                    col_cnt = col_counts.get(t, 0)
                         
                     desc = KNOWN_TABLE_DESCRIPTIONS.get(t, f"PostgreSQL Table ({t})")
                     cat = KNOWN_TABLE_CATEGORIES.get(t, "General Tables")

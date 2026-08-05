@@ -3118,14 +3118,26 @@ def get_multibagger_watchlist():
 
     import decimal, datetime as _dt
     def safe(row):
-        d = dict(row)
-        for k, v in d.items():
-            if isinstance(v, decimal.Decimal):
-                d[k] = float(v)
-            elif isinstance(v, (_dt.datetime, _dt.date)):
-                d[k] = v.isoformat()
-        return d
-    return jsonify([safe(r) for r in rows])
+        try:
+            d = dict(row)
+            for k, v in list(d.items()):
+                if isinstance(v, decimal.Decimal):
+                    d[k] = float(v)
+                elif isinstance(v, (_dt.datetime, _dt.date)):
+                    d[k] = v.isoformat()
+                elif v is None:
+                    d[k] = None
+            return d
+        except Exception as serialize_err:
+            logger.error(f"Failed to serialize multibagger watchlist row: {row} - Error: {serialize_err}")
+            return dict(row)
+            
+    try:
+        serialized_rows = [safe(r) for r in rows]
+        return jsonify(serialized_rows)
+    except Exception as e:
+        logger.exception("❌ Fatal error serializing multibagger watchlist JSON response")
+        return jsonify([])
 
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
 
