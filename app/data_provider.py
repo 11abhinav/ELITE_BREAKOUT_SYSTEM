@@ -546,49 +546,76 @@ class AutoSwitchingFetcher(DataFetcher):
                     
         return last_md if last_md else MarketData(None, "UNKNOWN", None, False, False, "Missing")
 
-    # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Partial fallback with taxonomy telemetry
+    # [VERSION: LOAD_BALANCED_BATCH_V1.0] Scatter-Gather load balancing with fallback telemetry
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         providers = self._get_providers(interval)
         
         results = {}
-        fallback_results = {}  # Store the most recent result for missing symbols
+        fallback_results = {}
         missing_symbols = list(symbols)
         provider_telemetry = {}
         
-        for prov_name in providers:
-            if not missing_symbols:
-                break
-                
-            fetcher = self._get_fetcher_by_name(prov_name)
-            if not fetcher:
-                provider_telemetry[prov_name] = {
-                    "requested": len(missing_symbols), "succeeded": 0, "failed": len(missing_symbols),
-                    "reasons": {"provider_unavailable": len(missing_symbols)}, "latency_s": 0.0
+        # 1. Identify active premium providers for load-balancing
+        premium_names = [p for p in providers if p not in ("yfinance", "yahoo", "bse")]
+        fallback_names = [p for p in providers if p in ("yfinance", "yahoo", "bse")]
+        
+        active_premiums = []
+        for p in premium_names:
+            fetcher = self._get_fetcher_by_name(p)
+            if fetcher:
+                active_premiums.append((p, fetcher))
+            else:
+                provider_telemetry[p] = {
+                    "requested": 0, "succeeded": 0, "failed": 0,
+                    "reasons": {"provider_unavailable": 0}, "latency_s": 0.0
                 }
-                continue
                 
-            current_batch = list(missing_symbols)
-            if prov_name == "fyers":
-                current_batch = [s for s in missing_symbols if not self._is_fyers_degraded(s)]
-                known_degraded = [s for s in missing_symbols if self._is_fyers_degraded(s)]
-                if known_degraded:
-                    logger.info(f"⚡ [FYERS DEGRADATION CACHE] Bypassing Fyers for {len(known_degraded)} degraded symbols.")
-                
-            if current_batch:
+        # 2. Scatter to Premium Providers
+        if active_premiums and missing_symbols:
+            num_providers = len(active_premiums)
+            chunk_size = (len(missing_symbols) + num_providers - 1) // num_providers
+            
+            import concurrent.futures
+            
+            def fetch_chunk(p_name, fetcher, chunk):
                 start_t = time.time()
                 prov_stats = {
-                    "requested": len(current_batch),
-                    "succeeded": 0,
-                    "failed": 0,
-                    "reasons": {
-                        "missing": 0, "timeout": 0, "rate_limit": 0,
-                        "quality_rejected": 0, "malformed": 0, "provider_unavailable": 0
-                    }
+                    "requested": len(chunk), "succeeded": 0, "failed": 0,
+                    "reasons": {"missing": 0, "timeout": 0, "rate_limit": 0, "quality_rejected": 0, "malformed": 0, "provider_unavailable": 0}
                 }
+                actual_chunk = chunk
+                if p_name == "fyers":
+                    actual_chunk = [s for s in chunk if not self._is_fyers_degraded(s)]
+                    known_degraded = len(chunk) - len(actual_chunk)
+                    if known_degraded:
+                        logger.info(f"⚡ [FYERS DEGRADATION CACHE] Bypassing Fyers for {known_degraded} degraded symbols in batch.")
+                        prov_stats["reasons"]["provider_unavailable"] += known_degraded
+                        prov_stats["failed"] += known_degraded
+                        
+                prov_results = {}
+                if actual_chunk:
+                    try:
+                        prov_results = fetcher.get_batch_ohlcv(actual_chunk, interval, period, retries, range_from, range_to, caller=caller)
+                    except Exception as e:
+                        logger.warning(f"{p_name} batch fetch exception: {e}.")
+                        prov_stats["failed"] = len(chunk)
+                        prov_stats["reasons"]["provider_unavailable"] = len(chunk)
+                
+                prov_stats["latency_s"] = round(time.time() - start_t, 3)
+                return p_name, prov_results, prov_stats, actual_chunk
+
+            futures = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=num_providers) as executor:
+                for i, (p_name, fetcher) in enumerate(active_premiums):
+                    chunk = missing_symbols[i*chunk_size : (i+1)*chunk_size]
+                    if chunk:
+                        futures.append(executor.submit(fetch_chunk, p_name, fetcher, chunk))
+                        
+            for future in concurrent.futures.as_completed(futures):
                 try:
-                    prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries, range_from, range_to, caller=caller)
+                    p_name, prov_results, prov_stats, actual_chunk = future.result()
                     
-                    for s in current_batch:
+                    for s in actual_chunk:
                         res = prov_results.get(s)
                         if res:
                             fallback_results[s] = res
@@ -611,18 +638,70 @@ class AutoSwitchingFetcher(DataFetcher):
                                 else:
                                     prov_stats["reasons"]["missing"] += 1
                                     
-                                if prov_name == "fyers":
+                                if p_name == "fyers":
                                     self._mark_fyers_degraded(s)
                         else:
                             prov_stats["failed"] += 1
                             prov_stats["reasons"]["missing"] += 1
-                except Exception as e:
-                    prov_stats["failed"] = len(current_batch)
-                    prov_stats["reasons"]["provider_unavailable"] = len(current_batch)
-                    logger.warning(f"{prov_name} batch fetch exception: {e}.")
                     
-                prov_stats["latency_s"] = round(time.time() - start_t, 3)
-                provider_telemetry[prov_name] = prov_stats
+                    provider_telemetry[p_name] = prov_stats
+                except Exception as e:
+                    logger.error(f"Error processing load-balanced future: {e}")
+                    
+        # 3. Fallback Phase: Process any missing symbols through fallback providers (yfinance, etc)
+        for prov_name in fallback_names:
+            if not missing_symbols:
+                break
+                
+            fetcher = self._get_fetcher_by_name(prov_name)
+            if not fetcher:
+                provider_telemetry[prov_name] = {
+                    "requested": len(missing_symbols), "succeeded": 0, "failed": len(missing_symbols),
+                    "reasons": {"provider_unavailable": len(missing_symbols)}, "latency_s": 0.0
+                }
+                continue
+                
+            current_batch = list(missing_symbols)
+            start_t = time.time()
+            prov_stats = {
+                "requested": len(current_batch), "succeeded": 0, "failed": 0,
+                "reasons": {"missing": 0, "timeout": 0, "rate_limit": 0, "quality_rejected": 0, "malformed": 0, "provider_unavailable": 0}
+            }
+            try:
+                prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries, range_from, range_to, caller=caller)
+                
+                for s in current_batch:
+                    res = prov_results.get(s)
+                    if res:
+                        fallback_results[s] = res
+                        if res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
+                            results[s] = res
+                            if s in missing_symbols:
+                                missing_symbols.remove(s)
+                            prov_stats["succeeded"] += 1
+                        else:
+                            prov_stats["failed"] += 1
+                            err_msg = str(getattr(res, 'error', '') or '').lower()
+                            if "timeout" in err_msg:
+                                prov_stats["reasons"]["timeout"] += 1
+                            elif "rate" in err_msg or "429" in err_msg or "circuit" in err_msg:
+                                prov_stats["reasons"]["rate_limit"] += 1
+                            elif "quality" in err_msg or "reject" in err_msg:
+                                prov_stats["reasons"]["quality_rejected"] += 1
+                            elif "malformed" in err_msg or "format" in err_msg:
+                                prov_stats["reasons"]["malformed"] += 1
+                            else:
+                                prov_stats["reasons"]["missing"] += 1
+                    else:
+                        prov_stats["failed"] += 1
+                        prov_stats["reasons"]["missing"] += 1
+            except Exception as e:
+                prov_stats["failed"] = len(current_batch)
+                prov_stats["reasons"]["provider_unavailable"] = len(current_batch)
+                logger.warning(f"{prov_name} batch fetch exception: {e}.")
+                
+            prov_stats["latency_s"] = round(time.time() - start_t, 3)
+            provider_telemetry[prov_name] = prov_stats
 
         # Log detailed per-provider telemetry summary
         telemetry_summary = " | ".join([
