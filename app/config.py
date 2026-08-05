@@ -68,9 +68,9 @@ CRAWLORA_API_KEY = os.getenv("CRAWLORA_API_KEY")
 ENABLE_AI_SENTIMENT_SCORE = True  # Set False to disable experimental AI sentiment scoring for audit/backtest runs
 
 SCORE_THRESHOLDS = {
-    "15m": 78,
-    "1h":  80,
-    "1d":  82,
+    "15m": 75,
+    "1h":  75,
+    "1d":  75,
 }
 
 # =====================================================================================
@@ -444,11 +444,24 @@ TARGET_CONFIDENCE_BASELINE = {
     "value": 85
 }
 
+SCORE_THRESHOLDS = {
+    "15m": 75,
+    "1h":  75,
+    "1d":  75,
+}
+
+MIN_NATURAL_RR = {
+    "MULTI_TF": 1.2,
+    "EOD": 1.3,
+    "REVERSAL": 1.2,
+    "PULLBACK": 1.3,
+}
+
 MIN_REWARD_POTENTIAL = {
-    "MULTI_TF": 1.8,
-    "EOD": 4.0,
-    "REVERSAL": 3.0,
-    "PULLBACK": 3.0,
+    "MULTI_TF": 1.5,
+    "EOD": 2.0,
+    "REVERSAL": 1.8,
+    "PULLBACK": 2.0,
 }
 
 MIN_STOP_PCT = {

@@ -450,10 +450,10 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
                     # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
                     # AND price must be within -2.0% (above) to +5.0% (below) of the breakout level
                     if not is_fallback:
-                        ema_ok = e9 > e20 and e20 > s50 and close > s200
+                        ema_ok = (e9 > e20 and e20 > s50 and close > s200) or (close > s50 and close > s200 and e9 > e20)
                     else:
                         # Reduced trend gate for 50-199 bar symbols
-                        ema_ok = e9 > e20 and e20 > s50
+                        ema_ok = (e9 > e20 and e20 > s50) or (close > s50 and e9 > e20)
                         
                     from config import ADX_MIN_THRESHOLD
                     adx_ok = adx_val >= ADX_MIN_THRESHOLD

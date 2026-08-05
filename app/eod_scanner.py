@@ -261,8 +261,8 @@ def _check_eod_conditions(
 
     # ── Pre-breakout candle context ────────────────────────────────────────
     lookback_ctx = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
-    max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
-    tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
+    max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 3)
+    tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.50)
     if len(ticker) >= (lookback_ctx + 1):
         red_count = sum(
             1 for _ri in range(-(lookback_ctx + 1), -1)

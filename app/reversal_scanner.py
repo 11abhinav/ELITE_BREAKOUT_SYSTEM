@@ -1050,11 +1050,12 @@ def _evaluate_candidate(
     elif delivery_conf < 1.0:
         available_max -= 2
 
-    available_max = max(50, available_max)
+    available_max = max(40, available_max)
     score_premium = REGIME_REVERSAL_PREMIUM.get(regime, 0)
     effective_min_score = round((MIN_REVERSAL_SCORE + score_premium) * available_max / COMPONENT_MAX)
-    # Ensure minimum score requirements do not become overly lenient
-    effective_min_score = max(55, effective_min_score)
+    # Ensure minimum score floor is scaled proportionally to available_max (never exceed 80% of available max)
+    effective_min_score = min(effective_min_score, int(available_max * 0.80))
+    effective_min_score = max(35, effective_min_score)
 
     sma50_series = df["SMA50"].dropna()
     sma50_slope_up = (len(sma50_series) >= 6 and float(sma50_series.iloc[-1]) > float(sma50_series.iloc[-6]))

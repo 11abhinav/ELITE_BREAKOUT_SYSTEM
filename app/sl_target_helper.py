@@ -1012,11 +1012,12 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     risk_amount = entry - sl_data["raw_sl"]
     
     valid_targets = []
+    min_rr = MIN_NATURAL_RR.get(mode, 1.3)
     for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
         cand_t = targets.get(t_cand_key)
         if cand_t and cand_t > entry and risk_amount > 0:
             rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
-            if rr_candidate >= min_rr:
+            if rr_candidate >= min(min_rr, 1.0):
                 valid_targets.append((cand_t, targets.get(t_clust_key)))
 
     if not valid_targets:
@@ -1103,7 +1104,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
             "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    min_rr = MIN_NATURAL_RR.get(mode, 2.5)
+    min_rr = MIN_NATURAL_RR.get(mode, 1.3)
     risk_amount = entry - sl_data["raw_sl"]
     
     valid_targets = []
@@ -1111,7 +1112,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         cand_t = targets.get(t_cand_key)
         if cand_t and cand_t > entry and risk_amount > 0:
             rr_candidate = round(abs(cand_t - entry) / risk_amount, 2)
-            if rr_candidate >= min_rr:
+            if rr_candidate >= min(min_rr, 1.0):
                 valid_targets.append((cand_t, targets.get(t_clust_key)))
 
     if not valid_targets:
@@ -1184,14 +1185,14 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
             "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    min_rr = MIN_NATURAL_RR.get("REVERSAL", 2.0)
+    min_rr = MIN_NATURAL_RR.get("REVERSAL", 1.2)
     risk = entry - sl_data["raw_sl"]
     
     valid_cands = []
     for c in cands:
         if c.price > entry:
             rr = (c.price - entry) / risk
-            if rr >= min_rr:
+            if rr >= min(min_rr, 1.0):
                 valid_cands.append(c)
                 
     if not valid_cands:
