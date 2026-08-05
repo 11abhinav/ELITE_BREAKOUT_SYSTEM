@@ -264,7 +264,7 @@ def detect_breakouts(df: pd.DataFrame, timeframe: str = "1d") -> Dict[str, Any]:
         if n < effective_window + 1:
             continue
 
-        prev_high = df["High"].rolling(effective_window).max().iloc[-2]
+        prev_high = df["High"].iloc[-(effective_window + 1):-1].max()
 
         if pd.isna(prev_high):
             continue
