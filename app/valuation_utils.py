@@ -264,9 +264,9 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            raw_pe = peers["price_earnings_ttm"].median()
-            raw_pb = peers["price_book_ratio"].median()
-            raw_roe = peers["return_on_equity_fy"].median()
+            raw_pe = peers["price_earnings_ttm"].dropna().median()
+            raw_pb = peers["price_book_ratio"].dropna().median()
+            raw_roe = peers["return_on_equity_fy"].dropna().median()
             
             if pd.isna(mcap) or pd.isna(roe) or pd.isna(growth):
                 valid_pe_count = int(peers["price_earnings_ttm"].count())
@@ -328,17 +328,17 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                val_pe = final_peers["price_earnings_ttm"].median()
-                val_pb = final_peers["price_book_ratio"].median()
-                val_roe = final_peers["return_on_equity_fy"].median()
+                val_pe = final_peers["price_earnings_ttm"].dropna().median()
+                val_pb = final_peers["price_book_ratio"].dropna().median()
+                val_roe = final_peers["return_on_equity_fy"].dropna().median()
                 
                 val_ev_ebitda = None
                 if "enterprise_value_ebitda_ratio" in final_peers.columns:
-                    val_ev_ebitda = final_peers["enterprise_value_ebitda_ratio"].median()
+                    val_ev_ebitda = final_peers["enterprise_value_ebitda_ratio"].dropna().median()
                     
                 val_div_yield = None
                 if "dividend_yield_recent" in final_peers.columns:
-                    val_div_yield = final_peers["dividend_yield_recent"].median()
+                    val_div_yield = final_peers["dividend_yield_recent"].dropna().median()
                 
                 # Compute median PEG
                 median_peg = None
@@ -347,7 +347,7 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
                     # The .clip(lower=1) prevents division by zero or negative growth, relying on the percentage point assumption.
                     peg_series = final_peers["price_earnings_ttm"] / final_peers["total_revenue_yoy_growth_ttm"].clip(lower=1)
                     peg_series = peg_series.apply(lambda x: x if pd.notnull(x) and 0 < x < 10 else np.nan)
-                    median_peg = peg_series.median()
+                    median_peg = peg_series.dropna().median()
                 
             # Compute Dispersion (IQR / Median)
             dispersion = None
