@@ -89,10 +89,29 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     yoy_profit_pct = _parse_yoy_percent(fd, "yoy_profit", "YOY Profit %")
 
     peg_num = float(peg_val) if (peg_val is not None and not pd.isna(peg_val)) else None
+    
+    sector = str(fd.get("sector", fd.get("Sector", ""))).lower()
+    
+    sma50_val = None
+    if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
+        sma50_val = float(latest["SMA50"])
+    else:
+        sma50_val = float(ticker["Close"].tail(50).mean()) if len(ticker) >= 50 else None
+    is_growth_trend_ok = (sma50_val is not None and sma50_val > 0 and close_price > sma50_val)
 
-    buckets = []
-    # 1. Core Compounder (ROCE >= 20%, ROE >= 15%, D/E <= 0.50)
-    if roce >= 20.0 and roe >= 15.0 and debt_equity <= 0.50:
+    # 1. Core Compounder (Sector-aware D/E, Strict Trend, Strict PEG)
+    core_de_limit = 0.5
+    if "tech" in sector or "consum" in sector:
+        core_de_limit = 0.5
+    elif "indus" in sector:
+        core_de_limit = 1.0
+    elif "utilit" in sector:
+        core_de_limit = 2.0
+    elif "bank" in sector or "financ" in sector:
+        core_de_limit = 999.0 # D/E exempt for financials, CAR/ROE handles quality
+    
+    is_core_peg_ok = (peg_num is None or peg_num <= 2.0)
+    if roce >= 20.0 and roe >= 15.0 and debt_equity <= core_de_limit and is_trend_ok and is_core_peg_ok:
         buckets.append("Core Compounder")
 
     # 2. Growth Multiplier (YoY Sales >= 20%, YoY Profit >= 20%, ROCE >= 15%)
@@ -112,16 +131,11 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     if yoy_profit_pct is not None and yoy_profit_pct >= 40.0:
         buckets.append("Opportunistic")
 
-    peg_ok = (peg_num is None or peg_num <= 3.0)
-    is_qualified = bool(buckets and is_trend_ok and peg_ok)
+    is_qualified = bool(buckets) # Global trend and PEG gates removed in favor of bucket-specific scoring
 
     reasons = []
     if is_qualified:
-        reasons.append(f"Wealth Engine Qualified ({', '.join(buckets)}) | Close ₹{close_price:.2f} > 200DMA ₹{sma200_val:.2f}")
-    elif buckets and not is_trend_ok:
-        reasons.append(f"Wealth Setup Met ({', '.join(buckets)}) — Trend Failure: Close ₹{close_price:.2f} ≤ 200DMA ₹{sma200_val if sma200_val else 0:.2f}")
-    elif buckets and not peg_ok:
-        reasons.append(f"Wealth Setup Met ({', '.join(buckets)}) — PEG Ceiling Rejection: PEG {peg_num:.2f} > 3.0 max limit")
+        reasons.append(f"Wealth Engine Qualified ({', '.join(buckets)})")
     else:
         reasons.append(f"Lacks Wealth Engine Setup (ROCE {roce:.1f}%, D/E {debt_equity:.2f})")
 
@@ -142,10 +156,23 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         "Opportunistic": 15,
     }
     gradient_score = sum(bucket_scores.get(b, 0) for b in buckets)
-    if is_trend_ok:
-        gradient_score += 10
-    if peg_ok:
-        gradient_score += 5
+    
+    # Bucket-aware Scoring Overlays
+    if "Quality-On-Sale" in buckets:
+        if is_trend_ok:
+            gradient_score += 10.0 # Bonus for being above 200DMA
+        elif sma200_val and close_price < (sma200_val * 0.8):
+            gradient_score -= 10.0 # Penalty for being far below 200DMA
+
+    if "Growth Multiplier" in buckets:
+        if is_growth_trend_ok:
+            gradient_score += 5.0 # Preferred trend > 50DMA
+        if peg_num is not None:
+            if peg_num > 4.0:
+                gradient_score -= 10.0 # Progressive penalty
+            elif peg_num > 3.0:
+                gradient_score -= 5.0
+            
     gradient_score = min(100.0, max(50.0, float(gradient_score)))
 
     return {

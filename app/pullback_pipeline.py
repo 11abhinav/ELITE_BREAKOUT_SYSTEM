@@ -39,6 +39,8 @@ def compute_pullback_score(
     has_prior_multi: bool,
     is_full_high_takeover: bool = False,
     is_bullish_engulfing: bool = False,
+    depth_pct: float = 30.0,
+    impulse_pct: float = 10.0,
     max_bonus: float = 5.0
 ) -> dict:
     """
@@ -90,23 +92,40 @@ def compute_pullback_score(
     maturity_penalties = {0: 0, 1: 0, 2: -3, 3: -6}
     penalty = maturity_penalties.get(pullback_count_in_trend, -10)
     
-    # 6. Evidence Bonus (Prior alerts, capped at max_bonus)
-    eod_bonus = 3.0 if has_prior_eod else 0.0
-    multi_bonus = 2.0 if has_prior_multi else 0.0
-    eligible_bonus = min(eod_bonus + multi_bonus, max_bonus)
     
-    calculated_base = base_score + penalty
-    calculated_final = min(100.0, calculated_base + rs_bonus + sector_bonus + vol_bonus + trigger_bonus + eligible_bonus)
+    # 6. Flag Depth Classification Bonus (High Tight Flags get bonus)
+    depth_bonus = 0.0
+    if 10.0 <= depth_pct < 23.6:
+        depth_bonus = 5.0  # High Tight Flag / Shallow Flag
+    elif 23.6 <= depth_pct <= 38.2:
+        depth_bonus = 2.0  # Classic Pullback
+    else:
+        depth_bonus = 0.0  # Deep Pullback (no bonus, relies on trigger strength)
+        
+    # 7. Impulse Strength Bonus
+    impulse_bonus = 0.0
+    if impulse_pct >= 20.0:
+        impulse_bonus = 5.0
+    elif impulse_pct >= 12.0:
+        impulse_bonus = 3.0
+    elif impulse_pct >= 8.0:
+        impulse_bonus = 1.0
+
+    eod_bonus = 3.0 if has_prior_eod else 0.0
+    final_score = base_score + rs_bonus + sector_bonus + vol_bonus + trigger_bonus + maturity_penalties.get(pullback_count_in_trend, -10) + depth_bonus + impulse_bonus + eod_bonus
+    final_score = min(100.0, max(0.0, final_score))
     
     return {
-        "base_score": calculated_base,
-        "final_score": calculated_final,
+        "base_score": base_score,
         "rs_bonus": rs_bonus,
         "sector_bonus": sector_bonus,
         "vol_bonus": vol_bonus,
         "trigger_bonus": trigger_bonus,
-        "eligible_bonus": eligible_bonus,
-        "penalty": penalty
+        "depth_bonus": depth_bonus,
+        "impulse_bonus": impulse_bonus,
+        "maturity_penalty": maturity_penalties.get(pullback_count_in_trend, -10),
+        "catalyst_bonus": eod_bonus,
+        "final_score": final_score
     }
 
 def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, regime_ctx: dict = None) -> dict:
@@ -156,11 +175,11 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
 
     impulse = swing_utils.select_pullback_origin(pivots, historical_view, PULLBACK_CONFIG)
     if not impulse:
-        return {"status": "NO", "reasons": ["No valid impulse origin leg identified (requires impulse gain ≥8.0%)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+        return {"status": "NO", "reasons": [f"No valid impulse origin leg identified (requires impulse gain ≥{PULLBACK_CONFIG['MIN_IMPULSE_GAIN_PCT']:.1f}%)"], "score": 0.0, "qualified": False, "entry_price": close_price}
 
     ps = swing_utils.measure_pullback(historical_view, impulse, PULLBACK_CONFIG)
     if not ps.valid:
-        return {"status": "NO", "reasons": [f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x outside 23.6%–61.8% bounds)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+        return {"status": "NO", "reasons": [f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x outside {PULLBACK_CONFIG['MIN_DEPTH_PCT']}%–{PULLBACK_CONFIG['MAX_DEPTH_PCT']}% bounds)"], "score": 0.0, "qualified": False, "entry_price": close_price}
 
     trig = swing_utils.detect_resumption_trigger(historical_view, ps, PULLBACK_CONFIG)
     if not trig.valid:
@@ -207,7 +226,9 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         has_prior_eod=has_prior_eod,
         has_prior_multi=has_prior_multi,
         is_full_high_takeover=getattr(trig, "is_full_high_takeover", False),
-        is_bullish_engulfing=getattr(trig, "is_bullish_engulfing", False)
+        is_bullish_engulfing=getattr(trig, "is_bullish_engulfing", False),
+        depth_pct=ps.depth_pct,
+        impulse_pct=ps.impulse.gain_pct
     )
     final_score = score_breakdown["final_score"]
 

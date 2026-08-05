@@ -260,8 +260,8 @@ PULLBACK_CONFIG = {
     # 3 bars of confirmation was too conservative, missing valid swing highs
     # where the pullback started just 2 bars after the high was printed.
     "LOOKBACK": 10, "CONFIRM": 2,
-    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 23.6, "MAX_DEPTH_PCT": 61.8,
+    "MIN_IMPULSE_GAIN_PCT": 5.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
+    "MIN_DEPTH_PCT": 10.0, "MAX_DEPTH_PCT": 61.8,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
     # [FIX P4-9] MAX_INTERNAL_SWINGS relaxed from 2→3. Some valid pullbacks have
     # 3 minor internal swings during the corrective phase — requiring ≤2 was
