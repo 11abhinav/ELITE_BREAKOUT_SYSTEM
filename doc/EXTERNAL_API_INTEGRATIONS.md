@@ -23,9 +23,10 @@
 
 | Level | Storage | What is Stored | Access Speed |
 |-------|---------|---------------|-------------|
-| **L1** | In-process RAM (`_cache` dict) | Pandas DataFrames keyed by `(interval, period)` | < 0.001s |
-| **L2** | Disk Parquet files (`data/history/{interval}/{symbol}.parquet`) | OHLCV + technical indicators per symbol per interval | < 0.01s |
-| **L3** | PostgreSQL DB (`parquet_cache` table) | Compressed history bundle — used only for cold-start restore | < 0.5s |
+| **L1** | `MarketDataSession` RAM | Immutable in-memory session serving all 6 scanners without network re-fetches | < 0.0001s |
+| **L2** | In-process RAM (`_cache` dict) | Pandas DataFrames keyed by `(interval, period)` | < 0.001s |
+| **L3** | Disk Parquet files (`data/history/{interval}/{symbol}.parquet`) | OHLCV + technical indicators per symbol per interval | < 0.01s |
+| **L4** | PostgreSQL DB (`parquet_cache` table) | Compressed history bundle — uploaded asynchronously post-scan (`upload_history_bundle_to_db`) | < 0.5s |
 
 ### 2B. Cache Key Normalization
 

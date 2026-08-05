@@ -1553,7 +1553,8 @@ def run_system_scheduler():
                     try:
                         from market_data_session import MarketDataSession
                         from watchlist_cache import get_watchlist
-                        symbols = get_watchlist()
+                        wl_df = get_watchlist()
+                        symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
                         session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
                     except Exception as e:
                         logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
@@ -1845,7 +1846,8 @@ def _run_multibagger_scanner_single():
             try:
                 from market_data_session import MarketDataSession
                 from watchlist_cache import get_watchlist
-                symbols = get_watchlist()
+                wl_df = get_watchlist()
+                symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
                 session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
             except Exception as e:
                 logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")

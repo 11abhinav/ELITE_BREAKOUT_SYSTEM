@@ -38,9 +38,10 @@ Use this document to diagnose stale data bugs, unexpected API calls, or "why is 
 
 | Layer | Location | Contents |
 |-------|----------|----------|
-| **L1 RAM** | `price_cache._cache` dict (process memory) | Pandas DataFrames keyed `(interval, period)` per symbol |
-| **L2 Disk** | `data/history/{interval}/{symbol}.parquet` | OHLCV columns + technical indicators (EMA20, SMA50, SMA200, RSI, ATR, etc.) |
-| **L3 DB** | PostgreSQL `parquet_cache` table | Compressed bundle of all parquets — cold-start restore only |
+| **L1 Session RAM** | `MarketDataSession` immutable object | High-performance in-memory session serving all 6 scanners without network re-fetches |
+| **L2 RAM Cache** | `price_cache._cache` dict (process memory) | Pandas DataFrames keyed `(interval, period)` per symbol |
+| **L3 Local Disk** | `data/history/{interval}/{symbol}.parquet` | OHLCV columns + technical indicators (EMA20, SMA50, SMA200, RSI, ATR, etc.) |
+| **L4 PostgreSQL DB** | PostgreSQL `parquet_cache` table | Compressed bundle of all parquets — uploaded asynchronously post-scan (`upload_history_bundle_to_db`) |
 
 ### Cache Key
 

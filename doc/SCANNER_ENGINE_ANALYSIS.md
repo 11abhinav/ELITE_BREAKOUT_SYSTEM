@@ -80,14 +80,14 @@ Before the EOD scanner even runs, stocks must survive the Daily Builder:
 | 9 | Bullish candle | Close > Open (soft penalty) | - | **FIXED** |
 | 10 | Close position in candle | >= 0.65 (soft penalty) | MIN_CLOSE_POSITION | **FIXED** |
 | 11 | Upper wick ratio | <= 0.35 (soft penalty) | MAX_UPPER_WICK_RATIO | **FIXED** |
-| 12 | Volume ratio vs 20D avg | >= 1.8x | MIN_VOLUME_RATIO | UNCHANGED |
+| 12 | Volume ratio vs 20D avg | >= 1.3x | MIN_VOLUME_RATIO | **FIXED (1.8x → 1.3x)** |
 | 13 | 20D avg volume | >= 50,000 shares | MIN_AVG_VOLUME_SHARES | UNCHANGED |
 | 14 | Close price | >= Rs.100 | MIN_STOCK_PRICE | UNCHANGED |
-| 15 | RSI range | 55 <= RSI <= 88 | MIN_RSI / MAX_RSI | UNCHANGED |
+| 15 | RSI range | 50 <= RSI <= 88 | MIN_RSI / MAX_RSI | **FIXED (55 → 50)** |
 | 16 | PRIOR_20D_HIGH present | Not NaN, > 0 | - | UNCHANGED |
 | 17 | **STRUCTURAL BREAKOUT** | Close > Prior 20D High | - | UNCHANGED |
 | 18 | ATR20 present | Not NaN, > 0 | - | UNCHANGED |
-| 19 | ATR expansion | candle_range / ATR20 >= 0.9 | MIN_ATR_EXPANSION_RATIO | UNCHANGED |
+| 19 | ATR expansion | candle_range / ATR20 >= 0.8 | MIN_ATR_EXPANSION_RATIO | **FIXED (0.9 → 0.8)** |
 | 20 | BB Width percentile (current) | ~~<= 0.80~~ **REMOVED** | MAX_BB_WIDTH_PCTILE | **FIXED** |
 | 21 | Close >= EMA20 | Trend alignment | - | UNCHANGED |
 | 22 | Close >= SMA50 | Trend alignment | - | UNCHANGED |
@@ -95,8 +95,8 @@ Before the EOD scanner even runs, stocks must survive the Daily Builder:
 | 24 | Distance from 52W High | <= 15% | MAX_DISTANCE_FROM_52W_HIGH_PCT | UNCHANGED |
 | 25 | Single-day move (abs) | <= 15% | MAX_SINGLE_DAY_MOVE_PCT | UNCHANGED |
 | 26 | Gap from 10-bar lookback high | ~~<= 3%~~ **Soft penalty** | MAX_GAP_FROM_PRIOR_HIGH_PCT | **FIXED** |
-| 27 | Pre-breakout red candles (last 5) | <= 2 | MAX_PRE_BREAKOUT_RED_CANDLES | UNCHANGED |
-| 28 | BB Width percentile bar[-2] | <= 0.80 | MAX_BB_WIDTH_PCTILE | UNCHANGED |
+| 27 | Pre-breakout red candles (last 5) | <= 3 | MAX_PRE_BREAKOUT_RED_CANDLES | **FIXED (2 → 3)** |
+| 28 | BB Width percentile bar[-2] | <= 0.50 | TIGHT_BASE_BB_WIDTH_PCTILE | **FIXED (0.35 → 0.50)** |
 | 29 | Composite score >= threshold | Regime-adjusted, **capped at 87** | SCORE_THRESHOLDS | **FIXED** |
 | 30 | Forensic risk tier | != REJECT | - | UNCHANGED |
 | 31 | No duplicate alert | Last 24h | - | UNCHANGED |

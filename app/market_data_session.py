@@ -182,9 +182,20 @@ class MarketDataSession:
         if ist_date is None:
             ist_date = datetime.now(IST).date()
 
-        session_id = str(uuid.uuid4())
-        build_start = time.monotonic()
-        stage_timings: dict[str, float] = {}
+        import pandas as pd
+        if isinstance(symbols, pd.DataFrame):
+            if "Stock" in symbols.columns:
+                symbols = symbols["Stock"].dropna().tolist()
+            elif "Symbol" in symbols.columns:
+                symbols = symbols["Symbol"].dropna().tolist()
+            else:
+                symbols = symbols.iloc[:, 0].dropna().tolist()
+        elif isinstance(symbols, pd.Series):
+            symbols = symbols.dropna().tolist()
+        elif isinstance(symbols, (set, tuple)):
+            symbols = list(symbols)
+        elif isinstance(symbols, str):
+            symbols = [symbols]
 
         logger.info(
             f"🏗️  [SESSION:{session_id[:8]}] Building MarketDataSession for {ist_date} "

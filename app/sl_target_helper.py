@@ -1212,7 +1212,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     t2 = clusters[1].consensus_price if len(clusters) > 1 else None
     t3 = clusters[2].consensus_price if len(clusters) > 2 else None
     
-    explanation = t1_cluster.analysis.explanation if t1_cluster and t1_cluster.analysis else {}
+    explanation = getattr(t1_cluster, "analysis", {}).get("explanation") if t1_cluster and hasattr(t1_cluster, "analysis") and isinstance(t1_cluster.analysis, dict) else {}
     natural_rr_val = round(abs(t1 - entry) / risk, 2)
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
