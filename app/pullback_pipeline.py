@@ -393,10 +393,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         return 0
 
     # Step 1: Check if today's dataset is already processed/available
-    sample_chunk = watchlist.head(10)
-    sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
-    
-    dataset_date = _determine_dataset_date(sample_data)
+    if session is not None:
+        dataset_date = run_date
+        sample_data = {}
+    else:
+        sample_chunk = watchlist.head(10)
+        sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
+        dataset_date = _determine_dataset_date(sample_data)
 
     is_historical_fallback = False
 
@@ -1023,6 +1026,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         logger.info(f"✅ [COMPLETE] PULLBACK SCANNER DONE | {elapsed_time:.2f}s | Alerts={alert_count} | Status={status_val}")
     else:
         logger.info(f"✅ [COMPLETE] PULLBACK SCANNER DONE (historical fallback) | {elapsed_time:.2f}s | Candidates={len(candidates)} | Dataset={dataset_date}")
+
+    if not is_historical_fallback:
+        try:
+            from database import upload_history_bundle_to_db, submit_background_upload
+            submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+            logger.info("💾 [PULLBACK] Submitted background upload of 1d history bundle to Postgres DB.")
+        except Exception as _up_err:
+            logger.warning(f"⚠️ Failed to queue background DB bundle upload in Pullback: {_up_err}")
 
     return {
         "total_count": total_symbols,

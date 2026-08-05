@@ -798,7 +798,7 @@ _global_lock = ProcessLock("global_scanner_lock")
 # =====================================================================================
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
-def run_wealth_scan(is_test_mode=False, run_ctx=None):
+def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("Wealth Engine"):
@@ -1409,7 +1409,14 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         # PriceCache handles provider-level batching internally while populating per-symbol RAM cache.
         logger.info(f"💰 [WEALTH ENGINE] Pre-fetching 1D historical data for {len(all_symbols_to_fetch)} symbols...")
         _t_hist_bulk = time.perf_counter()
-        all_historical_data = fetch_unified_historical(list(all_symbols_to_fetch), period="1y", interval="1d", requester="WEALTH_ENGINE_1D") or {}
+        if session:
+            all_historical_data = {}
+            for sym in all_symbols_to_fetch:
+                sym_data = session.get(sym)
+                if sym_data is not None and getattr(sym_data, "ohlcv_df", None) is not None:
+                    all_historical_data[sym] = sym_data.ohlcv_df
+        else:
+            all_historical_data = fetch_unified_historical(list(all_symbols_to_fetch), period="1y", interval="1d", requester="WEALTH_ENGINE_1D") or {}
         _stage_ms_hist_bulk = (time.perf_counter() - _t_hist_bulk) * 1000
         logger.info(f"⏱ [STAGE] 1D bulk_historical_fetch: {_stage_ms_hist_bulk:.0f}ms for {len(all_symbols_to_fetch)} symbols")
         stage_tracker.end_stage(f"Acquired {len(all_historical_data)} historical dataframes")
@@ -1819,11 +1826,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     global _last_parquet_upload
                     try:
                         import time
-                        from database import upload_parquet_to_db, upsert_scanner_health
+                        from database import upload_parquet_to_db, upsert_scanner_health, upload_history_bundle_to_db
                         now = time.time()
                         if now - _last_parquet_upload > 3600:
                             upload_parquet_to_db("wealth_engine", WEALTH_PATH)
                             _last_parquet_upload = now
+
+                        upload_history_bundle_to_db("1d")
                             
                         duration_sec = round(time.time() - start_time, 1)
                         upsert_scanner_health(

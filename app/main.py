@@ -1550,25 +1550,34 @@ def run_system_scheduler():
                     logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback with hard deadlines.")
                     today_str = datetime.now(IST).strftime("%Y-%m-%d")
                     
+                    try:
+                        from market_data_session import MarketDataSession
+                        from watchlist_cache import get_watchlist
+                        symbols = get_watchlist()
+                        session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
+                    except Exception as e:
+                        logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
+                        session = None
+
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         try:
                             if not is_scanner_stopped("EOD"):
                                 logger.info("Starting EOD Scanner (Timeout: 2h)...")
-                                future_eod = executor.submit(_run_eod_with_retries, today_str)
+                                future_eod = executor.submit(_run_eod_with_retries, today_str, session)
                                 future_eod.result(timeout=7200)
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
                             
                             if not is_scanner_stopped("REVERSAL"):
                                 logger.info("Starting Reversal Scanner (Timeout: 2h)...")
-                                future_rev = executor.submit(_run_reversal_with_retries, today_str)
+                                future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
                                 future_rev.result(timeout=7200)
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
                             
                             if not is_scanner_stopped("PULLBACK"):
                                 logger.info("Starting Pullback Pipeline (Timeout: 2h)...")
-                                future_pb = executor.submit(_run_pullback_with_retries, today_str)
+                                future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
                                 future_pb.result(timeout=7200)
                             else:
                                 logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
@@ -1834,8 +1843,17 @@ def _run_multibagger_scanner_single():
             start_mb_single = time.time()
             upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger Scan in progress...")
             try:
+                from market_data_session import MarketDataSession
+                from watchlist_cache import get_watchlist
+                symbols = get_watchlist()
+                session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
+            except Exception as e:
+                logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
+                session = None
+
+            try:
                 with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                    stats = multibagger.start() or {}
+                    stats = multibagger.start(session=session) or {}
                 dur_mb_single = round(time.time() - start_mb_single, 1)
                 if isinstance(stats, dict) and "today_alerts" in stats:
                     run_ctx.add_alert(stats.get("today_alerts", 0))

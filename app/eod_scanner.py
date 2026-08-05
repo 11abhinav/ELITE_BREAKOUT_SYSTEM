@@ -1679,11 +1679,13 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
         print("="*40 + "\n")
         logger.info("=" * 80 + "\n")
 
-        try:
-            from memory_profiler import run_purge_with_telemetry
-            run_purge_with_telemetry("EOD Scanner Complete")
-        except Exception as me:
-            logger.debug(f"EOD memory purge failed: {me}")
+        if not is_test_mode:
+            try:
+                from database import upload_history_bundle_to_db, submit_background_upload
+                submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+                logger.info("💾 [EOD] Submitted background upload of 1d history bundle to Postgres DB.")
+            except Exception as _up_err:
+                logger.warning(f"⚠️ Failed to queue background DB bundle upload in EOD: {_up_err}")
 
         return total_alerts
 

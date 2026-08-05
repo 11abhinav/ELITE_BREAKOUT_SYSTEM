@@ -306,7 +306,7 @@ from strategy_policy import StrategyPolicyEngine
 # [VERSION: PERF_PROFILER_v1.0] Wrap Phase A so every run reports wall-clock time,
 # RSS delta, and any top-level exception via structured log — no behavioral change.
 @profile_timing("multi_tf_scanner.run_hourly_phase", log_to_file=True)
-def run_hourly_phase(is_test_mode=False, run_once=False):
+def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
     Goal: Identify trend permission (Price > 200 EMA, 9 > 20 > 50 EMA, ADX > 20).
@@ -551,7 +551,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False):
 # [VERSION: PERF_PROFILER_v1.0] Wrap Phase B/C/D so each sub-hourly ladder cycle
 # reports its own timing + memory profile separately from Phase A.
 @profile_timing("multi_tf_scanner.run_lower_tf_phase", log_to_file=True)
-def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
+def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, session=None):
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
@@ -618,7 +618,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
     data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
     data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
     data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
-    data_daily = _fetch_tf("1d", "5d", "1d", needs_5m)
+    if session is not None and needs_5m:
+        data_daily = {
+            s: session.get(s).ohlcv_df
+            for s in needs_5m
+            if session.get(s) is not None and getattr(session.get(s), "ohlcv_df", None) is not None
+        }
+    else:
+        data_daily = _fetch_tf("1d", "5d", "1d", needs_5m)
         
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
@@ -1380,7 +1387,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
+def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
     from database import is_scanner_stopped, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("MULTI_TF"):
@@ -1409,7 +1416,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
     _scan_start = print_scanner_start_banner("multi_tf_scanner", queued_at=queued_at)
     try:
-        stats = _start_wrapper(run_once, is_test_mode=is_test_mode)
+        stats = _start_wrapper(run_once, is_test_mode=is_test_mode, session=session)
         if own_ctx and isinstance(stats, dict) and "today_alerts" in stats:
             run_ctx.add_alert(stats.get("today_alerts", 0))
         if own_ctx:
@@ -1424,7 +1431,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         _scan_lock.release()
         _global_lock.release()
 
-def _start_wrapper(run_once=False, is_test_mode=False):
+def _start_wrapper(run_once=False, is_test_mode=False, session=None):
     from datetime import time as dt_time
     from perf_utils import ScannerStageTracker
     stage_tracker = ScannerStageTracker("MULTI_TF_SCANNER")
@@ -1488,14 +1495,14 @@ def _start_wrapper(run_once=False, is_test_mode=False):
                 # 2. Hourly phase (Phase A): Only runs on 15-min candle boundaries or manual trigger
                 stage_tracker.start_stage(3, "Hourly Phase A (1H Trend Scanner)", "Scanning 1H trend permission")
                 if run_once or (ist_now.minute % 15 == 0):
-                    metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once)
+                    metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once, session=session)
                 else:
                     metrics_a = {"fetched": 0, "total": 0, "stale": 0, "approved": 0, "skipped": True}
                 stage_tracker.end_stage(f"1H Approved: {metrics_a.get('approved', 0)}")
                 
                 # 3. Lower TF updater (Phases B, C & D): Runs EVERY 5 mins to deliver fast 5m breakout alerts
                 stage_tracker.start_stage(4, "Lower TF Phase B/C/D Scanner", "Evaluating 30m/15m/5m triggers")
-                metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once)
+                metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once, session=session)
                 stage_tracker.end_stage(f"Lower TF Triggered: {metrics_b.get('triggered', 0) if isinstance(metrics_b, dict) else 0}")
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()

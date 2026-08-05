@@ -1979,6 +1979,14 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
             )
         except Exception as _perf_e:
             logger.debug(f"Non-critical: Failed to write reversal timing report: {_perf_e}")
+
+        try:
+            from database import upload_history_bundle_to_db, submit_background_upload
+            submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+            logger.info("💾 [REVERSAL] Submitted background upload of 1d history bundle to Postgres DB.")
+        except Exception as _up_err:
+            logger.warning(f"⚠️ Failed to queue background DB bundle upload in Reversal: {_up_err}")
+
         return total_alerts
 
 
