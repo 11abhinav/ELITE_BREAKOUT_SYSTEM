@@ -229,34 +229,6 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
 
 def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
     import threading
-
-# [VERSION: DB_UPLOAD_GIL_FIX] Global process pool for isolated DB uploads
-import concurrent.futures
-import atexit
-import multiprocessing
-
-_UPLOAD_POOL = None
-
-def _get_upload_pool():
-    global _UPLOAD_POOL
-    # Only initialize the pool in the MainProcess to avoid recursive fork/spawn loops
-    if multiprocessing.current_process().name == "MainProcess":
-        if _UPLOAD_POOL is None:
-            _UPLOAD_POOL = concurrent.futures.ProcessPoolExecutor(max_workers=1)
-            def _shutdown():
-                _UPLOAD_POOL.shutdown(wait=False)
-            atexit.register(_shutdown)
-    return _UPLOAD_POOL
-
-def submit_background_upload(target_func, *args, **kwargs):
-    pool = _get_upload_pool()
-    if pool is not None:
-        pool.submit(target_func, *args, **kwargs)
-    else:
-        # Fallback for when we are already in a child process (should not happen)
-        import threading
-        threading.Thread(target=target_func, args=args, kwargs=kwargs, daemon=True).start()
-
     threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol), daemon=True).start()
 
 class _AdvisoryLockGuard:
