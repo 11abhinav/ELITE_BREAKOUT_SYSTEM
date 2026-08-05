@@ -834,7 +834,7 @@ def _evaluate_candidate(
 
     REQUIRE_FUNDAMENTALS = True
     roe_val = parse_percentage(fund_data.get("ROE %"), "percentage_points") if fund_data else None
-    rev_growth = parse_percentage(fund_data.get("YOY Revenue %"), "decimal_ratio") if fund_data else None
+    rev_growth = parse_percentage(fund_data.get("YOY Revenue %"), "percentage_points") if fund_data else None
 
     if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None):
         return {
@@ -1648,7 +1648,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         fundamental_checked += 1
                         fund_dict = row.to_dict() if hasattr(row, "to_dict") else row
                         roe_val = parse_percentage(fund_dict.get("ROE %"), "percentage_points") if fund_dict else None
-                        rev_growth = parse_percentage(fund_dict.get("YOY Revenue %"), "decimal_ratio") if fund_dict else None
+                        rev_growth = parse_percentage(fund_dict.get("YOY Revenue %"), "percentage_points") if fund_dict else None
                         
                         if roe_val is None or rev_growth is None:
                             fundamental_missing += 1

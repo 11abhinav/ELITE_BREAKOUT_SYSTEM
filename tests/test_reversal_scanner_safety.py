@@ -32,26 +32,26 @@ IST = pytz.timezone("Asia/Kolkata")
 
 def _eval_candidate_test(symbol, df, fund_data=None, **kwargs):
     if fund_data is None:
-        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 0.15}
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
     else:
         if fund_data:
             fund_data = fund_data.copy()
             if "ROE %" not in fund_data:
                 fund_data["ROE %"] = 18.0
             if "YOY Revenue %" not in fund_data:
-                fund_data["YOY Revenue %"] = 0.15
+                fund_data["YOY Revenue %"] = 15.0
     return _evaluate_candidate_orig(symbol, df, fund_data=fund_data, **kwargs)
 
 def _eval_reversal_symbol_test(symbol, df, fund_data=None):
     if fund_data is None:
-        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 0.15}
+        fund_data = {"Category": "Blue Chip", "ROE %": 18.0, "YOY Revenue %": 15.0}
     else:
         if fund_data:
             fund_data = fund_data.copy()
             if "ROE %" not in fund_data:
                 fund_data["ROE %"] = 18.0
             if "YOY Revenue %" not in fund_data:
-                fund_data["YOY Revenue %"] = 0.15
+                fund_data["YOY Revenue %"] = 15.0
     return evaluate_reversal_symbol_orig(symbol, df, fund_data=fund_data)
 
 _evaluate_candidate = _eval_candidate_test
