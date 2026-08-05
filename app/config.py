@@ -451,10 +451,10 @@ SCORE_THRESHOLDS = {
 }
 
 MIN_NATURAL_RR = {
-    "MULTI_TF": 1.2,
-    "EOD": 1.3,
-    "REVERSAL": 1.2,
-    "PULLBACK": 1.3,
+    "MULTI_TF": 1.5,
+    "EOD": 2.0,
+    "REVERSAL": 2.0,
+    "PULLBACK": 2.0,
 }
 
 MIN_REWARD_POTENTIAL = {
