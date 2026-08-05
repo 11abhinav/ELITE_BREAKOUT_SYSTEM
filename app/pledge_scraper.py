@@ -141,9 +141,9 @@ def fetch_promoter_pledge(symbol: str):
                     if updated_at:
                         age_days = (datetime.now(ZoneInfo('Asia/Kolkata')).date() - updated_at.date()).days
                         if age_days <= 28:
-                            logger.info(f"✅ [PLEDGE DB CACHE] {symbol}: Pledge cache FRESH (updated {age_days}d ago <= 28d TTL). Reusing DB data.")
+                            logger.debug(f"✅ [PLEDGE DB CACHE] {symbol}: Pledge cache FRESH (updated {age_days}d ago <= 28d TTL). Reusing DB data.")
                         else:
-                            logger.info(f"🔄 [PLEDGE DB CACHE] {symbol}: Pledge cache STALE (updated {age_days}d ago > 28d TTL). Worker will refetch.")
+                            logger.debug(f"🔄 [PLEDGE DB CACHE] {symbol}: Pledge cache STALE (updated {age_days}d ago > 28d TTL). Worker will refetch.")
                     # Treat negative sentinel values (like -1.0 for 404/Not Found) as None
                     return None if val < 0 else val
 
