@@ -69,6 +69,12 @@ class ScannerRunContext:
         self._lock = threading.RLock()
 
     def _detect_git_commit(self) -> str:
+        # Check common CI/CD and PaaS environment variables (Coolify, Railway, Render, etc.)
+        import os
+        for env_var in ["COMMIT_SHA", "GIT_COMMIT_SHA", "COOLIFY_GIT_COMMIT_SHA", "SOURCE_COMMIT", "RAILWAY_GIT_COMMIT_SHA", "RENDER_GIT_COMMIT"]:
+            if os.environ.get(env_var):
+                return os.environ[env_var][:7]
+
         # Check local version.json first
         try:
             import json, os
@@ -78,7 +84,7 @@ class ScannerRunContext:
                 with open(ver_file, "r") as f:
                     data = json.load(f)
                     if data.get("commit"):
-                        return data["commit"]
+                        return data["commit"][:7]
         except Exception:
             pass
 
