@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # ── Fyers valid patterns ───────────────────────────────────────────────────────
 _FYERS_VALID_RE = re.compile(
-    r"^(NSE|BSE|MCX):[A-Z0-9&\.]+(-EQ|-SM|-ST|-A|-B|-T|-M|-X|-XC|-XD|-XT|-INDEX|-FUT|-OPT)$"
+    r"^(NSE|BSE|MCX):[A-Z0-9&\.\-]+(-EQ|-SM|-ST|-A|-B|-T|-M|-X|-XC|-XD|-XT|-INDEX|-FUT|-OPT)$"
 )
 _FYERS_BAD_SUFFIXES = ("-BE",)
 

@@ -648,6 +648,35 @@ class AutoSwitchingFetcher(DataFetcher):
                 except Exception as e:
                     logger.error(f"Error processing load-balanced future: {e}")
                     
+        # 2.5 Premium Fallback Phase: Process missing symbols through OTHER premium providers before Yahoo
+        if missing_symbols and len(active_premiums) > 1:
+            for prov_name, fetcher in active_premiums:
+                if not missing_symbols:
+                    break
+                
+                # Only try symbols that this provider hasn't already successfully fetched
+                # Actually, the symbols in missing_symbols are the ones that FAILED on their assigned provider.
+                # Just try them all on this premium provider. If it fails again, it stays in missing_symbols.
+                current_batch = list(missing_symbols)
+                start_t = time.time()
+                try:
+                    prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries=1, range_from=range_from, range_to=range_to, caller=caller)
+                    succeeded_count = 0
+                    for s in current_batch:
+                        res = prov_results.get(s)
+                        if res and res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
+                            results[s] = res
+                            if s in missing_symbols:
+                                missing_symbols.remove(s)
+                            succeeded_count += 1
+                            provider_telemetry[prov_name]["succeeded"] += 1
+                        else:
+                            pass # Leave in missing_symbols
+                    if succeeded_count > 0:
+                        logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols!")
+                except Exception as e:
+                    logger.warning(f"⚠️ {prov_name} premium fallback batch fetch exception: {e}.")
+
         # 3. Fallback Phase: Process any missing symbols through fallback providers (yfinance, etc)
         for prov_name in fallback_names:
             if not missing_symbols:

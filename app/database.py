@@ -7176,6 +7176,11 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        try:
+            c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS system_version VARCHAR(40);")
+            c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS git_commit VARCHAR(64);")
+        except Exception as e:
+            logger.warning(f"Failed to add new columns during boot cleanup: {e}")
         c.execute("""
             UPDATE scanner_execution_history
             SET completed_at = NOW(),
