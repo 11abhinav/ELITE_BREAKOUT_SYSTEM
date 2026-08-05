@@ -245,16 +245,14 @@ Schema: `symbol (PK)`, `earnings_date (DATE)`, `date_status (TEXT)`, `updated_at
 - **Batch cap**: Max **100 symbols** per run (enforced by `uncached_symbols[:100]`)
 - **Inter-symbol delay**: `time.sleep(1.5)` per symbol
 
-### Scheduler Trigger
+### Scheduler & Worker Active Window
 
-**Code ref**: `main.py:1576–1589`
+~~`# 22:00 - 23:59 IST — Off-peak evening window`~~ **[RESOLVED on 2026-08-05]**: Synchronized worker schedule active window:
+- **Saturday & Sunday (Weekends)**: **03:00 AM – 12:00 PM IST** (`3 <= hour < 12`)
+- **Monday – Friday (Working Days)**: **04:00 AM – 06:00 AM IST** (`4 <= hour < 6`)
+- In addition to post-market off-peak evening window (22:00 IST).
 
-```python
-# 22:00 - 23:59 IST — Off-peak evening window (runs once per day)
-if now.hour in (22, 23) and last_earnings_date != now.date():
-```
-
-Runs in a **background daemon thread** (`EarningsCalendar-PostMarket`) to avoid blocking the main scheduler loop.
+Runs in a **background daemon thread** (`EarningsCalendarWorker` / `EarningsCalendar-PostMarket`) managed by the Self-Healing Watchdog.
 
 ### In-Loop Pause Guard
 
@@ -295,44 +293,16 @@ Schema: `symbol (PK)`, `pledge_pct (FLOAT)`, `updated_at (TIMESTAMP)`, `last_att
 
 ### Refresh Schedule
 
-**Code ref**: `pledge_worker.py:232, 264`
+**Code ref**: `pledge_worker.py:254–265`
 
-```sql
--- Stale = not updated in 28 days AND not attempted today
-WHERE NOT (
-    updated_at >= NOW() - INTERVAL '28 days'
-    OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE
-)
-```
+~~`Every 1 hour (continuous)`~~ **[RESOLVED on 2026-08-05]**: Synchronized worker schedule active window:
+- **Saturday & Sunday (Weekends)**: **03:00 AM – 12:00 PM IST** (`3 <= hour < 12`)
+- **Monday – Friday (Working Days)**: **04:00 AM – 06:00 AM IST** (`4 <= hour < 6`)
 
 - **Stale threshold**: Any symbol with `updated_at < NOW() - 28 days` is stale
-- **Worker loop**: Continuous background thread (`worker_loop()`)
-- **Between cycles**: Sleeps **1 hour** (`time.sleep(3600)`) when all symbols are fresh
+- **Worker loop**: Continuous background thread (`worker_loop()`) sleeping 300s when outside active window
 - **Concurrency**: 1 worker (serial), with retries for failed symbols
-
-### Read Path (Scanner Runtime — Zero network calls)
-
-**Code ref**: `database.py:2857–2888`
-
-```python
-def get_pledge_map(symbols: list) -> dict:
-    # L1: Check DatasetRegistry RAM cache
-    cached_pledge = registry.get("promoter_pledge")
-    if cached_pledge is not None:
-        return {k: v for k, v in cached_pledge.items() if k in symbols}
-    # L2: Bulk PostgreSQL fetch (all at once, no N+1)
-    cur.execute("SELECT symbol, pledge_pct FROM promoter_pledge_cache")
-    registry.put("promoter_pledge", pledge_map)  # Save to RAM for future calls
-```
-
-### Who Uses Pledge Data
-
-| Scanner | How | Threshold |
-|---------|-----|-----------|
-| Multibagger | `get_pledge_map()` at scan time | Prime: `<= 10%`, HQ: `<= 15%` |
-| EOD Scanner | `get_pledge_map()` at scan time | Penalty applied if high |
-| Wealth Engine | Via `tech["Promoter_Pledge"]` field | Filter/penalty |
-| Reversal | `get_pledge_map()` at scan time | Penalty applied |
+- **Log verbosity**: Per-symbol DB cache reuse logged at `DEBUG` level to prevent log clutter
 
 ---
 
@@ -355,7 +325,10 @@ Key fields in `analysis_data` JSONB: `management_confidence` (int 0–100), `hig
 
 ### Refresh Schedule
 
-- **AI Worker runs**: Every **1 hour** (`main.py schedule_map: "AI Worker": "Every 1h"`)
+~~`Every 1 hour (continuous, 04:00-05:00 IST)`~~ **[RESOLVED on 2026-08-05]**: Synchronized worker schedule active window:
+- **Saturday & Sunday (Weekends)**: **03:00 AM – 12:00 PM IST** (`3 <= hour < 12`)
+- **Monday – Friday (Working Days)**: **04:00 AM – 06:00 AM IST** (`4 <= hour < 6`)
+
 - **Skip if cached**: `has_valid_concall_cache(symbol)` checks for non-error entry in DB — if found, skips the symbol entirely
 - **Error retry window**: `has_error_concall_cache_within_24h()` checks for error entries within last **7 days**. If found, skips (avoids daily retrying NSE timeouts that won't resolve)
 
@@ -481,9 +454,9 @@ Used for: Wealth admission gate, last scan metadata, feature flags
 | **Reversal Scanner** | 18:00 IST daily (sequential after EOD) | 1d parquet (2y), fundamentals, pledge | `alerts` table (`REVERSAL` scanner) |
 | **Pullback Scanner** | 18:00 IST daily (sequential after Reversal) | 1d parquet (2y) | `alerts` table (`PULLBACK` scanner) |
 | **Multibagger Scanner** | 19:00 IST daily + Saturday 06:00 AM | 1d parquet (2y), fundamentals (triggers refresh), pledge | `alerts` table (`MULTIBAGGER` scanner) |
-| **Earnings Calendar** | 22:00–23:59 IST daily (off-peak) | Yahoo Finance earnings dates | PostgreSQL `earnings_calendar` table |
-| **AI Worker** | Every 1 hour (continuous) | NSE concall PDFs → AI model | PostgreSQL `ai_concall_cache_v3` table |
-| **Pledge Worker** | Every 1 hour (continuous, 28d TTL) | Trendlyne/NSE pledge data | PostgreSQL `promoter_pledge_cache` table |
+| **Earnings Calendar** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST + 22:00 IST | Yahoo Finance earnings dates | PostgreSQL `earnings_calendar` table |
+| **AI Worker** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST | NSE concall PDFs → AI model | PostgreSQL `ai_concall_cache_v3` table |
+| **Pledge Worker** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST | Trendlyne/NSE pledge data | PostgreSQL `promoter_pledge_cache` table |
 | **Fundamental Refresh** | Triggered by Multibagger (7/14/30d TTL) | Yahoo Finance financials | `data/fundamentals_cache.json` + PostgreSQL |
 
 ---
