@@ -1285,7 +1285,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         _rejection_lock = threading.Lock()
 
         all_symbols_to_fetch = list(candidate_symbols.union(set(orphan_symbols)))
-        BATCH_SIZE = int(os.environ.get("WEALTH_BATCH_SIZE", "50"))
+        BATCH_SIZE = int(os.environ.get("WEALTH_BATCH_SIZE", "200"))
         logger.info(f"💰 [WEALTH ENGINE] Processing {len(all_symbols_to_fetch)} symbols in chunks of {BATCH_SIZE}...")
 
         if all_symbols_to_fetch:

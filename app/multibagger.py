@@ -321,7 +321,7 @@ def batch_download_market_data(symbols: list) -> dict:
     from market_utils import is_market_open
     import os, psutil, gc, time
 
-    BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "250"))
+    BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
     logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")
 
     ist_now = datetime.now(IST)
