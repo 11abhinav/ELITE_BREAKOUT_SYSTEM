@@ -1642,11 +1642,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
             dur_s = time.perf_counter() - _t_start
             logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded 1d history bundle to DB' | Duration={dur_s:.2f}s")
 
-        threading.Thread(
-            target=upload_mb_bundle_job,
-            name="MultibaggerHistoryBundleUpload",
-            daemon=True
-        ).start()
+        from database import submit_background_upload
+        submit_background_upload(upload_mb_bundle_job)
     except Exception as _up_err:
         logger.debug(f"Post-multibagger bundle upload thread spawn failed: {_up_err}")
         

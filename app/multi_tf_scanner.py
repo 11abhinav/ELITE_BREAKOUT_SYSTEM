@@ -1346,7 +1346,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     dur_s = time.perf_counter() - _t_start
                     logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded intraday history bundles to DB' | Duration={dur_s:.2f}s")
                 
-                threading.Thread(target=bg_upload, name="MultiTFDBBackgroundWorker", daemon=True).start()
+                from database import submit_background_upload
+                submit_background_upload(bg_upload)
         except Exception as _mtf_pe:
             logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
 

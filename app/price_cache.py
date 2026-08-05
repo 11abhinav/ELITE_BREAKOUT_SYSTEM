@@ -1134,11 +1134,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 except Exception as e:
                     logger.exception(f"Background history upload failed: {e}")
 
-            threading.Thread(
-                target=upload_history_job,
-                name=f"HistoryUpload_{interval}",
-                daemon=True
-            ).start()
+            from database import submit_background_upload
+            submit_background_upload(upload_history_job)
     except Exception as _hb_up_err:
         logger.debug(f"History bundle auto-upload thread spawn failed: {_hb_up_err}")
     

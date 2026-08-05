@@ -1792,8 +1792,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                         )
                     except Exception as _sh_e: logger.exception(f"Error in bg_db_sync: {_sh_e}")
 
-                import threading
-                threading.Thread(target=bg_db_sync, name="WealthEngineDBSync", daemon=True).start()
+                from database import submit_background_upload
+                submit_background_upload(bg_db_sync)
                 
                 # Free large intermediate dataframes
                 del tech_df, candidate_tech, prev_wealth_df
@@ -2039,8 +2039,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         )
                 except Exception as _e: logger.exception(f"Error in bg_db_sync_intraday: {_e}")
 
-            import threading
-            threading.Thread(target=bg_db_sync_intraday, name="WealthEngineIntradayDBSync", daemon=True).start()
+            from database import submit_background_upload
+            submit_background_upload(bg_db_sync_intraday)
             
         stage_tracker.end_stage("Dashboard DB sync completed")
 

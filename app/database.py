@@ -29,6 +29,34 @@ import time
 import json
 import logging
 import threading
+
+# [VERSION: DB_UPLOAD_GIL_FIX] Global process pool for isolated DB uploads
+import concurrent.futures
+import atexit
+import multiprocessing
+
+_UPLOAD_POOL = None
+
+def _get_upload_pool():
+    global _UPLOAD_POOL
+    # Only initialize the pool in the MainProcess to avoid recursive fork/spawn loops
+    if multiprocessing.current_process().name == "MainProcess":
+        if _UPLOAD_POOL is None:
+            _UPLOAD_POOL = concurrent.futures.ProcessPoolExecutor(max_workers=1)
+            def _shutdown():
+                _UPLOAD_POOL.shutdown(wait=False)
+            atexit.register(_shutdown)
+    return _UPLOAD_POOL
+
+def submit_background_upload(target_func, *args, **kwargs):
+    pool = _get_upload_pool()
+    if pool is not None:
+        pool.submit(target_func, *args, **kwargs)
+    else:
+        # Fallback for when we are already in a child process (should not happen)
+        import threading
+        threading.Thread(target=target_func, args=args, kwargs=kwargs, daemon=True).start()
+
 from contextlib import contextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -201,6 +229,34 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
 
 def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
     import threading
+
+# [VERSION: DB_UPLOAD_GIL_FIX] Global process pool for isolated DB uploads
+import concurrent.futures
+import atexit
+import multiprocessing
+
+_UPLOAD_POOL = None
+
+def _get_upload_pool():
+    global _UPLOAD_POOL
+    # Only initialize the pool in the MainProcess to avoid recursive fork/spawn loops
+    if multiprocessing.current_process().name == "MainProcess":
+        if _UPLOAD_POOL is None:
+            _UPLOAD_POOL = concurrent.futures.ProcessPoolExecutor(max_workers=1)
+            def _shutdown():
+                _UPLOAD_POOL.shutdown(wait=False)
+            atexit.register(_shutdown)
+    return _UPLOAD_POOL
+
+def submit_background_upload(target_func, *args, **kwargs):
+    pool = _get_upload_pool()
+    if pool is not None:
+        pool.submit(target_func, *args, **kwargs)
+    else:
+        # Fallback for when we are already in a child process (should not happen)
+        import threading
+        threading.Thread(target=target_func, args=args, kwargs=kwargs, daemon=True).start()
+
     threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol), daemon=True).start()
 
 class _AdvisoryLockGuard:
@@ -3710,7 +3766,7 @@ def upload_parquet_to_db(name: str, file_path: str):
                     INSERT INTO parquet_cache (name, date, data)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
-                """, (name, today, binary_data))
+                """, (name, today, psycopg2.Binary(binary_data)))
             conn.commit()
         dur_s = time.perf_counter() - _t_start
         logger.info(f"💾 [PARQUET DB SYNC COMPLETE] Uploaded '{name}' ({size_kb:.1f} KB) to Postgres DB parquet_cache in {dur_s:.2f}s")
@@ -3846,7 +3902,7 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
                         INSERT INTO parquet_cache (name, date, data)
                         VALUES (%s, %s, %s)
                         ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
-                    """, (name, today, binary_data))
+                    """, (name, today, psycopg2.Binary(binary_data)))
                 conn.commit()
 
         _last_bundle_upload_time[interval] = now_ts
