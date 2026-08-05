@@ -660,6 +660,8 @@ class AutoSwitchingFetcher(DataFetcher):
                 current_batch = list(missing_symbols)
                 start_t = time.time()
                 try:
+                    if prov_name in provider_telemetry:
+                        provider_telemetry[prov_name]["requested"] += len(current_batch)
                     prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries=1, range_from=range_from, range_to=range_to, caller=caller)
                     succeeded_count = 0
                     for s in current_batch:
@@ -669,8 +671,11 @@ class AutoSwitchingFetcher(DataFetcher):
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
                             succeeded_count += 1
-                            provider_telemetry[prov_name]["succeeded"] += 1
+                            if prov_name in provider_telemetry:
+                                provider_telemetry[prov_name]["succeeded"] += 1
                             logger.info(f"✅ [Premium Fallback] {prov_name.upper()} successfully recovered data for missing symbol: {s}")
+                        elif prov_name in provider_telemetry:
+                            provider_telemetry[prov_name]["failed"] += 1
                         else:
                             pass # Leave in missing_symbols
                     if succeeded_count > 0:
