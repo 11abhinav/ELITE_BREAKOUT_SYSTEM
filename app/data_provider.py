@@ -744,6 +744,21 @@ class AutoSwitchingFetcher(DataFetcher):
             if s not in results:
                 results[s] = fallback_results.get(s, MarketData(None, "UNKNOWN", None, False, False, "Missing"))
                 
+        if missing_symbols:
+            logger.error(f"❌ Completely missing data for {len(missing_symbols)} symbols after trying ALL providers: {list(missing_symbols)}")
+            try:
+                from database import insert_notification
+                sym_str = ", ".join(list(missing_symbols)[:15])
+                if len(missing_symbols) > 15:
+                    sym_str += f" and {len(missing_symbols)-15} more"
+                insert_notification(
+                    "error",
+                    f"❌ DATA MISSING: {len(missing_symbols)} symbols failed",
+                    f"Failed to fetch data for {sym_str} across ALL providers (Fyers, Upstox, Yahoo). They will be skipped."
+                )
+            except Exception:
+                pass
+                
         return results
 
     def get_quote(self, symbol: str) -> dict:
