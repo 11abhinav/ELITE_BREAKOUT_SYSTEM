@@ -1374,6 +1374,9 @@
         <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
           <span>🚀</span> Signals & All Trades
         </button>
+        <button class="admin-tab-btn" data-tab="wealth-engine" onclick="switchAdminTab('wealth-engine')">
+          <span>💎</span> Wealth Dashboard
+        </button>
         <button class="admin-tab-btn" data-tab="watchlist-users" onclick="switchAdminTab('watchlist-users')">
           <span>⭐</span> Watchlist & User Management
         </button>
@@ -1600,6 +1603,11 @@
       </div>
       </div>
       <!-- END TAB 1: SIGNALS & ALL TRADES -->
+
+      <!-- TAB WEALTH ENGINE (IFRAME) -->
+      <div id="tab-wealth-engine" class="tab-panel">
+        <iframe src="/wealth" style="width: 100%; height: calc(100vh - 120px); border: none; border-radius: 8px;"></iframe>
+      </div>
 
       <!-- TAB 2: WATCHLIST & USER MANAGEMENT -->
       <div id="tab-watchlist-users" class="tab-panel">
@@ -2511,47 +2519,34 @@
     }
 
     async function loadDiagnostics() {
-      // 1. Scanner Status
-      const scannerStatus = await loadScannerStatus();
-      if (scannerStatus) {
-        window._scannerStats = { ...(window._scannerStats || {}), ...scannerStatus };
-        renderScannerGrid(window._scannerStats);
-      }
-
-      // 2. Non-critical Errors
-      await loadNonCriticalErrors();
-
-      // 3. Fetch Errors
-      try {
-        const errs = await fetchFetchErrors();
-        renderFetchErrors(errs);
-      } catch (e) { console.error('Failed to load fetch errors', e); }
-
-      // 4. System Logs
-      try {
-        fetchSystemLogs();
-      } catch (e) { console.error('Failed to load system logs', e); }
-
-      // 5. API Health
-      try {
-        const r2 = await fetch('/api/data_fetch_health');
-        if (r2.ok) {
-          const apiHealth = await r2.json();
-          renderApiHealth(apiHealth);
+      const p1 = loadScannerStatus().then(scannerStatus => {
+        if (scannerStatus) {
+          window._scannerStats = { ...(window._scannerStats || {}), ...scannerStatus };
+          renderScannerGrid(window._scannerStats);
         }
-      } catch (e) { console.error('Failed to load API health', e); }
+      }).catch(e => console.error(e));
 
-      // 5b. Validation Health
-      try {
-        const rVal = await fetch('/api/validation_health');
-        if (rVal.ok) {
-          const valHealth = await rVal.json();
-          renderValidationHealth(valHealth.data);
-        }
-      } catch (e) { console.error('Failed to load validation health', e); }
+      const p2 = loadNonCriticalErrors().catch(e => console.error(e));
 
-      // 6. Pledge Worker Mode
+      const p3 = fetchFetchErrors().then(errs => renderFetchErrors(errs)).catch(e => console.error('Failed to load fetch errors', e));
+
+      const p4 = (async () => {
+        try { fetchSystemLogs(); } catch (e) { console.error('Failed to load system logs', e); }
+      })();
+
+      const p5 = fetch('/api/data_fetch_health')
+        .then(r => r.ok ? r.json() : Promise.reject('Not OK'))
+        .then(apiHealth => renderApiHealth(apiHealth))
+        .catch(e => console.error('Failed to load API health', e));
+
+      const p6 = fetch('/api/validation_health')
+        .then(r => r.ok ? r.json() : Promise.reject('Not OK'))
+        .then(valHealth => renderValidationHealth(valHealth.data))
+        .catch(e => console.error('Failed to load validation health', e));
+
       loadPledgeWorkerMode();
+
+      await Promise.all([p1, p2, p3, p4, p5, p6]);
     }
 
     async function loadPledgeWorkerMode() {

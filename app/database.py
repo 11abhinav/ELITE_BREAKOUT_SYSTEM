@@ -6937,7 +6937,8 @@ def export_table_records(table_name: str) -> tuple:
             if not cur.fetchone():
                 raise ValueError(f"Table '{table_name}' does not exist in database.")
                 
-            cur.execute(f"SELECT * FROM {table_name}")
+            # [SECURITY] Prevent OOM crash on massive tables like historical_data or system_logs
+            cur.execute(f"SELECT * FROM {table_name} LIMIT 250000")
             rows = cur.fetchall()
             col_names = [desc[0] for desc in cur.description]
             return col_names, rows
