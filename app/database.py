@@ -3816,13 +3816,20 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
     init_db()
     today = datetime.now(IST).strftime("%Y-%m-%d")
     try:
-        bio = io.BytesIO()
-        with tarfile.open(fileobj=bio, mode="w:gz") as tar:
-            for fname in sorted(files):
-                fpath = os.path.join(history_dir, fname)
-                tar.add(fpath, arcname=fname)
-
-        binary_data = bio.getvalue()
+        import subprocess
+        import tempfile
+        
+        # [VERSION: DB_UPLOAD_GIL_FIX] Offload compression to OS to prevent freezing the entire scanner
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+            
+        # Execute tar at OS level. -C changes directory before adding files.
+        subprocess.run(["tar", "-czf", tmp_path, "-C", history_dir, "."], check=True, capture_output=True)
+        
+        with open(tmp_path, "rb") as f:
+            binary_data = f.read()
+            
+        os.remove(tmp_path)
         current_md5 = hashlib.md5(binary_data).hexdigest()
 
         if not force and _last_bundle_checksum.get(interval) == current_md5:
