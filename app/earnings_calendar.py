@@ -360,3 +360,59 @@ def run_earnings_calendar_refresh() -> dict:
 
     finally:
         _scan_lock.release()
+
+def is_earnings_active_window(now: Optional[datetime] = None) -> bool:
+    """Check if current time is within active worker window:
+    - Saturday & Sunday: 03:00 AM to 12:00 PM IST (3:00 to 12:00 IST)
+    - Working Days (Mon-Fri): 04:00 AM to 06:00 AM IST (4:00 to 6:00 IST)
+    """
+    if now is None:
+        now = datetime.now(IST)
+    is_weekend = now.weekday() >= 5
+    if is_weekend:
+        return 3 <= now.hour < 12
+    else:
+        return 4 <= now.hour < 6
+
+def get_earnings_window_desc(now: Optional[datetime] = None) -> str:
+    if now is None:
+        now = datetime.now(IST)
+    if now.weekday() >= 5:
+        return "03:00 - 12:00 IST (Sat-Sun)"
+    else:
+        return "04:00 - 06:00 IST (Mon-Fri)"
+
+def run_worker_loop():
+    """Background daemon loop for Earnings Calendar worker."""
+    logger.info("📅 Earnings Calendar Worker Thread Started.")
+    while True:
+        try:
+            now_ist = datetime.now(IST)
+            from database import is_scanner_stopped, upsert_scanner_health
+            if is_scanner_stopped("Earnings Calendar"):
+                upsert_scanner_health("Earnings Calendar", "STOPPED", error_msg="Stopped by Admin")
+                time.sleep(60)
+                continue
+
+            if not is_earnings_active_window(now_ist):
+                win_desc = get_earnings_window_desc(now_ist)
+                upsert_scanner_health("Earnings Calendar", "IDLE", error_msg=f"Outside active window ({win_desc})")
+                time.sleep(300)
+                continue
+
+            try:
+                run_earnings_calendar_refresh()
+            except RuntimeError:
+                pass  # Lock contention / already running
+            except Exception as e:
+                logger.exception(f"❌ [EARNINGS CALENDAR] Worker cycle failed: {e}")
+
+            time.sleep(300)
+        except Exception as e:
+            logger.exception("❌ [EARNINGS CALENDAR] Main worker loop crashed")
+            time.sleep(300)
+
+def start_worker():
+    t = threading.Thread(target=run_worker_loop, name="EarningsCalendarWorker", daemon=True)
+    t.start()
+    return t

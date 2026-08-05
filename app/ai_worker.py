@@ -10,18 +10,26 @@ logger = logging.getLogger(__name__)
 IST_ZONE = ZoneInfo("Asia/Kolkata")
 from constituent_service import fetch_constituents
 
-def is_in_window() -> bool:
-    """Check if current time is between 4 AM IST and 5 AM IST."""
-    now = datetime.now(IST_ZONE)
-    return 4 <= now.hour < 5
+def is_in_window(now: datetime = None) -> bool:
+    """Check if current time is within active worker window:
+    - Saturday & Sunday: 03:00 AM to 12:00 PM IST (3:00 to 12:00 IST)
+    - Working Days (Mon-Fri): 04:00 AM to 06:00 AM IST (4:00 to 6:00 IST)
+    """
+    if now is None:
+        now = datetime.now(IST_ZONE)
+    is_weekend = now.weekday() >= 5
+    if is_weekend:
+        return 3 <= now.hour < 12
+    else:
+        return 4 <= now.hour < 6
 
-def wait_until_next_window() -> float:
-    """Calculate seconds until the next 4 AM IST."""
-    now = datetime.now(IST_ZONE)
-    target = now.replace(hour=4, minute=0, second=0, microsecond=0)
-    if now >= target:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
+def get_active_window_description(now: datetime = None) -> str:
+    if now is None:
+        now = datetime.now(IST_ZONE)
+    if now.weekday() >= 5:
+        return "03:00 - 12:00 IST (Sat-Sun)"
+    else:
+        return "04:00 - 06:00 IST (Mon-Fri)"
 
 # [VERSION: AI_WORKER_MANUAL_v1.0] Extract run_ai_worker_scan_once and protect with _scan_lock
 _scan_lock = threading.Lock()
@@ -274,11 +282,12 @@ def run_worker_loop():
             time.sleep(60)
             continue
 
-        if not is_in_window():
-            sleep_secs = wait_until_next_window()
-            logger.info(f"🤖 [AI WORKER] Outside active window (04:00 - 05:00 IST). Sleeping {sleep_secs:.1f}s until 4 AM IST...")
-            upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Outside active window (04:00 - 05:00 IST)")
-            time.sleep(min(sleep_secs, 300))
+        now_ist = datetime.now(IST_ZONE)
+        if not is_in_window(now_ist):
+            win_desc = get_active_window_description(now_ist)
+            logger.info(f"🤖 [AI WORKER] Outside active window ({win_desc}). Sleeping 300s...")
+            upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg=f"Outside active window ({win_desc})")
+            time.sleep(300)
             continue
 
         try:

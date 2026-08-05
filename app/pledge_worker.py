@@ -152,6 +152,23 @@ def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False
     except Exception as e:
         logger.error(f"Failed to save pledge cache for {symbol}: {e}")
 
+def is_pledge_active_window(now: datetime = None) -> bool:
+    if now is None:
+        now = datetime.now(IST_ZONE)
+    is_weekend = now.weekday() >= 5  # 5=Saturday, 6=Sunday
+    if is_weekend:
+        return 3 <= now.hour < 12  # 03:00 AM to 12:00 PM IST
+    else:
+        return 4 <= now.hour < 6   # 04:00 AM to 06:00 AM IST
+
+def get_pledge_window_desc(now: datetime = None) -> str:
+    if now is None:
+        now = datetime.now(IST_ZONE)
+    if now.weekday() >= 5:
+        return "03:00 - 12:00 IST (Sat-Sun)"
+    else:
+        return "04:00 - 06:00 IST (Mon-Fri)"
+
 def worker_loop():
     import time
     logger.info("🚀 Starting Pledge Worker Daemon")
@@ -252,8 +269,9 @@ def worker_loop():
             continue
             
         if mode == 'auto':
-            if not (3 <= now.hour < 4):
-                upsert_scanner_health("Pledge Worker", "IDLE", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Waiting for 03:00 - 04:00 IST Window")
+            if not is_pledge_active_window(now):
+                win_desc = get_pledge_window_desc(now)
+                upsert_scanner_health("Pledge Worker", "IDLE", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Outside active window ({win_desc})")
                 sleep_with_mode_check(300)
                 continue
 

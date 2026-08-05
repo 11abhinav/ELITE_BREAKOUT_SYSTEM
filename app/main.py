@@ -1742,10 +1742,9 @@ def check_scanner_staleness(now):
 # exit.  The watchdog will see completed_cleanly=True and simply drop them.
 # =====================================================================================
 
-# [VERSION: TRIGGER_AI_WORKER_v1.2] Uncomment AI Worker thread and imports to enable background concall worker daemon
-from ai_worker import run_worker_loop
+from ai_worker import run_worker_loop as run_ai_loop
 from pledge_worker import worker_loop as run_pledge_loop
-from earnings_calendar import run_earnings_calendar_refresh
+from earnings_calendar import run_worker_loop as run_earnings_loop
 
 def run_multibagger_exit_monitor():
     """Independent background daemon to monitor multibagger exits every 15 minutes."""
@@ -1881,9 +1880,9 @@ def _run_multibagger_scanner_single():
 
 
 RESTARTABLE_THREADS = {
-    # [VERSION: TRIGGER_AI_WORKER_v1.3] Uncomment AI Worker thread
-    "AI Worker":          run_worker_loop,
+    "AI Worker":          run_ai_loop,
     "Pledge Worker":      run_pledge_loop,
+    "Earnings Calendar":  run_earnings_loop,
     "SystemScheduler":    run_system_scheduler,
 }
 
