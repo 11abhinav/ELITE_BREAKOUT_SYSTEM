@@ -252,31 +252,36 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 
             is_stale = getattr(hist, 'attrs', {}).get('is_stale', False)
 
-            hist['sma_200'] = hist['Close'].rolling(window=200).mean()
-            hist['sma_50']  = hist['Close'].rolling(window=50).mean()
-            hist['ema_20']  = hist['Close'].ewm(span=20, adjust=False).mean()
+            # Extract sliced indicators for O(1) performance (avoid full-frame rolling math)
+            sma_200 = float(hist['Close'].tail(200).mean()) if len(hist) >= 200 else None
+            sma_50  = float(hist['Close'].tail(50).mean()) if len(hist) >= 50 else None
+            ema_20  = float(hist['Close'].tail(100).ewm(span=20, adjust=False).mean().iloc[-1]) if len(hist) >= 20 else None
 
-            # Calculate 14-day RSI
-            delta = hist['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs_val = gain / loss
-            hist['RSI'] = 100 - (100 / (1 + rs_val))
+            # Calculate 14-day RSI on tail
+            delta = hist['Close'].tail(15).diff()
+            gain = float(delta.where(delta > 0, 0).tail(14).mean())
+            loss = float((-delta.where(delta < 0, 0)).tail(14).mean())
+            rs_val = gain / loss if loss > 0 else float('inf')
+            rsi = 100 - (100 / (1 + rs_val)) if loss > 0 else 100.0
 
-            # Calculate 14-day ATR (True Range)
-            hist['Prev_Close'] = hist['Close'].shift(1)
-            tr1 = hist['High'] - hist['Low']
-            tr2 = (hist['High'] - hist['Prev_Close']).abs()
-            tr3 = (hist['Low'] - hist['Prev_Close']).abs()
+            # Calculate 14-day ATR on tail
+            tail_high = hist['High'].tail(15)
+            tail_low = hist['Low'].tail(15)
+            tail_close = hist['Close'].tail(15)
+            prev_close = tail_close.shift(1)
+            
             import numpy as np
-            hist['TR'] = np.maximum(tr1, np.maximum(tr2, tr3))
-            hist['ATR'] = hist['TR'].rolling(window=14).mean()
+            tr1 = tail_high - tail_low
+            tr2 = (tail_high - prev_close).abs()
+            tr3 = (tail_low - prev_close).abs()
+            tr = np.maximum(tr1, np.maximum(tr2, tr3))
+            atr = float(tr.tail(14).mean())
             
             last_row = hist.iloc[-1]
             cmp = _safe_num(last_row.get('Close'))
 
             # ATR as a percentage of CMP
-            atr_pct = (_safe_num(last_row.get('ATR')) / cmp) * 100.0 if cmp > 0 and pd.notna(last_row['ATR']) else 0.0
+            atr_pct = (atr / cmp) * 100.0 if cmp > 0 and not pd.isna(atr) else 0.0
 
             # 6-Month Relative Strength vs Nifty
             hist_6m = hist.tail(126)
@@ -301,21 +306,21 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             mom_score, mom_conf = calculate_momentum_quality_score(hist, symbol=symbol)
 
             return {
-                "sma_200": _safe_num(last_row['sma_200']) if not pd.isna(last_row['sma_200']) else None,
-                "sma_50":  _safe_num(last_row['sma_50']) if not pd.isna(last_row['sma_50']) else None,
-                "ema_20":  _safe_num(last_row['ema_20']) if not pd.isna(last_row['ema_20']) else None,
+                "sma_200": sma_200,
+                "sma_50":  sma_50,
+                "ema_20":  ema_20,
                 "cmp": cmp,
                 "rs_6m": rs_6m,
                 "rs_is_absolute_proxy": is_macro_proxy,
                 "dist_52w_high": dist_52w_high,
                 "liquidity": liquidity,
-                "RSI": _safe_num(last_row['RSI']) if not pd.isna(last_row['RSI']) else 50.0,
+                "RSI": rsi,
                 "ATR_Pct": atr_pct,
                 "momentum_score": mom_score,
                 "momentum_confidence": mom_conf,
                 "data_quality": "STALE_INTRADAY" if is_stale else DataQuality.LIVE.value,
                 "is_stale": is_stale,
-                "above_sma200": bool(cmp >= _safe_num(last_row['sma_200'])) if not pd.isna(last_row['sma_200']) else False
+                "above_sma200": bool(cmp >= sma_200) if sma_200 is not None else False
             }
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")

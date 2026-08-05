@@ -724,27 +724,42 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
 
     return completed_bar_volume_ok and bullish_close and near_ema
 
+def _is_fundamental_cache_fresh(data: dict) -> bool:
+    try:
+        # Check both "fetched_at" (multibagger format) and "date" (global cache format)
+        date_str = data.get("fetched_at") or data.get("date")
+        if not date_str:
+            return False
+            
+        # Parse it
+        try:
+            # Try isoformat first (fetched_at)
+            fetched_at = datetime.fromisoformat(date_str)
+        except ValueError:
+            # Fallback to YYYY-MM-DD (date)
+            fetched_at = datetime.strptime(date_str, "%Y-%m-%d")
+            
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=IST)
+            
+        now_dt = datetime.now(IST)
+        age_days = (now_dt - fetched_at).days
+        
+        # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
+        is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
+        max_age_days = 7 if is_saturday_window else 15
+        
+        return age_days < max_age_days
+    except Exception as e:
+        logger.debug(f"Freshness check failed: {e}")
+        return False
+
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     if symbol in cache:
         try:
             data = cache[symbol]
-            # 1. Check validity and freshness
-            fetched_at_str = data.get("fetched_at", datetime.now(IST).isoformat())
-            fetched_at = datetime.fromisoformat(fetched_at_str)
-            now_dt = datetime.now(IST)
-            # Ensure it has timezone info
-            if fetched_at.tzinfo is None:
-                logger.warning(f"[TIMEZONE] Upgrading legacy naive cache timestamp for {symbol} to IST.")
-                # [VERSION: MB_CACHE_TZ_FIX] Upgrade naive timestamp instead of discarding cache to preserve rate limits
-                fetched_at = fetched_at.replace(tzinfo=IST)
-                
-            age_days = (now_dt - fetched_at).days
-            # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
-            is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
-            max_age_days = 7 if is_saturday_window else 15
-
-            if age_days < max_age_days:
-                return {k: v for k, v in data.items() if k != "fetched_at"}
+            if _is_fundamental_cache_fresh(data):
+                return {k: v for k, v in data.items() if k not in ("fetched_at", "date")}
         except Exception as e:
             logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
         
@@ -753,7 +768,10 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         from fundamentals_cache import get_fundamentals
         g_fund = get_fundamentals(symbol)
         if g_fund and not g_fund.get("failed", False):
-            return g_fund
+            if _is_fundamental_cache_fresh(g_fund):
+                return {k: v for k, v in g_fund.items() if k not in ("fetched_at", "date")}
+            else:
+                logger.debug(f"Global cache for {symbol} is stale.")
     except Exception as _g_err:
         logger.debug(f"Global fundamentals_cache fallback failed for {symbol}: {_g_err}")
 
