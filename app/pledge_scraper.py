@@ -15,6 +15,9 @@ from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+import threading
+_cache_lock = threading.Lock()
+
 
 
 def get_scraper_api_key() -> str:
@@ -68,15 +71,19 @@ def _is_key_exhausted_today(key: str) -> bool:
 def mark_key_exhausted_today(key: str):
     try:
         fpath = _get_exhausted_keys_file()
-        data = {}
-        if os.path.exists(fpath):
-            with open(fpath, 'r') as f:
-                data = json.load(f)
-        today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime("%Y-%m-%d")
-        data[key] = today
-        data = {k: v for k, v in data.items() if v == today}
-        with open(fpath, 'w') as f:
-            json.dump(data, f)
+        with _cache_lock:
+            data = {}
+            if os.path.exists(fpath):
+                try:
+                    with open(fpath, 'r') as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+            today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime("%Y-%m-%d")
+            data[key] = today
+            data = {k: v for k, v in data.items() if v == today}
+            with open(fpath, 'w') as f:
+                json.dump(data, f)
     except Exception as e:
         logger.debug(f"Failed to write exhausted keys cache: {e}")
 
@@ -97,16 +104,20 @@ def _is_failed_today(symbol: str) -> bool:
 def _mark_failed_today(symbol: str):
     try:
         fail_file = _get_fail_file()
-        data = {}
-        if os.path.exists(fail_file):
-            with open(fail_file, 'r') as f:
-                data = json.load(f)
-        today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime("%Y-%m-%d")
-        data[symbol] = today
-        # Clean up old entries to prevent file from growing indefinitely
-        data = {k: v for k, v in data.items() if v == today}
-        with open(fail_file, 'w') as f:
-            json.dump(data, f)
+        with _cache_lock:
+            data = {}
+            if os.path.exists(fail_file):
+                try:
+                    with open(fail_file, 'r') as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+            today = datetime.now(ZoneInfo('Asia/Kolkata')).strftime("%Y-%m-%d")
+            data[symbol] = today
+            # Clean up old entries to prevent file from growing indefinitely
+            data = {k: v for k, v in data.items() if v == today}
+            with open(fail_file, 'w') as f:
+                json.dump(data, f)
     except Exception as e:
         logger.debug(f"Failed to write pledge failure cache: {e}")
 

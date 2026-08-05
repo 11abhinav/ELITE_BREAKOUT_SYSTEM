@@ -436,69 +436,89 @@ def worker_loop():
                 pass
             
             scrape_start = time.time()
-            for i, sym in enumerate(stale_symbols):
-                sym_start = time.time()
-                status_res = process_symbol(sym, i+1)
-                
-                if status_res == "QUOTA_EXHAUSTED":
-                    logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for now.")
-                    quota_exhausted = True
-                    break
+            import concurrent.futures
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(process_symbol, sym, i+1): sym for i, sym in enumerate(stale_symbols)}
+                for future in concurrent.futures.as_completed(futures):
+                    sym = futures[future]
+                    sym_start = time.time()
+                    try:
+                        status_res = future.result()
+                    except Exception as e:
+                        logger.error(f"Error processing {sym}: {e}")
+                        status_res = "ERROR"
+                        
+                    if status_res == "QUOTA_EXHAUSTED":
+                        if not quota_exhausted:
+                            logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for now.")
+                            quota_exhausted = True
+                        continue
+                        
+                    if status_res == "FOUND": found_count += 1
+                    elif status_res == "MISSING": missing_count += 1
+                    elif status_res == "404": fail_404_count += 1
+                    else: error_count += 1
                     
-                if status_res == "FOUND": found_count += 1
-                elif status_res == "MISSING": missing_count += 1
-                elif status_res == "404": fail_404_count += 1
-                else: error_count += 1
-                
-                if status_res != "ERROR":
-                    successful_in_first_pass += 1
-                else:
-                    failed_queue.append(sym)
-                    
-                sym_elapsed = round(time.time() - sym_start, 2)
-                processed = i + 1
-                pending = total_stale - processed
-                logger.info(f"📊 PROGRESS: {processed}/{total_stale} | ⏱️ {sym_elapsed}s for {sym} [{status_res}] | Pending={pending} | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={error_count}")
-                    
-                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.5] Update upserts to write processed_base + successful_in_first_pass
-                now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} | Total stale: {total_stale}")
+                    if status_res != "ERROR":
+                        successful_in_first_pass += 1
+                    else:
+                        failed_queue.append(sym)
+                        
+                    sym_elapsed = round(time.time() - sym_start, 2)
+                    processed = found_count + missing_count + fail_404_count + error_count
+                    pending = total_stale - processed
+                    logger.info(f"📊 PROGRESS: {processed}/{total_stale} | ⏱️ {sym_elapsed}s for {sym} [{status_res}] | Pending={pending} | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={error_count}")
+                        
+                    # [VERSION: PLEDGE_WORKER_PROGRESS_v1.5] Update upserts to write processed_base + successful_in_first_pass
+                    now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} | Total stale: {total_stale}")
 
             final_error_count = 0
             
             if failed_queue:
                 logger.info(f"Retrying {len(failed_queue)} failed symbols...")
                 time.sleep(10) # Brief pause before retries
-                for sym in failed_queue:
-                    status_res = process_symbol(sym, 0, is_retry=True)
-                    if status_res == "QUOTA_EXHAUSTED":
-                        logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for now.")
-                        quota_exhausted = True
-                        break
-                    
-                    if status_res != "ERROR":
-                        successful_in_first_pass += 1
-                    else:
-                        final_error_count += 1
-                        # Save negative cache so it's not retried again today, but tomorrow
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    retry_futures = {executor.submit(process_symbol, sym, 0, is_retry=True): sym for sym in failed_queue}
+                    for future in concurrent.futures.as_completed(retry_futures):
+                        sym = retry_futures[future]
                         try:
-                            with get_connection() as conn:
-                                with conn.cursor() as cur:
-                                    # [VERSION: PLEDGE_WORKER_STAT_v1.1] Update retry failure cache insert to populate last_attempted_at
-                                    cur.execute("""
-                                        INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                                        VALUES (%s, 0.0, NOW() - INTERVAL '27 days', NOW())
-                                        ON CONFLICT (symbol) DO UPDATE 
-                                        SET updated_at = NOW() - INTERVAL '27 days', last_attempted_at = NOW()
-                                    """, (sym,))
-                                    conn.commit()
-                            logger.info(f"⚠️ Saved temporary failure negative cache for {sym}")
-                        except Exception as cache_err:
-                            logger.error(f"Failed to save failure cache for {sym}: {cache_err}")
-                    time.sleep(3)
-                    
-                    now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
+                            status_res = future.result()
+                        except Exception as e:
+                            logger.error(f"Error processing {sym} on retry: {e}")
+                            status_res = "ERROR"
+                            
+                        if status_res == "QUOTA_EXHAUSTED":
+                            if not quota_exhausted:
+                                logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for now.")
+                                quota_exhausted = True
+                            continue
+                        
+                        if status_res != "ERROR":
+                            successful_in_first_pass += 1
+                        else:
+                            final_error_count += 1
+                            # Save negative cache so it's not retried again today, but tomorrow
+                            try:
+                                with get_connection() as conn:
+                                    with conn.cursor() as cur:
+                                        # [VERSION: PLEDGE_WORKER_STAT_v1.1] Update retry failure cache insert to populate last_attempted_at
+                                        cur.execute("""
+                                            INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
+                                            VALUES (%s, 0.0, NOW() - INTERVAL '27 days', NOW())
+                                            ON CONFLICT (symbol) DO UPDATE 
+                                            SET updated_at = NOW() - INTERVAL '27 days', last_attempted_at = NOW()
+                                        """, (sym,))
+                                        conn.commit()
+                                logger.info(f"⚠️ Saved temporary failure negative cache for {sym}")
+                            except Exception as cache_err:
+                                logger.error(f"Failed to save failure cache for {sym}: {cache_err}")
+                        time.sleep(1) # Reduced to 1s since threads spread out load
+                        
+                        now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                        upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
 
             # Loop done
             status = "IDLE" if final_error_count == 0 else "DOWN"
