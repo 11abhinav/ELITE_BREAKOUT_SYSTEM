@@ -510,158 +510,175 @@ def is_financial_sector(sector: str) -> bool:
 def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     Hard pre-scoring quality gate for Multibagger alerts.
-
-    [VERSION: MULTIBAGGER_FIN_FALLBACK_v2.0] Replaces the hard UNSUPPORTED rejection when
-    capital_adequacy_ratio (CAR) is missing for Indian banks/NBFCs (YFinance never provides it).
-    Missing data does NOT imply poor quality — it implies an unknown state.
-
-    Financial-sector solvency check uses a structured 3-tier fallback:
-
-      Tier 1  CAR available → standard regulatory check (≥ 11%)
-      Tier 2  CAR unavailable → verify via banking-specific proxies (ROE ≥ 12%, GNPA ≤ 5%)
-      Tier 3  No banking proxies → conservative profile check; penalise known-bad signals only
-
-    This ensures HDFC Bank, ICICI Bank, Kotak, Bajaj Finance, Chola etc. are not structurally
-    excluded due to a data-provider limitation rather than a genuine quality failure.
+    Implements a Turnaround Alternative Quality Profile for recovering businesses.
     """
     if not isinstance(f, dict):
         return False, "Invalid fundamental dataset"
-    # [VERSION: MULTIBAGGER_GATE_FIX_v1.1] Fixed missing data penalties & added minimum known metrics floor
+    
     known_metrics_count = 0
-    has_solvency_metric = False  # [FIX MUL-5] Track solvency metrics separately
-
-    # Universal checks (non-financials prioritize ROCE, financials prioritize ROE checked below)
+    has_solvency_metric = False
+    
     is_fin = f.get("is_financial", False)
-    if not is_fin:
-        # Check if ROCE or ROE is present
-        roce_val = f.get("roce", f.get("roe"))
-        if roce_val is not None and not pd.isna(roce_val):
-            known_metrics_count += 1
-            roce = safe_float(roce_val)
-            if roce < 0.05:
-                return False, f"ROCE/ROE below 5% ({roce*100:.1f}%)"
+    is_turnaround = "TURNAROUND" in str(f.get("category", "")).upper()
+    
+    def safe_float(val, default=0.0):
+        import pandas as pd
+        if val is None or pd.isna(val) or val == "": return default
+        try: return float(val)
+        except Exception: return default
 
-    rev_cagr = f.get("revenue_cagr_3y")
-    if rev_cagr is not None and not pd.isna(rev_cagr):
-        known_metrics_count += 1
-        if safe_float(rev_cagr) < -0.10:
-            return False, f"Revenue CAGR 3Y highly negative ({safe_float(rev_cagr)*100:.1f}%)"
+    # 1. Auditor / Fraud checks (Universal)
+    if f.get("auditor_flags") is True:
+        return False, "Auditor/Forensic red flags"
 
-    # [VERSION: PLEDGE_GATE_FIX_v1.0] Safe handling of None/null for promoter_pledge_pct in quality gate
+    # 2. Promoter Pledge check (Universal)
     pledge_val = f.get("promoter_pledge_pct")
     pr = _pledge_ratio(pledge_val)
     if pr is not None:
         if pr > 0.20:
             return False, f"High promoter pledge ({pr*100:.1f}%)"
         known_metrics_count += 1
-    if f.get("auditor_flags") is True:
-        return False, "Auditor/Forensic red flags"
 
+    # 3. Financial Sector Logic
     if is_fin:
-        # ── Tier 1: CAR available → hard regulatory solvency gate ─────────────────
+        # Tier 1: CAR
         car = normalize_ratio(f.get("capital_adequacy_ratio"))
         if car is not None:
             known_metrics_count += 1
             has_solvency_metric = True
-            if car < 0.11:  # Regulatory floor + buffer (Basel III Tier-1 + Pillar-2)
+            if car < 0.11:
                 return False, f"Solvency fail: CAR {car:.2%}"
-            # solvency_confidence = "KNOWN_GOOD"
         else:
-            # ── Tier 2: CAR unavailable → banking-specific proxy metrics ──────────
-            # ROE ≥ 12% for a bank signals the business earns well above cost of equity,
-            # which correlates strongly with adequate retained capital buffers.
-            # GNPA ≤ 5% confirms the loan book is not in systemic stress.
+            # Proxies
             roe_for_tier2 = f.get("roe")
             gnpa_for_tier2 = f.get("gnpa")
-            roe_val_t2 = safe_float(roe_for_tier2) if (roe_for_tier2 is not None and not pd.isna(roe_for_tier2)) else None
-            gnpa_val_t2 = safe_float(gnpa_for_tier2) if (gnpa_for_tier2 is not None and not pd.isna(gnpa_for_tier2)) else None
-
+            roe_val_t2 = safe_float(roe_for_tier2) if (roe_for_tier2 is not None) else None
+            gnpa_val_t2 = safe_float(gnpa_for_tier2) if (gnpa_for_tier2 is not None) else None
+            
             tier2_roe_ok = (roe_val_t2 is not None and roe_val_t2 >= 0.12)
-            tier2_gnpa_ok = (gnpa_val_t2 is None or gnpa_val_t2 <= 0.05)  # GNPA absent = benefit of doubt
-
+            tier2_gnpa_ok = (gnpa_val_t2 is None or gnpa_val_t2 <= 0.05)
+            
             if tier2_roe_ok:
-                has_solvency_metric = True  # Proxy-verified solvency: PROXY_GOOD
+                has_solvency_metric = True
                 known_metrics_count += 1
             elif gnpa_val_t2 is not None and gnpa_val_t2 <= 0.05:
-                # GNPA alone confirms no active NPA stress even if ROE is unknown
-                has_solvency_metric = True  # PROXY_GOOD
+                has_solvency_metric = True
                 known_metrics_count += 1
             else:
-                # ── Tier 3: No CAR, no banking proxies → conservative profile ────
-                # Do NOT hard-reject. Instead apply a conservative profile:
-                # reject only if known-bad signals present (ROE < 10%, GNPA > 7%).
-                # If signals are absent/unknown, allow to proceed with reduced confidence.
                 if roe_val_t2 is not None and roe_val_t2 < 0.05:
-                    return False, f"Financial solvency UNKNOWN and ROE below 5% ({roe_val_t2*100:.1f}%) — inadequate fallback quality"
+                    return False, f"Financial solvency UNKNOWN and ROE below 5% ({roe_val_t2*100:.1f}%)"
                 if gnpa_val_t2 is not None and gnpa_val_t2 > 0.07:
-                    return False, f"Financial solvency UNKNOWN and High GNPA ({gnpa_val_t2*100:.1f}%) — inadequate fallback quality"
-                # solvency_confidence = "UNKNOWN" — proceed, let V5 scoring penalise appropriately
-
-        # ROE hard gate for financials (applies in all tiers)
-        roe = f.get("roe")
-        if roe is not None and not pd.isna(roe):
-            known_metrics_count += 1
-            if safe_float(roe) < 0.10:
-                return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
+                    return False, f"Financial solvency UNKNOWN and High GNPA ({gnpa_val_t2*100:.1f}%)"
 
         gnpa = f.get("gnpa")
-        if gnpa is not None and not pd.isna(gnpa):
+        if gnpa is not None and not __import__('pandas').isna(gnpa):
             known_metrics_count += 1
             if safe_float(gnpa) > 0.05:
                 return False, f"High GNPA ({safe_float(gnpa)*100:.1f}%)"
-    else:
-        opm = f.get("operating_margin_ttm")
-        if opm is not None and not pd.isna(opm):
-            known_metrics_count += 1
-            if safe_float(opm) < 0.08:
-                return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
 
+        # ROE Profile Check
+        roe = f.get("roe")
+        if roe is not None and not __import__('pandas').isna(roe):
+            known_metrics_count += 1
+            if is_turnaround:
+                # Turnaround Alternative Quality Profile (Fin)
+                evidence_score = 0
+                yoy_rev = safe_float(f.get("yoy_revenue"))
+                yoy_prof = safe_float(f.get("yoy_profit"))
+                
+                if yoy_rev > 0: evidence_score += 1
+                if yoy_prof > 0: evidence_score += 1
+                if gnpa is not None and safe_float(gnpa) <= 0.03: evidence_score += 1 # Improving asset quality
+                if car is not None and car >= 0.15: evidence_score += 1 # Very strong capital buffer
+                
+                if evidence_score < 2:
+                    return False, f"Fin Turnaround lacks momentum evidence (Score: {evidence_score}/2)"
+            else:
+                # Standard Profile
+                if safe_float(roe) < 0.10:
+                    return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
+
+    else:
+        # Non-Financial Logic
+        
+        # Cash Flow Gates (Mandatory for ALL Profiles)
         fcf_margin = f.get("fcf_margin")
-        if fcf_margin is not None and not pd.isna(fcf_margin):
+        if fcf_margin is not None and not __import__('pandas').isna(fcf_margin):
             known_metrics_count += 1
             if safe_float(fcf_margin) < 0.00:
                 return False, f"Negative FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
 
         cfo_pat = f.get("cfo_pat_ratio")
-        if cfo_pat is not None and not pd.isna(cfo_pat):
+        if cfo_pat is not None and not __import__('pandas').isna(cfo_pat):
             known_metrics_count += 1
             if safe_float(cfo_pat) < 0.5:
                 return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
 
         de = f.get("debt_equity")
-        if de is not None and not pd.isna(de):
+        if de is not None and not __import__('pandas').isna(de):
             known_metrics_count += 1
             has_solvency_metric = True
             if safe_float(de) > 2.0:
                 return False, f"Debt/Equity > 2.0 ({safe_float(de):.2f})"
 
         icr = f.get("interest_coverage_ratio")
-        if icr is not None and not pd.isna(icr):
+        if icr is not None and not __import__('pandas').isna(icr):
             known_metrics_count += 1
             has_solvency_metric = True
             if safe_float(icr) < 3.0:
                 return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
 
         altman_z = f.get("altman_z")
-        if altman_z is not None and not pd.isna(altman_z):
+        if altman_z is not None and not __import__('pandas').isna(altman_z):
             known_metrics_count += 1
             has_solvency_metric = True
-            # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Check if service sector to apply solvent threshold of 1.10 vs 1.80 for manufacturing
             is_svc = any(k in str(f.get("sector", "")).lower() for k in ["technology", "communication", "services"])
             z_threshold = 1.10 if is_svc else 1.80
             if safe_float(altman_z) < z_threshold:
                 return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f} < {z_threshold})"
 
-    # [FIX MUL-5] Minimum data footprint: require at least 3 metrics total AND at least
-    # one solvency metric (D/E, interest coverage, Altman-Z, or banking-proxy).
-    # Financial stocks in Tier 3 (CAR+proxy unavailable) are intentionally exempt from
-    # the solvency requirement — their uncertainty is captured via UNKNOWN confidence,
-    # not by a hard Data Void rejection.
+        # Profitability Gates
+        roce_val = f.get("roce", f.get("roe"))
+        opm = f.get("operating_margin_ttm")
+        rev_cagr = f.get("revenue_cagr_3y")
+        
+        if rev_cagr is not None and not __import__('pandas').isna(rev_cagr):
+            known_metrics_count += 1
+            if safe_float(rev_cagr) < -0.10:
+                return False, f"Revenue CAGR 3Y highly negative ({safe_float(rev_cagr)*100:.1f}%)"
+
+        if is_turnaround:
+            # Turnaround Alternative Quality Profile (Non-Fin)
+            evidence_score = 0
+            yoy_rev = safe_float(f.get("yoy_revenue"))
+            yoy_prof = safe_float(f.get("yoy_profit"))
+            
+            if yoy_rev > 0: evidence_score += 1
+            if yoy_prof > 0: evidence_score += 1
+            if opm is not None and safe_float(opm) > 0: evidence_score += 1 # Positive OPM is good for turnaround
+            if de is not None and safe_float(de) < 1.0: evidence_score += 1
+            if cfo_pat is not None and safe_float(cfo_pat) >= 1.0: evidence_score += 1
+            
+            if evidence_score < 3:
+                return False, f"Turnaround lacks momentum evidence (Score: {evidence_score}/3 required)"
+        else:
+            # Standard Profile
+            if roce_val is not None and not __import__('pandas').isna(roce_val):
+                known_metrics_count += 1
+                roce = safe_float(roce_val)
+                if roce < 0.05:
+                    return False, f"ROCE/ROE below 5% ({roce*100:.1f}%)"
+            
+            if opm is not None and not __import__('pandas').isna(opm):
+                known_metrics_count += 1
+                if safe_float(opm) < 0.08:
+                    return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
+
     fin_tier3_exempt = is_fin and not has_solvency_metric
     if known_metrics_count < 3 or (not has_solvency_metric and not fin_tier3_exempt):
         return False, f"Data Void: Only {known_metrics_count} metrics known, solvency={'present' if has_solvency_metric else 'MISSING'}"
-
-    return True, ""
+        
+    return True, "OK"
 
 
 def classify_conviction(cqs: float, pas: float, trend: float, composite: float, f_score: int = None, pledge_ratio: float = None) -> tuple[str, float]:

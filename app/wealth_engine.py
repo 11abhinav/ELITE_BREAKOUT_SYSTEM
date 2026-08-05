@@ -565,6 +565,7 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
         'relative_volume_10d': 1.0,  # Proxy default
         'sector': str(raw_data.get('Sector', 'Unknown')),
+        'category': str(raw_data.get('Category', 'Unknown')),
         'Path': 'Financial' if is_fin else 'Standard',
         'is_financial': is_fin,
         'price': price
