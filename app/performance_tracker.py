@@ -589,11 +589,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         })
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
+    unique_symbols = list({t["symbol"] for t in trades})
     stage_tracker.start_stage(2, "Fetch Current Market Prices", f"Fetching live prices for {len(unique_symbols)} unique symbols")
     from market_utils import is_market_open
     is_open = is_market_open() or force_live_fetch
     
-    unique_symbols = list({t["symbol"] for t in trades})
     if is_open:
         logger.info(f"📈 Fetching current prices for {len(unique_symbols)} symbols...")
         current_prices = _fetch_current_prices(unique_symbols)
