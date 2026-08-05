@@ -334,6 +334,7 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
                 sess['logged_in'] = True
                 sess['user_id'] = 'TEST_USER'
                 sess['session_token'] = 'TOKEN123'
+                sess['role'] = 'admin'
 
             resp = client.get('/api/v1/symbols/suggest?q=TATA')
             self.assertEqual(resp.status_code, 200)
@@ -355,6 +356,7 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
                 sess['logged_in'] = True
                 sess['user_id'] = 'TEST_USER'
                 sess['session_token'] = 'TOKEN123'
+                sess['role'] = 'admin'
 
             resp = client.get('/api/v1/analyze_stock?symbol=TATAMOTORS')
             self.assertEqual(resp.status_code, 200)
@@ -373,6 +375,7 @@ class TestStockAnalyzerApiEndpoints(unittest.TestCase):
                 sess['logged_in'] = True
                 sess['user_id'] = 'ADMIN'
                 sess['session_token'] = 'TOKEN123'
+                sess['role'] = 'admin'
 
             resp = client.post('/api/v1/admin/master_symbols/refresh')
             self.assertEqual(resp.status_code, 200)
