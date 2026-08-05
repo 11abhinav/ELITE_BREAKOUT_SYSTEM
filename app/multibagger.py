@@ -305,7 +305,7 @@ def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
         logger.exception(f"❌ Failed to save fundamentals cache")
 
 
-def batch_download_market_data(symbols: list) -> dict:
+def batch_download_market_data(symbols: list, session=None) -> dict:
     """Download historical price/volume data in bulk for all tickers using the unified price cache.
 
     [VERSION: MULTIBAGGER_CACHE_FIX_v1.0] Previously called fetcher.get_batch_ohlcv() directly,
@@ -336,8 +336,16 @@ def batch_download_market_data(symbols: list) -> dict:
     for batch_num, chunk in enumerate(chunk_iterable(symbols, BATCH_SIZE), start=1):
         with BatchMemoryTracker("MULTIBAGGER", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
 
-            # 1. Fetch chunk DataFrames via price_cache (shared cache, avoids redundant API calls)
-            raw_dict = fetch_unified_historical(chunk, period="1y", interval="1d", requester="multibagger")
+            # 1. Fetch chunk DataFrames via session or price_cache
+            if session:
+                raw_dict = {}
+                for sym in chunk:
+                    sym_data = session.get(sym)
+                    if sym_data is not None and getattr(sym_data, "ohlcv_df", None) is not None:
+                        raw_dict[sym] = sym_data.ohlcv_df
+            else:
+                raw_dict = fetch_unified_historical(chunk, period="1y", interval="1d", requester="multibagger")
+                
             if not raw_dict:
                 continue
 
@@ -1221,7 +1229,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         
     return messages
 
-def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
+def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=None):
     """Main execution orchestrator for Multibagger Scanner V5."""
     import time
     start_time = time.time()
@@ -1261,7 +1269,7 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False):
     upsert_scanner_health("MULTIBAGGER", "RUNNING")
     
     # Delegate to the actual scanning logic
-    return _start_wrapper(debug_limit, is_test_mode)
+    return _start_wrapper(debug_limit, is_test_mode, session)
 
 def _persist_sell_review(alert_id, reason):
     """[VERSION: MULTIBAGGER_PERSIST_REVIEW_v1.1] Persist SELL_REVIEW status in the database without closing the position.
@@ -1575,7 +1583,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(debug_limit: int = None, is_test_mode: bool = False):
+def start(debug_limit: int = None, is_test_mode: bool = False, session=None):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("MULTIBAGGER"):
@@ -1597,13 +1605,13 @@ def start(debug_limit: int = None, is_test_mode: bool = False):
 
     _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
     try:
-        return run_scanner(debug_limit, is_test_mode)
+        return run_scanner(debug_limit, is_test_mode, session)
     finally:
         print_scanner_end_banner("multibagger", _scan_start)
         _scan_lock.release()
         _global_lock.release()
 
-def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
+def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None):
     """Main scanning wrapper."""
     import time
     start_time = time.time()
@@ -1641,7 +1649,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False):
         symbols = symbols[:debug_limit]
         
     # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
-    price_data_map = batch_download_market_data(symbols)
+    symbols = list(set(symbols))
+    price_data_map = batch_download_market_data(symbols, session=session)
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
