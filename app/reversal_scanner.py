@@ -1543,7 +1543,6 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 valid_fetched_symbols.discard(can_sym)
                                 continue
 
-                            hist_df = hist_df.copy()
                             last_dt = hist_df.index[-1] if not hist_df.index.empty else None
                             t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
                             if t_col:
@@ -1551,10 +1550,12 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             last_dt_str = pd.to_datetime(last_dt).strftime("%Y-%m-%d") if last_dt else ""
 
                             if last_dt_str == today_date_str:
-                                hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
-                                if snap_vol > 0: hist_df.iloc[-1, hist_df.columns.get_loc('Volume')] = snap_vol
-                                hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(float(hist_df['High'].iloc[-1]), snap_high)
-                                hist_df.iloc[-1, hist_df.columns.get_loc('Low')] = min(float(hist_df['Low'].iloc[-1]), snap_low)
+                                hist_df = hist_df.copy()
+                                idx = hist_df.index[-1]
+                                hist_df.at[idx, 'Close'] = live_price
+                                if snap_vol > 0: hist_df.at[idx, 'Volume'] = snap_vol
+                                hist_df.at[idx, 'High'] = max(float(hist_df['High'].iloc[-1]), snap_high)
+                                hist_df.at[idx, 'Low'] = min(float(hist_df['Low'].iloc[-1]), snap_low)
                                 try:
                                     recomputed = apply_indicators(hist_df, timeframe="1d")
                                     if recomputed is None or recomputed.empty:
@@ -1572,6 +1573,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 synthetic_bar_symbols.discard(can_sym)
                                 synthetic_vol_missing.discard(can_sym)
                             else:
+                                hist_df = hist_df.copy()
                                 new_row = hist_df.iloc[-1:].copy()
                                 new_dt = pd.to_datetime(today_date_str)
                                 if t_col: new_row[t_col] = new_dt

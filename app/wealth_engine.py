@@ -1394,13 +1394,15 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     # so 1D delta fetches aren't spammed every 5 minutes during market hours.
                     now_ist = datetime.now(IST)
                     today_date_str = now_ist.strftime("%Y-%m-%d")
+                    from market_utils import is_market_open
+                    is_mkt_open = is_market_open(now_ist)
+                    
                     for sym, hist_df in chunk_historical_data.items():
                         if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
                             live_price = chunk_live_prices.get(sym)
                             if live_price and float(live_price) > 0:
                                 live_price = float(live_price)
-                                # Ensure we don't mutate the global cache directly
-                                hist_df = hist_df.copy()
+                                
                                 last_dt = hist_df.index[-1] if not hist_df.index.empty else None
                                 t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
                                 if t_col:
@@ -1409,32 +1411,34 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                                 last_dt_ts = pd.to_datetime(last_dt)
                                 last_dt_str = last_dt_ts.strftime("%Y-%m-%d") if last_dt else ""
                                 
-                                # Quote Timestamp Validation: Ensure quote belongs to current session and is newer than last bar
-                                from market_utils import is_market_open
-                                if not is_market_open(now_ist) and last_dt_ts.date() >= now_ist.date():
-                                    # Stale quote outside market hours or older than existing candle — skip overlay
+                                # Quote Timestamp Validation
+                                if not is_mkt_open and last_dt_ts.date() >= now_ist.date():
                                     pass
                                 elif last_dt_str == today_date_str:
                                     # Update today's existing candle (preserve Open, update High/Low/Close)
-                                    curr_high = hist_df.iloc[-1]['High']
-                                    curr_low = hist_df.iloc[-1]['Low']
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('High')] = max(curr_high, live_price)
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('Low')]  = min(curr_low, live_price)
-                                    hist_df.iloc[-1, hist_df.columns.get_loc('Close')] = live_price
+                                    hist_df = hist_df.copy()
+                                    curr_high = float(hist_df['High'].iloc[-1])
+                                    curr_low = float(hist_df['Low'].iloc[-1])
+                                    idx = hist_df.index[-1]
+                                    hist_df.at[idx, 'High'] = max(curr_high, live_price)
+                                    hist_df.at[idx, 'Low']  = min(curr_low, live_price)
+                                    hist_df.at[idx, 'Close'] = live_price
+                                    chunk_historical_data[sym] = hist_df
                                 else:
                                     # Append a new live candle for today
+                                    hist_df = hist_df.copy()
                                     new_row = hist_df.iloc[-1:].copy()
+                                    new_dt = pd.to_datetime(today_date_str).tz_localize(IST)
                                     if t_col:
-                                        new_row[t_col] = pd.to_datetime(today_date_str).tz_localize(IST)
+                                        new_row[t_col] = new_dt
                                     else:
-                                        new_row.index = [pd.to_datetime(today_date_str).tz_localize(IST)]
+                                        new_row.index = [new_dt]
                                     new_row['Open']  = live_price
                                     new_row['High']  = live_price
                                     new_row['Low']   = live_price
                                     new_row['Close'] = live_price
                                     hist_df = pd.concat([hist_df, new_row])
-                                
-                                chunk_historical_data[sym] = hist_df
+                                    chunk_historical_data[sym] = hist_df
                     
                 valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 global_fetched_count += valid_fetches
