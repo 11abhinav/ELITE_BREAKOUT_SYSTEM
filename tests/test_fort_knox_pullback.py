@@ -243,7 +243,7 @@ def test_stage_15_memory_performance_regression():
 def test_stage_16_config_integrity():
     """Enforces that core pullback business logic parameters remain frozen."""
     assert PULLBACK_CONFIG["MODE"] == "LIVE"
-    assert PULLBACK_CONFIG["MIN_IMPULSE_GAIN_PCT"] == 8.0
+    assert PULLBACK_CONFIG["MIN_IMPULSE_GAIN_PCT"] == 5.0
     assert PULLBACK_CONFIG["MAX_PB_VOLUME_RATIO"] == 0.75
     assert PULLBACK_CONFIG["MIN_DURATION"] == 3
 

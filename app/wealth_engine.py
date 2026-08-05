@@ -98,7 +98,9 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     else:
         sma50_val = float(ticker["Close"].tail(50).mean()) if len(ticker) >= 50 else None
     is_growth_trend_ok = (sma50_val is not None and sma50_val > 0 and close_price > sma50_val)
+    is_trend_ok = (sma200_val is not None and sma200_val > 0 and close_price > sma200_val)
 
+    buckets = []
     # 1. Core Compounder (Sector-aware D/E, Strict Trend, Strict PEG)
     core_de_limit = 0.5
     if "tech" in sector or "consum" in sector:

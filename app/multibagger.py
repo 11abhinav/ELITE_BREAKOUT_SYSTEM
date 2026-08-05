@@ -105,7 +105,7 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     sma50 = float(ticker["Close"].tail(50).mean()) if len(ticker) >= 50 else close_price
     sma200 = float(ticker["Close"].tail(200).mean()) if len(ticker) >= 200 else close_price
     if len(ticker) >= 200:
-        is_uptrend = (close_price > sma50 > sma200)
+        is_uptrend = (close_price > sma50) and (close_price > sma200)
     elif len(ticker) >= 50:
         is_uptrend = (close_price > sma50)
     else:

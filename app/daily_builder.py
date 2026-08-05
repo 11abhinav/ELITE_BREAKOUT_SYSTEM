@@ -265,7 +265,7 @@ def fetch_universe() -> pd.DataFrame:
             col("exchange").isin(["NSE", "BSE"]),
             col("close")                        >= MIN_PRICE,
             col("market_cap_basic")             >= MIN_MARKET_CAP,
-            col("return_on_equity_fy")          >= 5,
+            col("average_volume_30d_calc")      >= 50000,
             # [VERSION: DAILY_BUILDER_PATCH_v1.6] Removed col("operating_margin") >= 0
             # Rationale: Python junk gates (opm < 0, roa < 0.8) handle filtering.
             # Keeps financial names (banks/NBFCs) that may have null OPM in the universe.
@@ -441,12 +441,30 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         return skip(f"JUNK BLOCKED: Promoter Blacklist / NSE Surveillance (ASM/GSM)")
     
     eps = fv("earnings_per_share_basic_ttm")
-    if eps is not None and eps <= 0:
-        cfo_pat = fund_data.get("cfo_pat_ratio")
-        is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_sales is not None and yoy_sales > 0) and (cfo_pat is not None and cfo_pat > 0)
-        if not is_turnaround_eps:
-            return skip(f"JUNK BLOCKED: Negative EPS {eps:.2f} (No turnaround exception)")
+    roe = fv("return_on_equity_fy")
+    cfo_pat = fund_data.get("cfo_pat_ratio")
     
+    # ── STRUCTURAL CATEGORIZATION & EXCEPTION RULES ──
+    category = "NORMAL"
+    is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_sales is not None and yoy_sales > 0) and (cfo_pat is not None and cfo_pat > 0)
+    
+    is_turnaround_candidate = (
+        (roe is not None and roe < 5) or 
+        (eps is not None and eps <= 0)
+    )
+    
+    if is_turnaround_candidate:
+        if not is_turnaround_eps:
+            if eps is not None and eps <= 0:
+                return skip(f"JUNK BLOCKED: Negative EPS {eps:.2f} (No turnaround exception)")
+            if roe is not None and roe < 5:
+                return skip(f"JUNK BLOCKED: Low ROE {roe:.1f}% (No turnaround exception)")
+        else:
+            category = "TURNAROUND"
+            import logging
+            logger = logging.getLogger("daily_builder")
+            logger.info(f"TURNAROUND ADMITTED: {symbol} | ROE: {roe}% | EPS: {eps} | YoY Profit: {yoy_profit}% | CFO/PAT: {cfo_pat}")
+
     # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
     if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
         return skip(f"JUNK BLOCKED: Promoter Market Cap ₹{promoter_mcap/1e7:.1f} Cr is below min ₹500 Cr")
@@ -669,10 +687,28 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         return skip(f"JUNK BLOCKED (FIN): Promoter Blacklist / NSE Surveillance (ASM/GSM)")
 
     eps = fv("earnings_per_share_basic_ttm")
-    if eps is not None and eps <= 0:
-        is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_rev is not None and yoy_rev > 0)
+    roe = fv("return_on_equity_fy")
+    
+    # ── STRUCTURAL CATEGORIZATION & EXCEPTION RULES ──
+    category = "NORMAL"
+    is_turnaround_eps = (yoy_profit is not None and yoy_profit > 0) and (yoy_rev is not None and yoy_rev > 0)
+    
+    is_turnaround_candidate = (
+        (roe is not None and roe < 5) or 
+        (eps is not None and eps <= 0)
+    )
+    
+    if is_turnaround_candidate:
         if not is_turnaround_eps:
-            return skip(f"JUNK BLOCKED (FIN): Negative EPS {eps:.2f} (No turnaround exception)")
+            if eps is not None and eps <= 0:
+                return skip(f"JUNK BLOCKED (FIN): Negative EPS {eps:.2f} (No turnaround exception)")
+            if roe is not None and roe < 5:
+                return skip(f"JUNK BLOCKED (FIN): Low ROE {roe:.1f}% (No turnaround exception)")
+        else:
+            category = "TURNAROUND"
+            import logging
+            logger = logging.getLogger("daily_builder")
+            logger.info(f"TURNAROUND ADMITTED (FIN): {symbol} | ROE: {roe}% | EPS: {eps} | YoY Profit: {yoy_profit}% | YoY Rev: {yoy_rev}%")
 
     # [VERSION: DAILY_BUILDER_PATCH_v1.8] Enforce the non-negotiable MIN_PROMOTER_MCAP (₹500 Cr) gate
     if promoter_mcap is not None and promoter_mcap < MIN_PROMOTER_MCAP:
