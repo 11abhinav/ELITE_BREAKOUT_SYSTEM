@@ -1,2 +1,4 @@
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T08:40:19.012778+05:30", "duration_s": 22.103, "rss_before_mb": 510.2, "rss_after_mb": 576.0, "rss_delta_mb": 65.8, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:40:27.842303+05:30", "duration_s": 17.26, "rss_before_mb": 587.5, "rss_after_mb": 652.0, "rss_delta_mb": 64.4, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:49:23.562259+05:30", "duration_s": 18.391, "rss_before_mb": 467.5, "rss_after_mb": 560.0, "rss_delta_mb": 92.5, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-05T09:59:10.391846+05:30", "duration_s": 16.107, "rss_before_mb": 534.4, "rss_after_mb": 582.7, "rss_delta_mb": 48.4, "error": null}

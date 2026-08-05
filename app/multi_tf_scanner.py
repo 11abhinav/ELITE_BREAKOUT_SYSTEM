@@ -6,6 +6,7 @@ import time
 import pandas as pd
 
 from technical_indicators import apply_indicators
+_last_mtf_parquet_upload = 0
 from memory_profiler import MemoryProfiler
 from core_enums import ProviderResult
 from price_cache import fetch_watchlist_data
@@ -1288,17 +1289,27 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                 MULTI_TF_PATH = os.path.join(DATA_DIR, "multi_tf_system.parquet")
                 os.makedirs(os.path.dirname(MULTI_TF_PATH), exist_ok=True)
                 bw_df.to_parquet(MULTI_TF_PATH)
-                upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
-                logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
                 
-                # Upload intraday history bundles to DB in background for instant cold-start boot recovery (<0.5s)
-                from database import upload_history_bundle_to_db
+                # Upload intraday history bundles and parquet to DB in background for instant cold-start boot recovery (<0.5s)
+                from database import upload_history_bundle_to_db, upload_parquet_to_db
                 import threading
                 
                 def bg_upload():
+                    global _last_mtf_parquet_upload
                     t_name = threading.current_thread().name
-                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MultiTFScanner' | Action='Uploading intraday history bundles (1h, 30m, 15m, 5m) to DB'")
+                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MultiTFScanner' | Action='Uploading intraday history bundles to DB'")
                     _t_start = time.perf_counter()
+                    
+                    import time as tm
+                    now = tm.time()
+                    if now - _last_mtf_parquet_upload > 3600:
+                        try:
+                            upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
+                            logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+                            _last_mtf_parquet_upload = now
+                        except Exception as up_e:
+                            logger.warning(f"Failed background parquet upload: {up_e}")
+
                     for _tf in ("1h", "30m", "15m", "5m"):
                         try:
                             upload_history_bundle_to_db(_tf)
@@ -1307,7 +1318,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False):
                     dur_s = time.perf_counter() - _t_start
                     logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded intraday history bundles to DB' | Duration={dur_s:.2f}s")
                 
-                threading.Thread(target=bg_upload, name="MultiTFHistoryBundleUpload", daemon=True).start()
+                threading.Thread(target=bg_upload, name="MultiTFDBBackgroundWorker", daemon=True).start()
         except Exception as _mtf_pe:
             logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
 

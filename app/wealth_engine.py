@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Optional, Tuple
 import json
 from config import ACTIVE_ALGO_VERSION, DATA_DIR
+_last_parquet_upload = 0
 # Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
 try:
     import yf_bootstrap
@@ -1754,7 +1755,6 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
         _prof_l4 = MemoryProfiler("Wealth: Dashboard Export").__enter__()
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
-                from database import upload_parquet_to_db
                 cols = ['Stock', 'Sector', 'FM_Score', 'Consistency_Score', 'Valuation_Score', 'Reliability', 'Base_FV', 'Bull_FV', 'Portfolio_Bucket', 'Signal', 'Hold_Score', 'hold_trend', 'Core_Selected']
                 
                 # Bulk assign missing columns to prevent DataFrame block fragmentation
@@ -1763,19 +1763,32 @@ def _run_wealth_scan_wrapper(is_test_mode=False):
                     wealth_df = wealth_df.assign(**new_cols)
                     
                 wealth_df.to_parquet(WEALTH_PATH)
-                upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                
+                def bg_db_sync():
+                    global _last_parquet_upload
+                    try:
+                        import time
+                        from database import upload_parquet_to_db, upsert_scanner_health
+                        now = time.time()
+                        if now - _last_parquet_upload > 3600:
+                            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                            _last_parquet_upload = now
+                            
+                        duration_sec = round(time.time() - start_time, 1)
+                        upsert_scanner_health(
+                            scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                            today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df),
+                            duration_seconds=duration_sec
+                        )
+                    except Exception as _sh_e: logger.exception(f"Error in bg_db_sync: {_sh_e}")
+
+                import threading
+                threading.Thread(target=bg_db_sync, name="WealthEngineDBSync", daemon=True).start()
                 
                 # Free large intermediate dataframes
                 del tech_df, candidate_tech, prev_wealth_df
                 
-                from database import upsert_scanner_health
-                duration_sec = round(time.time() - start_time, 1)
-                upsert_scanner_health(
-                    scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
-                    today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df),
-                    duration_seconds=duration_sec
-                )
-            except Exception as _sh_e: logger.exception(f"Error updating scanner health: {_sh_e}")
+            except Exception as _sh_e: logger.exception(f"Error initiating dashboard export: {_sh_e}")
             
         _prof_l4.__exit__(None, None, None)
 
@@ -1992,19 +2005,33 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         # Save updated parquet and DB cache
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             wealth_df.to_parquet(WEALTH_PATH)
-            from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
-            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
-            if realtime_metrics:
-                update_position_real_time_prices({s: {"price": p, "score": wealth_df[wealth_df["Stock"] == s]["Hold_Score"].iloc[0] if "Hold_Score" in wealth_df.columns and s in wealth_df["Stock"].values else None} for s, p in realtime_metrics.items()})
+            
+            def bg_db_sync_intraday():
+                global _last_parquet_upload
+                try:
+                    import time
+                    from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
+                    now = time.time()
+                    if now - _last_parquet_upload > 3600:
+                        upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        _last_parquet_upload = now
+                        
+                    if realtime_metrics:
+                        update_position_real_time_prices({s: {"price": p, "score": wealth_df[wealth_df["Stock"] == s]["Hold_Score"].iloc[0] if "Hold_Score" in wealth_df.columns and s in wealth_df["Stock"].values else None} for s, p in realtime_metrics.items()})
 
-            if write_health:
-                duration_sec = round(time.time() - start_time, 1)
-                today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
-                upsert_scanner_health(
-                    scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
-                    today_alerts=today_buys, total_count=len(wealth_df),
-                    duration_seconds=duration_sec
-                )
+                    if write_health:
+                        duration_sec = round(time.time() - start_time, 1)
+                        today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
+                        upsert_scanner_health(
+                            scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                            today_alerts=today_buys, total_count=len(wealth_df),
+                            duration_seconds=duration_sec
+                        )
+                except Exception as _e: logger.exception(f"Error in bg_db_sync_intraday: {_e}")
+
+            import threading
+            threading.Thread(target=bg_db_sync_intraday, name="WealthEngineIntradayDBSync", daemon=True).start()
+            
         stage_tracker.end_stage("Dashboard DB sync completed")
 
         stage_tracker.print_summary(alerts_found=sell_signal_count)
