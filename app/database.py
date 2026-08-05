@@ -7442,6 +7442,7 @@ def get_scanner_execution_history(
                     "per_page": per_page,
                     "total_pages": (total_records + per_page - 1) // per_page if total_records > 0 else 1,
                     "available_versions": available_versions,
+                    "available_commits": available_commits,
                     "summary_stats": {
                         "total_runs": total_runs,
                         "success_rate_pct": success_rate,
@@ -7452,7 +7453,7 @@ def get_scanner_execution_history(
                 }
     except Exception as e:
         logger.error(f"Failed to query scanner execution history: {e}")
-        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "summary_stats": {}}
+        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "summary_stats": {}}
 
 
 

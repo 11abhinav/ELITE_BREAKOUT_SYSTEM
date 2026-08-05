@@ -1927,12 +1927,12 @@
               <option value="PLEDGE_WORKER">Pledge Worker</option>
               <option value="AI_WORKER">AI Worker</option>
             </select>
-            <select id="seh-version-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="ALL">All Versions</option>
-            </select>
+            <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:10px; color:var(--muted); font-weight:700; text-transform:uppercase;">Git Commit</label>
             <select id="seh-commit-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="ALL">All Git Commits</option>
+              <option value="ALL">ALL COMMITS</option>
             </select>
+          </div>
             <select id="seh-lifecycle-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
               <option value="ALL">All Lifecycle Statuses</option>
               <option value="RUNNING">RUNNING</option>
@@ -4661,22 +4661,22 @@ function updateSehVersionDropdown(versions) {
 async function fetchScannerExecutionHistory(page = 1) {
   currentSehPage = Math.max(1, page);
   const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
-  const system_version = document.getElementById('seh-version-filter')?.value || 'ALL';
+  const git_commit = document.getElementById('seh-commit-filter')?.value || 'ALL';
   const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
   const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';
   const date_range = document.getElementById('seh-date-filter')?.value || '7d';
   const search = document.getElementById('seh-search-input')?.value || '';
 
   const tbody = document.getElementById('seh-table-body');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">Loading history page ${currentSehPage}...</td></tr>`;
+  // Removed innerHTML Loading to prevent screen flashing during background refresh
 
   try {
-    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=${encodeURIComponent(system_version)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
+    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data.available_versions) {
-      updateSehVersionDropdown(data.available_versions);
+    if (data.available_commits) {
+      updateSehCommitDropdown(data.available_commits);
     }
     renderScannerExecutionHistory(data);
   } catch (e) {
@@ -4739,8 +4739,8 @@ function renderScannerExecutionHistory(data) {
           <div style="font-size:10px; color:var(--muted); margin-top:2px;">${escapeHTML(r.trigger_type || 'SCHEDULED')} (${escapeHTML(r.scheduler_name || 'CRON')})</div>
         </td>
         <td style="padding:10px 12px; text-align:center;">
-          <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">
-            ${escapeHTML(r.system_version || 'v1')}
+          <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);" title="Git Commit Hash">
+            ${escapeHTML(r.git_commit || 'unknown')}
           </span>
         </td>
         <td style="padding:10px 12px; font-size:11px; white-space:nowrap;">${startedStr}</td>
@@ -6380,7 +6380,7 @@ async function searchUsers() {
   const query = document.getElementById('userSearchInput').value;
   const status = document.getElementById('userStatusFilter').value;
   const tbody = document.getElementById('userSearchResults');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Loading...</td></tr>';
+  // Removed innerHTML Loading to prevent screen flashing during background refresh
   try {
     const res = await fetch(`/api/admin/users/search?q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`);
     const data = await res.json();
@@ -7577,7 +7577,7 @@ function _renderManualWatchlist() {
 function loadManualWatchlist() {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Loading...</td></tr>`;
+  // Removed innerHTML Loading to prevent screen flashing during background refresh
   _fetchWatchlist()
     .then(items => {
       const list = Array.isArray(items) ? items : [];
@@ -7946,7 +7946,7 @@ let ACTIVE_DB_CATEGORY = 'ALL';
 
 async function fetchDatabaseTablesSummary() {
   const grid = document.getElementById('db-tables-grid');
-  if (grid) grid.innerHTML = '<div style="color:var(--muted); padding:20px; grid-column:1/-1;">Loading database schema summary...</div>';
+  // Removed innerHTML Loading to prevent screen flashing during background refresh
 
   try {
     const res = await fetch('/api/admin/db/tables_summary');
