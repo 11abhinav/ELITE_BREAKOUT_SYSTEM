@@ -670,10 +670,11 @@ class AutoSwitchingFetcher(DataFetcher):
                                 missing_symbols.remove(s)
                             succeeded_count += 1
                             provider_telemetry[prov_name]["succeeded"] += 1
+                            logger.info(f"✅ [Premium Fallback] {prov_name.upper()} successfully recovered data for missing symbol: {s}")
                         else:
                             pass # Leave in missing_symbols
                     if succeeded_count > 0:
-                        logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols!")
+                        logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols in total!")
                 except Exception as e:
                     logger.warning(f"⚠️ {prov_name} premium fallback batch fetch exception: {e}.")
 

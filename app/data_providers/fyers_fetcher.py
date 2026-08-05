@@ -629,20 +629,8 @@ class FyersFetcher(DataFetcher):
                         logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
                         time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
 
-        # Only call mark_fyers_invalid for symbol resolution failures.
-        # Do NOT mark as invalid for -403 permission errors (handled above).
-        logger.warning(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Temporarily caching in 24h negative cache to avoid redundant retries today.")
-        try:
-            from data_providers.fyers_mapping_utils import mark_fyers_invalid
-            mark_fyers_invalid(orig_sym)
-            from database import insert_notification
-            insert_notification(
-                "warning",
-                f"⚠️ FYERS SYMBOL INVALID: {orig_sym}",
-                f"Symbol '{orig_sym}' failed across all Fyers candidate series ({candidates}). Marked INVALID for 24h to skip on subsequent runs."
-            )
-        except Exception:
-            pass
+        # Return None and let AutoSwitchingFetcher handle fallbacks to Upstox and Yahoo
+        logger.debug(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Returning None for fallback.")
         return None
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 5, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
