@@ -1926,6 +1926,7 @@ def api_remove_portfolio():
 
 # ── Validation Health API ──────────────────────────────────────────────────────────
 @app.route("/api/validation_health", methods=["GET"])
+@admin_required
 def get_validation_health():
     from database import get_connection
     from psycopg2.extras import RealDictCursor
@@ -1958,6 +1959,7 @@ def get_validation_health():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/validation_history/<dataset>", methods=["GET"])
+@admin_required
 def get_validation_history(dataset):
     from database import get_connection
     from psycopg2.extras import RealDictCursor
@@ -3507,7 +3509,7 @@ def api_symbols_suggest():
 
 
 @app.route("/api/v1/admin/resolution/metrics", methods=["GET"])
-@login_required
+@admin_required
 def api_admin_resolution_metrics():
     """Returns P50/P95/P99 latency, hit ratios, and telemetry from SymbolResolutionService."""
     try:
@@ -3520,7 +3522,7 @@ def api_admin_resolution_metrics():
 
 
 @app.route("/api/v1/admin/resolution/symbol/<symbol>", methods=["GET"])
-@login_required
+@admin_required
 def api_admin_resolution_symbol(symbol):
     """Returns exact resolution mapping and confidence across Upstox, Fyers, and Yahoo for a ticker."""
     try:
@@ -3882,7 +3884,7 @@ def api_watchlist_deep_analysis():
 
 
 @app.route("/api/v1/admin/master_symbols/refresh", methods=["POST"])
-@login_required
+@admin_required
 def api_admin_refresh_master_symbols():
     """Allows Admin to manually refresh and update the master list of all NSE/BSE stocks anytime."""
     try:

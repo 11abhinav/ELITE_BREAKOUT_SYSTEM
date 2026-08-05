@@ -281,6 +281,7 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_grouping ON system_logs(is_acknowledged, level, module, message)")
 
                 # 2. master_symbols
                 cur.execute("""
