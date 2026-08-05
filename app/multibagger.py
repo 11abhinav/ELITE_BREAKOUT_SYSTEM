@@ -725,29 +725,28 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     return completed_bar_volume_ok and bullish_close and near_ema
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
-    if symbol not in cache:
-        return None
-    try:
-        data = cache[symbol]
-        # 1. Check validity and freshness
-        fetched_at_str = data.get("fetched_at", datetime.now(IST).isoformat())
-        fetched_at = datetime.fromisoformat(fetched_at_str)
-        now_dt = datetime.now(IST)
-        # Ensure it has timezone info
-        if fetched_at.tzinfo is None:
-            logger.warning(f"[TIMEZONE] Upgrading legacy naive cache timestamp for {symbol} to IST.")
-            # [VERSION: MB_CACHE_TZ_FIX] Upgrade naive timestamp instead of discarding cache to preserve rate limits
-            fetched_at = fetched_at.replace(tzinfo=IST)
-            
-        age_days = (now_dt - fetched_at).days
-        # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
-        is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
-        max_age_days = 7 if is_saturday_window else 15
+    if symbol in cache:
+        try:
+            data = cache[symbol]
+            # 1. Check validity and freshness
+            fetched_at_str = data.get("fetched_at", datetime.now(IST).isoformat())
+            fetched_at = datetime.fromisoformat(fetched_at_str)
+            now_dt = datetime.now(IST)
+            # Ensure it has timezone info
+            if fetched_at.tzinfo is None:
+                logger.warning(f"[TIMEZONE] Upgrading legacy naive cache timestamp for {symbol} to IST.")
+                # [VERSION: MB_CACHE_TZ_FIX] Upgrade naive timestamp instead of discarding cache to preserve rate limits
+                fetched_at = fetched_at.replace(tzinfo=IST)
+                
+            age_days = (now_dt - fetched_at).days
+            # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
+            is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
+            max_age_days = 7 if is_saturday_window else 15
 
-        if age_days < max_age_days:
-            return {k: v for k, v in data.items() if k != "fetched_at"}
-    except Exception as e:
-        logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
+            if age_days < max_age_days:
+                return {k: v for k, v in data.items() if k != "fetched_at"}
+        except Exception as e:
+            logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
         
     # Fallback to shared global fundamentals_cache (from Postgres DB)
     try:
