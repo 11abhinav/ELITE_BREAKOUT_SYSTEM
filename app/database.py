@@ -3908,6 +3908,7 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
 
         name = f"history_bundle_{interval}"
 
+        import psycopg2
         with _DB_WRITE_LOCK:
             with get_connection() as conn:
                 with conn.cursor() as cur:
