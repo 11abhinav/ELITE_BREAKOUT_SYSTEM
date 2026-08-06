@@ -383,10 +383,10 @@ class PriceProvider:
         else:
             # Batch missing symbols and download
             batches = [missing[i:i + self.batch_size] for i in range(0, len(missing), self.batch_size)]
-            # Run batches sequentially to prevent Yahoo rate limiting (max_workers=1)
+            # Run batches concurrently but staggered to prevent Yahoo rate limiting
             if batches:
                 try:
-                    with ThreadPoolExecutor(max_workers=1) as ex:
+                    with ThreadPoolExecutor(max_workers=3) as ex:
                         futures = {}
                         for idx, batch in enumerate(batches):
                             if idx > 0:
