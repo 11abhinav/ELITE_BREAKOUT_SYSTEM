@@ -201,7 +201,8 @@ def fetch_single_piotroski(symbol: str) -> dict:
     
     for attempt in range(max_retries):
         try:
-            time.sleep(random.uniform(0.5, 2.0))
+            # Increase base sleep from 0.5-2.0s to 1.5-3.5s to stay well below Yahoo Finance 2000 req/hr limits
+            time.sleep(random.uniform(1.5, 3.5))
             t, info, fin, bs = try_fetch(yf_sym)
             if fin.empty and bs.empty:
                 if yf_sym.endswith(".NS"):
