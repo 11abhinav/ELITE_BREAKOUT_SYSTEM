@@ -182,6 +182,10 @@ class MarketDataSession:
         if ist_date is None:
             ist_date = datetime.now(IST).date()
 
+        build_start = time.monotonic()
+        session_id = uuid.uuid4().hex
+        stage_timings = {}
+
         import pandas as pd
         if isinstance(symbols, pd.DataFrame):
             if "Stock" in symbols.columns:

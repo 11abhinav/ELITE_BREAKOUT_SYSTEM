@@ -2192,7 +2192,7 @@ def _trigger_eod():
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to build session for manual EOD: {e}")
-    eod_scanner.start(force=True, manual=True, session=session)
+    eod_scanner.start(force=True, trigger_type="MANUAL", scheduler_name="MANUAL", session=session)
 
 def _trigger_reversal():
     import reversal_scanner
@@ -2211,7 +2211,7 @@ def _trigger_reversal():
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to build session for manual Reversal: {e}")
-    reversal_scanner.start(force=True, manual=True, session=session)
+    reversal_scanner.start(force=True, session=session)
 
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan

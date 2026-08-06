@@ -1414,7 +1414,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
     _scan_start = print_scanner_start_banner("multi_tf_scanner", queued_at=queued_at)
     try:
-        stats = _start_wrapper(run_once, is_test_mode=is_test_mode, session=session)
+        stats = _start_wrapper(run_once, is_test_mode=is_test_mode, session=session, run_ctx=run_ctx)
         if own_ctx and isinstance(stats, dict) and "today_alerts" in stats:
             run_ctx.add_alert(stats.get("today_alerts", 0))
         if own_ctx:
@@ -1429,7 +1429,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         _scan_lock.release()
         _global_lock.release()
 
-def _start_wrapper(run_once=False, is_test_mode=False, session=None):
+def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=None):
     from datetime import time as dt_time
     from perf_utils import ScannerStageTracker
     stage_tracker = ScannerStageTracker("MULTI_TF_SCANNER")
